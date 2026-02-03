@@ -1,0 +1,95 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Model checkpoints (large files)
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+
+# Exception: Keep small config/metadata files in checkpoints
+!checkpoints/**/config.json
+!checkpoints/**/history.json
+
+# Training logs
+logs/*.log
+
+# Output images
+output/
+test_output/
+*.avif
+*.heic
+*.tiff
+*.tif
+*.png
+*.jpg
+*.jpeg
+
+# Exception: Keep test RAFs
+!test_rafs/
+
+# Data
+data/fuji_jpgs/**/*.JPG
+data/fuji_jpgs/**/*.RAF
+data/jpeg_patches/
+
+# External datasets (on external drive)
+# /Volumes/External/xtrans_v4_dataset/
+# /Volumes/External/torture_dataset/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+tmp/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Thumbnails
+Thumbs.db
+
+# Backup files
+*.bak
+*.backup
+*~
