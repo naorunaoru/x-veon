@@ -128,7 +128,9 @@ def save_hdr_avif(rgb: np.ndarray, output_path: str, quality: int = 90):
     temp_png = output_path + ".tmp.png"
     cv2.imwrite(temp_png, bgr_u16)
     
-    cmd = ["avifenc", "--min", "0", "--max", "63", "-q", str(quality),
+    # Use full path for homebrew avifenc (needed when running without shell PATH)
+    avifenc = "/opt/homebrew/bin/avifenc"
+    cmd = [avifenc, "--min", "0", "--max", "63", "-q", str(quality),
            "--cicp", "9/18/9", "-d", "10", temp_png, output_path]
     subprocess.run(cmd, check=True, capture_output=True)
     os.remove(temp_png)

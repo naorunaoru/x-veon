@@ -202,8 +202,8 @@ class TortureDataset(Dataset):
     """
 
     def __init__(self, patch_size: int = 96, num_patterns: int = 1000):
-        from torture_v2 import TortureTestDatasetV2
-        self._inner = TortureTestDatasetV2(size=patch_size, num_patterns=num_patterns)
+        from torture_v2 import TortureDatasetV2
+        self._inner = TortureDatasetV2(size=patch_size, num_patterns=num_patterns)
 
     def __len__(self):
         return len(self._inner)

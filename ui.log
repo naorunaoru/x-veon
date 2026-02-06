@@ -1,0 +1,11 @@
+Traceback (most recent call last):
+  File "/Users/naoru/projects/xtrans-demosaic/ui.py", line 175, in <module>
+    demo = create_ui()
+           ^^^^^^^^^^^
+  File "/Users/naoru/projects/xtrans-demosaic/ui.py", line 148, in create_ui
+    output_image = gr.Image(
+                   ^^^^^^^^^
+  File "/Users/naoru/ml/lib/python3.11/site-packages/gradio/component_meta.py", line 194, in wrapper
+    return fn(self, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+TypeError: Image.__init__() got an unexpected keyword argument 'show_fullscreen_button'
