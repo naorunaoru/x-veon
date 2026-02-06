@@ -1,4 +1,23 @@
-# X-Trans Demosaicing with Neural Networks
+# X-Trans Demosaicing
+
+## Training Versions
+
+### v4 (baseline)
+- Linear sensor space, L1 + gradient + chroma loss
+- Best: 48.2 dB PSNR
+- Issue: some color non-uniformity (red cast near edges)
+
+### v4.1 (in progress)
+- Added MS-SSIM to loss (L1 0.65 + MS-SSIM 0.2 + gradient 0.15)
+- 5% torture pattern mixing
+- 400 images, 100 epochs
+
+### v4.2 (planned)
+- Add luminance reference channel to training data
+- Weighted monochrome from CFA (0.299R + 0.587G + 0.114B weights per pixel)
+- 4x downscaled alongside RGB targets
+- Try luminance matching loss (full and/or high-freq only)
+- Goal: improve color uniformity without sacrificing detail with Neural Networks
 
 Neural network-based demosaicing for Fujifilm X-Trans sensors using a U-Net architecture. Operates in linear sensor space with HDR output capability.
 
