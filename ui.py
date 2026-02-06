@@ -7,6 +7,7 @@ Usage:
 """
 
 import argparse
+import base64
 import tempfile
 from glob import glob
 from pathlib import Path
@@ -23,8 +24,6 @@ from infer_hdr import process_raf, save_hdr_avif
 _model = None
 _model_path = None
 _device = None
-_last_rgb_linear = None  # Cache for HDR export
-_last_raf_name = None
 
 
 def get_device():
@@ -39,7 +38,7 @@ def find_checkpoints():
     """Find all available checkpoints."""
     patterns = [
         "checkpoints*/best.pt",
-        "checkpoints*/latest.pt",
+        "checkpoints*/latest.pt", 
         "checkpoints_archive/*.pt",
     ]
     checkpoints = []
@@ -74,9 +73,8 @@ def run_inference(
     raf_file,
     checkpoint: str,
     progress=gr.Progress(track_tqdm=True),
-) -> tuple[str, str]:
-    """Process RAF file and return HDR AVIF path."""
-    global _last_rgb_linear, _last_raf_name
+) -> tuple[str, str, str]:
+    """Process RAF file and return HDR AVIF."""
     
     if raf_file is None:
         raise gr.Error("Please upload a RAF file")
@@ -89,19 +87,18 @@ def run_inference(
     
     progress(0.2, desc="Processing RAF (this takes 30-60s)...")
     raf_path = raf_file.name if hasattr(raf_file, 'name') else raf_file
+    raf_name = Path(raf_path).stem
     
-    # Use the battle-tested process_raf from infer_hdr
     rgb_linear, meta = process_raf(raf_path, model, str(device), patch_size=288, overlap=48)
-    
-    # Cache for later
-    _last_rgb_linear = rgb_linear
-    _last_raf_name = Path(raf_path).stem
     
     progress(0.9, desc="Encoding HDR AVIF...")
     
-    # Save as HDR AVIF directly
-    output_path = tempfile.mktemp(suffix=".avif", prefix=f"{_last_raf_name}_hdr_")
+    output_path = tempfile.mktemp(suffix=".avif", prefix=f"{raf_name}_hdr_")
     save_hdr_avif(rgb_linear, output_path, quality=90)
+    
+    # Read and base64 encode for HTML display
+    with open(output_path, "rb") as f:
+        avif_b64 = base64.b64encode(f.read()).decode()
     
     progress(1.0, desc="Done!")
     
@@ -109,9 +106,42 @@ def run_inference(
     h, w = rgb_linear.shape[:2]
     ckpt_name = Path(checkpoint).parent.name + "/" + Path(checkpoint).name
     hdr_pixels = np.sum(rgb_linear > 1.0)
-    status = f"{w}×{h} | {ckpt_name} | {hdr_pixels:,} HDR pixels (preserved)"
+    status = f"{w}×{h} | {ckpt_name} | {hdr_pixels:,} HDR pixels"
     
-    return output_path, status
+    # HTML with fullscreen support
+    html = f'''
+    <style>
+        .hdr-container {{ position: relative; width: 100%; }}
+        .hdr-container img {{ 
+            width: 100%; 
+            cursor: pointer;
+            border-radius: 8px;
+        }}
+        .hdr-container img:fullscreen {{ 
+            object-fit: contain;
+            background: black;
+        }}
+        .fullscreen-hint {{
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            pointer-events: none;
+        }}
+    </style>
+    <div class="hdr-container">
+        <img src="data:image/avif;base64,{avif_b64}" 
+             onclick="this.requestFullscreen()" 
+             title="Click for fullscreen"/>
+        <span class="fullscreen-hint">Click for fullscreen</span>
+    </div>
+    '''
+    
+    return html, status, output_path
 
 
 def create_ui():
@@ -122,7 +152,7 @@ def create_ui():
     
     with gr.Blocks(title="X-Trans Demosaic") as demo:
         gr.Markdown("# X-Trans Demosaicing")
-        gr.Markdown("Upload a Fujifilm RAF file. Output is HDR AVIF (HLG) — best viewed on HDR display.")
+        gr.Markdown("Upload a Fujifilm RAF file. Output is HDR AVIF (HLG).")
         
         with gr.Row():
             with gr.Column(scale=1):
@@ -143,14 +173,10 @@ def create_ui():
                 process_btn = gr.Button("Process", variant="primary")
                 
                 status_text = gr.Textbox(label="Status", interactive=False)
+                output_file = gr.File(label="Download AVIF")
             
             with gr.Column(scale=2):
-                output_image = gr.Image(
-                    label="HDR Output",
-                    type="filepath",
-                    show_fullscreen_button=False,
-                    show_download_button=True,
-                )
+                output_html = gr.HTML(label="HDR Output")
         
         def refresh_checkpoints():
             return gr.Dropdown(choices=find_checkpoints())
@@ -160,7 +186,7 @@ def create_ui():
         process_btn.click(
             run_inference,
             inputs=[raf_input, checkpoint_dropdown],
-            outputs=[output_image, status_text],
+            outputs=[output_html, status_text, output_file],
         )
     
     return demo
