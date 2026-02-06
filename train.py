@@ -48,20 +48,27 @@ def get_device():
     return torch.device("cpu")
 
 
-def train_epoch(model, loader, optimizer, criterion, device):
+def train_epoch(model, loader, optimizer, criterion, device, use_luminance=False):
     model.train()
     total_loss = 0.0
     total_psnr = 0.0
     component_sums = {}
     n_batches = 0
 
-    for inputs, targets in loader:
+    for batch in loader:
+        if use_luminance:
+            inputs, targets, lum_targets = batch
+            lum_targets = lum_targets.to(device) if lum_targets is not None else None
+        else:
+            inputs, targets = batch
+            lum_targets = None
+        
         inputs = inputs.to(device)
         targets = targets.to(device)
 
         optimizer.zero_grad()
         outputs = model(inputs)
-        loss, components = criterion(outputs, targets)
+        loss, components = criterion(outputs, targets, lum_targets)
         loss.backward()
         optimizer.step()
 
@@ -77,19 +84,26 @@ def train_epoch(model, loader, optimizer, criterion, device):
 
 
 @torch.no_grad()
-def evaluate(model, loader, criterion, device):
+def evaluate(model, loader, criterion, device, use_luminance=False):
     model.eval()
     total_loss = 0.0
     total_psnr = 0.0
     component_sums = {}
     n_batches = 0
 
-    for inputs, targets in loader:
+    for batch in loader:
+        if use_luminance:
+            inputs, targets, lum_targets = batch
+            lum_targets = lum_targets.to(device) if lum_targets is not None else None
+        else:
+            inputs, targets = batch
+            lum_targets = None
+            
         inputs = inputs.to(device)
         targets = targets.to(device)
 
         outputs = model(inputs)
-        loss, components = criterion(outputs, targets)
+        loss, components = criterion(outputs, targets, lum_targets)
 
         total_loss += loss.item()
         for k, v in components.items():
@@ -128,6 +142,10 @@ def main():
     parser.add_argument("--msssim-weight", type=float, default=None)
     parser.add_argument("--gradient-weight", type=float, default=None)
     parser.add_argument("--chroma-weight", type=float, default=None)
+    parser.add_argument("--luminance-weight", type=float, default=None,
+                        help="Weight for luminance reference loss (requires _lum.npy files)")
+    parser.add_argument("--per-channel-norm", action="store_true",
+                        help="Normalize L1 loss per channel (addresses G >> R,B sample imbalance)")
     
     # Augmentation
     parser.add_argument("--noise-min", type=float, default=0.0)
@@ -179,6 +197,7 @@ def main():
                 max_images=args.max_images,
             )
         else:
+            use_luminance = args.luminance_weight is not None and args.luminance_weight > 0
             full_dataset = LinearDataset(
                 args.data_dir,
                 patch_size=args.patch_size,
@@ -187,6 +206,7 @@ def main():
                 patches_per_image=args.patches_per_image,
                 max_images=args.max_images,
                 filter_file=args.filter_file,
+                load_luminance=use_luminance,
             )
 
     # Train/val split
@@ -227,11 +247,28 @@ def main():
         criterion.gradient_weight = args.gradient_weight
     if args.chroma_weight is not None:
         criterion.chroma_weight = args.chroma_weight
+    if args.luminance_weight is not None:
+        criterion.luminance_weight = args.luminance_weight
+    if args.per_channel_norm:
+        criterion.per_channel_norm = True
 
     criterion = criterion.to(device)
     
-    print(f"Loss weights: L1={criterion.l1_weight}, MS-SSIM={criterion.msssim_weight}, "
-          f"grad={criterion.gradient_weight}, chroma={criterion.chroma_weight}")
+    # Determine if we're using luminance
+    use_luminance = args.luminance_weight is not None and args.luminance_weight > 0
+    
+    loss_info = f"Loss: L1={criterion.l1_weight}"
+    if criterion.msssim_weight > 0:
+        loss_info += f", MS-SSIM={criterion.msssim_weight}"
+    if criterion.gradient_weight > 0:
+        loss_info += f", grad={criterion.gradient_weight}"
+    if criterion.chroma_weight > 0:
+        loss_info += f", chroma={criterion.chroma_weight}"
+    if criterion.luminance_weight > 0:
+        loss_info += f", lum={criterion.luminance_weight}"
+    if criterion.per_channel_norm:
+        loss_info += " [per-channel norm]"
+    print(loss_info)
 
     # Optimizer
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
@@ -277,10 +314,10 @@ def main():
         t0 = time.time()
 
         train_loss, train_psnr, train_comp = train_epoch(
-            model, train_loader, optimizer, criterion, device
+            model, train_loader, optimizer, criterion, device, use_luminance
         )
         val_loss, val_psnr, val_comp = evaluate(
-            model, val_loader, criterion, device
+            model, val_loader, criterion, device, use_luminance
         )
         scheduler.step()
 

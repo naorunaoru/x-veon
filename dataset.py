@@ -38,6 +38,7 @@ class LinearDataset(Dataset):
     """
     Load pre-computed linear .npy files.
     Fast loading, used for main training.
+    Optionally loads luminance reference channel (*_lum.npy).
     """
 
     def __init__(
@@ -49,19 +50,22 @@ class LinearDataset(Dataset):
         patches_per_image: int = 16,
         max_images: int | None = None,
         filter_file: str | None = None,
+        load_luminance: bool = False,
     ):
         self.patch_size = patch_size
         self.augment = augment
         self.noise_sigma = noise_sigma
         self.patches_per_image = patches_per_image
+        self.load_luminance = load_luminance
+        self.data_dir = data_dir
 
         assert patch_size % 6 == 0, "patch_size must be divisible by 6 (CFA)"
         assert patch_size % 16 == 0, "patch_size must be divisible by 16 (UNet)"
 
-        # Find .npy files
+        # Find .npy files (exclude _lum.npy and _meta.npy)
         self.data_files = sorted([
             os.path.join(data_dir, f) for f in os.listdir(data_dir)
-            if f.endswith('.npy') and not f.endswith('_meta.npy')
+            if f.endswith('.npy') and not f.endswith('_meta.npy') and not f.endswith('_lum.npy')
         ])
 
         # Optional filtering
@@ -93,6 +97,13 @@ class LinearDataset(Dataset):
         img = np.load(self.data_files[img_idx])
         h, w, _ = img.shape
 
+        # Load luminance reference if enabled
+        lum = None
+        if self.load_luminance:
+            lum_path = self.data_files[img_idx].replace('.npy', '_lum.npy')
+            if os.path.exists(lum_path):
+                lum = np.load(lum_path)
+
         # Random crop aligned to 6px grid
         max_y, max_x = h - self.patch_size, w - self.patch_size
         top = (rng.randint(0, max(0, max_y)) // 6) * 6
@@ -101,12 +112,24 @@ class LinearDataset(Dataset):
 
         rgb = torch.from_numpy(patch.transpose(2, 0, 1).copy()).float()
 
+        # Crop luminance to match
+        lum_patch = None
+        if lum is not None:
+            lum_patch = lum[top:top+self.patch_size, left:left+self.patch_size]
+            lum_patch = torch.from_numpy(lum_patch.copy()).float().unsqueeze(0)
+
         # Augmentation (only flips - rotations break CFA)
         if self.augment:
-            if rng.random() > 0.5:
+            flip_h = rng.random() > 0.5
+            flip_v = rng.random() > 0.5
+            if flip_h:
                 rgb = rgb.flip(2)
-            if rng.random() > 0.5:
+                if lum_patch is not None:
+                    lum_patch = lum_patch.flip(2)
+            if flip_v:
                 rgb = rgb.flip(1)
+                if lum_patch is not None:
+                    lum_patch = lum_patch.flip(1)
 
         cfa_img = mosaic(rgb, self.cfa)
 
@@ -117,6 +140,9 @@ class LinearDataset(Dataset):
                 cfa_img = cfa_img + torch.randn_like(cfa_img) * sigma
 
         input_tensor = torch.cat([cfa_img, self.masks], dim=0)
+        
+        if self.load_luminance:
+            return input_tensor, rgb, lum_patch
         return input_tensor, rgb
 
 

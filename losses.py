@@ -212,10 +212,14 @@ class DemosaicLoss(nn.Module):
     - MS-SSIM: multi-scale structure (texture/detail)
     - Gradient: edge preservation  
     - Chroma: false color penalty
+    - Luminance: match luminance reference (optional)
     
     Presets:
     - "base": L1-heavy for initial training (high PSNR)
     - "finetune": MS-SSIM + gradient for texture recovery
+    
+    Options:
+    - per_channel_norm: normalize loss per channel before combining (addresses G >> R,B)
     """
 
     def __init__(
@@ -224,12 +228,16 @@ class DemosaicLoss(nn.Module):
         msssim_weight: float = 0.0,
         gradient_weight: float = 0.1,
         chroma_weight: float = 0.05,
+        luminance_weight: float = 0.0,
+        per_channel_norm: bool = False,
     ):
         super().__init__()
         self.l1_weight = l1_weight
         self.msssim_weight = msssim_weight
         self.gradient_weight = gradient_weight
         self.chroma_weight = chroma_weight
+        self.luminance_weight = luminance_weight
+        self.per_channel_norm = per_channel_norm
 
         self.msssim = MSSSIM() if msssim_weight > 0 else None
         self.gradient = SobelGradientLoss() if gradient_weight > 0 else None
@@ -251,14 +259,24 @@ class DemosaicLoss(nn.Module):
         )
 
     def forward(
-        self, pred: torch.Tensor, target: torch.Tensor
+        self, pred: torch.Tensor, target: torch.Tensor, lum_target: torch.Tensor = None
     ) -> tuple[torch.Tensor, dict[str, float]]:
         components = {}
         total = torch.tensor(0.0, device=pred.device, dtype=pred.dtype)
 
-        # L1
+        # L1 (optionally per-channel normalized)
         if self.l1_weight > 0:
-            l1 = F.l1_loss(pred, target)
+            if self.per_channel_norm:
+                # Compute L1 per channel, average (equal weight regardless of sample count)
+                l1_r = F.l1_loss(pred[:, 0], target[:, 0])
+                l1_g = F.l1_loss(pred[:, 1], target[:, 1])
+                l1_b = F.l1_loss(pred[:, 2], target[:, 2])
+                l1 = (l1_r + l1_g + l1_b) / 3
+                components['l1_r'] = l1_r.item()
+                components['l1_g'] = l1_g.item()
+                components['l1_b'] = l1_b.item()
+            else:
+                l1 = F.l1_loss(pred, target)
             components['l1'] = l1.item()
             total = total + self.l1_weight * l1
 
@@ -280,6 +298,14 @@ class DemosaicLoss(nn.Module):
             chroma = self.chroma(pred, target)
             components['chroma'] = chroma.item()
             total = total + self.chroma_weight * chroma
+
+        # Luminance reference matching
+        if lum_target is not None and self.luminance_weight > 0:
+            # Compute predicted luminance
+            pred_lum = 0.2126 * pred[:, 0] + 0.7152 * pred[:, 1] + 0.0722 * pred[:, 2]
+            lum_loss = F.l1_loss(pred_lum, lum_target.squeeze(1))
+            components['luminance'] = lum_loss.item()
+            total = total + self.luminance_weight * lum_loss
 
         components['total'] = total.item()
         return total, components
