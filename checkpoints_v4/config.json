@@ -1,7 +1,7 @@
 {
-  "data_dir": "/Volumes/External/xtrans_v4_dataset",
-  "output_dir": "checkpoints_v4",
-  "epochs": 200,
+  "data_dir": "./data/xtrans_v4_dataset",
+  "output_dir": "./checkpoints_v4",
+  "epochs": 1,
   "batch_size": 32,
   "patch_size": 96,
   "lr": 0.001,
@@ -14,7 +14,7 @@
   "patches_per_image": 16,
   "gradient_weight": 0.1,
   "chroma_weight": 0.05,
-  "filter_file": "data/top2000_sharp.json",
+  "filter_file": null,
   "version": "v4-linear",
   "device": "mps"
 }

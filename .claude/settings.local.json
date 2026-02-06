@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree:*)",
+      "Bash(ls:*)",
+      "Bash(du:*)",
+      "Bash(rsync:*)",
+      "Bash(ln:*)"
+    ]
+  }
+}
