@@ -7,6 +7,7 @@ Usage:
 """
 
 import argparse
+import tempfile
 from glob import glob
 from pathlib import Path
 
@@ -15,13 +16,15 @@ import numpy as np
 import torch
 
 from model import XTransUNet
-from infer_hdr import process_raf
+from infer_hdr import process_raf, save_hdr_avif
 
 
-# Global model cache
+# Global state
 _model = None
 _model_path = None
 _device = None
+_last_rgb_linear = None  # Cache for HDR export
+_last_raf_name = None
 
 
 def get_device():
@@ -71,8 +74,9 @@ def run_inference(
     raf_file,
     checkpoint: str,
     progress=gr.Progress(track_tqdm=True),
-) -> tuple[np.ndarray, str]:
+) -> tuple[np.ndarray, str, gr.update]:
     """Process RAF file and return demosaiced image."""
+    global _last_rgb_linear, _last_raf_name
     
     if raf_file is None:
         raise gr.Error("Please upload a RAF file")
@@ -89,6 +93,10 @@ def run_inference(
     # Use the battle-tested process_raf from infer_hdr
     rgb_linear, meta = process_raf(raf_path, model, str(device), patch_size=288, overlap=48)
     
+    # Cache for HDR export
+    _last_rgb_linear = rgb_linear
+    _last_raf_name = Path(raf_path).stem
+    
     progress(0.9, desc="Applying gamma...")
     
     # Clip and apply sRGB gamma for display
@@ -104,9 +112,25 @@ def run_inference(
     h, w = rgb_linear.shape[:2]
     ckpt_name = Path(checkpoint).parent.name + "/" + Path(checkpoint).name
     hdr_pixels = np.sum(rgb_linear > 1.0)
-    status = f"{w}×{h} | {ckpt_name} | {hdr_pixels:,} HDR pixels clipped"
+    status = f"{w}×{h} | {ckpt_name} | {hdr_pixels:,} HDR pixels clipped in preview"
     
-    return out_u8, status
+    # Enable the download button
+    return out_u8, status, gr.update(interactive=True)
+
+
+def export_hdr_avif() -> str | None:
+    """Export the last processed image as HDR AVIF."""
+    global _last_rgb_linear, _last_raf_name
+    
+    if _last_rgb_linear is None:
+        raise gr.Error("No image processed yet. Run inference first.")
+    
+    # Create temp file with proper name
+    output_path = tempfile.mktemp(suffix=".avif", prefix=f"{_last_raf_name}_hdr_")
+    
+    save_hdr_avif(_last_rgb_linear, output_path, quality=90)
+    
+    return output_path
 
 
 def create_ui():
@@ -117,7 +141,7 @@ def create_ui():
     
     with gr.Blocks(title="X-Trans Demosaic") as demo:
         gr.Markdown("# X-Trans Demosaicing")
-        gr.Markdown("Upload a Fujifilm RAF file to demosaic with the neural network model.")
+        gr.Markdown("Upload a Fujifilm RAF file. Preview is tonemapped; use **Download HDR** for full dynamic range.")
         
         with gr.Row():
             with gr.Column(scale=1):
@@ -138,9 +162,12 @@ def create_ui():
                 process_btn = gr.Button("Process", variant="primary")
                 
                 status_text = gr.Textbox(label="Status", interactive=False)
+                
+                hdr_btn = gr.Button("📥 Download HDR AVIF", interactive=False)
+                hdr_file = gr.File(label="HDR Output", visible=True)
             
             with gr.Column(scale=2):
-                output_image = gr.Image(label="Output", type="numpy")
+                output_image = gr.Image(label="Preview (tonemapped)", type="numpy")
         
         def refresh_checkpoints():
             return gr.Dropdown(choices=find_checkpoints())
@@ -150,7 +177,12 @@ def create_ui():
         process_btn.click(
             run_inference,
             inputs=[raf_input, checkpoint_dropdown],
-            outputs=[output_image, status_text],
+            outputs=[output_image, status_text, hdr_btn],
+        )
+        
+        hdr_btn.click(
+            export_hdr_avif,
+            outputs=hdr_file,
         )
     
     return demo
