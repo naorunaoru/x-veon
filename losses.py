@@ -301,11 +301,18 @@ class DemosaicLoss(nn.Module):
 
         # Luminance reference matching
         if lum_target is not None and self.luminance_weight > 0:
-            # Compute predicted luminance
-            pred_lum = 0.2126 * pred[:, 0] + 0.7152 * pred[:, 1] + 0.0722 * pred[:, 2]
-            lum_loss = F.l1_loss(pred_lum, lum_target.squeeze(1))
-            components['luminance'] = lum_loss.item()
-            total = total + self.luminance_weight * lum_loss
+            # Skip samples with zero luminance (torture patterns)
+            lum_squeezed = lum_target.squeeze(1)
+            valid_mask = lum_squeezed.abs().sum(dim=(1, 2)) > 0  # (B,) bool
+            if valid_mask.any():
+                # Compute predicted luminance
+                pred_lum = 0.2126 * pred[:, 0] + 0.7152 * pred[:, 1] + 0.0722 * pred[:, 2]
+                # Only compute loss on valid samples
+                lum_loss = F.l1_loss(pred_lum[valid_mask], lum_squeezed[valid_mask])
+                components['luminance'] = lum_loss.item()
+                total = total + self.luminance_weight * lum_loss
+            else:
+                components['luminance'] = 0.0
 
         components['total'] = total.item()
         return total, components

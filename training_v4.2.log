@@ -1,0 +1,242 @@
+Device: mps
+Mode: train
+
+Loading dataset from /Volumes/External/xtrans-demosaic/datasets/xtrans_v4_dataset...
+  Train: 5242, Val: 582
+
+Model parameters: 31,038,339
+Loss: L1=1.0, grad=0.1, chroma=0.05, lum=0.1 [per-channel norm]
+
+Training for 200 epochs...
+  Batch: 32, Patch: 96px
+  Noise: [0.0, 0.005]
+
+Ep   1/200 | Train: 29.0dB | Val: 31.3dB | l1_r:0.0283 l1_g:0.0393 l1_b:0.0341 l1:0.0339 gradient:0.1138 chroma:0.0145 luminance:0.0337 | LR:1.0e-03 | 59s
+  -> New best (31.26 dB)
+Ep   2/200 | Train: 32.7dB | Val: 32.8dB | l1_r:0.0147 l1_g:0.0203 l1_b:0.0180 l1:0.0176 gradient:0.0434 chroma:0.0062 luminance:0.0180 | LR:1.0e-03 | 59s
+  -> New best (32.83 dB)
+Ep   3/200 | Train: 33.1dB | Val: 34.8dB | l1_r:0.0143 l1_g:0.0187 l1_b:0.0150 l1:0.0160 gradient:0.0366 chroma:0.0056 luminance:0.0168 | LR:1.0e-03 | 65s
+  -> New best (34.85 dB)
+Ep   4/200 | Train: 34.7dB | Val: 36.3dB | l1_r:0.0115 l1_g:0.0147 l1_b:0.0129 l1:0.0130 gradient:0.0311 chroma:0.0043 luminance:0.0134 | LR:1.0e-03 | 58s
+  -> New best (36.34 dB)
+Ep   5/200 | Train: 35.0dB | Val: 37.3dB | l1_r:0.0111 l1_g:0.0135 l1_b:0.0125 l1:0.0124 gradient:0.0309 chroma:0.0040 luminance:0.0125 | LR:1.0e-03 | 58s
+  -> New best (37.26 dB)
+Ep   6/200 | Train: 35.8dB | Val: 35.8dB | l1_r:0.0099 l1_g:0.0130 l1_b:0.0117 l1:0.0115 gradient:0.0283 chroma:0.0038 luminance:0.0120 | LR:1.0e-03 | 58s
+Ep   7/200 | Train: 36.8dB | Val: 38.7dB | l1_r:0.0087 l1_g:0.0117 l1_b:0.0108 l1:0.0104 gradient:0.0253 chroma:0.0033 luminance:0.0109 | LR:1.0e-03 | 58s
+  -> New best (38.68 dB)
+Ep   8/200 | Train: 36.9dB | Val: 37.9dB | l1_r:0.0083 l1_g:0.0110 l1_b:0.0100 l1:0.0098 gradient:0.0256 chroma:0.0033 luminance:0.0104 | LR:1.0e-03 | 58s
+Ep   9/200 | Train: 37.7dB | Val: 37.5dB | l1_r:0.0078 l1_g:0.0103 l1_b:0.0090 l1:0.0090 gradient:0.0227 chroma:0.0028 luminance:0.0100 | LR:1.0e-03 | 64s
+Ep  10/200 | Train: 37.7dB | Val: 36.8dB | l1_r:0.0078 l1_g:0.0102 l1_b:0.0091 l1:0.0091 gradient:0.0247 chroma:0.0030 luminance:0.0098 | LR:9.9e-04 | 58s
+Ep  11/200 | Train: 38.2dB | Val: 38.7dB | l1_r:0.0071 l1_g:0.0101 l1_b:0.0089 l1:0.0087 gradient:0.0226 chroma:0.0029 luminance:0.0097 | LR:9.9e-04 | 58s
+  -> New best (38.68 dB)
+Ep  12/200 | Train: 38.5dB | Val: 37.2dB | l1_r:0.0073 l1_g:0.0095 l1_b:0.0083 l1:0.0084 gradient:0.0211 chroma:0.0027 luminance:0.0093 | LR:9.9e-04 | 58s
+Ep  13/200 | Train: 39.2dB | Val: 35.8dB | l1_r:0.0067 l1_g:0.0090 l1_b:0.0074 l1:0.0077 gradient:0.0207 chroma:0.0025 luminance:0.0088 | LR:9.9e-04 | 64s
+Ep  14/200 | Train: 39.1dB | Val: 40.0dB | l1_r:0.0071 l1_g:0.0092 l1_b:0.0077 l1:0.0080 gradient:0.0215 chroma:0.0025 luminance:0.0091 | LR:9.9e-04 | 58s
+  -> New best (40.04 dB)
+Ep  15/200 | Train: 39.6dB | Val: 40.6dB | l1_r:0.0067 l1_g:0.0083 l1_b:0.0071 l1:0.0074 gradient:0.0200 chroma:0.0024 luminance:0.0084 | LR:9.9e-04 | 58s
+  -> New best (40.65 dB)
+Ep  16/200 | Train: 40.3dB | Val: 41.3dB | l1_r:0.0062 l1_g:0.0077 l1_b:0.0066 l1:0.0068 gradient:0.0178 chroma:0.0022 luminance:0.0079 | LR:9.8e-04 | 58s
+  -> New best (41.29 dB)
+Ep  17/200 | Train: 39.4dB | Val: 39.0dB | l1_r:0.0066 l1_g:0.0086 l1_b:0.0071 l1:0.0074 gradient:0.0183 chroma:0.0022 luminance:0.0087 | LR:9.8e-04 | 58s
+Ep  18/200 | Train: 39.1dB | Val: 39.1dB | l1_r:0.0070 l1_g:0.0095 l1_b:0.0076 l1:0.0080 gradient:0.0192 chroma:0.0023 luminance:0.0094 | LR:9.8e-04 | 58s
+Ep  19/200 | Train: 39.7dB | Val: 39.2dB | l1_r:0.0066 l1_g:0.0088 l1_b:0.0070 l1:0.0075 gradient:0.0190 chroma:0.0023 luminance:0.0088 | LR:9.8e-04 | 58s
+Ep  20/200 | Train: 39.2dB | Val: 43.1dB | l1_r:0.0069 l1_g:0.0097 l1_b:0.0079 l1:0.0082 gradient:0.0200 chroma:0.0024 luminance:0.0095 | LR:9.8e-04 | 58s
+  -> New best (43.13 dB)
+Ep  21/200 | Train: 39.5dB | Val: 41.8dB | l1_r:0.0069 l1_g:0.0090 l1_b:0.0072 l1:0.0077 gradient:0.0194 chroma:0.0022 luminance:0.0090 | LR:9.7e-04 | 58s
+Ep  22/200 | Train: 40.1dB | Val: 41.6dB | l1_r:0.0063 l1_g:0.0085 l1_b:0.0069 l1:0.0073 gradient:0.0172 chroma:0.0020 luminance:0.0088 | LR:9.7e-04 | 58s
+Ep  23/200 | Train: 40.4dB | Val: 44.6dB | l1_r:0.0058 l1_g:0.0077 l1_b:0.0067 l1:0.0067 gradient:0.0167 chroma:0.0020 luminance:0.0081 | LR:9.7e-04 | 58s
+  -> New best (44.61 dB)
+Ep  24/200 | Train: 40.5dB | Val: 41.4dB | l1_r:0.0059 l1_g:0.0077 l1_b:0.0063 l1:0.0066 gradient:0.0163 chroma:0.0019 luminance:0.0081 | LR:9.6e-04 | 58s
+Ep  25/200 | Train: 39.8dB | Val: 41.9dB | l1_r:0.0066 l1_g:0.0089 l1_b:0.0073 l1:0.0076 gradient:0.0176 chroma:0.0021 luminance:0.0090 | LR:9.6e-04 | 58s
+Ep  26/200 | Train: 41.0dB | Val: 43.3dB | l1_r:0.0058 l1_g:0.0073 l1_b:0.0060 l1:0.0064 gradient:0.0165 chroma:0.0020 luminance:0.0077 | LR:9.6e-04 | 58s
+Ep  27/200 | Train: 39.9dB | Val: 41.1dB | l1_r:0.0065 l1_g:0.0084 l1_b:0.0073 l1:0.0074 gradient:0.0177 chroma:0.0021 luminance:0.0086 | LR:9.6e-04 | 58s
+Ep  28/200 | Train: 41.3dB | Val: 43.3dB | l1_r:0.0052 l1_g:0.0066 l1_b:0.0060 l1:0.0060 gradient:0.0157 chroma:0.0017 luminance:0.0071 | LR:9.5e-04 | 58s
+Ep  29/200 | Train: 41.0dB | Val: 41.7dB | l1_r:0.0057 l1_g:0.0075 l1_b:0.0060 l1:0.0064 gradient:0.0152 chroma:0.0016 luminance:0.0080 | LR:9.5e-04 | 58s
+Ep  30/200 | Train: 41.3dB | Val: 42.7dB | l1_r:0.0053 l1_g:0.0071 l1_b:0.0060 l1:0.0061 gradient:0.0152 chroma:0.0017 luminance:0.0076 | LR:9.5e-04 | 58s
+Ep  31/200 | Train: 42.4dB | Val: 42.4dB | l1_r:0.0047 l1_g:0.0060 l1_b:0.0053 l1:0.0053 gradient:0.0137 chroma:0.0016 luminance:0.0068 | LR:9.4e-04 | 58s
+Ep  32/200 | Train: 41.9dB | Val: 43.9dB | l1_r:0.0053 l1_g:0.0064 l1_b:0.0053 l1:0.0057 gradient:0.0139 chroma:0.0016 luminance:0.0072 | LR:9.4e-04 | 58s
+Ep  33/200 | Train: 41.3dB | Val: 42.1dB | l1_r:0.0054 l1_g:0.0071 l1_b:0.0057 l1:0.0061 gradient:0.0145 chroma:0.0016 luminance:0.0075 | LR:9.3e-04 | 58s
+Ep  34/200 | Train: 41.9dB | Val: 40.7dB | l1_r:0.0052 l1_g:0.0066 l1_b:0.0054 l1:0.0057 gradient:0.0140 chroma:0.0015 luminance:0.0072 | LR:9.3e-04 | 58s
+Ep  35/200 | Train: 42.0dB | Val: 45.2dB | l1_r:0.0047 l1_g:0.0061 l1_b:0.0055 l1:0.0054 gradient:0.0134 chroma:0.0015 luminance:0.0069 | LR:9.3e-04 | 58s
+  -> New best (45.18 dB)
+Ep  36/200 | Train: 41.7dB | Val: 42.3dB | l1_r:0.0052 l1_g:0.0069 l1_b:0.0060 l1:0.0060 gradient:0.0145 chroma:0.0015 luminance:0.0076 | LR:9.2e-04 | 58s
+Ep  37/200 | Train: 41.5dB | Val: 42.8dB | l1_r:0.0055 l1_g:0.0069 l1_b:0.0056 l1:0.0060 gradient:0.0143 chroma:0.0016 luminance:0.0075 | LR:9.2e-04 | 63s
+Ep  38/200 | Train: 41.7dB | Val: 43.3dB | l1_r:0.0052 l1_g:0.0068 l1_b:0.0056 l1:0.0059 gradient:0.0143 chroma:0.0015 luminance:0.0074 | LR:9.1e-04 | 64s
+Ep  39/200 | Train: 42.6dB | Val: 43.5dB | l1_r:0.0045 l1_g:0.0060 l1_b:0.0052 l1:0.0052 gradient:0.0132 chroma:0.0015 luminance:0.0067 | LR:9.1e-04 | 58s
+Ep  40/200 | Train: 41.7dB | Val: 44.1dB | l1_r:0.0054 l1_g:0.0069 l1_b:0.0056 l1:0.0060 gradient:0.0142 chroma:0.0016 luminance:0.0075 | LR:9.0e-04 | 58s
+Ep  41/200 | Train: 41.8dB | Val: 43.8dB | l1_r:0.0050 l1_g:0.0066 l1_b:0.0056 l1:0.0057 gradient:0.0146 chroma:0.0015 luminance:0.0073 | LR:9.0e-04 | 58s
+Ep  42/200 | Train: 42.4dB | Val: 43.6dB | l1_r:0.0048 l1_g:0.0062 l1_b:0.0052 l1:0.0054 gradient:0.0132 chroma:0.0014 luminance:0.0071 | LR:9.0e-04 | 63s
+Ep  43/200 | Train: 42.3dB | Val: 41.5dB | l1_r:0.0050 l1_g:0.0062 l1_b:0.0050 l1:0.0054 gradient:0.0130 chroma:0.0014 luminance:0.0070 | LR:8.9e-04 | 58s
+Ep  44/200 | Train: 42.7dB | Val: 46.0dB | l1_r:0.0045 l1_g:0.0058 l1_b:0.0050 l1:0.0051 gradient:0.0126 chroma:0.0014 luminance:0.0068 | LR:8.9e-04 | 58s
+  -> New best (46.03 dB)
+Ep  45/200 | Train: 42.3dB | Val: 44.0dB | l1_r:0.0047 l1_g:0.0063 l1_b:0.0053 l1:0.0054 gradient:0.0131 chroma:0.0013 luminance:0.0072 | LR:8.8e-04 | 58s
+Ep  46/200 | Train: 41.6dB | Val: 44.5dB | l1_r:0.0053 l1_g:0.0069 l1_b:0.0057 l1:0.0060 gradient:0.0143 chroma:0.0014 luminance:0.0075 | LR:8.8e-04 | 58s
+Ep  47/200 | Train: 42.2dB | Val: 44.7dB | l1_r:0.0049 l1_g:0.0064 l1_b:0.0050 l1:0.0054 gradient:0.0135 chroma:0.0014 luminance:0.0071 | LR:8.7e-04 | 58s
+Ep  48/200 | Train: 43.2dB | Val: 43.0dB | l1_r:0.0045 l1_g:0.0054 l1_b:0.0044 l1:0.0048 gradient:0.0120 chroma:0.0012 luminance:0.0065 | LR:8.6e-04 | 58s
+Ep  49/200 | Train: 43.3dB | Val: 45.4dB | l1_r:0.0043 l1_g:0.0054 l1_b:0.0046 l1:0.0047 gradient:0.0115 chroma:0.0011 luminance:0.0066 | LR:8.6e-04 | 58s
+Ep  50/200 | Train: 43.2dB | Val: 45.9dB | l1_r:0.0044 l1_g:0.0056 l1_b:0.0046 l1:0.0049 gradient:0.0118 chroma:0.0012 luminance:0.0068 | LR:8.5e-04 | 58s
+Ep  51/200 | Train: 42.8dB | Val: 43.4dB | l1_r:0.0044 l1_g:0.0058 l1_b:0.0048 l1:0.0050 gradient:0.0120 chroma:0.0012 luminance:0.0067 | LR:8.5e-04 | 64s
+Ep  52/200 | Train: 43.5dB | Val: 43.7dB | l1_r:0.0040 l1_g:0.0053 l1_b:0.0046 l1:0.0046 gradient:0.0119 chroma:0.0012 luminance:0.0064 | LR:8.4e-04 | 58s
+Ep  53/200 | Train: 42.8dB | Val: 43.3dB | l1_r:0.0046 l1_g:0.0060 l1_b:0.0048 l1:0.0051 gradient:0.0121 chroma:0.0012 luminance:0.0068 | LR:8.4e-04 | 59s
+Ep  54/200 | Train: 43.5dB | Val: 46.4dB | l1_r:0.0042 l1_g:0.0053 l1_b:0.0044 l1:0.0046 gradient:0.0116 chroma:0.0012 luminance:0.0065 | LR:8.3e-04 | 58s
+  -> New best (46.36 dB)
+Ep  55/200 | Train: 44.0dB | Val: 46.4dB | l1_r:0.0038 l1_g:0.0050 l1_b:0.0041 l1:0.0043 gradient:0.0107 chroma:0.0011 luminance:0.0063 | LR:8.2e-04 | 58s
+  -> New best (46.37 dB)
+Ep  56/200 | Train: 43.9dB | Val: 44.3dB | l1_r:0.0039 l1_g:0.0051 l1_b:0.0043 l1:0.0044 gradient:0.0109 chroma:0.0010 luminance:0.0063 | LR:8.2e-04 | 59s
+Ep  57/200 | Train: 43.5dB | Val: 42.3dB | l1_r:0.0041 l1_g:0.0054 l1_b:0.0044 l1:0.0046 gradient:0.0113 chroma:0.0011 luminance:0.0064 | LR:8.1e-04 | 58s
+Ep  58/200 | Train: 44.0dB | Val: 43.3dB | l1_r:0.0038 l1_g:0.0050 l1_b:0.0042 l1:0.0043 gradient:0.0105 chroma:0.0010 luminance:0.0062 | LR:8.1e-04 | 58s
+Ep  59/200 | Train: 44.4dB | Val: 43.1dB | l1_r:0.0036 l1_g:0.0046 l1_b:0.0039 l1:0.0041 gradient:0.0106 chroma:0.0010 luminance:0.0060 | LR:8.0e-04 | 58s
+Ep  60/200 | Train: 43.6dB | Val: 43.8dB | l1_r:0.0041 l1_g:0.0053 l1_b:0.0045 l1:0.0046 gradient:0.0115 chroma:0.0012 luminance:0.0064 | LR:7.9e-04 | 58s
+Ep  61/200 | Train: 44.1dB | Val: 45.4dB | l1_r:0.0038 l1_g:0.0049 l1_b:0.0041 l1:0.0043 gradient:0.0105 chroma:0.0010 luminance:0.0061 | LR:7.9e-04 | 58s
+Ep  62/200 | Train: 44.1dB | Val: 45.9dB | l1_r:0.0038 l1_g:0.0050 l1_b:0.0043 l1:0.0044 gradient:0.0111 chroma:0.0010 luminance:0.0062 | LR:7.8e-04 | 58s
+Ep  63/200 | Train: 43.5dB | Val: 43.0dB | l1_r:0.0043 l1_g:0.0055 l1_b:0.0043 l1:0.0047 gradient:0.0113 chroma:0.0011 luminance:0.0067 | LR:7.7e-04 | 58s
+Ep  64/200 | Train: 44.3dB | Val: 44.3dB | l1_r:0.0038 l1_g:0.0049 l1_b:0.0040 l1:0.0042 gradient:0.0106 chroma:0.0010 luminance:0.0062 | LR:7.7e-04 | 58s
+Ep  65/200 | Train: 44.3dB | Val: 45.9dB | l1_r:0.0037 l1_g:0.0047 l1_b:0.0038 l1:0.0041 gradient:0.0107 chroma:0.0011 luminance:0.0061 | LR:7.6e-04 | 58s
+Ep  66/200 | Train: 44.9dB | Val: 44.9dB | l1_r:0.0035 l1_g:0.0044 l1_b:0.0038 l1:0.0039 gradient:0.0102 chroma:0.0010 luminance:0.0059 | LR:7.5e-04 | 58s
+Ep  67/200 | Train: 44.4dB | Val: 45.4dB | l1_r:0.0039 l1_g:0.0048 l1_b:0.0040 l1:0.0042 gradient:0.0107 chroma:0.0010 luminance:0.0062 | LR:7.5e-04 | 58s
+Ep  68/200 | Train: 44.6dB | Val: 45.2dB | l1_r:0.0036 l1_g:0.0048 l1_b:0.0038 l1:0.0040 gradient:0.0108 chroma:0.0010 luminance:0.0060 | LR:7.4e-04 | 58s
+Ep  69/200 | Train: 43.8dB | Val: 45.7dB | l1_r:0.0039 l1_g:0.0054 l1_b:0.0045 l1:0.0046 gradient:0.0109 chroma:0.0011 luminance:0.0066 | LR:7.3e-04 | 58s
+Ep  70/200 | Train: 44.3dB | Val: 46.3dB | l1_r:0.0037 l1_g:0.0048 l1_b:0.0039 l1:0.0041 gradient:0.0104 chroma:0.0010 luminance:0.0060 | LR:7.3e-04 | 58s
+Ep  71/200 | Train: 44.6dB | Val: 44.0dB | l1_r:0.0036 l1_g:0.0048 l1_b:0.0039 l1:0.0041 gradient:0.0104 chroma:0.0009 luminance:0.0060 | LR:7.2e-04 | 58s
+Ep  72/200 | Train: 44.6dB | Val: 44.0dB | l1_r:0.0036 l1_g:0.0047 l1_b:0.0038 l1:0.0040 gradient:0.0103 chroma:0.0010 luminance:0.0060 | LR:7.1e-04 | 58s
+Ep  73/200 | Train: 44.5dB | Val: 45.8dB | l1_r:0.0035 l1_g:0.0048 l1_b:0.0039 l1:0.0041 gradient:0.0104 chroma:0.0010 luminance:0.0061 | LR:7.1e-04 | 58s
+Ep  74/200 | Train: 44.5dB | Val: 44.9dB | l1_r:0.0036 l1_g:0.0046 l1_b:0.0040 l1:0.0041 gradient:0.0103 chroma:0.0010 luminance:0.0060 | LR:7.0e-04 | 58s
+Ep  75/200 | Train: 45.1dB | Val: 47.7dB | l1_r:0.0034 l1_g:0.0043 l1_b:0.0036 l1:0.0038 gradient:0.0097 chroma:0.0009 luminance:0.0059 | LR:6.9e-04 | 58s
+  -> New best (47.74 dB)
+Ep  76/200 | Train: 44.2dB | Val: 45.7dB | l1_r:0.0035 l1_g:0.0049 l1_b:0.0043 l1:0.0043 gradient:0.0105 chroma:0.0010 luminance:0.0062 | LR:6.8e-04 | 58s
+Ep  77/200 | Train: 44.8dB | Val: 45.7dB | l1_r:0.0034 l1_g:0.0046 l1_b:0.0038 l1:0.0040 gradient:0.0104 chroma:0.0009 luminance:0.0061 | LR:6.8e-04 | 58s
+Ep  78/200 | Train: 45.5dB | Val: 45.8dB | l1_r:0.0033 l1_g:0.0042 l1_b:0.0035 l1:0.0036 gradient:0.0096 chroma:0.0009 luminance:0.0059 | LR:6.7e-04 | 58s
+Ep  79/200 | Train: 45.2dB | Val: 45.4dB | l1_r:0.0033 l1_g:0.0042 l1_b:0.0034 l1:0.0036 gradient:0.0098 chroma:0.0009 luminance:0.0057 | LR:6.6e-04 | 58s
+Ep  80/200 | Train: 45.1dB | Val: 46.5dB | l1_r:0.0033 l1_g:0.0042 l1_b:0.0035 l1:0.0037 gradient:0.0096 chroma:0.0008 luminance:0.0058 | LR:6.5e-04 | 58s
+Ep  81/200 | Train: 45.5dB | Val: 45.7dB | l1_r:0.0031 l1_g:0.0040 l1_b:0.0033 l1:0.0035 gradient:0.0095 chroma:0.0008 luminance:0.0058 | LR:6.5e-04 | 58s
+Ep  82/200 | Train: 45.3dB | Val: 46.8dB | l1_r:0.0034 l1_g:0.0042 l1_b:0.0035 l1:0.0037 gradient:0.0097 chroma:0.0009 luminance:0.0059 | LR:6.4e-04 | 58s
+Ep  83/200 | Train: 45.7dB | Val: 46.8dB | l1_r:0.0031 l1_g:0.0040 l1_b:0.0034 l1:0.0035 gradient:0.0092 chroma:0.0008 luminance:0.0058 | LR:6.3e-04 | 58s
+Ep  84/200 | Train: 45.2dB | Val: 45.7dB | l1_r:0.0032 l1_g:0.0043 l1_b:0.0036 l1:0.0037 gradient:0.0096 chroma:0.0008 luminance:0.0058 | LR:6.2e-04 | 58s
+Ep  85/200 | Train: 44.8dB | Val: 45.8dB | l1_r:0.0035 l1_g:0.0047 l1_b:0.0040 l1:0.0041 gradient:0.0103 chroma:0.0009 luminance:0.0061 | LR:6.2e-04 | 58s
+Ep  86/200 | Train: 44.6dB | Val: 44.9dB | l1_r:0.0035 l1_g:0.0048 l1_b:0.0039 l1:0.0041 gradient:0.0098 chroma:0.0008 luminance:0.0061 | LR:6.1e-04 | 58s
+Ep  87/200 | Train: 46.0dB | Val: 47.1dB | l1_r:0.0029 l1_g:0.0038 l1_b:0.0032 l1:0.0033 gradient:0.0090 chroma:0.0008 luminance:0.0055 | LR:6.0e-04 | 58s
+Ep  88/200 | Train: 46.0dB | Val: 46.0dB | l1_r:0.0030 l1_g:0.0039 l1_b:0.0032 l1:0.0034 gradient:0.0089 chroma:0.0008 luminance:0.0057 | LR:5.9e-04 | 58s
+Ep  89/200 | Train: 45.9dB | Val: 46.1dB | l1_r:0.0029 l1_g:0.0040 l1_b:0.0033 l1:0.0034 gradient:0.0093 chroma:0.0008 luminance:0.0057 | LR:5.9e-04 | 58s
+Ep  90/200 | Train: 45.9dB | Val: 44.9dB | l1_r:0.0029 l1_g:0.0039 l1_b:0.0033 l1:0.0034 gradient:0.0092 chroma:0.0008 luminance:0.0057 | LR:5.8e-04 | 58s
+Ep  91/200 | Train: 45.8dB | Val: 45.5dB | l1_r:0.0030 l1_g:0.0039 l1_b:0.0032 l1:0.0034 gradient:0.0094 chroma:0.0008 luminance:0.0058 | LR:5.7e-04 | 58s
+Ep  92/200 | Train: 45.2dB | Val: 46.6dB | l1_r:0.0032 l1_g:0.0044 l1_b:0.0037 l1:0.0038 gradient:0.0097 chroma:0.0009 luminance:0.0059 | LR:5.6e-04 | 58s
+Ep  93/200 | Train: 46.0dB | Val: 47.7dB | l1_r:0.0031 l1_g:0.0038 l1_b:0.0031 l1:0.0033 gradient:0.0090 chroma:0.0008 luminance:0.0056 | LR:5.5e-04 | 58s
+Ep  94/200 | Train: 45.3dB | Val: 44.2dB | l1_r:0.0034 l1_g:0.0046 l1_b:0.0038 l1:0.0039 gradient:0.0097 chroma:0.0008 luminance:0.0062 | LR:5.5e-04 | 58s
+Ep  95/200 | Train: 45.4dB | Val: 42.8dB | l1_r:0.0034 l1_g:0.0042 l1_b:0.0033 l1:0.0036 gradient:0.0093 chroma:0.0008 luminance:0.0059 | LR:5.4e-04 | 58s
+Ep  96/200 | Train: 45.5dB | Val: 43.8dB | l1_r:0.0030 l1_g:0.0042 l1_b:0.0037 l1:0.0036 gradient:0.0095 chroma:0.0008 luminance:0.0058 | LR:5.3e-04 | 58s
+Ep  97/200 | Train: 45.4dB | Val: 46.5dB | l1_r:0.0032 l1_g:0.0043 l1_b:0.0034 l1:0.0036 gradient:0.0094 chroma:0.0008 luminance:0.0060 | LR:5.2e-04 | 58s
+Ep  98/200 | Train: 45.7dB | Val: 47.1dB | l1_r:0.0031 l1_g:0.0040 l1_b:0.0032 l1:0.0034 gradient:0.0092 chroma:0.0008 luminance:0.0058 | LR:5.2e-04 | 58s
+Ep  99/200 | Train: 46.2dB | Val: 46.9dB | l1_r:0.0029 l1_g:0.0038 l1_b:0.0032 l1:0.0033 gradient:0.0088 chroma:0.0007 luminance:0.0056 | LR:5.1e-04 | 58s
+Ep 100/200 | Train: 46.4dB | Val: 46.5dB | l1_r:0.0028 l1_g:0.0035 l1_b:0.0030 l1:0.0031 gradient:0.0088 chroma:0.0007 luminance:0.0056 | LR:5.0e-04 | 58s
+Ep 101/200 | Train: 45.0dB | Val: 47.5dB | l1_r:0.0033 l1_g:0.0044 l1_b:0.0036 l1:0.0038 gradient:0.0095 chroma:0.0008 luminance:0.0060 | LR:4.9e-04 | 58s
+Ep 102/200 | Train: 46.2dB | Val: 45.3dB | l1_r:0.0029 l1_g:0.0037 l1_b:0.0030 l1:0.0032 gradient:0.0088 chroma:0.0008 luminance:0.0056 | LR:4.8e-04 | 58s
+Ep 103/200 | Train: 46.7dB | Val: 47.8dB | l1_r:0.0028 l1_g:0.0035 l1_b:0.0029 l1:0.0031 gradient:0.0087 chroma:0.0007 luminance:0.0055 | LR:4.8e-04 | 58s
+  -> New best (47.84 dB)
+Ep 104/200 | Train: 46.8dB | Val: 44.9dB | l1_r:0.0026 l1_g:0.0035 l1_b:0.0029 l1:0.0030 gradient:0.0085 chroma:0.0007 luminance:0.0054 | LR:4.7e-04 | 58s
+Ep 105/200 | Train: 46.5dB | Val: 48.1dB | l1_r:0.0029 l1_g:0.0037 l1_b:0.0030 l1:0.0032 gradient:0.0087 chroma:0.0007 luminance:0.0057 | LR:4.6e-04 | 58s
+  -> New best (48.11 dB)
+Ep 106/200 | Train: 46.3dB | Val: 46.5dB | l1_r:0.0028 l1_g:0.0037 l1_b:0.0031 l1:0.0032 gradient:0.0087 chroma:0.0007 luminance:0.0056 | LR:4.5e-04 | 58s
+Ep 107/200 | Train: 46.7dB | Val: 45.4dB | l1_r:0.0027 l1_g:0.0035 l1_b:0.0029 l1:0.0030 gradient:0.0086 chroma:0.0007 luminance:0.0055 | LR:4.5e-04 | 58s
+Ep 108/200 | Train: 46.4dB | Val: 47.4dB | l1_r:0.0027 l1_g:0.0036 l1_b:0.0029 l1:0.0031 gradient:0.0087 chroma:0.0007 luminance:0.0055 | LR:4.4e-04 | 58s
+Ep 109/200 | Train: 46.1dB | Val: 46.3dB | l1_r:0.0029 l1_g:0.0039 l1_b:0.0030 l1:0.0033 gradient:0.0090 chroma:0.0007 luminance:0.0058 | LR:4.3e-04 | 58s
+Ep 110/200 | Train: 46.6dB | Val: 46.5dB | l1_r:0.0027 l1_g:0.0036 l1_b:0.0029 l1:0.0031 gradient:0.0087 chroma:0.0007 luminance:0.0057 | LR:4.2e-04 | 58s
+Ep 111/200 | Train: 46.6dB | Val: 47.7dB | l1_r:0.0029 l1_g:0.0037 l1_b:0.0030 l1:0.0032 gradient:0.0084 chroma:0.0007 luminance:0.0056 | LR:4.1e-04 | 58s
+Ep 112/200 | Train: 46.7dB | Val: 47.2dB | l1_r:0.0027 l1_g:0.0035 l1_b:0.0028 l1:0.0030 gradient:0.0085 chroma:0.0007 luminance:0.0054 | LR:4.1e-04 | 58s
+Ep 113/200 | Train: 46.6dB | Val: 47.5dB | l1_r:0.0029 l1_g:0.0037 l1_b:0.0030 l1:0.0032 gradient:0.0088 chroma:0.0007 luminance:0.0058 | LR:4.0e-04 | 58s
+Ep 114/200 | Train: 47.0dB | Val: 45.6dB | l1_r:0.0026 l1_g:0.0034 l1_b:0.0028 l1:0.0029 gradient:0.0085 chroma:0.0007 luminance:0.0055 | LR:3.9e-04 | 58s
+Ep 115/200 | Train: 46.5dB | Val: 46.7dB | l1_r:0.0029 l1_g:0.0036 l1_b:0.0030 l1:0.0032 gradient:0.0089 chroma:0.0007 luminance:0.0056 | LR:3.8e-04 | 58s
+Ep 116/200 | Train: 46.9dB | Val: 46.3dB | l1_r:0.0027 l1_g:0.0034 l1_b:0.0028 l1:0.0030 gradient:0.0085 chroma:0.0007 luminance:0.0054 | LR:3.8e-04 | 58s
+Ep 117/200 | Train: 47.0dB | Val: 46.6dB | l1_r:0.0026 l1_g:0.0033 l1_b:0.0027 l1:0.0029 gradient:0.0085 chroma:0.0007 luminance:0.0055 | LR:3.7e-04 | 58s
+Ep 118/200 | Train: 46.8dB | Val: 47.3dB | l1_r:0.0026 l1_g:0.0034 l1_b:0.0028 l1:0.0029 gradient:0.0084 chroma:0.0007 luminance:0.0055 | LR:3.6e-04 | 58s
+Ep 119/200 | Train: 47.0dB | Val: 47.8dB | l1_r:0.0027 l1_g:0.0035 l1_b:0.0027 l1:0.0030 gradient:0.0085 chroma:0.0007 luminance:0.0055 | LR:3.5e-04 | 58s
+Ep 120/200 | Train: 46.8dB | Val: 46.7dB | l1_r:0.0026 l1_g:0.0035 l1_b:0.0028 l1:0.0030 gradient:0.0084 chroma:0.0007 luminance:0.0055 | LR:3.5e-04 | 58s
+Ep 121/200 | Train: 46.3dB | Val: 46.2dB | l1_r:0.0029 l1_g:0.0037 l1_b:0.0030 l1:0.0032 gradient:0.0087 chroma:0.0007 luminance:0.0057 | LR:3.4e-04 | 58s
+Ep 122/200 | Train: 46.4dB | Val: 47.9dB | l1_r:0.0027 l1_g:0.0037 l1_b:0.0030 l1:0.0031 gradient:0.0086 chroma:0.0007 luminance:0.0057 | LR:3.3e-04 | 58s
+Ep 123/200 | Train: 47.5dB | Val: 45.2dB | l1_r:0.0025 l1_g:0.0032 l1_b:0.0025 l1:0.0027 gradient:0.0081 chroma:0.0007 luminance:0.0053 | LR:3.2e-04 | 58s
+Ep 124/200 | Train: 47.2dB | Val: 48.8dB | l1_r:0.0026 l1_g:0.0032 l1_b:0.0027 l1:0.0028 gradient:0.0082 chroma:0.0007 luminance:0.0054 | LR:3.2e-04 | 58s
+  -> New best (48.79 dB)
+Ep 125/200 | Train: 47.1dB | Val: 48.3dB | l1_r:0.0026 l1_g:0.0034 l1_b:0.0028 l1:0.0029 gradient:0.0085 chroma:0.0007 luminance:0.0055 | LR:3.1e-04 | 58s
+Ep 126/200 | Train: 47.2dB | Val: 47.5dB | l1_r:0.0026 l1_g:0.0033 l1_b:0.0027 l1:0.0029 gradient:0.0084 chroma:0.0007 luminance:0.0055 | LR:3.0e-04 | 58s
+Ep 127/200 | Train: 47.3dB | Val: 47.8dB | l1_r:0.0025 l1_g:0.0032 l1_b:0.0027 l1:0.0028 gradient:0.0082 chroma:0.0006 luminance:0.0053 | LR:2.9e-04 | 58s
+Ep 128/200 | Train: 47.0dB | Val: 47.2dB | l1_r:0.0025 l1_g:0.0034 l1_b:0.0028 l1:0.0029 gradient:0.0082 chroma:0.0007 luminance:0.0055 | LR:2.9e-04 | 60s
+Ep 129/200 | Train: 46.7dB | Val: 47.2dB | l1_r:0.0028 l1_g:0.0036 l1_b:0.0028 l1:0.0031 gradient:0.0085 chroma:0.0007 luminance:0.0057 | LR:2.8e-04 | 66s
+Ep 130/200 | Train: 47.2dB | Val: 47.8dB | l1_r:0.0025 l1_g:0.0032 l1_b:0.0027 l1:0.0028 gradient:0.0083 chroma:0.0007 luminance:0.0055 | LR:2.7e-04 | 59s
+Ep 131/200 | Train: 47.7dB | Val: 46.3dB | l1_r:0.0023 l1_g:0.0031 l1_b:0.0025 l1:0.0026 gradient:0.0080 chroma:0.0006 luminance:0.0054 | LR:2.7e-04 | 60s
+Ep 132/200 | Train: 46.8dB | Val: 47.1dB | l1_r:0.0027 l1_g:0.0034 l1_b:0.0028 l1:0.0030 gradient:0.0085 chroma:0.0007 luminance:0.0056 | LR:2.6e-04 | 65s
+Ep 133/200 | Train: 47.1dB | Val: 45.9dB | l1_r:0.0025 l1_g:0.0033 l1_b:0.0027 l1:0.0028 gradient:0.0083 chroma:0.0007 luminance:0.0055 | LR:2.5e-04 | 85s
+Ep 134/200 | Train: 47.6dB | Val: 48.5dB | l1_r:0.0023 l1_g:0.0031 l1_b:0.0025 l1:0.0026 gradient:0.0081 chroma:0.0006 luminance:0.0053 | LR:2.5e-04 | 61s
+Ep 135/200 | Train: 47.5dB | Val: 48.3dB | l1_r:0.0025 l1_g:0.0030 l1_b:0.0025 l1:0.0027 gradient:0.0081 chroma:0.0007 luminance:0.0054 | LR:2.4e-04 | 58s
+Ep 136/200 | Train: 47.4dB | Val: 48.2dB | l1_r:0.0025 l1_g:0.0032 l1_b:0.0026 l1:0.0028 gradient:0.0083 chroma:0.0007 luminance:0.0055 | LR:2.3e-04 | 58s
+Ep 137/200 | Train: 47.8dB | Val: 49.1dB | l1_r:0.0022 l1_g:0.0029 l1_b:0.0024 l1:0.0025 gradient:0.0080 chroma:0.0006 luminance:0.0053 | LR:2.3e-04 | 58s
+  -> New best (49.11 dB)
+Ep 138/200 | Train: 47.5dB | Val: 47.6dB | l1_r:0.0023 l1_g:0.0031 l1_b:0.0025 l1:0.0026 gradient:0.0081 chroma:0.0006 luminance:0.0055 | LR:2.2e-04 | 58s
+Ep 139/200 | Train: 48.0dB | Val: 47.2dB | l1_r:0.0022 l1_g:0.0029 l1_b:0.0024 l1:0.0025 gradient:0.0079 chroma:0.0006 luminance:0.0054 | LR:2.1e-04 | 58s
+Ep 140/200 | Train: 47.3dB | Val: 49.0dB | l1_r:0.0024 l1_g:0.0032 l1_b:0.0026 l1:0.0027 gradient:0.0082 chroma:0.0006 luminance:0.0055 | LR:2.1e-04 | 58s
+Ep 141/200 | Train: 47.7dB | Val: 48.8dB | l1_r:0.0023 l1_g:0.0030 l1_b:0.0025 l1:0.0026 gradient:0.0080 chroma:0.0006 luminance:0.0053 | LR:2.0e-04 | 58s
+Ep 142/200 | Train: 47.9dB | Val: 48.2dB | l1_r:0.0023 l1_g:0.0029 l1_b:0.0024 l1:0.0025 gradient:0.0080 chroma:0.0006 luminance:0.0053 | LR:1.9e-04 | 58s
+Ep 143/200 | Train: 47.9dB | Val: 48.9dB | l1_r:0.0022 l1_g:0.0028 l1_b:0.0023 l1:0.0025 gradient:0.0079 chroma:0.0006 luminance:0.0053 | LR:1.9e-04 | 58s
+Ep 144/200 | Train: 47.4dB | Val: 48.1dB | l1_r:0.0024 l1_g:0.0032 l1_b:0.0027 l1:0.0028 gradient:0.0081 chroma:0.0006 luminance:0.0055 | LR:1.8e-04 | 58s
+Ep 145/200 | Train: 47.8dB | Val: 48.3dB | l1_r:0.0023 l1_g:0.0030 l1_b:0.0024 l1:0.0026 gradient:0.0079 chroma:0.0006 luminance:0.0055 | LR:1.8e-04 | 58s
+Ep 146/200 | Train: 47.6dB | Val: 49.2dB | l1_r:0.0024 l1_g:0.0031 l1_b:0.0025 l1:0.0027 gradient:0.0081 chroma:0.0006 luminance:0.0054 | LR:1.7e-04 | 58s
+  -> New best (49.17 dB)
+Ep 147/200 | Train: 48.1dB | Val: 48.8dB | l1_r:0.0022 l1_g:0.0028 l1_b:0.0023 l1:0.0025 gradient:0.0078 chroma:0.0006 luminance:0.0053 | LR:1.6e-04 | 58s
+Ep 148/200 | Train: 47.7dB | Val: 48.4dB | l1_r:0.0023 l1_g:0.0029 l1_b:0.0024 l1:0.0025 gradient:0.0080 chroma:0.0006 luminance:0.0053 | LR:1.6e-04 | 58s
+Ep 149/200 | Train: 47.7dB | Val: 49.0dB | l1_r:0.0023 l1_g:0.0029 l1_b:0.0024 l1:0.0025 gradient:0.0079 chroma:0.0006 luminance:0.0054 | LR:1.5e-04 | 58s
+Ep 150/200 | Train: 48.2dB | Val: 48.4dB | l1_r:0.0022 l1_g:0.0028 l1_b:0.0023 l1:0.0024 gradient:0.0078 chroma:0.0006 luminance:0.0053 | LR:1.5e-04 | 58s
+Ep 151/200 | Train: 48.3dB | Val: 48.6dB | l1_r:0.0021 l1_g:0.0027 l1_b:0.0022 l1:0.0024 gradient:0.0077 chroma:0.0006 luminance:0.0052 | LR:1.4e-04 | 58s
+Ep 152/200 | Train: 47.9dB | Val: 47.8dB | l1_r:0.0023 l1_g:0.0029 l1_b:0.0024 l1:0.0025 gradient:0.0079 chroma:0.0006 luminance:0.0054 | LR:1.4e-04 | 58s
+Ep 153/200 | Train: 48.1dB | Val: 48.2dB | l1_r:0.0022 l1_g:0.0028 l1_b:0.0023 l1:0.0024 gradient:0.0079 chroma:0.0006 luminance:0.0054 | LR:1.3e-04 | 58s
+Ep 154/200 | Train: 48.1dB | Val: 48.9dB | l1_r:0.0023 l1_g:0.0030 l1_b:0.0024 l1:0.0026 gradient:0.0079 chroma:0.0006 luminance:0.0055 | LR:1.2e-04 | 58s
+Ep 155/200 | Train: 48.8dB | Val: 49.0dB | l1_r:0.0021 l1_g:0.0026 l1_b:0.0021 l1:0.0023 gradient:0.0076 chroma:0.0006 luminance:0.0051 | LR:1.2e-04 | 58s
+Ep 156/200 | Train: 48.1dB | Val: 48.9dB | l1_r:0.0022 l1_g:0.0028 l1_b:0.0023 l1:0.0024 gradient:0.0078 chroma:0.0006 luminance:0.0052 | LR:1.1e-04 | 58s
+Ep 157/200 | Train: 48.5dB | Val: 48.8dB | l1_r:0.0021 l1_g:0.0027 l1_b:0.0022 l1:0.0023 gradient:0.0077 chroma:0.0006 luminance:0.0053 | LR:1.1e-04 | 58s
+Ep 158/200 | Train: 48.5dB | Val: 49.1dB | l1_r:0.0021 l1_g:0.0027 l1_b:0.0022 l1:0.0023 gradient:0.0077 chroma:0.0006 luminance:0.0052 | LR:1.0e-04 | 58s
+Ep 159/200 | Train: 48.4dB | Val: 48.9dB | l1_r:0.0021 l1_g:0.0027 l1_b:0.0022 l1:0.0023 gradient:0.0077 chroma:0.0006 luminance:0.0054 | LR:1.0e-04 | 58s
+Ep 160/200 | Train: 48.1dB | Val: 48.3dB | l1_r:0.0022 l1_g:0.0028 l1_b:0.0023 l1:0.0024 gradient:0.0078 chroma:0.0006 luminance:0.0054 | LR:9.5e-05 | 58s
+Ep 161/200 | Train: 48.5dB | Val: 48.1dB | l1_r:0.0021 l1_g:0.0026 l1_b:0.0022 l1:0.0023 gradient:0.0077 chroma:0.0006 luminance:0.0052 | LR:9.1e-05 | 58s
+Ep 162/200 | Train: 48.5dB | Val: 48.6dB | l1_r:0.0021 l1_g:0.0027 l1_b:0.0022 l1:0.0023 gradient:0.0076 chroma:0.0006 luminance:0.0054 | LR:8.6e-05 | 58s
+Ep 163/200 | Train: 48.2dB | Val: 48.5dB | l1_r:0.0022 l1_g:0.0027 l1_b:0.0023 l1:0.0024 gradient:0.0078 chroma:0.0006 luminance:0.0053 | LR:8.2e-05 | 58s
+Ep 164/200 | Train: 48.1dB | Val: 48.0dB | l1_r:0.0022 l1_g:0.0027 l1_b:0.0022 l1:0.0024 gradient:0.0078 chroma:0.0006 luminance:0.0053 | LR:7.8e-05 | 58s
+Ep 165/200 | Train: 48.6dB | Val: 49.1dB | l1_r:0.0021 l1_g:0.0027 l1_b:0.0022 l1:0.0023 gradient:0.0076 chroma:0.0006 luminance:0.0053 | LR:7.4e-05 | 58s
+Ep 166/200 | Train: 48.3dB | Val: 49.1dB | l1_r:0.0021 l1_g:0.0027 l1_b:0.0022 l1:0.0023 gradient:0.0077 chroma:0.0006 luminance:0.0052 | LR:7.0e-05 | 58s
+Ep 167/200 | Train: 48.5dB | Val: 47.9dB | l1_r:0.0020 l1_g:0.0026 l1_b:0.0021 l1:0.0023 gradient:0.0076 chroma:0.0006 luminance:0.0051 | LR:6.6e-05 | 58s
+Ep 168/200 | Train: 48.5dB | Val: 48.0dB | l1_r:0.0021 l1_g:0.0026 l1_b:0.0022 l1:0.0023 gradient:0.0077 chroma:0.0006 luminance:0.0052 | LR:6.2e-05 | 58s
+Ep 169/200 | Train: 48.5dB | Val: 48.1dB | l1_r:0.0021 l1_g:0.0026 l1_b:0.0021 l1:0.0023 gradient:0.0078 chroma:0.0006 luminance:0.0053 | LR:5.8e-05 | 58s
+Ep 170/200 | Train: 48.7dB | Val: 48.9dB | l1_r:0.0020 l1_g:0.0026 l1_b:0.0021 l1:0.0022 gradient:0.0077 chroma:0.0006 luminance:0.0053 | LR:5.4e-05 | 58s
+Ep 171/200 | Train: 48.7dB | Val: 48.5dB | l1_r:0.0020 l1_g:0.0025 l1_b:0.0021 l1:0.0022 gradient:0.0076 chroma:0.0006 luminance:0.0052 | LR:5.1e-05 | 58s
+Ep 172/200 | Train: 48.2dB | Val: 49.4dB | l1_r:0.0022 l1_g:0.0027 l1_b:0.0022 l1:0.0024 gradient:0.0078 chroma:0.0006 luminance:0.0054 | LR:4.8e-05 | 58s
+  -> New best (49.36 dB)
+Ep 173/200 | Train: 48.7dB | Val: 48.4dB | l1_r:0.0020 l1_g:0.0025 l1_b:0.0021 l1:0.0022 gradient:0.0076 chroma:0.0006 luminance:0.0052 | LR:4.4e-05 | 58s
+Ep 174/200 | Train: 48.6dB | Val: 48.8dB | l1_r:0.0020 l1_g:0.0026 l1_b:0.0021 l1:0.0022 gradient:0.0076 chroma:0.0006 luminance:0.0052 | LR:4.1e-05 | 58s
+Ep 175/200 | Train: 48.7dB | Val: 48.7dB | l1_r:0.0020 l1_g:0.0026 l1_b:0.0021 l1:0.0022 gradient:0.0076 chroma:0.0006 luminance:0.0053 | LR:3.8e-05 | 58s
+Ep 176/200 | Train: 48.7dB | Val: 49.0dB | l1_r:0.0020 l1_g:0.0025 l1_b:0.0021 l1:0.0022 gradient:0.0076 chroma:0.0006 luminance:0.0053 | LR:3.5e-05 | 58s
+Ep 177/200 | Train: 48.6dB | Val: 48.2dB | l1_r:0.0020 l1_g:0.0025 l1_b:0.0021 l1:0.0022 gradient:0.0077 chroma:0.0006 luminance:0.0051 | LR:3.2e-05 | 58s
+Ep 178/200 | Train: 48.7dB | Val: 49.0dB | l1_r:0.0020 l1_g:0.0025 l1_b:0.0021 l1:0.0022 gradient:0.0076 chroma:0.0006 luminance:0.0052 | LR:3.0e-05 | 58s
+Ep 179/200 | Train: 48.8dB | Val: 48.7dB | l1_r:0.0020 l1_g:0.0025 l1_b:0.0020 l1:0.0022 gradient:0.0077 chroma:0.0006 luminance:0.0051 | LR:2.7e-05 | 58s
+Ep 180/200 | Train: 48.7dB | Val: 49.2dB | l1_r:0.0020 l1_g:0.0025 l1_b:0.0021 l1:0.0022 gradient:0.0077 chroma:0.0006 luminance:0.0053 | LR:2.4e-05 | 58s
+Ep 181/200 | Train: 48.9dB | Val: 49.1dB | l1_r:0.0020 l1_g:0.0025 l1_b:0.0021 l1:0.0022 gradient:0.0076 chroma:0.0006 luminance:0.0053 | LR:2.2e-05 | 58s
+Ep 182/200 | Train: 48.7dB | Val: 48.5dB | l1_r:0.0019 l1_g:0.0024 l1_b:0.0020 l1:0.0021 gradient:0.0076 chroma:0.0006 luminance:0.0053 | LR:2.0e-05 | 58s
+Ep 183/200 | Train: 48.6dB | Val: 49.3dB | l1_r:0.0020 l1_g:0.0024 l1_b:0.0021 l1:0.0022 gradient:0.0076 chroma:0.0006 luminance:0.0052 | LR:1.8e-05 | 58s
+Ep 184/200 | Train: 48.8dB | Val: 48.8dB | l1_r:0.0019 l1_g:0.0024 l1_b:0.0020 l1:0.0021 gradient:0.0075 chroma:0.0006 luminance:0.0052 | LR:1.6e-05 | 58s
+Ep 185/200 | Train: 48.8dB | Val: 49.2dB | l1_r:0.0019 l1_g:0.0025 l1_b:0.0021 l1:0.0022 gradient:0.0076 chroma:0.0006 luminance:0.0053 | LR:1.4e-05 | 58s
+Ep 186/200 | Train: 48.8dB | Val: 49.4dB | l1_r:0.0020 l1_g:0.0024 l1_b:0.0021 l1:0.0022 gradient:0.0076 chroma:0.0006 luminance:0.0054 | LR:1.2e-05 | 58s
+  -> New best (49.39 dB)
+Ep 187/200 | Train: 49.0dB | Val: 48.8dB | l1_r:0.0019 l1_g:0.0024 l1_b:0.0020 l1:0.0021 gradient:0.0075 chroma:0.0006 luminance:0.0052 | LR:1.0e-05 | 58s
+Ep 188/200 | Train: 48.7dB | Val: 48.4dB | l1_r:0.0020 l1_g:0.0025 l1_b:0.0021 l1:0.0022 gradient:0.0076 chroma:0.0006 luminance:0.0051 | LR:8.9e-06 | 58s
+Ep 189/200 | Train: 48.5dB | Val: 48.8dB | l1_r:0.0020 l1_g:0.0025 l1_b:0.0021 l1:0.0022 gradient:0.0077 chroma:0.0006 luminance:0.0053 | LR:7.4e-06 | 58s
+Ep 190/200 | Train: 48.5dB | Val: 49.3dB | l1_r:0.0020 l1_g:0.0025 l1_b:0.0021 l1:0.0022 gradient:0.0077 chroma:0.0006 luminance:0.0052 | LR:6.2e-06 | 58s
+Ep 191/200 | Train: 49.3dB | Val: 49.7dB | l1_r:0.0019 l1_g:0.0024 l1_b:0.0020 l1:0.0021 gradient:0.0074 chroma:0.0006 luminance:0.0052 | LR:5.0e-06 | 58s
+  -> New best (49.73 dB)
+Ep 192/200 | Train: 48.6dB | Val: 48.4dB | l1_r:0.0020 l1_g:0.0025 l1_b:0.0021 l1:0.0022 gradient:0.0077 chroma:0.0006 luminance:0.0054 | LR:3.9e-06 | 58s
+Ep 193/200 | Train: 48.9dB | Val: 49.0dB | l1_r:0.0019 l1_g:0.0025 l1_b:0.0020 l1:0.0021 gradient:0.0075 chroma:0.0006 luminance:0.0052 | LR:3.0e-06 | 58s
+Ep 194/200 | Train: 48.9dB | Val: 48.5dB | l1_r:0.0019 l1_g:0.0025 l1_b:0.0020 l1:0.0021 gradient:0.0076 chroma:0.0006 luminance:0.0053 | LR:2.2e-06 | 58s
+Ep 195/200 | Train: 48.6dB | Val: 49.3dB | l1_r:0.0020 l1_g:0.0024 l1_b:0.0020 l1:0.0022 gradient:0.0077 chroma:0.0006 luminance:0.0052 | LR:1.5e-06 | 58s
+Ep 196/200 | Train: 48.8dB | Val: 49.0dB | l1_r:0.0019 l1_g:0.0024 l1_b:0.0020 l1:0.0021 gradient:0.0076 chroma:0.0006 luminance:0.0052 | LR:9.9e-07 | 58s
+Ep 197/200 | Train: 49.0dB | Val: 49.3dB | l1_r:0.0019 l1_g:0.0024 l1_b:0.0020 l1:0.0021 gradient:0.0076 chroma:0.0006 luminance:0.0052 | LR:5.6e-07 | 58s
+Ep 198/200 | Train: 48.7dB | Val: 49.0dB | l1_r:0.0020 l1_g:0.0024 l1_b:0.0021 l1:0.0022 gradient:0.0077 chroma:0.0006 luminance:0.0053 | LR:2.5e-07 | 58s
+Ep 199/200 | Train: 49.0dB | Val: 49.9dB | l1_r:0.0019 l1_g:0.0024 l1_b:0.0020 l1:0.0021 gradient:0.0075 chroma:0.0006 luminance:0.0053 | LR:6.2e-08 | 58s
+  -> New best (49.92 dB)
+Ep 200/200 | Train: 49.2dB | Val: 50.1dB | l1_r:0.0019 l1_g:0.0024 l1_b:0.0020 l1:0.0021 gradient:0.0075 chroma:0.0006 luminance:0.0051 | LR:0.0e+00 | 58s
+  -> New best (50.15 dB)
+
+Done. Best val PSNR: 50.15 dB

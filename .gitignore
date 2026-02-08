@@ -93,3 +93,11 @@ Thumbs.db
 *.bak
 *.backup
 *~
+
+*.log
+checkpoints*
+checkpoints_*
+.claude
+logs
+test_rafs
+data/*

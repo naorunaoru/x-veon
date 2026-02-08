@@ -174,6 +174,7 @@ def main():
     print(f"\nLoading dataset from {args.data_dir}...")
     
     if args.torture_fraction > 0:
+        use_luminance = args.luminance_weight is not None and args.luminance_weight > 0
         full_dataset = create_mixed_dataset(
             args.data_dir,
             patch_size=args.patch_size,
@@ -184,6 +185,7 @@ def main():
             patches_per_image=args.patches_per_image,
             max_images=args.max_images,
             use_jpeg=args.use_jpeg,
+            load_luminance=use_luminance,
         )
     else:
         if args.use_jpeg:

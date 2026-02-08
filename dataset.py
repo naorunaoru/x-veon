@@ -227,15 +227,23 @@ class TortureDataset(Dataset):
     Import from torture_v2 for the actual pattern generation.
     """
 
-    def __init__(self, patch_size: int = 96, num_patterns: int = 1000):
+    def __init__(self, patch_size: int = 96, num_patterns: int = 1000, return_luminance: bool = False):
         from torture_v2 import TortureDatasetV2
         self._inner = TortureDatasetV2(size=patch_size, num_patterns=num_patterns)
+        self.return_luminance = return_luminance
 
     def __len__(self):
         return len(self._inner)
 
     def __getitem__(self, idx):
-        return self._inner[idx]
+        result = self._inner[idx]
+        if self.return_luminance:
+            # Return zeros for luminance - torture patterns don't have luminance reference
+            # Shape: (1, H, W) to match real luminance patches
+            h, w = result[1].shape[1], result[1].shape[2]
+            dummy_lum = torch.zeros(1, h, w)
+            return result[0], result[1], dummy_lum
+        return result
 
 
 def create_mixed_dataset(
@@ -248,6 +256,7 @@ def create_mixed_dataset(
     patches_per_image: int = 16,
     max_images: int | None = None,
     use_jpeg: bool = False,
+    load_luminance: bool = False,
 ) -> Dataset:
     """
     Create a dataset mixing real images with synthetic torture patterns.
@@ -262,6 +271,7 @@ def create_mixed_dataset(
         patches_per_image: Patches extracted per image per epoch
         max_images: Limit number of images
         use_jpeg: Use JPEG loading instead of .npy
+        load_luminance: Load luminance reference files
     
     Returns:
         Combined dataset with weighted sampling
@@ -273,7 +283,8 @@ def create_mixed_dataset(
         )
     else:
         main_dataset = LinearDataset(
-            data_dir, patch_size, augment, noise_sigma, patches_per_image, max_images
+            data_dir, patch_size, augment, noise_sigma, patches_per_image, max_images,
+            load_luminance=load_luminance
         )
 
     if torture_fraction <= 0:
@@ -284,7 +295,7 @@ def create_mixed_dataset(
     torture_size = int(main_size * torture_fraction / (1 - torture_fraction))
     torture_size = max(1, min(torture_size, torture_patterns * 10))  # Cap at 10x patterns
 
-    torture_dataset = TortureDataset(patch_size, torture_patterns)
+    torture_dataset = TortureDataset(patch_size, torture_patterns, return_luminance=load_luminance)
 
     # Repeat torture dataset to match size
     class RepeatedDataset(Dataset):
