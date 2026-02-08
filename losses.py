@@ -87,19 +87,30 @@ class ChromaLoss(nn.Module):
         return F.l1_loss(pred_hp, target_hp)
 
 
+class ColorBiasLoss(nn.Module):
+    """Penalize systematic color shift (DC bias) between prediction and target."""
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        pred_mean = pred.mean(dim=(2, 3))    # (B, 3)
+        target_mean = target.mean(dim=(2, 3))
+        return F.l1_loss(pred_mean, target_mean)
+
+
 class SSIM(nn.Module):
     """Single-scale Structural Similarity Index."""
 
-    def __init__(self, window_size: int = 11, sigma: float = 1.5, channels: int = 3):
+    def __init__(self, window_size: int = 11, sigma: float = 1.5, channels: int = 3,
+                 data_range: float = 1.0):
         super().__init__()
         self.window_size = window_size
         self.channels = channels
+        self.data_range = data_range
         self.register_buffer('kernel', _gaussian_kernel_2d(window_size, sigma, channels))
 
     def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         """Returns SSIM value (higher is better, max 1.0)."""
-        C1 = 0.01 ** 2
-        C2 = 0.03 ** 2
+        C1 = (0.01 * self.data_range) ** 2
+        C2 = (0.03 * self.data_range) ** 2
         pad = self.window_size // 2
 
         mu1 = F.conv2d(pred, self.kernel, padding=pad, groups=self.channels)
@@ -133,10 +144,12 @@ class MSSSIM(nn.Module):
         sigma: float = 1.5,
         channels: int = 3,
         weights: list[float] | None = None,
+        data_range: float = 1.0,
     ):
         super().__init__()
         self.window_size = window_size
         self.channels = channels
+        self.data_range = data_range
         # Default weights for 5 scales (from the MS-SSIM paper)
         self.weights = weights or [0.0448, 0.2856, 0.3001, 0.2363, 0.1333]
         self.n_scales = len(self.weights)
@@ -146,8 +159,8 @@ class MSSSIM(nn.Module):
         self, pred: torch.Tensor, target: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Compute luminance*contrast (l*c) and structure (s) components."""
-        C1 = 0.01 ** 2
-        C2 = 0.03 ** 2
+        C1 = (0.01 * self.data_range) ** 2
+        C2 = (0.03 * self.data_range) ** 2
         C3 = C2 / 2
         pad = self.window_size // 2
 
@@ -212,8 +225,6 @@ class DemosaicLoss(nn.Module):
     - MS-SSIM: multi-scale structure (texture/detail)
     - Gradient: edge preservation  
     - Chroma: false color penalty
-    - Luminance: match luminance reference (optional)
-    
     Presets:
     - "base": L1-heavy for initial training (high PSNR)
     - "finetune": MS-SSIM + gradient for texture recovery
@@ -228,42 +239,48 @@ class DemosaicLoss(nn.Module):
         msssim_weight: float = 0.0,
         gradient_weight: float = 0.1,
         chroma_weight: float = 0.05,
-        luminance_weight: float = 0.0,
+        color_bias_weight: float = 0.0,
         per_channel_norm: bool = False,
         use_huber: bool = False,
         huber_delta: float = 1.0,
+        data_range: float = 1.0,
     ):
         super().__init__()
         self.l1_weight = l1_weight
         self.msssim_weight = msssim_weight
         self.gradient_weight = gradient_weight
         self.chroma_weight = chroma_weight
-        self.luminance_weight = luminance_weight
+        self.color_bias_weight = color_bias_weight
         self.per_channel_norm = per_channel_norm
         self.use_huber = use_huber
         self.huber_delta = huber_delta
+        self.data_range = data_range
 
-        self.msssim = MSSSIM() if msssim_weight > 0 else None
+        self.msssim = MSSSIM(data_range=data_range) if msssim_weight > 0 else None
         self.gradient = SobelGradientLoss() if gradient_weight > 0 else None
         self.chroma = ChromaLoss() if chroma_weight > 0 else None
+        self.color_bias = ColorBiasLoss() if color_bias_weight > 0 else None
 
     @classmethod
-    def base(cls) -> "DemosaicLoss":
+    def base(cls, data_range: float = 1.0) -> "DemosaicLoss":
         """Preset for initial training: L1-focused for high PSNR."""
-        return cls(l1_weight=1.0, msssim_weight=0.0, gradient_weight=0.1, chroma_weight=0.05)
+        return cls(l1_weight=1.0, msssim_weight=0.0, gradient_weight=0.1, chroma_weight=0.05,
+                   data_range=data_range)
 
     @classmethod
-    def finetune(cls, msssim_weight: float = 0.3, gradient_weight: float = 0.2) -> "DemosaicLoss":
+    def finetune(cls, msssim_weight: float = 0.3, gradient_weight: float = 0.2,
+                 data_range: float = 1.0) -> "DemosaicLoss":
         """Preset for fine-tuning: MS-SSIM + gradient for texture."""
         return cls(
             l1_weight=0.5,
             msssim_weight=msssim_weight,
             gradient_weight=gradient_weight,
             chroma_weight=0.02,
+            data_range=data_range,
         )
 
     def forward(
-        self, pred: torch.Tensor, target: torch.Tensor, lum_target: torch.Tensor = None
+        self, pred: torch.Tensor, target: torch.Tensor
     ) -> tuple[torch.Tensor, dict[str, float]]:
         components = {}
         total = torch.tensor(0.0, device=pred.device, dtype=pred.dtype)
@@ -306,20 +323,11 @@ class DemosaicLoss(nn.Module):
             components['chroma'] = chroma.item()
             total = total + self.chroma_weight * chroma
 
-        # Luminance reference matching
-        if lum_target is not None and self.luminance_weight > 0:
-            # Skip samples with zero luminance (torture patterns)
-            lum_squeezed = lum_target.squeeze(1)
-            valid_mask = lum_squeezed.abs().sum(dim=(1, 2)) > 0  # (B,) bool
-            if valid_mask.any():
-                # Compute predicted luminance
-                pred_lum = 0.2126 * pred[:, 0] + 0.7152 * pred[:, 1] + 0.0722 * pred[:, 2]
-                # Only compute loss on valid samples
-                lum_loss = F.l1_loss(pred_lum[valid_mask], lum_squeezed[valid_mask])
-                components['luminance'] = lum_loss.item()
-                total = total + self.luminance_weight * lum_loss
-            else:
-                components['luminance'] = 0.0
+        # Color bias (DC shift penalty)
+        if self.color_bias is not None and self.color_bias_weight > 0:
+            cb = self.color_bias(pred, target)
+            components['color_bias'] = cb.item()
+            total = total + self.color_bias_weight * cb
 
         components['total'] = total.item()
         return total, components

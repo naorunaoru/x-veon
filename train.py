@@ -21,11 +21,12 @@ Examples:
 
 import argparse
 import json
+import random
 import time
 from pathlib import Path
 
 import torch
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader
 
 from model import XTransUNet, count_parameters
 from dataset import LinearDataset, create_mixed_dataset
@@ -40,6 +41,25 @@ def psnr(pred: torch.Tensor, target: torch.Tensor) -> float:
     return -10 * torch.log10(torch.tensor(mse)).item()
 
 
+def _compute_data_range(files: list[str]) -> float:
+    """Compute max pixel value after WB from metadata."""
+    import os
+    peak = 1.0
+    for npy_path in files:
+        stem = os.path.splitext(npy_path)[0]
+        meta_path = stem + "_meta.json"
+        try:
+            with open(meta_path) as f:
+                meta = json.load(f)
+            wb = meta["camera_wb"][:3]
+            wb_max = max(wb[0], wb[2]) / wb[1]  # max gain relative to G
+            range_max = meta.get("range_max", 1.0)
+            peak = max(peak, range_max * wb_max)
+        except (FileNotFoundError, json.JSONDecodeError, KeyError):
+            continue
+    return peak
+
+
 def get_device():
     if torch.backends.mps.is_available():
         return torch.device("mps")
@@ -48,7 +68,7 @@ def get_device():
     return torch.device("cpu")
 
 
-def train_epoch(model, loader, optimizer, criterion, device, use_luminance=False):
+def train_epoch(model, loader, optimizer, criterion, device):
     model.train()
     total_loss = 0.0
     total_psnr = 0.0
@@ -56,19 +76,13 @@ def train_epoch(model, loader, optimizer, criterion, device, use_luminance=False
     n_batches = 0
 
     for batch in loader:
-        if use_luminance:
-            inputs, targets, lum_targets = batch
-            lum_targets = lum_targets.to(device) if lum_targets is not None else None
-        else:
-            inputs, targets = batch
-            lum_targets = None
-        
+        inputs, targets = batch
         inputs = inputs.to(device)
         targets = targets.to(device)
 
         optimizer.zero_grad()
         outputs = model(inputs)
-        loss, components = criterion(outputs, targets, lum_targets)
+        loss, components = criterion(outputs, targets)
         loss.backward()
         optimizer.step()
 
@@ -84,7 +98,7 @@ def train_epoch(model, loader, optimizer, criterion, device, use_luminance=False
 
 
 @torch.no_grad()
-def evaluate(model, loader, criterion, device, use_luminance=False):
+def evaluate(model, loader, criterion, device):
     model.eval()
     total_loss = 0.0
     total_psnr = 0.0
@@ -92,18 +106,12 @@ def evaluate(model, loader, criterion, device, use_luminance=False):
     n_batches = 0
 
     for batch in loader:
-        if use_luminance:
-            inputs, targets, lum_targets = batch
-            lum_targets = lum_targets.to(device) if lum_targets is not None else None
-        else:
-            inputs, targets = batch
-            lum_targets = None
-            
+        inputs, targets = batch
         inputs = inputs.to(device)
         targets = targets.to(device)
 
         outputs = model(inputs)
-        loss, components = criterion(outputs, targets, lum_targets)
+        loss, components = criterion(outputs, targets)
 
         total_loss += loss.item()
         for k, v in components.items():
@@ -120,9 +128,7 @@ def main():
     
     # Data
     parser.add_argument("--data-dir", type=str, required=True,
-                        help="Directory with .npy files or JPEGs")
-    parser.add_argument("--use-jpeg", action="store_true",
-                        help="Load JPEGs directly instead of .npy")
+                        help="Directory with .npy files")
     parser.add_argument("--max-images", type=int, default=None)
     parser.add_argument("--filter-file", type=str, default=None,
                         help="JSON file with allowed image stems")
@@ -142,15 +148,21 @@ def main():
     parser.add_argument("--msssim-weight", type=float, default=None)
     parser.add_argument("--gradient-weight", type=float, default=None)
     parser.add_argument("--chroma-weight", type=float, default=None)
-    parser.add_argument("--luminance-weight", type=float, default=None,
-                        help="Weight for luminance reference loss (requires _lum.npy files)")
+    parser.add_argument("--color-bias-weight", type=float, default=None,
+                        help="Weight for mean color bias penalty (penalizes DC color shift)")
     parser.add_argument("--huber", action="store_true",
                         help="Use Huber loss instead of L1")
     parser.add_argument("--huber-delta", type=float, default=1.0,
                         help="Delta for Huber loss")
     parser.add_argument("--per-channel-norm", action="store_true",
                         help="Normalize L1 loss per channel (addresses G >> R,B sample imbalance)")
+    parser.add_argument("--data-range", type=float, default=None,
+                        help="Max pixel value for SSIM constants (auto-computed from metadata when --apply-wb)")
     
+    # White balance
+    parser.add_argument("--apply-wb", action="store_true",
+                        help="Apply per-image WB to training data (model learns WB'd output)")
+
     # Augmentation
     parser.add_argument("--noise-min", type=float, default=0.0)
     parser.add_argument("--noise-max", type=float, default=0.005)
@@ -167,6 +179,8 @@ def main():
     # Performance
     parser.add_argument("--workers", type=int, default=0,
                         help="DataLoader workers (0 for main process)")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="Random seed for train/val split")
     
     args = parser.parse_args()
 
@@ -174,53 +188,62 @@ def main():
     print(f"Device: {device}")
     print(f"Mode: {args.mode}")
 
-    # Dataset
+    # Dataset — split at image level to prevent leakage
     print(f"\nLoading dataset from {args.data_dir}...")
-    
+
+    all_files = LinearDataset.find_files(
+        args.data_dir,
+        max_images=args.max_images,
+        filter_file=args.filter_file,
+    )
+    random.Random(args.seed).shuffle(all_files)
+
+    val_n_images = max(1, int(len(all_files) * args.val_split))
+    val_files = all_files[:val_n_images]
+    train_files = all_files[val_n_images:]
+    print(f"  Images: {len(train_files)} train, {val_n_images} val")
+
+    # Compute effective data range
+    if args.data_range is not None:
+        data_range = args.data_range
+    elif args.apply_wb:
+        data_range = _compute_data_range(all_files)
+        print(f"  Auto data_range: {data_range:.2f}")
+    else:
+        data_range = 1.0
+
+    shared_kwargs = dict(
+        patch_size=args.patch_size,
+        patches_per_image=args.patches_per_image,
+        apply_wb=args.apply_wb,
+    )
+
     if args.torture_fraction > 0:
-        use_luminance = args.luminance_weight is not None and args.luminance_weight > 0
-        full_dataset = create_mixed_dataset(
-            args.data_dir,
-            patch_size=args.patch_size,
+        train_dataset = create_mixed_dataset(
+            data_dir=None,
+            files=train_files,
             torture_fraction=args.torture_fraction,
             torture_patterns=args.torture_patterns,
             augment=True,
             noise_sigma=(args.noise_min, args.noise_max),
-            patches_per_image=args.patches_per_image,
-            max_images=args.max_images,
-            use_jpeg=args.use_jpeg,
-            load_luminance=use_luminance,
+            **shared_kwargs,
         )
     else:
-        if args.use_jpeg:
-            from dataset import JPEGDataset
-            full_dataset = JPEGDataset(
-                args.data_dir,
-                patch_size=args.patch_size,
-                augment=True,
-                noise_sigma=(args.noise_min, args.noise_max),
-                patches_per_image=args.patches_per_image,
-                max_images=args.max_images,
-            )
-        else:
-            use_luminance = args.luminance_weight is not None and args.luminance_weight > 0
-            full_dataset = LinearDataset(
-                args.data_dir,
-                patch_size=args.patch_size,
-                augment=True,
-                noise_sigma=(args.noise_min, args.noise_max),
-                patches_per_image=args.patches_per_image,
-                max_images=args.max_images,
-                filter_file=args.filter_file,
-                load_luminance=use_luminance,
-            )
+        train_dataset = LinearDataset(
+            files=train_files,
+            augment=True,
+            noise_sigma=(args.noise_min, args.noise_max),
+            **shared_kwargs,
+        )
 
-    # Train/val split
-    val_size = max(1, int(len(full_dataset) * args.val_split))
-    train_size = len(full_dataset) - val_size
-    train_dataset, val_dataset = random_split(full_dataset, [train_size, val_size])
+    val_dataset = LinearDataset(
+        files=val_files,
+        augment=False,
+        noise_sigma=(0.0, 0.0),
+        **shared_kwargs,
+    )
 
-    print(f"  Train: {train_size}, Val: {val_size}")
+    print(f"  Patches: {len(train_dataset)} train, {len(val_dataset)} val")
 
     train_loader = DataLoader(
         train_dataset, batch_size=args.batch_size, shuffle=True,
@@ -237,9 +260,9 @@ def main():
 
     # Loss
     if args.mode == "finetune":
-        criterion = DemosaicLoss.finetune()
+        criterion = DemosaicLoss.finetune(data_range=data_range)
     else:
-        criterion = DemosaicLoss.base()
+        criterion = DemosaicLoss.base(data_range=data_range)
 
     # Override with explicit weights if provided
     if args.l1_weight is not None:
@@ -248,13 +271,16 @@ def main():
         criterion.msssim_weight = args.msssim_weight
         if criterion.msssim is None and args.msssim_weight > 0:
             from losses import MSSSIM
-            criterion.msssim = MSSSIM().to(device)
+            criterion.msssim = MSSSIM(data_range=data_range).to(device)
     if args.gradient_weight is not None:
         criterion.gradient_weight = args.gradient_weight
     if args.chroma_weight is not None:
         criterion.chroma_weight = args.chroma_weight
-    if args.luminance_weight is not None:
-        criterion.luminance_weight = args.luminance_weight
+    if args.color_bias_weight is not None:
+        criterion.color_bias_weight = args.color_bias_weight
+        if criterion.color_bias is None and args.color_bias_weight > 0:
+            from losses import ColorBiasLoss
+            criterion.color_bias = ColorBiasLoss()
     if args.per_channel_norm:
         criterion.per_channel_norm = True
     if args.huber:
@@ -262,10 +288,7 @@ def main():
         criterion.huber_delta = args.huber_delta
 
     criterion = criterion.to(device)
-    
-    # Determine if we're using luminance
-    use_luminance = args.luminance_weight is not None and args.luminance_weight > 0
-    
+
     loss_name = f"Huber(δ={criterion.huber_delta})" if criterion.use_huber else "L1"
     loss_info = f"Loss: {loss_name}={criterion.l1_weight}"
     if criterion.msssim_weight > 0:
@@ -274,10 +297,12 @@ def main():
         loss_info += f", grad={criterion.gradient_weight}"
     if criterion.chroma_weight > 0:
         loss_info += f", chroma={criterion.chroma_weight}"
-    if criterion.luminance_weight > 0:
-        loss_info += f", lum={criterion.luminance_weight}"
+    if criterion.color_bias_weight > 0:
+        loss_info += f", color_bias={criterion.color_bias_weight}"
     if criterion.per_channel_norm:
         loss_info += " [per-channel norm]"
+    if args.apply_wb:
+        loss_info += " [WB training]"
     print(loss_info)
 
     # Optimizer
@@ -308,6 +333,7 @@ def main():
     # Save config
     config = vars(args)
     config['device'] = str(device)
+    config['data_range'] = data_range
     with open(output_dir / "config.json", "w") as f:
         json.dump(config, f, indent=2)
 
@@ -324,10 +350,10 @@ def main():
         t0 = time.time()
 
         train_loss, train_psnr, train_comp = train_epoch(
-            model, train_loader, optimizer, criterion, device, use_luminance
+            model, train_loader, optimizer, criterion, device
         )
         val_loss, val_psnr, val_comp = evaluate(
-            model, val_loader, criterion, device, use_luminance
+            model, val_loader, criterion, device
         )
         scheduler.step()
 

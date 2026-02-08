@@ -136,31 +136,39 @@ def linear_to_hlg(E: np.ndarray) -> np.ndarray:
 
 
 def process_raf(raf_path: str, model: torch.nn.Module, device: str,
-                patch_size: int = 288, overlap: int = 48) -> tuple[np.ndarray, dict]:
+                patch_size: int = 288, overlap: int = 48,
+                apply_wb_to_cfa: bool = True) -> tuple[np.ndarray, dict]:
     raw = rawpy.imread(raf_path)
-    
+
     cfa = raw.raw_image_visible.astype(np.float32)
     black = raw.black_level_per_channel[0]
     white = raw.white_level
     cfa_norm = (cfa - black) / (white - black)
     h_raw, w_raw = cfa_norm.shape
-    
+
     # White balance multipliers (normalized to G=1)
     wb = np.array(raw.camera_whitebalance[:3], dtype=np.float32)
     wb = wb / wb[1]
 
     # Camera RGB to XYZ matrix
     cam_to_xyz = np.array(raw.rgb_xyz_matrix[:3, :3], dtype=np.float32)
-    
+
     # EXIF orientation
     exif_flip = raw.sizes.flip
-    
+
     # Pattern alignment
     raw_pattern = raw.raw_colors_visible
     dy, dx = find_pattern_shift(raw_pattern)
     pad_top = (6 - dy) % 6
     pad_left = (6 - dx) % 6
-    
+
+    # Apply WB to CFA before model (each pixel multiplied by its channel's WB)
+    if apply_wb_to_cfa:
+        wb_map = np.ones_like(cfa_norm)
+        for ch in range(3):
+            wb_map[raw_pattern == ch] = wb[ch]
+        cfa_norm = cfa_norm * wb_map
+
     if pad_top > 0 or pad_left > 0:
         cfa_norm = np.pad(cfa_norm, ((pad_top, 0), (pad_left, 0)), mode='reflect')
     
@@ -220,8 +228,9 @@ def process_raf(raf_path: str, model: torch.nn.Module, device: str,
     rgb = output[:, pad_top:pad_top+h_raw, pad_left:pad_left+w_raw]
     
     rgb = rgb.transpose(1, 2, 0)
-    # Apply WB after demosaic — model sees raw sensor values (matching training)
-    rgb = rgb * wb
+    # If WB not applied to CFA, apply it after demosaic (legacy checkpoints)
+    if not apply_wb_to_cfa:
+        rgb = rgb * wb
     raw.close()
     
     return rgb, {"wb": wb, "cam_to_xyz": cam_to_xyz, "exif_flip": exif_flip}
@@ -279,6 +288,8 @@ def main():
     parser.add_argument("--overlap", type=int, default=48)
     parser.add_argument("--quality", type=int, default=90)
     parser.add_argument("--no-color", action="store_true", help="Skip color correction")
+    parser.add_argument("--no-wb-cfa", action="store_true",
+                        help="Don't apply WB to CFA (for legacy checkpoints trained without --apply-wb)")
     args = parser.parse_args()
     
     device = "mps" if torch.backends.mps.is_available() else "cpu"
@@ -298,20 +309,24 @@ def main():
         for raf in list(input_dir.glob("*.RAF")) + list(input_dir.glob("*.raf")):
             out_path = output_dir / f"{raf.stem}_hdr.avif"
             print(f"Processing {raf.name}...")
-            rgb, meta = process_raf(str(raf), model, device, args.patch_size, args.overlap)
+            wb_cfa = not args.no_wb_cfa
+            rgb, meta = process_raf(str(raf), model, device, args.patch_size, args.overlap,
+                                    apply_wb_to_cfa=wb_cfa)
             exif_flip = meta.get("exif_flip", 0)
             cam_to_xyz = meta.get("cam_to_xyz")
             save_hdr_avif(rgb, str(out_path), args.quality, cam_to_xyz, exif_flip,
-                         None, not args.no_color)  # WB at CFA
+                         None, not args.no_color)
     else:
         input_path = Path(args.input)
         output_path = Path(args.output) if args.output else input_path.with_suffix(".avif")
         print(f"Processing {input_path.name}...")
-        rgb, meta = process_raf(str(input_path), model, device, args.patch_size, args.overlap)
+        wb_cfa = not args.no_wb_cfa
+        rgb, meta = process_raf(str(input_path), model, device, args.patch_size, args.overlap,
+                                apply_wb_to_cfa=wb_cfa)
         exif_flip = meta.get("exif_flip", 0)
         cam_to_xyz = meta.get("cam_to_xyz")
         save_hdr_avif(rgb, str(output_path), args.quality, cam_to_xyz, exif_flip,
-                     None, not args.no_color)  # WB at CFA
+                     None, not args.no_color)
         print(f"Saved: {output_path}")
 
 
