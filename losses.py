@@ -230,6 +230,8 @@ class DemosaicLoss(nn.Module):
         chroma_weight: float = 0.05,
         luminance_weight: float = 0.0,
         per_channel_norm: bool = False,
+        use_huber: bool = False,
+        huber_delta: float = 1.0,
     ):
         super().__init__()
         self.l1_weight = l1_weight
@@ -238,6 +240,8 @@ class DemosaicLoss(nn.Module):
         self.chroma_weight = chroma_weight
         self.luminance_weight = luminance_weight
         self.per_channel_norm = per_channel_norm
+        self.use_huber = use_huber
+        self.huber_delta = huber_delta
 
         self.msssim = MSSSIM() if msssim_weight > 0 else None
         self.gradient = SobelGradientLoss() if gradient_weight > 0 else None
@@ -264,21 +268,24 @@ class DemosaicLoss(nn.Module):
         components = {}
         total = torch.tensor(0.0, device=pred.device, dtype=pred.dtype)
 
-        # L1 (optionally per-channel normalized)
+        # L1 or Huber (optionally per-channel normalized)
         if self.l1_weight > 0:
+            loss_fn = (lambda p, t: F.huber_loss(p, t, delta=self.huber_delta)) if self.use_huber else F.l1_loss
+            loss_name = 'huber' if self.use_huber else 'l1'
+            
             if self.per_channel_norm:
-                # Compute L1 per channel, average (equal weight regardless of sample count)
-                l1_r = F.l1_loss(pred[:, 0], target[:, 0])
-                l1_g = F.l1_loss(pred[:, 1], target[:, 1])
-                l1_b = F.l1_loss(pred[:, 2], target[:, 2])
-                l1 = (l1_r + l1_g + l1_b) / 3
-                components['l1_r'] = l1_r.item()
-                components['l1_g'] = l1_g.item()
-                components['l1_b'] = l1_b.item()
+                # Compute loss per channel, average (equal weight regardless of sample count)
+                loss_r = loss_fn(pred[:, 0], target[:, 0])
+                loss_g = loss_fn(pred[:, 1], target[:, 1])
+                loss_b = loss_fn(pred[:, 2], target[:, 2])
+                pixel_loss = (loss_r + loss_g + loss_b) / 3
+                components[f'{loss_name}_r'] = loss_r.item()
+                components[f'{loss_name}_g'] = loss_g.item()
+                components[f'{loss_name}_b'] = loss_b.item()
             else:
-                l1 = F.l1_loss(pred, target)
-            components['l1'] = l1.item()
-            total = total + self.l1_weight * l1
+                pixel_loss = loss_fn(pred, target)
+            components[loss_name] = pixel_loss.item()
+            total = total + self.l1_weight * pixel_loss
 
         # MS-SSIM (1 - msssim, so lower is better)
         if self.msssim is not None and self.msssim_weight > 0:

@@ -89,12 +89,10 @@ def plot_training_history(checkpoint_dir: str) -> tuple:
         if cfg.get("torture_fraction"): parts.append(f"torture={cfg['torture_fraction']*100:.0f}%")
         config_str = ", ".join(parts)
     
-    # Create figure with two subplots
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+    # Create figure with subplots
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4))
     
-    # PSNR plot
-    ax1.plot(epochs, train_psnr, label="Train", alpha=0.5)
-    ax1.plot(epochs, val_psnr, label="Val", alpha=0.3, linewidth=1)
+    ax1, ax2, ax3 = axes
     
     # Smoothed validation (EMA)
     def ema(data, alpha=0.1):
@@ -103,9 +101,11 @@ def plot_training_history(checkpoint_dir: str) -> tuple:
             smoothed.append(alpha * v + (1 - alpha) * smoothed[-1])
         return smoothed
     
+    # PSNR plot
+    ax1.plot(epochs, train_psnr, label="Train", alpha=0.5)
+    ax1.plot(epochs, val_psnr, label="Val", alpha=0.3, linewidth=1)
     val_smoothed = ema(val_psnr, alpha=0.1)
     ax1.plot(epochs, val_smoothed, label="Val (smoothed)", linewidth=2, color="tab:orange")
-    
     ax1.set_xlabel("Epoch")
     ax1.set_ylabel("PSNR (dB)")
     ax1.set_title(f"{checkpoint_dir}\n{config_str}" if config_str else checkpoint_dir)
@@ -120,33 +120,31 @@ def plot_training_history(checkpoint_dir: str) -> tuple:
                 fontsize=9, color="green",
                 arrowprops=dict(arrowstyle="->", color="green", alpha=0.7))
     
-    # Loss components plot
-    if "train_components" in history[0]:
-        components = ["l1", "msssim", "gradient", "luminance"]
+    # Helper to plot components
+    def plot_components(ax, history, key, title):
+        if key not in history[0]:
+            return
+        # Support both l1 and huber
+        components = ["l1", "huber", "msssim", "gradient", "chroma", "luminance"]
         for comp in components:
-            values = [h["train_components"].get(comp, 0) for h in history]
+            values = [h[key].get(comp, 0) for h in history]
             if any(v > 0 for v in values):
-                # Normalize MS-SSIM (it's 0-1, others are small)
+                # Convert MS-SSIM to loss (it's stored as similarity)
                 if comp == "msssim":
-                    values = [1 - v for v in values]  # Convert to loss
-                ax2.plot(epochs, values, label=comp, alpha=0.7)
-        ax2.set_xlabel("Epoch")
-        ax2.set_ylabel("Loss Component")
-        ax2.set_title("Loss Components")
-        ax2.legend()
-        ax2.grid(True, alpha=0.3)
-        ax2.set_yscale("log")
-    else:
-        # Just show total loss
-        train_loss = [h["train_loss"] for h in history]
-        val_loss = [h["val_loss"] for h in history]
-        ax2.plot(epochs, train_loss, label="Train Loss", alpha=0.7)
-        ax2.plot(epochs, val_loss, label="Val Loss", linewidth=2)
-        ax2.set_xlabel("Epoch")
-        ax2.set_ylabel("Loss")
-        ax2.set_title("Training Loss")
-        ax2.legend()
-        ax2.grid(True, alpha=0.3)
+                    values = [1 - v for v in values]
+                ax.plot(epochs, values, label=comp, alpha=0.7)
+        ax.set_xlabel("Epoch")
+        ax.set_ylabel("Loss")
+        ax.set_title(title)
+        ax.legend(fontsize=8)
+        ax.grid(True, alpha=0.3)
+        ax.set_yscale("log")
+    
+    # Train components
+    plot_components(ax2, history, "train_components", "Train Components")
+    
+    # Val components
+    plot_components(ax3, history, "val_components", "Val Components")
     
     plt.tight_layout()
     
@@ -204,7 +202,8 @@ def run_inference(
     progress(0.9, desc="Encoding HDR AVIF...")
     
     output_path = tempfile.mktemp(suffix=".avif", prefix=f"{raf_name}_hdr_")
-    save_hdr_avif(rgb_linear, output_path, 90, None, meta.get("exif_flip", 0), meta.get("wb"), True)
+    save_hdr_avif(rgb_linear, output_path, 90, meta.get("cam_to_xyz"), meta.get("exif_flip", 0),
+                  None, True)
     
     # Read and base64 encode for HTML display
     with open(output_path, "rb") as f:

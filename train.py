@@ -144,6 +144,10 @@ def main():
     parser.add_argument("--chroma-weight", type=float, default=None)
     parser.add_argument("--luminance-weight", type=float, default=None,
                         help="Weight for luminance reference loss (requires _lum.npy files)")
+    parser.add_argument("--huber", action="store_true",
+                        help="Use Huber loss instead of L1")
+    parser.add_argument("--huber-delta", type=float, default=1.0,
+                        help="Delta for Huber loss")
     parser.add_argument("--per-channel-norm", action="store_true",
                         help="Normalize L1 loss per channel (addresses G >> R,B sample imbalance)")
     
@@ -253,13 +257,17 @@ def main():
         criterion.luminance_weight = args.luminance_weight
     if args.per_channel_norm:
         criterion.per_channel_norm = True
+    if args.huber:
+        criterion.use_huber = True
+        criterion.huber_delta = args.huber_delta
 
     criterion = criterion.to(device)
     
     # Determine if we're using luminance
     use_luminance = args.luminance_weight is not None and args.luminance_weight > 0
     
-    loss_info = f"Loss: L1={criterion.l1_weight}"
+    loss_name = f"Huber(δ={criterion.huber_delta})" if criterion.use_huber else "L1"
+    loss_info = f"Loss: {loss_name}={criterion.l1_weight}"
     if criterion.msssim_weight > 0:
         loss_info += f", MS-SSIM={criterion.msssim_weight}"
     if criterion.gradient_weight > 0:

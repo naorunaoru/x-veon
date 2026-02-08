@@ -15,42 +15,75 @@ from model import XTransUNet
 from xtrans_pattern import make_channel_masks, XTRANS_PATTERN
 
 
-# Fuji X-Trans camera RGB to sRGB matrix (estimated from rawpy's internal processing)
-# Estimated from 10 images, 125k pixels, MAE=0.000035
-# This matrix is for right-multiplication: srgb = cam_rgb @ FUJI_CAM_TO_SRGB
-FUJI_CAM_TO_SRGB = np.array([
-    [ 1.64032447, -0.18968946,  0.05009819],
-    [-0.56355631,  1.64565551, -0.54180104],
-    [-0.07882024, -0.45597395,  1.49148285]
+# Standard color space conversion matrices
+# XYZ to sRGB (D65 whitepoint)
+XYZ_TO_SRGB = np.array([
+    [ 3.2404542, -1.5371385, -0.4985314],
+    [-0.9692660,  1.8760108,  0.0415560],
+    [ 0.0556434, -0.2040259,  1.0572252]
 ], dtype=np.float32)
 
-# sRGB to BT.2020 matrix (for HDR output)
-SRGB_TO_BT2020 = np.array([
-    [0.6274039,  0.3292830,  0.0433131],
-    [0.0690973,  0.9195404,  0.0113623],
-    [0.0163914,  0.0880133,  0.8955953]
+# XYZ to BT.2020 (D65 whitepoint)
+XYZ_TO_BT2020 = np.array([
+    [ 1.7166512, -0.3556708, -0.2533663],
+    [-0.6666844,  1.6164812,  0.0157685],
+    [ 0.0176399, -0.0427706,  0.9421031]
 ], dtype=np.float32)
 
 
-def apply_color_correction(rgb: np.ndarray, to_bt2020: bool = True) -> np.ndarray:
-    """Convert camera RGB to sRGB or BT.2020.
-    
+def apply_color_correction(rgb: np.ndarray, cam_to_xyz: np.ndarray = None,
+                           to_bt2020: bool = True) -> np.ndarray:
+    """Convert white-balanced camera RGB to sRGB or BT.2020.
+
+    Pipeline: WB'd Camera RGB -> XYZ -> sRGB/BT.2020
+
+    The cam_to_xyz matrix (from rawpy.rgb_xyz_matrix) is actually XYZ->Camera
+    (despite the variable name). It does NOT include white balance.
+    WB applied at CFA level acts as chromatic adaptation, so the color matrix
+    is applied directly to WB'd data — no need to undo/redo WB.
+
     For highlights (luminance > threshold), blends towards identity matrix
     to prevent color shifts in blown areas.
-    
+
     Args:
-        rgb: (H, W, 3) linear camera RGB
+        rgb: (H, W, 3) linear camera RGB (white-balanced)
+        cam_to_xyz: (3, 3) from rawpy.rgb_xyz_matrix — actually maps XYZ -> Camera (no WB)
         to_bt2020: if True, output BT.2020; if False, output sRGB
-    
+
     Returns:
         (H, W, 3) linear sRGB or BT.2020 RGB
     """
     h, w, _ = rgb.shape
     rgb_flat = rgb.reshape(-1, 3)
-    
-    # Apply color matrix
-    srgb_full = rgb_flat @ FUJI_CAM_TO_SRGB
-    
+
+    target_from_xyz = XYZ_TO_BT2020 if to_bt2020 else XYZ_TO_SRGB
+
+    if cam_to_xyz is not None:
+        # cam_to_xyz is actually xyz_to_cam: maps XYZ -> camera RGB (no WB)
+        cam_to_xyz_inv = np.linalg.inv(cam_to_xyz)  # camera -> XYZ
+
+        # WB at CFA level acts as diagonal chromatic adaptation,
+        # so apply the color matrix directly to WB'd data
+        combined = target_from_xyz @ cam_to_xyz_inv
+
+        # Normalize each row to sum to 1 (same as dcraw).
+        # This ensures WB'd neutral [1,1,1] maps to [1,1,1] in output.
+        row_sums = combined.sum(axis=1, keepdims=True)
+        combined = combined / row_sums
+
+        result_full = rgb_flat @ combined.T
+    else:
+        # Fallback when no camera matrix available: assume camera RGB ~ sRGB
+        if to_bt2020:
+            SRGB_TO_BT2020 = np.array([
+                [0.6274039,  0.3292830,  0.0433131],
+                [0.0690973,  0.9195404,  0.0113623],
+                [0.0163914,  0.0880133,  0.8955953]
+            ], dtype=np.float32)
+            result_full = rgb_flat @ SRGB_TO_BT2020.T
+        else:
+            result_full = rgb_flat
+
     # For highlights, blend towards identity (no color change)
     # This keeps blown highlights neutral
     lum = 0.2126 * rgb_flat[:, 0] + 0.7152 * rgb_flat[:, 1] + 0.0722 * rgb_flat[:, 2]
@@ -58,16 +91,10 @@ def apply_color_correction(rgb: np.ndarray, to_bt2020: bool = True) -> np.ndarra
     highlight_end = 1.0
     blend = np.clip((lum - highlight_start) / (highlight_end - highlight_start), 0, 1)
     blend = blend[:, np.newaxis]
-    
+
     # Blend: full matrix for shadows/midtones, identity for highlights
-    srgb = srgb_full * (1 - blend) + rgb_flat * blend
-    
-    if to_bt2020:
-        # sRGB -> BT.2020
-        result = srgb @ SRGB_TO_BT2020.T
-    else:
-        result = srgb
-    
+    result = result_full * (1 - blend) + rgb_flat * blend
+
     return result.reshape(h, w, 3)
 
 
@@ -121,7 +148,7 @@ def process_raf(raf_path: str, model: torch.nn.Module, device: str,
     # White balance multipliers (normalized to G=1)
     wb = np.array(raw.camera_whitebalance[:3], dtype=np.float32)
     wb = wb / wb[1]
-    
+
     # Camera RGB to XYZ matrix
     cam_to_xyz = np.array(raw.rgb_xyz_matrix[:3, :3], dtype=np.float32)
     
@@ -192,23 +219,31 @@ def process_raf(raf_path: str, model: torch.nn.Module, device: str,
     # Crop to original size
     rgb = output[:, pad_top:pad_top+h_raw, pad_left:pad_left+w_raw]
     
-    # Don't apply WB here - do it after color matrix conversion
     rgb = rgb.transpose(1, 2, 0)
+    # Apply WB after demosaic — model sees raw sensor values (matching training)
+    rgb = rgb * wb
     raw.close()
     
     return rgb, {"wb": wb, "cam_to_xyz": cam_to_xyz, "exif_flip": exif_flip}
 
 
-def save_hdr_avif(rgb: np.ndarray, output_path: str, quality: int = 90, 
+def save_hdr_avif(rgb: np.ndarray, output_path: str, quality: int = 90,
                   cam_to_xyz: np.ndarray = None, exif_flip: int = 0,
                   wb: np.ndarray = None, apply_color: bool = True):
-    # Apply white balance
+    # Apply white balance with shadow rolloff
+    # In very dark areas, reduce WB strength to avoid noise amplification
     if wb is not None:
-        rgb = rgb * wb[np.newaxis, np.newaxis, :]
+        lum = 0.2126 * rgb[:,:,0] + 0.7152 * rgb[:,:,1] + 0.0722 * rgb[:,:,2]
+        # Smooth rolloff: full WB above 0.01, reduced below
+        shadow_lo, shadow_hi = 0.002, 0.02
+        blend = np.clip((lum - shadow_lo) / (shadow_hi - shadow_lo), 0, 1)[:,:,np.newaxis]
+        # Blend between unity WB (1,1,1) and camera WB
+        effective_wb = blend * wb + (1 - blend) * 1.0
+        rgb = rgb * effective_wb
     
-    # Apply color correction: camera RGB -> sRGB -> BT.2020
+    # Apply color correction: camera RGB -> XYZ -> BT.2020
     if apply_color:
-        rgb = apply_color_correction(rgb, to_bt2020=True)
+        rgb = apply_color_correction(rgb, cam_to_xyz=cam_to_xyz, to_bt2020=True)
         rgb = np.maximum(rgb, 0)  # Clip negative values from matrix math
     
     # Apply EXIF rotation
@@ -265,16 +300,18 @@ def main():
             print(f"Processing {raf.name}...")
             rgb, meta = process_raf(str(raf), model, device, args.patch_size, args.overlap)
             exif_flip = meta.get("exif_flip", 0)
-            wb = meta.get("wb")
-            save_hdr_avif(rgb, str(out_path), args.quality, None, exif_flip, wb, not args.no_color)
+            cam_to_xyz = meta.get("cam_to_xyz")
+            save_hdr_avif(rgb, str(out_path), args.quality, cam_to_xyz, exif_flip,
+                         None, not args.no_color)  # WB at CFA
     else:
         input_path = Path(args.input)
         output_path = Path(args.output) if args.output else input_path.with_suffix(".avif")
         print(f"Processing {input_path.name}...")
         rgb, meta = process_raf(str(input_path), model, device, args.patch_size, args.overlap)
         exif_flip = meta.get("exif_flip", 0)
-        wb = meta.get("wb")
-        save_hdr_avif(rgb, str(output_path), args.quality, None, exif_flip, wb, not args.no_color)
+        cam_to_xyz = meta.get("cam_to_xyz")
+        save_hdr_avif(rgb, str(output_path), args.quality, cam_to_xyz, exif_flip,
+                     None, not args.no_color)  # WB at CFA
         print(f"Saved: {output_path}")
 
 
