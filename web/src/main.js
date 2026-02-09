@@ -3,6 +3,7 @@ import {
   cropToVisible,
   findPatternShift,
   normalizeRawCfa,
+  reconstructHighlightsCfa,
   applyWhiteBalance,
   padToAlignment,
   generateTiles,
@@ -78,7 +79,11 @@ async function processFile(arrayBuffer) {
     console.log(`  CFA: ${raw.cfaStr} (${raw.cfaWidth}x${raw.cfaStr.length / raw.cfaWidth})`);
     console.log(`  Pattern shift: dy=${dy}, dx=${dx}`);
 
-    // 6. Apply white balance
+    // 6. LCh highlight reconstruction at CFA level (before WB, clip = 1.0)
+    setStatus('Reconstructing highlights\u2026');
+    reconstructHighlightsCfa(cfa, visible.width, visible.height, dy, dx);
+
+    // 7. Apply white balance
     applyWhiteBalance(cfa, visible.width, visible.height, wb, dy, dx);
 
     // 7. Pad for alignment

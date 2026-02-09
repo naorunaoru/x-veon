@@ -225,7 +225,7 @@ def run_inference(
     progress(0.9, desc="Encoding HDR AVIF...")
 
     output_path = tempfile.mktemp(suffix=".avif", prefix=f"{raf_name}_hdr_")
-    save_hdr_avif(rgb_linear, output_path, 90, meta.get("cam_to_xyz"), meta.get("exif_flip", 0),
+    save_hdr_avif(rgb_linear, output_path, 90, meta.get("xyz_to_cam"), meta.get("exif_flip", 0),
                   None, True)
 
     # Read and base64 encode for HTML display

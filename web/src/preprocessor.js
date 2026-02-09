@@ -103,6 +103,88 @@ export function normalizeRawCfa(rawData, width, height, blackLevels, whiteLevels
 }
 
 /**
+ * LCh highlight reconstruction on CFA data (darktable's X-Trans method).
+ *
+ * For each pixel near clipping, samples a 3x3 neighborhood to get approximate
+ * per-channel RGB using max (unclamped) and clamped mean. Applies LCh
+ * chromaticity rescaling and writes back only this pixel's CFA channel.
+ *
+ * Operates in raw sensor space (before WB) where clip = 1.0 for all channels.
+ *
+ * @param {Float32Array} cfa - Normalized CFA data (mutated in-place)
+ * @param {number} width
+ * @param {number} height
+ * @param {number} dy - Pattern shift Y
+ * @param {number} dx - Pattern shift X
+ */
+export function reconstructHighlightsCfa(cfa, width, height, dy, dx) {
+  const SQRT3 = Math.sqrt(3);
+  const SQRT12 = 2 * SQRT3;
+  const clip = 1.0;
+
+  // Work on a copy so 3x3 reads aren't affected by earlier writes
+  const src = new Float32Array(cfa);
+
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      // Quick check: any clipped pixel in 3x3?
+      let anyClipped = false;
+      for (let jj = -1; jj <= 1 && !anyClipped; jj++) {
+        const row = (y + jj) * width;
+        for (let ii = -1; ii <= 1 && !anyClipped; ii++) {
+          if (src[row + x + ii] >= clip) anyClipped = true;
+        }
+      }
+      if (!anyClipped) continue;
+
+      // Gather per-channel max and clamped sum from 3x3
+      const chMax = [-Infinity, -Infinity, -Infinity];
+      const chSum = [0, 0, 0];
+      const chCnt = [0, 0, 0];
+
+      for (let jj = -1; jj <= 1; jj++) {
+        const patY = (y + jj + dy) % 6;
+        const row = (y + jj) * width;
+        for (let ii = -1; ii <= 1; ii++) {
+          const val = src[row + x + ii];
+          const ch = XTRANS_PATTERN[patY][(x + ii + dx) % 6];
+          if (val > chMax[ch]) chMax[ch] = val;
+          chSum[ch] += Math.min(val, clip);
+          chCnt[ch]++;
+        }
+      }
+
+      const R = chMax[0], G = chMax[1], B = chMax[2];
+      const Ro = Math.min(chSum[0] / chCnt[0], clip);
+      const Go = Math.min(chSum[1] / chCnt[1], clip);
+      const Bo = Math.min(chSum[2] / chCnt[2], clip);
+
+      const L = (R + G + B) / 3;
+      let C = SQRT3 * (R - G);
+      let H = 2 * B - G - R;
+      const Co = SQRT3 * (Ro - Go);
+      const Ho = 2 * Bo - Go - Ro;
+
+      const denom = C * C + H * H;
+      if (R !== G && G !== B && denom > 1e-20) {
+        const ratio = Math.sqrt((Co * Co + Ho * Ho) / denom);
+        C *= ratio;
+        H *= ratio;
+      }
+
+      const RGB = [
+        L - H / 6 + C / SQRT12,
+        L - H / 6 - C / SQRT12,
+        L + H / 3,
+      ];
+
+      const ch = XTRANS_PATTERN[(y + dy) % 6][(x + dx) % 6];
+      cfa[y * width + x] = RGB[ch];
+    }
+  }
+}
+
+/**
  * Apply white balance to normalized CFA data (in-place).
  * Each pixel is multiplied by the WB coefficient of its CFA channel.
  *

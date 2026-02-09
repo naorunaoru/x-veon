@@ -31,20 +31,16 @@ XYZ_TO_BT2020 = np.array([
 ], dtype=np.float32)
 
 
-def apply_color_correction(rgb: np.ndarray, cam_to_xyz: np.ndarray = None,
+def apply_color_correction(rgb: np.ndarray, xyz_to_cam: np.ndarray = None,
                            to_bt2020: bool = True) -> np.ndarray:
     """Convert white-balanced camera RGB to sRGB or BT.2020.
 
-    Pipeline: WB'd Camera RGB -> XYZ -> sRGB/BT.2020
-
-    The cam_to_xyz matrix (from rawpy.rgb_xyz_matrix) is actually XYZ->Camera
-    (despite the variable name). It does NOT include white balance.
-    WB applied at CFA level acts as chromatic adaptation, so the color matrix
-    is applied directly to WB'd data — no need to undo/redo WB.
+    Uses dcraw's approach: build sRGB→Camera forward matrix, row-normalize
+    in camera space, then invert to get Camera→sRGB.
 
     Args:
         rgb: (H, W, 3) linear camera RGB (white-balanced)
-        cam_to_xyz: (3, 3) from rawpy.rgb_xyz_matrix — actually maps XYZ -> Camera (no WB)
+        xyz_to_cam: (3, 3) from rawpy.rgb_xyz_matrix — maps XYZ -> Camera (no WB)
         to_bt2020: if True, output BT.2020; if False, output sRGB
 
     Returns:
@@ -53,23 +49,36 @@ def apply_color_correction(rgb: np.ndarray, cam_to_xyz: np.ndarray = None,
     h, w, _ = rgb.shape
     rgb_flat = rgb.reshape(-1, 3)
 
-    target_from_xyz = XYZ_TO_BT2020 if to_bt2020 else XYZ_TO_SRGB
+    if xyz_to_cam is not None:
+        # dcraw approach: normalize in forward direction, then invert
+        # Step 1: sRGB→XYZ→Camera = sRGB→Camera (forward matrix)
+        srgb_to_xyz = np.linalg.inv(XYZ_TO_SRGB.astype(np.float64))
+        srgb_to_cam = xyz_to_cam.astype(np.float64) @ srgb_to_xyz
+        print(f"  Color correction: xyz_to_cam diag=[{xyz_to_cam[0,0]:.3f}, {xyz_to_cam[1,1]:.3f}, {xyz_to_cam[2,2]:.3f}]")
 
-    if cam_to_xyz is not None:
-        # cam_to_xyz is actually xyz_to_cam: maps XYZ -> camera RGB (no WB)
-        cam_to_xyz_inv = np.linalg.inv(cam_to_xyz)  # camera -> XYZ
+        # Step 2: Row-normalize per camera channel (dcraw convention)
+        # Ensures sRGB white [1,1,1] → camera neutral [1,1,1]
+        row_sums = srgb_to_cam.sum(axis=1, keepdims=True)
+        srgb_to_cam = srgb_to_cam / row_sums
 
-        # WB at CFA level acts as diagonal chromatic adaptation,
-        # so apply the color matrix directly to WB'd data
-        combined = target_from_xyz @ cam_to_xyz_inv
+        # Step 3: Invert to get Camera→sRGB
+        cam_to_srgb = np.linalg.inv(srgb_to_cam).astype(np.float32)
 
-        # Normalize each row to sum to 1 (same as dcraw).
-        # This ensures WB'd neutral [1,1,1] maps to [1,1,1] in output.
-        row_sums = combined.sum(axis=1, keepdims=True)
-        combined = combined / row_sums
+        # Step 4: For BT.2020, chain Camera→sRGB→BT.2020
+        if to_bt2020:
+            SRGB_TO_BT2020 = np.array([
+                [0.6274039,  0.3292830,  0.0433131],
+                [0.0690973,  0.9195404,  0.0113623],
+                [0.0163914,  0.0880133,  0.8955953]
+            ], dtype=np.float32)
+            combined = SRGB_TO_BT2020 @ cam_to_srgb
+        else:
+            combined = cam_to_srgb
 
+        print(f"  combined matrix:\n{combined}")
         result_full = rgb_flat @ combined.T
     else:
+        print("  Color correction: NO matrix (xyz_to_cam is None)")
         # Fallback when no camera matrix available: assume camera RGB ~ sRGB
         if to_bt2020:
             SRGB_TO_BT2020 = np.array([
@@ -121,6 +130,82 @@ def linear_to_hlg(E: np.ndarray) -> np.ndarray:
     return np.where(E <= 1/12, np.sqrt(3 * E), a * np.log(np.maximum(12 * E - b, 1e-10)) + c)
 
 
+def reconstruct_highlights_cfa(cfa_norm: np.ndarray, raw_pattern: np.ndarray) -> np.ndarray:
+    """LCh highlight reconstruction on CFA data (darktable's X-Trans method).
+
+    For each pixel near clipping, samples a 3x3 neighborhood to get approximate
+    per-channel RGB using max (unclamped) and clamped mean. Applies LCh chromaticity
+    rescaling: luminance from max, chromaticity from clamped mean. Writes back
+    only the single CFA channel for each pixel position.
+
+    Operates in raw sensor space (before WB) where clip = 1.0 for all channels.
+    """
+    h, w = cfa_norm.shape
+    clip = 1.0
+    SQRT3 = np.sqrt(3.0)
+    SQRT12 = 2.0 * SQRT3
+    kernel = np.ones((3, 3), dtype=np.uint8)
+
+    if cfa_norm.max() < clip:
+        return cfa_norm
+
+    # Detect regions with clipping in 3x3 neighborhood
+    is_clipped = (cfa_norm >= clip).astype(np.float32)
+    near_clip = cv2.dilate(is_clipped, kernel) > 0
+
+    # Per-channel max and clamped mean in 3x3
+    rgb_max = np.empty((h, w, 3), dtype=np.float32)
+    rgb_cmean = np.empty((h, w, 3), dtype=np.float32)
+    cfa_clamped = np.minimum(cfa_norm, clip)
+
+    for c in range(3):
+        ch_mask = (raw_pattern == c).astype(np.float32)
+
+        # Max per channel via dilation (3x3 max filter)
+        vals_max = np.where(raw_pattern == c, cfa_norm, -1.0).astype(np.float32)
+        rgb_max[..., c] = cv2.dilate(vals_max, kernel)
+
+        # Clamped mean per channel
+        clamped_ch = cfa_clamped * ch_mask
+        val_sum = cv2.boxFilter(clamped_ch, -1, (3, 3), normalize=False,
+                                borderType=cv2.BORDER_REFLECT)
+        cnt_sum = cv2.boxFilter(ch_mask, -1, (3, 3), normalize=False,
+                                borderType=cv2.BORDER_REFLECT)
+        rgb_cmean[..., c] = np.where(cnt_sum > 0,
+                                      np.minimum(val_sum / cnt_sum, clip), 0)
+
+    R, G, B = rgb_max[..., 0], rgb_max[..., 1], rgb_max[..., 2]
+    Ro, Go, Bo = rgb_cmean[..., 0], rgb_cmean[..., 1], rgb_cmean[..., 2]
+
+    L = (R + G + B) / 3.0
+    C = SQRT3 * (R - G)
+    H = 2.0 * B - G - R
+    Co = SQRT3 * (Ro - Go)
+    Ho = 2.0 * Bo - Go - Ro
+
+    denom = C * C + H * H
+    numer = Co * Co + Ho * Ho
+    needs_ratio = (denom > 1e-20) & (np.abs(R - G) > 1e-10) & (np.abs(G - B) > 1e-10)
+    ratio = np.where(needs_ratio, np.sqrt(numer / (denom + 1e-20)), 1.0)
+    C *= ratio
+    H *= ratio
+
+    recon = np.stack([
+        L - H / 6.0 + C / SQRT12,
+        L - H / 6.0 - C / SQRT12,
+        L + H / 3.0,
+    ], axis=-1)
+
+    out = cfa_norm.copy()
+    for c in range(3):
+        mask = near_clip & (raw_pattern == c)
+        out[mask] = recon[..., c][mask]
+
+    n_affected = int(near_clip.sum())
+    print(f"  Highlights: {n_affected:,} pixels reconstructed")
+    return out
+
+
 def process_raf(raf_path: str, model: torch.nn.Module, device: str,
                 patch_size: int = 288, overlap: int = 48,
                 apply_wb_to_cfa: bool = True) -> tuple[np.ndarray, dict]:
@@ -136,8 +221,8 @@ def process_raf(raf_path: str, model: torch.nn.Module, device: str,
     wb = np.array(raw.camera_whitebalance[:3], dtype=np.float32)
     wb = wb / wb[1]
 
-    # Camera RGB to XYZ matrix
-    cam_to_xyz = np.array(raw.rgb_xyz_matrix[:3, :3], dtype=np.float32)
+    # XYZ to Camera matrix (rawpy's rgb_xyz_matrix is actually XYZ→Camera)
+    xyz_to_cam = np.array(raw.rgb_xyz_matrix[:3, :3], dtype=np.float32)
 
     # EXIF orientation
     exif_flip = raw.sizes.flip
@@ -147,6 +232,9 @@ def process_raf(raf_path: str, model: torch.nn.Module, device: str,
     dy, dx = find_pattern_shift(raw_pattern)
     pad_top = (6 - dy) % 6
     pad_left = (6 - dx) % 6
+
+    # LCh highlight reconstruction at CFA level (before WB, clip = 1.0)
+    cfa_norm = reconstruct_highlights_cfa(cfa_norm, raw_pattern)
 
     # Apply WB to CFA before model (each pixel multiplied by its channel's WB)
     if apply_wb_to_cfa:
@@ -225,17 +313,18 @@ def process_raf(raf_path: str, model: torch.nn.Module, device: str,
         confidence_map = np.sqrt(var_crop.mean(axis=0))  # per-pixel RMSD across tiles
 
     rgb = rgb.transpose(1, 2, 0)
+
     # If WB not applied to CFA, apply it after demosaic (legacy checkpoints)
     if not apply_wb_to_cfa:
         rgb = rgb * wb
     raw.close()
     
-    return rgb, {"wb": wb, "cam_to_xyz": cam_to_xyz, "exif_flip": exif_flip,
+    return rgb, {"wb": wb, "xyz_to_cam": xyz_to_cam, "exif_flip": exif_flip,
                   "confidence_map": confidence_map}
 
 
 def save_hdr_avif(rgb: np.ndarray, output_path: str, quality: int = 90,
-                  cam_to_xyz: np.ndarray = None, exif_flip: int = 0,
+                  xyz_to_cam: np.ndarray = None, exif_flip: int = 0,
                   wb: np.ndarray = None, apply_color: bool = True):
     # Apply white balance with shadow rolloff
     # In very dark areas, reduce WB strength to avoid noise amplification
@@ -249,8 +338,9 @@ def save_hdr_avif(rgb: np.ndarray, output_path: str, quality: int = 90,
         rgb = rgb * effective_wb
     
     # Apply color correction: camera RGB -> XYZ -> BT.2020
+    print(f"  save_hdr_avif: xyz_to_cam is None = {xyz_to_cam is None}, apply_color = {apply_color}")
     if apply_color:
-        rgb = apply_color_correction(rgb, cam_to_xyz=cam_to_xyz, to_bt2020=True)
+        rgb = apply_color_correction(rgb, xyz_to_cam=xyz_to_cam, to_bt2020=True)
         rgb = np.maximum(rgb, 0)  # Clip negative values from matrix math
     
     # Apply EXIF rotation
@@ -311,8 +401,8 @@ def main():
             rgb, meta = process_raf(str(raf), model, device, args.patch_size, args.overlap,
                                     apply_wb_to_cfa=wb_cfa)
             exif_flip = meta.get("exif_flip", 0)
-            cam_to_xyz = meta.get("cam_to_xyz")
-            save_hdr_avif(rgb, str(out_path), args.quality, cam_to_xyz, exif_flip,
+            xyz_to_cam = meta.get("xyz_to_cam")
+            save_hdr_avif(rgb, str(out_path), args.quality, xyz_to_cam, exif_flip,
                          None, not args.no_color)
     else:
         input_path = Path(args.input)
@@ -322,8 +412,8 @@ def main():
         rgb, meta = process_raf(str(input_path), model, device, args.patch_size, args.overlap,
                                 apply_wb_to_cfa=wb_cfa)
         exif_flip = meta.get("exif_flip", 0)
-        cam_to_xyz = meta.get("cam_to_xyz")
-        save_hdr_avif(rgb, str(output_path), args.quality, cam_to_xyz, exif_flip,
+        xyz_to_cam = meta.get("xyz_to_cam")
+        save_hdr_avif(rgb, str(output_path), args.quality, xyz_to_cam, exif_flip,
                      None, not args.no_color)
         print(f"Saved: {output_path}")
 
