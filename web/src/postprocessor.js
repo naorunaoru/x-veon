@@ -117,28 +117,35 @@ function mul3x3(a, b) {
 }
 
 /**
- * Compute the combined camera-to-sRGB color correction matrix.
+ * Compute the camera-to-sRGB color correction matrix using dcraw's approach.
+ *
+ * Builds sRGB→Camera forward matrix, row-normalizes in camera space,
+ * then inverts to get Camera→sRGB.
  *
  * @param {Float32Array} xyzToCam - 3x3 XYZ->Camera matrix (row-major, 9 floats)
- * @returns {Float32Array} 3x3 row-normalized combined matrix
+ * @returns {Float32Array} 3x3 Camera→sRGB matrix
  */
 export function buildColorMatrix(xyzToCam) {
-  const camToXyz = invert3x3(xyzToCam);
-  const combined = mul3x3(new Float32Array(XYZ_TO_SRGB), camToXyz);
+  // Step 1: sRGB→XYZ→Camera = sRGB→Camera (forward matrix)
+  const srgbToXyz = invert3x3(new Float32Array(XYZ_TO_SRGB));
+  const srgbToCam = mul3x3(new Float32Array(xyzToCam), srgbToXyz);
 
-  // Row-normalize (same as dcraw): ensures WB'd [1,1,1] -> [1,1,1]
+  // Step 2: Row-normalize per camera channel (dcraw convention)
+  // Ensures sRGB white [1,1,1] → camera neutral [1,1,1]
   for (let i = 0; i < 3; i++) {
-    const sum = combined[i * 3] + combined[i * 3 + 1] + combined[i * 3 + 2];
-    combined[i * 3] /= sum;
-    combined[i * 3 + 1] /= sum;
-    combined[i * 3 + 2] /= sum;
+    const sum = srgbToCam[i * 3] + srgbToCam[i * 3 + 1] + srgbToCam[i * 3 + 2];
+    srgbToCam[i * 3] /= sum;
+    srgbToCam[i * 3 + 1] /= sum;
+    srgbToCam[i * 3 + 2] /= sum;
   }
 
-  return combined;
+  // Step 3: Invert to get Camera→sRGB
+  return invert3x3(srgbToCam);
 }
 
 /**
  * Apply color correction matrix to HWC image data (in-place).
+ * Blends towards identity in highlights to avoid color cast from clipped sensors.
  * Also clamps negative values to 0.
  *
  * @param {Float32Array} hwc - Image in HWC layout [H*W*3]
@@ -146,12 +153,25 @@ export function buildColorMatrix(xyzToCam) {
  * @param {Float32Array} matrix - 3x3 color correction matrix (row-major)
  */
 export function applyColorCorrection(hwc, numPixels, matrix) {
+  const blendLo = 0.8, blendHi = 1.5;
+  const blendRange = blendHi - blendLo;
+
   for (let i = 0; i < numPixels; i++) {
     const idx = i * 3;
     const r = hwc[idx], g = hwc[idx + 1], b = hwc[idx + 2];
-    hwc[idx]     = Math.max(0, matrix[0] * r + matrix[1] * g + matrix[2] * b);
-    hwc[idx + 1] = Math.max(0, matrix[3] * r + matrix[4] * g + matrix[5] * b);
-    hwc[idx + 2] = Math.max(0, matrix[6] * r + matrix[7] * g + matrix[8] * b);
+
+    // Full camera→sRGB correction
+    const fr = matrix[0] * r + matrix[1] * g + matrix[2] * b;
+    const fg = matrix[3] * r + matrix[4] * g + matrix[5] * b;
+    const fb = matrix[6] * r + matrix[7] * g + matrix[8] * b;
+
+    // Blend towards identity (no cam correction) for highlights
+    const maxCh = Math.max(r, g, b);
+    const alpha = Math.min(1, Math.max(0, (maxCh - blendLo) / blendRange));
+
+    hwc[idx]     = Math.max(0, fr + alpha * (r - fr));
+    hwc[idx + 1] = Math.max(0, fg + alpha * (g - fg));
+    hwc[idx + 2] = Math.max(0, fb + alpha * (b - fb));
   }
 }
 

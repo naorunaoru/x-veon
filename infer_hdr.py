@@ -54,7 +54,6 @@ def apply_color_correction(rgb: np.ndarray, xyz_to_cam: np.ndarray = None,
         # Step 1: sRGB→XYZ→Camera = sRGB→Camera (forward matrix)
         srgb_to_xyz = np.linalg.inv(XYZ_TO_SRGB.astype(np.float64))
         srgb_to_cam = xyz_to_cam.astype(np.float64) @ srgb_to_xyz
-        print(f"  Color correction: xyz_to_cam diag=[{xyz_to_cam[0,0]:.3f}, {xyz_to_cam[1,1]:.3f}, {xyz_to_cam[2,2]:.3f}]")
 
         # Step 2: Row-normalize per camera channel (dcraw convention)
         # Ensures sRGB white [1,1,1] → camera neutral [1,1,1]
@@ -65,20 +64,28 @@ def apply_color_correction(rgb: np.ndarray, xyz_to_cam: np.ndarray = None,
         cam_to_srgb = np.linalg.inv(srgb_to_cam).astype(np.float32)
 
         # Step 4: For BT.2020, chain Camera→sRGB→BT.2020
+        SRGB_TO_BT2020 = np.array([
+            [0.6274039,  0.3292830,  0.0433131],
+            [0.0690973,  0.9195404,  0.0113623],
+            [0.0163914,  0.0880133,  0.8955953]
+        ], dtype=np.float32)
+
         if to_bt2020:
-            SRGB_TO_BT2020 = np.array([
-                [0.6274039,  0.3292830,  0.0433131],
-                [0.0690973,  0.9195404,  0.0113623],
-                [0.0163914,  0.0880133,  0.8955953]
-            ], dtype=np.float32)
             combined = SRGB_TO_BT2020 @ cam_to_srgb
+            simple = SRGB_TO_BT2020  # fallback for highlights (no cam correction)
         else:
             combined = cam_to_srgb
+            simple = np.eye(3, dtype=np.float32)
 
-        print(f"  combined matrix:\n{combined}")
+        # Blend towards simple matrix in highlights to avoid color cast from clipping
+        max_ch = np.max(rgb_flat, axis=1, keepdims=True)
+        blend_lo, blend_hi = 0.8, 1.5
+        alpha = np.clip((max_ch - blend_lo) / (blend_hi - blend_lo), 0, 1)
+
         result_full = rgb_flat @ combined.T
+        result_simple = rgb_flat @ simple.T
+        result_full = (1 - alpha) * result_full + alpha * result_simple
     else:
-        print("  Color correction: NO matrix (xyz_to_cam is None)")
         # Fallback when no camera matrix available: assume camera RGB ~ sRGB
         if to_bt2020:
             SRGB_TO_BT2020 = np.array([
@@ -234,7 +241,7 @@ def process_raf(raf_path: str, model: torch.nn.Module, device: str,
     pad_left = (6 - dx) % 6
 
     # LCh highlight reconstruction at CFA level (before WB, clip = 1.0)
-    cfa_norm = reconstruct_highlights_cfa(cfa_norm, raw_pattern)
+    # cfa_norm = reconstruct_highlights_cfa(cfa_norm, raw_pattern)
 
     # Apply WB to CFA before model (each pixel multiplied by its channel's WB)
     if apply_wb_to_cfa:
@@ -337,8 +344,7 @@ def save_hdr_avif(rgb: np.ndarray, output_path: str, quality: int = 90,
         effective_wb = blend * wb + (1 - blend) * 1.0
         rgb = rgb * effective_wb
     
-    # Apply color correction: camera RGB -> XYZ -> BT.2020
-    print(f"  save_hdr_avif: xyz_to_cam is None = {xyz_to_cam is None}, apply_color = {apply_color}")
+    # Apply color correction: camera RGB -> sRGB -> BT.2020
     if apply_color:
         rgb = apply_color_correction(rgb, xyz_to_cam=xyz_to_cam, to_bt2020=True)
         rgb = np.maximum(rgb, 0)  # Clip negative values from matrix math
