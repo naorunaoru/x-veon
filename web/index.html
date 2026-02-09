@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>X-Trans Demosaic (WebGPU)</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>X-Trans Demosaic</h1>
+    <p id="status">Loading model and WASM&hellip;</p>
+  </header>
+
+  <div id="drop-zone">
+    <p>Drop a Fujifilm RAF file here</p>
+    <label class="file-label">
+      or choose file
+      <input type="file" id="file-input" accept=".raf,.RAF" hidden>
+    </label>
+  </div>
+
+  <div id="progress-container" hidden>
+    <div id="progress-bar"></div>
+    <span id="progress-text"></span>
+  </div>
+
+  <canvas id="output"></canvas>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
