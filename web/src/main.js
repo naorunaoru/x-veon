@@ -21,7 +21,7 @@ import {
 } from './postprocessor.js';
 import {
   initCanvas, isHdrSupported,
-  renderToCanvas, exportCanvasAsAvif,
+  renderToCanvas, exportCanvas,
   showProgress, updateProgress, setStatus,
   showDownloadButton, hideDownloadButton,
 } from './display.js';
@@ -52,7 +52,7 @@ async function init() {
   setStatus(`Ready. Drop a RAF file. (inference: ${backend}${hdr})`);
 }
 
-async function processFile(arrayBuffer) {
+async function processFile(arrayBuffer, baseName) {
   if (!ready) return;
   ready = false; // prevent concurrent runs
 
@@ -153,8 +153,8 @@ async function processFile(arrayBuffer) {
       setStatus(`${statusBase} \u2014 Encoding HDR AVIF\u2026`);
 
       try {
-        const blob = await exportCanvasAsAvif();
-        const filename = `${raw.model || 'photo'}_hdr.avif`;
+        const { blob, ext } = await exportCanvas();
+        const filename = `${baseName || raw.model || 'photo'}_hdr.${ext}`;
         showDownloadButton(blob, filename);
         setStatus(statusBase);
       } catch (err) {
@@ -194,7 +194,8 @@ function handleFile(file) {
     setStatus('Please drop a Fujifilm .RAF file.');
     return;
   }
-  file.arrayBuffer().then(processFile);
+  const baseName = file.name.replace(/\.[^.]+$/, '');
+  file.arrayBuffer().then(buf => processFile(buf, baseName));
 }
 
 document.addEventListener('DOMContentLoaded', () => {

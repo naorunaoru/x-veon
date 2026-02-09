@@ -38,12 +38,20 @@ export function renderToCanvas(imageData) {
 }
 
 /**
- * Export the current canvas content as an AVIF blob.
+ * Export the current canvas content, preferring AVIF, falling back to PNG.
+ * Returns { blob, ext } where ext is 'avif' or 'png'.
  */
-export function exportCanvasAsAvif() {
+export function exportCanvas() {
   return new Promise((resolve, reject) => {
     canvasEl().toBlob(
-      (blob) => blob ? resolve(blob) : reject(new Error('toBlob returned null')),
+      (blob) => {
+        if (!blob) return reject(new Error('toBlob returned null'));
+        const ext = blob.type === 'image/avif' ? 'avif' : 'png';
+        if (ext !== 'avif') {
+          console.warn(`AVIF encoding not supported, got ${blob.type}`);
+        }
+        resolve({ blob, ext });
+      },
       'image/avif',
       0.9,
     );
