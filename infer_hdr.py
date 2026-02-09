@@ -42,9 +42,6 @@ def apply_color_correction(rgb: np.ndarray, cam_to_xyz: np.ndarray = None,
     WB applied at CFA level acts as chromatic adaptation, so the color matrix
     is applied directly to WB'd data — no need to undo/redo WB.
 
-    For highlights (luminance > threshold), blends towards identity matrix
-    to prevent color shifts in blown areas.
-
     Args:
         rgb: (H, W, 3) linear camera RGB (white-balanced)
         cam_to_xyz: (3, 3) from rawpy.rgb_xyz_matrix — actually maps XYZ -> Camera (no WB)
@@ -84,18 +81,7 @@ def apply_color_correction(rgb: np.ndarray, cam_to_xyz: np.ndarray = None,
         else:
             result_full = rgb_flat
 
-    # For highlights, blend towards identity (no color change)
-    # This keeps blown highlights neutral
-    lum = 0.2126 * rgb_flat[:, 0] + 0.7152 * rgb_flat[:, 1] + 0.0722 * rgb_flat[:, 2]
-    highlight_start = 0.7
-    highlight_end = 1.0
-    blend = np.clip((lum - highlight_start) / (highlight_end - highlight_start), 0, 1)
-    blend = blend[:, np.newaxis]
-
-    # Blend: full matrix for shadows/midtones, identity for highlights
-    result = result_full * (1 - blend) + rgb_flat * blend
-
-    return result.reshape(h, w, 3)
+    return result_full.reshape(h, w, 3)
 
 
 def apply_exif_rotation(img: np.ndarray, flip: int) -> np.ndarray:
@@ -258,7 +244,7 @@ def save_hdr_avif(rgb: np.ndarray, output_path: str, quality: int = 90,
     # Apply EXIF rotation
     if exif_flip != 0:
         rgb = apply_exif_rotation(rgb, exif_flip)
-    
+
     hlg = linear_to_hlg(rgb)
     hlg_u16 = (np.clip(hlg, 0, 1) * 65535).astype(np.uint16)
     bgr_u16 = hlg_u16[:, :, ::-1]
