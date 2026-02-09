@@ -15,5 +15,12 @@ export const XYZ_TO_SRGB = [
    0.0556434, -0.2040259,  1.0572252,
 ];
 
+// sRGB to BT.2020 (precomputed: XYZ_TO_BT2020 @ inv(XYZ_TO_SRGB))
+export const SRGB_TO_BT2020 = [
+  0.6274039,  0.3292830,  0.0433131,
+  0.0690973,  0.9195404,  0.0113623,
+  0.0163914,  0.0880133,  0.8955953,
+];
+
 export const PATCH_SIZE = 288;
 export const OVERLAP = 48;

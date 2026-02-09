@@ -65,3 +65,17 @@ h1 { font-size: 1.4rem; font-weight: 600; }
   display: none;
 }
 #output.visible { display: block; }
+
+#download-link {
+  display: inline-block;
+  margin-top: 1rem;
+  padding: 0.6rem 1.2rem;
+  background: #2a6;
+  color: #fff;
+  border-radius: 6px;
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 0.9rem;
+  transition: background 0.15s;
+}
+#download-link:hover { background: #3b7; }

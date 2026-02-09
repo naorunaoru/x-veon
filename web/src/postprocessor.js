@@ -94,7 +94,7 @@ export function cropToHWC(output, hPad, wPad, padTop, padLeft, hOrig, wOrig) {
 
 // --- 3x3 matrix utilities ---
 
-function invert3x3(m) {
+export function invert3x3(m) {
   const [a, b, c, d, e, f, g, h, i] = m;
   const det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
   const inv = 1 / det;
@@ -105,7 +105,7 @@ function invert3x3(m) {
   ]);
 }
 
-function mul3x3(a, b) {
+export function mul3x3(a, b) {
   const r = new Float32Array(9);
   for (let i = 0; i < 3; i++) {
     for (let j = 0; j < 3; j++) {

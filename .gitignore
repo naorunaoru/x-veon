@@ -101,3 +101,5 @@ checkpoints_*
 logs
 test_rafs
 data/*
+
+web/node_modules

@@ -19,13 +19,21 @@ import {
   applyExifRotation,
   toImageData,
 } from './postprocessor.js';
-import { renderToCanvas, showProgress, updateProgress, setStatus } from './display.js';
+import {
+  initCanvas, isHdrSupported,
+  renderToCanvas, exportCanvasAsAvif,
+  showProgress, updateProgress, setStatus,
+  showDownloadButton, hideDownloadButton,
+} from './display.js';
+import { processHdr } from './hdr-encoder.js';
 import { PATCH_SIZE, OVERLAP } from './constants.js';
 
 let ready = false;
 
 async function init() {
   setStatus('Loading WASM decoder and ONNX model\u2026');
+
+  initCanvas();
 
   try {
     await Promise.all([
@@ -40,12 +48,15 @@ async function init() {
 
   ready = true;
   const backend = getBackend();
-  setStatus(`Ready. Drop a RAF file. (inference: ${backend})`);
+  const hdr = isHdrSupported() ? ', HDR' : '';
+  setStatus(`Ready. Drop a RAF file. (inference: ${backend}${hdr})`);
 }
 
 async function processFile(arrayBuffer) {
   if (!ready) return;
   ready = false; // prevent concurrent runs
+
+  hideDownloadButton();
 
   try {
     // 1. Decode RAF
@@ -86,19 +97,19 @@ async function processFile(arrayBuffer) {
     // 7. Apply white balance
     applyWhiteBalance(cfa, visible.width, visible.height, wb, dy, dx);
 
-    // 7. Pad for alignment
+    // 8. Pad for alignment
     const padded = padToAlignment(cfa, visible.width, visible.height, dy, dx);
 
-    // 8. Tile
+    // 9. Tile
     const { tiles, paddedCfa, hPad, wPad } = generateTiles(
       padded.data, padded.width, padded.height, PATCH_SIZE, OVERLAP
     );
     console.log(`  Tiles: ${tiles.length} (${PATCH_SIZE}px, overlap ${OVERLAP}px)`);
 
-    // 7. Precompute masks
+    // 10. Precompute masks
     const masks = makeChannelMasks(PATCH_SIZE);
 
-    // 8. Inference
+    // 11. Inference
     setStatus(`Running inference (${tiles.length} tiles)\u2026`);
     showProgress(true);
     const tileOutputs = [];
@@ -115,39 +126,57 @@ async function processFile(arrayBuffer) {
     const inferTime = ((Date.now() - startTime) / 1000).toFixed(1);
     showProgress(false);
 
-    // 9. Blend tiles
+    // 12. Blend tiles
     setStatus('Blending tiles\u2026');
     const blended = blendTiles(tileOutputs, tiles, hPad, wPad, PATCH_SIZE, OVERLAP);
 
-    // 10. Crop to original size (also converts CHW -> HWC)
+    // 13. Crop to original size (also converts CHW -> HWC)
     const hwc = cropToHWC(
       blended, hPad, wPad, padded.padTop, padded.padLeft, visible.height, visible.width
     );
 
-    // 11. Color correction
-    setStatus('Applying color correction\u2026');
-    // xyz_to_cam from rawloader is already 3x3 (9 floats)
+    // 14. Color correction + display
     const xyzToCam3x3 = raw.xyzToCam.length >= 9
       ? raw.xyzToCam.slice(0, 9)
       : null;
+    const numPixels = visible.width * visible.height;
 
-    if (xyzToCam3x3) {
-      const colorMatrix = buildColorMatrix(xyzToCam3x3);
-      applyColorCorrection(hwc, visible.width * visible.height, colorMatrix);
+    if (isHdrSupported()) {
+      // HDR path: BT.2020 color correction → HLG → HDR canvas
+      setStatus('Applying HDR color correction\u2026');
+      const hdrImageData = processHdr(hwc, numPixels, xyzToCam3x3, visible.width, visible.height, raw.orientation);
+      renderToCanvas(hdrImageData);
+
+      const statusBase =
+        `${raw.make} ${raw.model} \u2014 ${hdrImageData.width}\u00d7${hdrImageData.height} \u2014 ` +
+        `${tiles.length} tiles in ${inferTime}s (${getBackend()})`;
+      setStatus(`${statusBase} \u2014 Encoding HDR AVIF\u2026`);
+
+      try {
+        const blob = await exportCanvasAsAvif();
+        const filename = `${raw.model || 'photo'}_hdr.avif`;
+        showDownloadButton(blob, filename);
+        setStatus(statusBase);
+      } catch (err) {
+        console.error('AVIF export failed:', err);
+        setStatus(statusBase);
+      }
+    } else {
+      // sRGB fallback
+      setStatus('Applying color correction\u2026');
+      if (xyzToCam3x3) {
+        const colorMatrix = buildColorMatrix(xyzToCam3x3);
+        applyColorCorrection(hwc, numPixels, colorMatrix);
+      }
+      const rotated = applyExifRotation(hwc, visible.width, visible.height, raw.orientation);
+      const imageData = toImageData(rotated.data, rotated.width, rotated.height);
+      renderToCanvas(imageData);
+
+      setStatus(
+        `${raw.make} ${raw.model} \u2014 ${rotated.width}\u00d7${rotated.height} \u2014 ` +
+        `${tiles.length} tiles in ${inferTime}s (${getBackend()})`
+      );
     }
-
-    // 12. EXIF rotation
-    const rotated = applyExifRotation(hwc, visible.width, visible.height, raw.orientation);
-
-    // 13. Display
-    setStatus('Rendering\u2026');
-    const imageData = toImageData(rotated.data, rotated.width, rotated.height);
-    renderToCanvas(imageData);
-
-    setStatus(
-      `${raw.make} ${raw.model} \u2014 ${rotated.width}\u00d7${rotated.height} \u2014 ` +
-      `${tiles.length} tiles in ${inferTime}s (${getBackend()})`
-    );
   } catch (e) {
     setStatus(`Error: ${e.message}`);
     console.error(e);
