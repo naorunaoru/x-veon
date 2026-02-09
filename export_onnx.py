@@ -101,7 +101,7 @@ def verify(checkpoint_path: str, onnx_path: str, patch_size: int = 288):
 def main():
     parser = argparse.ArgumentParser(description="Export XTransUNet to ONNX")
     parser.add_argument("--checkpoint", default="checkpoints_v5.1/best.pt")
-    parser.add_argument("--output", default="web/model.onnx")
+    parser.add_argument("--output", default="web/public/model.onnx")
     parser.add_argument("--patch-size", type=int, default=288)
     parser.add_argument("--opset", type=int, default=17)
     parser.add_argument("--fp16", action="store_true", help="Convert weights to float16")
