@@ -86,6 +86,11 @@ class XTransUNet(nn.Module):
         self.out_conv = nn.Conv2d(64, out_channels, 1)
 
     def forward(self, x):
+        # Global residual: CFA broadcast as baseline for all 3 channels.
+        # Model learns color deltas, not absolute values → exposure-agnostic.
+        cfa = x[:, 0:1]  # (B, 1, H, W)
+        baseline = cfa.expand(-1, 3, -1, -1)  # (B, 3, H, W)
+
         # Encoder
         e1 = self.enc1(x)   # 64, H, W
         e2 = self.enc2(e1)  # 128, H/2, W/2
@@ -101,7 +106,7 @@ class XTransUNet(nn.Module):
         d2 = self.dec2(d3, e2)  # 128, H/2, W/2
         d1 = self.dec1(d2, e1)  # 64, H, W
 
-        return self.out_conv(d1)  # 3, H, W
+        return baseline + self.out_conv(d1)  # 3, H, W
 
 
 def count_parameters(model: nn.Module) -> int:

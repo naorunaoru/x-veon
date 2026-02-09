@@ -21,7 +21,7 @@ import numpy as np
 import torch
 
 from model import XTransUNet
-from infer_hdr import process_raf, save_hdr_avif
+from infer_hdr import apply_exif_rotation, process_raf, save_hdr_avif
 
 
 # Global state
@@ -178,40 +178,68 @@ def load_model(checkpoint_path: str):
     return _model, _device
 
 
+def make_confidence_heatmap(confidence_map: np.ndarray, exif_flip: int = 0) -> tuple[np.ndarray, str]:
+    """Convert confidence map to a colored heatmap image and stats string."""
+    if exif_flip != 0:
+        confidence_map = apply_exif_rotation(confidence_map, exif_flip)
+
+    p99 = np.percentile(confidence_map, 99)
+    normalized = np.clip(confidence_map / max(p99, 1e-8), 0, 1)
+
+    cmap = plt.cm.inferno
+    heatmap = (cmap(normalized)[:, :, :3] * 255).astype(np.uint8)
+
+    mean_val = confidence_map.mean()
+    max_val = confidence_map.max()
+    high_pct = (confidence_map > p99).mean() * 100
+    stats = f"mean={mean_val:.4f} | max={max_val:.4f} | p99={p99:.4f} | >{p99:.4f}: {high_pct:.1f}%"
+
+    return heatmap, stats
+
+
 def run_inference(
     raf_file,
     checkpoint: str,
+    overlap: int = 48,
     progress=gr.Progress(track_tqdm=True),
-) -> tuple[str, str, str]:
+) -> tuple[str, str, str, np.ndarray | None, str]:
     """Process RAF file and return HDR AVIF."""
-    
+
     if raf_file is None:
         raise gr.Error("Please upload a RAF file")
-    
+
     if not checkpoint:
         raise gr.Error("Please select a checkpoint")
-    
+
     progress(0.1, desc="Loading model...")
     model, device = load_model(checkpoint)
-    
-    progress(0.2, desc="Processing RAF (this takes 30-60s)...")
+
+    patch_size = 288
+    stride = patch_size - overlap
+    progress(0.2, desc=f"Demosaicing (overlap={overlap}, stride={stride})...")
     raf_path = raf_file.name if hasattr(raf_file, 'name') else raf_file
     raf_name = Path(raf_path).stem
-    
-    rgb_linear, meta = process_raf(raf_path, model, str(device), patch_size=288, overlap=48)
-    
+
+    rgb_linear, meta = process_raf(raf_path, model, str(device), patch_size=patch_size, overlap=overlap)
+
     progress(0.9, desc="Encoding HDR AVIF...")
-    
+
     output_path = tempfile.mktemp(suffix=".avif", prefix=f"{raf_name}_hdr_")
     save_hdr_avif(rgb_linear, output_path, 90, meta.get("cam_to_xyz"), meta.get("exif_flip", 0),
                   None, True)
-    
+
     # Read and base64 encode for HTML display
     with open(output_path, "rb") as f:
         avif_b64 = base64.b64encode(f.read()).decode()
-    
+
+    # Confidence heatmap
+    conf_map = meta.get("confidence_map")
+    heatmap_img, conf_stats = None, ""
+    if conf_map is not None:
+        heatmap_img, conf_stats = make_confidence_heatmap(conf_map, meta.get("exif_flip", 0))
+
     progress(1.0, desc="Done!")
-    
+
     # Status
     h, w = rgb_linear.shape[:2]
     ckpt_name = Path(checkpoint).parent.name + "/" + Path(checkpoint).name
@@ -251,7 +279,7 @@ def run_inference(
     </div>
     '''
     
-    return html, status, output_path
+    return html, status, output_path, heatmap_img, conf_stats
 
 
 def create_ui():
@@ -285,6 +313,12 @@ def create_ui():
                             allow_custom_value=True,
                         )
                         
+                        overlap_slider = gr.Slider(
+                            minimum=0, maximum=264, step=24, value=48,
+                            label="Tile Overlap",
+                            info="Higher = more tiles per pixel, slower but better confidence map",
+                        )
+
                         refresh_btn = gr.Button("🔄 Refresh Checkpoints", size="sm")
                         process_btn = gr.Button("Process", variant="primary")
                         
@@ -293,6 +327,9 @@ def create_ui():
                     
                     with gr.Column(scale=2):
                         output_html = gr.HTML(label="HDR Output")
+                        with gr.Accordion("Tile Confidence Map", open=False):
+                            confidence_img = gr.Image(label="Tile Disagreement (brighter = more uncertainty)")
+                            confidence_stats = gr.Textbox(label="Stats", interactive=False)
                 
                 def refresh_checkpoints():
                     return gr.Dropdown(choices=find_checkpoints())
@@ -301,8 +338,8 @@ def create_ui():
                 
                 process_btn.click(
                     run_inference,
-                    inputs=[raf_input, checkpoint_dropdown],
-                    outputs=[output_html, status_text, output_file],
+                    inputs=[raf_input, checkpoint_dropdown, overlap_slider],
+                    outputs=[output_html, status_text, output_file, confidence_img, confidence_stats],
                 )
             
             # Training history tab

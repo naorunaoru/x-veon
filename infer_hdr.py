@@ -163,6 +163,9 @@ def process_raf(raf_path: str, model: torch.nn.Module, device: str,
     r_mask, g_mask, b_mask = make_channel_masks(patch_size, patch_size)
     masks = torch.cat([r_mask.unsqueeze(0), g_mask.unsqueeze(0), b_mask.unsqueeze(0)], dim=0).to(device)
     
+    confidence_map = None
+    variance = None
+
     if overlap == 0:
         h_pad = ((h_aligned + patch_size - 1) // patch_size) * patch_size
         w_pad = ((w_aligned + patch_size - 1) // patch_size) * patch_size
@@ -193,6 +196,7 @@ def process_raf(raf_path: str, model: torch.nn.Module, device: str,
         blend_weight = np.outer(weight_1d, weight_1d)
         
         output = np.zeros((3, h_pad, w_pad), dtype=np.float32)
+        output_sq = np.zeros((3, h_pad, w_pad), dtype=np.float32)
         weights = np.zeros((h_pad, w_pad), dtype=np.float32)
         
         with torch.no_grad():
@@ -205,21 +209,29 @@ def process_raf(raf_path: str, model: torch.nn.Module, device: str,
                     
                     for c in range(3):
                         output[c, y:y+patch_size, x:x+patch_size] += out[c] * blend_weight
+                        output_sq[c, y:y+patch_size, x:x+patch_size] += out[c]**2 * blend_weight
                     weights[y:y+patch_size, x:x+patch_size] += blend_weight
         
         weights = np.maximum(weights, 1e-8)
         output = output / weights[np.newaxis, :, :]
+        mean_sq = output_sq / weights[np.newaxis, :, :]
+        variance = np.maximum(mean_sq - output**2, 0)
     
     # Crop to original size
     rgb = output[:, pad_top:pad_top+h_raw, pad_left:pad_left+w_raw]
-    
+
+    if variance is not None:
+        var_crop = variance[:, pad_top:pad_top+h_raw, pad_left:pad_left+w_raw]
+        confidence_map = np.sqrt(var_crop.mean(axis=0))  # per-pixel RMSD across tiles
+
     rgb = rgb.transpose(1, 2, 0)
     # If WB not applied to CFA, apply it after demosaic (legacy checkpoints)
     if not apply_wb_to_cfa:
         rgb = rgb * wb
     raw.close()
     
-    return rgb, {"wb": wb, "cam_to_xyz": cam_to_xyz, "exif_flip": exif_flip}
+    return rgb, {"wb": wb, "cam_to_xyz": cam_to_xyz, "exif_flip": exif_flip,
+                  "confidence_map": confidence_map}
 
 
 def save_hdr_avif(rgb: np.ndarray, output_path: str, quality: int = 90,
