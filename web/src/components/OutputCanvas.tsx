@@ -12,7 +12,7 @@ export function OutputCanvas({ result }: OutputCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const setCanvasRef = useAppStore((s) => s.setCanvasRef);
 
-  const { transform, isDragging, handlers } = usePanZoom(
+  const { transform, isDragging, handlers, scale } = usePanZoom(
     containerRef,
     result.imageData.width,
     result.imageData.height,
@@ -53,7 +53,7 @@ export function OutputCanvas({ result }: OutputCanvasProps) {
         style={{
           transformOrigin: '0 0',
           transform,
-          imageRendering: 'auto',
+          imageRendering: scale > 1 ? 'pixelated' : 'auto',
         }}
       />
     </div>
