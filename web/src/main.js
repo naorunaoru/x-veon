@@ -23,7 +23,7 @@ import {
   initCanvas, isHdrSupported,
   renderToCanvas,
   showProgress, updateProgress, setStatus,
-  showDownloadButton, hideDownloadButton,
+  // showDownloadButton, hideDownloadButton,
 } from './display.js';
 import { processHdr } from './hdr-encoder.js';
 import { encodeImage } from './encoder.js';
@@ -58,7 +58,7 @@ async function processFile(arrayBuffer, baseName) {
   if (!ready) return;
   ready = false; // prevent concurrent runs
 
-  hideDownloadButton();
+  // hideDownloadButton();
   currentExport = null;
 
   try {
@@ -218,7 +218,7 @@ async function handleExport() {
 
   setStatus(`Encoding ${format.toUpperCase()}\u2026`);
   exportBtn.disabled = true;
-  hideDownloadButton();
+  // hideDownloadButton();
   showProgress(true, true); // indeterminate mode
 
   try {
