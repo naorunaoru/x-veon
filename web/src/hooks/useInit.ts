@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useAppStore } from '@/store';
 import { initWasm } from '@/pipeline/raf-decoder';
-import { initModel, getBackend } from '@/pipeline/inference';
+import { initModel, getBackend, getModelMeta } from '@/pipeline/inference';
 
 export function useInit() {
   const setInitialized = useAppStore((s) => s.setInitialized);
@@ -27,7 +27,7 @@ export function useInit() {
         const attrs = (ctx as any)?.getContextAttributes?.();
         const hdr = attrs?.colorSpace === 'rec2100-hlg';
 
-        setInitialized(backend, hdr);
+        setInitialized(backend, hdr, getModelMeta());
       } catch (e) {
         if (!cancelled) setInitError((e as Error).message);
       }

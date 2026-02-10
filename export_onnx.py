@@ -2,6 +2,7 @@
 """Export XTransUNet to ONNX for browser inference via ONNX Runtime Web."""
 
 import argparse
+import json
 from pathlib import Path
 
 import numpy as np
@@ -10,6 +11,41 @@ import onnx
 from onnxconverter_common import float16
 
 from model import XTransUNet
+
+
+def _extract_metadata(ckpt: dict) -> dict[str, str]:
+    """Extract metadata from checkpoint as string key-value pairs for ONNX."""
+    meta = {}
+    meta["epoch"] = str(ckpt.get("epoch", ""))
+    meta["best_val_psnr"] = f"{ckpt['best_val_psnr']:.2f}" if "best_val_psnr" in ckpt else ""
+    meta["base_width"] = str(ckpt.get("base_width", ""))
+
+    # Model summary
+    state = ckpt.get("model", {})
+    n_params = sum(v.numel() for v in state.values())
+    meta["param_count"] = str(n_params)
+
+    # Optimizer config
+    opt = ckpt.get("optimizer", {})
+    if "param_groups" in opt and opt["param_groups"]:
+        pg = opt["param_groups"][0]
+        meta["optimizer"] = json.dumps({
+            "type": "AdamW",
+            "lr": pg.get("initial_lr", pg.get("lr")),
+            "weight_decay": pg.get("weight_decay"),
+            "betas": pg.get("betas"),
+        })
+
+    # Scheduler config
+    sched = ckpt.get("scheduler", {})
+    if sched:
+        meta["scheduler"] = json.dumps({
+            "type": "CosineAnnealingLR",
+            "T_max": sched.get("T_max"),
+            "eta_min": sched.get("eta_min"),
+        })
+
+    return {k: v for k, v in meta.items() if v}
 
 
 def export(checkpoint_path: str, output_path: str, patch_size: int = 288, opset: int = 17, fp16: bool = False, base_width: int | None = None):
@@ -38,6 +74,13 @@ def export(checkpoint_path: str, output_path: str, patch_size: int = 288, opset:
     if fp16:
         onnx_model = float16.convert_float_to_float16(onnx_model, keep_io_types=True)
 
+    # Embed checkpoint metadata
+    metadata = _extract_metadata(ckpt)
+    for key, value in metadata.items():
+        entry = onnx_model.metadata_props.add()
+        entry.key = key
+        entry.value = value
+
     # Remove external data file if it exists
     ext_data = Path(output_path + ".data")
     if ext_data.exists():
@@ -47,10 +90,15 @@ def export(checkpoint_path: str, output_path: str, patch_size: int = 288, opset:
     onnx.save(onnx_model, output_path,
               save_as_external_data=False)
 
+    # Write sidecar JSON (onnxruntime-web doesn't expose metadata_props)
+    meta_path = Path(output_path).with_suffix(".meta.json")
+    meta_path.write_text(json.dumps(metadata, indent=2))
+
     size_mb = Path(output_path).stat().st_size / 1024 / 1024
     dtype = "float16" if fp16 else "float32"
     print(f"Exported: {output_path} ({size_mb:.1f} MB, {dtype})")
     print(f"Opset: {opset}, Patch size: {patch_size}x{patch_size}")
+    print(f"Metadata: {meta_path} {metadata}")
 
     return output_path
 

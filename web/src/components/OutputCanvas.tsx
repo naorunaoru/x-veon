@@ -27,9 +27,9 @@ export function OutputCanvas({ result }: OutputCanvasProps) {
     canvas.width = result.imageData.width;
     canvas.height = result.imageData.height;
 
-    // Always request rec2100-hlg; browser degrades gracefully to sRGB
+    // PQ with explicit OOTF avoids browser's variable HLG system gamma
     const ctx = (result.isHdr
-      ? canvas.getContext('2d', { colorSpace: 'rec2100-hlg' as any })
+      ? canvas.getContext('2d', { colorSpace: 'rec2100-pq' as any })
       : canvas.getContext('2d')) as CanvasRenderingContext2D | null;
 
     if (ctx) {

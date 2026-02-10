@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { ExportFormat, ProcessingResult } from './pipeline/types';
+import type { ModelMeta } from './pipeline/inference';
 import { extractRafThumbnail, extractRafQuickMetadata } from './pipeline/raf-thumbnail';
 
 export type FileStatus = 'queued' | 'processing' | 'done' | 'error';
@@ -22,6 +23,7 @@ interface AppState {
   initError: string | null;
   backend: string | null;
   hdrSupported: boolean;
+  modelMeta: ModelMeta;
 
   // File management
   files: QueuedFile[];
@@ -35,7 +37,7 @@ interface AppState {
   canvasRef: HTMLCanvasElement | null;
 
   // Actions
-  setInitialized: (backend: string, hdrSupported: boolean) => void;
+  setInitialized: (backend: string, hdrSupported: boolean, modelMeta: ModelMeta) => void;
   setInitError: (error: string) => void;
   addFiles: (files: File[]) => void;
   removeFile: (id: string) => void;
@@ -53,6 +55,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   initError: null,
   backend: null,
   hdrSupported: false,
+  modelMeta: {},
 
   files: [],
   selectedFileId: null,
@@ -62,8 +65,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   canvasRef: null,
 
-  setInitialized: (backend, hdrSupported) =>
-    set({ initialized: true, backend, hdrSupported }),
+  setInitialized: (backend, hdrSupported, modelMeta) =>
+    set({ initialized: true, backend, hdrSupported, modelMeta }),
 
   setInitError: (error) =>
     set({ initError: error }),

@@ -34,16 +34,41 @@ function applyHdrColorCorrection(
   }
 }
 
-function applyHlgOetf(hwc: Float32Array, numPixels: number): void {
-  const a = 0.17883277;
-  const b = 0.28466892;
-  const c = 0.55991073;
+// ST 2084 (PQ) constants
+const PQ_M1 = 2610 / 16384;
+const PQ_M2 = (2523 / 4096) * 128;
+const PQ_C1 = 3424 / 4096;
+const PQ_C2 = (2413 / 4096) * 32;
+const PQ_C3 = (2392 / 4096) * 32;
 
-  for (let i = 0; i < numPixels * 3; i++) {
-    const E = Math.max(0, hwc[i]);
-    hwc[i] = E <= 1 / 12
-      ? Math.sqrt(3 * E)
-      : a * Math.log(Math.max(12 * E - b, 1e-10)) + c;
+// HLG OOTF reference values (BT.2100)
+const OOTF_GAMMA = 1.2;
+const PEAK_NITS = 1000;
+
+function linearToPq(nits: number): number {
+  const y = Math.pow(nits / 10000, PQ_M1);
+  return Math.pow((PQ_C1 + PQ_C2 * y) / (1 + PQ_C3 * y), PQ_M2);
+}
+
+function applyOotfAndPq(hwc: Float32Array, numPixels: number): void {
+  const gammaMinusOne = OOTF_GAMMA - 1;
+
+  for (let i = 0; i < numPixels; i++) {
+    const idx = i * 3;
+    const r = Math.max(0, hwc[idx]);
+    const g = Math.max(0, hwc[idx + 1]);
+    const b = Math.max(0, hwc[idx + 2]);
+
+    // BT.2020 luminance
+    const Y = 0.2627 * r + 0.6780 * g + 0.0593 * b;
+
+    // HLG OOTF: luminance-dependent gain scaled to nits
+    const gain = Y > 0 ? Math.pow(Y, gammaMinusOne) * PEAK_NITS : 0;
+
+    // Apply PQ OETF
+    hwc[idx]     = linearToPq(r * gain);
+    hwc[idx + 1] = linearToPq(g * gain);
+    hwc[idx + 2] = linearToPq(b * gain);
   }
 }
 
@@ -53,12 +78,12 @@ function toHdrImageData(hwc: Float32Array, width: number, height: number): Image
   let imageData: ImageData;
   try {
     imageData = new ImageData(width, height, {
-      colorSpace: 'rec2100-hlg' as PredefinedColorSpace,
+      colorSpace: 'rec2100-pq' as PredefinedColorSpace,
       storageFormat: 'float32',
     } as ImageDataSettings);
   } catch {
     imageData = new ImageData(width, height, {
-      colorSpace: 'rec2100-hlg' as PredefinedColorSpace,
+      colorSpace: 'rec2100-pq' as PredefinedColorSpace,
     } as ImageDataSettings);
   }
 
@@ -95,6 +120,6 @@ export function processHdr(
   }
 
   const rotated = applyExifRotation(hwc, width, height, orientation);
-  applyHlgOetf(rotated.data, rotated.width * rotated.height);
+  applyOotfAndPq(rotated.data, rotated.width * rotated.height);
   return toHdrImageData(rotated.data, rotated.width, rotated.height);
 }
