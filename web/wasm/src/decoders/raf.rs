@@ -68,9 +68,9 @@ impl<'a> Decoder for RafDecoder<'a> {
             // in rawloader's camera TOML. Override the CFA to match the
             // decompressor's output so downstream WB/demosaic use correct channels.
             camera.cfa = cfa::CFA::new("GGRGGBGGBGGRBRGRBGGGBGGRGGRGGBRBGBRG");
-            // The decompressed output includes the full sensor with leading/trailing
-            // zero rows (optical black padding) that the TOML crops may not account
-            // for. Detect and skip them so they don't produce noise after demosaic.
+            // The decompressed output includes the full sensor with zero-filled
+            // borders (optical black padding) that the TOML crops may not account
+            // for. Detect and skip zero rows/columns so they don't produce noise.
             if !dummy {
               let mut top_skip = 0;
               for y in 0..height.min(24) {
@@ -88,8 +88,33 @@ impl<'a> Decoder for RafDecoder<'a> {
                   break;
                 }
               }
-              if top_skip > camera.crops[0] { camera.crops[0] = top_skip; }
-              if bot_skip > camera.crops[2] { camera.crops[2] = bot_skip; }
+              // Sample every 6th row for column checks (aligned to CFA period).
+              // Zero columns are fully zero from decompressor, so sparse sampling
+              // is sufficient and avoids scanning all ~4000 rows per column.
+              let sample_rows: Vec<usize> = (0..height).step_by(6).collect();
+              let mut right_skip = 0;
+              for x in (width.saturating_sub(256)..width).rev() {
+                if sample_rows.iter().all(|&y| image[y * width + x] == 0) {
+                  right_skip = width - x;
+                } else {
+                  break;
+                }
+              }
+              let mut left_skip = 0;
+              for x in 0..width.min(256) {
+                if sample_rows.iter().all(|&y| image[y * width + x] == 0) {
+                  left_skip = x + 1;
+                } else {
+                  break;
+                }
+              }
+              // Use detected zero boundaries directly — the decompressor
+              // produces clean zero borders, so these are always correct
+              // and override potentially wrong TOML values.
+              camera.crops[0] = top_skip;
+              camera.crops[1] = right_skip;
+              camera.crops[2] = bot_skip;
+              camera.crops[3] = left_skip;
             }
             ok_image(camera, width, height, self.get_wb()?, offset, bps, Encoding::Fuji, image)
           },

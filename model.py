@@ -62,28 +62,30 @@ class XTransUNet(nn.Module):
     U-Net for X-Trans demosaicing.
 
     4 encoder levels, 4 decoder levels, skip connections at each level.
+    Channel widths: base_width * [1, 2, 4, 8, 16] (default 64 → 64..1024).
     """
 
-    def __init__(self, in_channels: int = 4, out_channels: int = 3):
+    def __init__(self, in_channels: int = 4, out_channels: int = 3, base_width: int = 64):
         super().__init__()
+        w = base_width
 
         # Encoder
-        self.enc1 = ConvBlock(in_channels, 64)
-        self.enc2 = DownBlock(64, 128)
-        self.enc3 = DownBlock(128, 256)
-        self.enc4 = DownBlock(256, 512)
+        self.enc1 = ConvBlock(in_channels, w)
+        self.enc2 = DownBlock(w, w * 2)
+        self.enc3 = DownBlock(w * 2, w * 4)
+        self.enc4 = DownBlock(w * 4, w * 8)
 
         # Bottleneck
-        self.bottleneck = DownBlock(512, 1024)
+        self.bottleneck = DownBlock(w * 8, w * 16)
 
         # Decoder
-        self.dec4 = UpBlock(1024, 512)
-        self.dec3 = UpBlock(512, 256)
-        self.dec2 = UpBlock(256, 128)
-        self.dec1 = UpBlock(128, 64)
+        self.dec4 = UpBlock(w * 16, w * 8)
+        self.dec3 = UpBlock(w * 8, w * 4)
+        self.dec2 = UpBlock(w * 4, w * 2)
+        self.dec1 = UpBlock(w * 2, w)
 
         # Output
-        self.out_conv = nn.Conv2d(64, out_channels, 1)
+        self.out_conv = nn.Conv2d(w, out_channels, 1)
 
     def forward(self, x):
         # Global residual: CFA broadcast as baseline for all 3 channels.
@@ -114,8 +116,11 @@ def count_parameters(model: nn.Module) -> int:
 
 
 if __name__ == "__main__":
-    model = XTransUNet()
-    print(f"Parameters: {count_parameters(model):,}")
+    import sys
+
+    base_width = int(sys.argv[1]) if len(sys.argv) > 1 else 64
+    model = XTransUNet(base_width=base_width)
+    print(f"base_width={base_width}, Parameters: {count_parameters(model):,}")
 
     # Test forward pass
     x = torch.randn(1, 4, 256, 256)

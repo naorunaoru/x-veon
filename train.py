@@ -176,6 +176,10 @@ def main():
     parser.add_argument("--resume", type=str, default=None,
                         help="Resume from checkpoint")
     
+    # Model
+    parser.add_argument("--base-width", type=int, default=64,
+                        help="Base channel width (default 64 → 64/128/256/512/1024, use 32 for half-width)")
+
     # Performance
     parser.add_argument("--workers", type=int, default=0,
                         help="DataLoader workers (0 for main process)")
@@ -255,7 +259,7 @@ def main():
     )
 
     # Model
-    model = XTransUNet().to(device)
+    model = XTransUNet(base_width=args.base_width).to(device)
     print(f"\nModel parameters: {count_parameters(model):,}")
 
     # Loss
@@ -391,6 +395,7 @@ def main():
                 "optimizer": optimizer.state_dict(),
                 "scheduler": scheduler.state_dict(),
                 "best_val_psnr": best_val_psnr,
+                "base_width": args.base_width,
             }, output_dir / "best.pt")
             print(f"  -> New best ({best_val_psnr:.2f} dB)")
 
@@ -402,6 +407,7 @@ def main():
                 "optimizer": optimizer.state_dict(),
                 "scheduler": scheduler.state_dict(),
                 "best_val_psnr": best_val_psnr,
+                "base_width": args.base_width,
             }, output_dir / "latest.pt")
 
         # Save history

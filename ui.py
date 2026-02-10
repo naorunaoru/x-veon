@@ -164,9 +164,8 @@ def load_model(checkpoint_path: str):
         return _model, _device
     
     _device = get_device()
-    _model = XTransUNet().to(_device)
-    
     ckpt = torch.load(checkpoint_path, map_location=_device, weights_only=True)
+    _model = XTransUNet(base_width=ckpt.get("base_width", 64)).to(_device)
     _model.load_state_dict(ckpt["model"])
     _model.eval()
     _model_path = checkpoint_path

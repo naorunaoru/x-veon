@@ -271,8 +271,8 @@ def main():
     
     # Load model
     print(f"Loading checkpoint: {args.checkpoint}")
-    model = XTransUNet().to(device)
     ckpt = torch.load(args.checkpoint, map_location=device, weights_only=False)
+    model = XTransUNet(base_width=ckpt.get("base_width", 64)).to(device)
     model.load_state_dict(ckpt["model"])
     print(f"Loaded epoch {ckpt.get('epoch', '?')}, best PSNR: {ckpt.get('best_val_psnr', '?'):.1f} dB")
     

@@ -12,9 +12,10 @@ from onnxconverter_common import float16
 from model import XTransUNet
 
 
-def export(checkpoint_path: str, output_path: str, patch_size: int = 288, opset: int = 17, fp16: bool = False):
-    model = XTransUNet()
+def export(checkpoint_path: str, output_path: str, patch_size: int = 288, opset: int = 17, fp16: bool = False, base_width: int | None = None):
     ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    bw = base_width or ckpt.get("base_width", 64)
+    model = XTransUNet(base_width=bw)
     model.load_state_dict(ckpt["model"])
     model.eval()
 
@@ -54,13 +55,14 @@ def export(checkpoint_path: str, output_path: str, patch_size: int = 288, opset:
     return output_path
 
 
-def verify(checkpoint_path: str, onnx_path: str, patch_size: int = 288):
+def verify(checkpoint_path: str, onnx_path: str, patch_size: int = 288, base_width: int | None = None):
     """Compare PyTorch and ONNX outputs to ensure numerical equivalence."""
     import onnxruntime as ort
 
     # PyTorch
-    model = XTransUNet()
     ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    bw = base_width or ckpt.get("base_width", 64)
+    model = XTransUNet(base_width=bw)
     model.load_state_dict(ckpt["model"])
     model.eval()
 
@@ -105,14 +107,16 @@ def main():
     parser.add_argument("--patch-size", type=int, default=288)
     parser.add_argument("--opset", type=int, default=17)
     parser.add_argument("--fp16", action="store_true", help="Convert weights to float16")
+    parser.add_argument("--base-width", type=int, default=None,
+                        help="Base channel width (auto-detected from checkpoint if saved)")
     parser.add_argument("--verify", action="store_true", help="Verify ONNX vs PyTorch output")
     args = parser.parse_args()
 
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
-    export(args.checkpoint, args.output, args.patch_size, args.opset, args.fp16)
+    export(args.checkpoint, args.output, args.patch_size, args.opset, args.fp16, args.base_width)
 
     if args.verify:
-        verify(args.checkpoint, args.output, args.patch_size)
+        verify(args.checkpoint, args.output, args.patch_size, args.base_width)
 
 
 if __name__ == "__main__":

@@ -389,8 +389,8 @@ def main():
     device = "mps" if torch.backends.mps.is_available() else "cpu"
     print(f"Device: {device}")
     
-    model = XTransUNet()
     ckpt = torch.load(args.checkpoint, map_location=device, weights_only=False)
+    model = XTransUNet(base_width=ckpt.get("base_width", 64))
     model.load_state_dict(ckpt["model"])
     model.to(device)
     model.eval()
