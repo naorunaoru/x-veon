@@ -22,6 +22,11 @@ jobs:
         with:
           lfs: true
 
+      - uses: actions/checkout@v4
+        with:
+          repository: naorunaoru/rawloader
+          path: rawloader-wasm
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -36,9 +41,12 @@ jobs:
         working-directory: web
         run: npm ci
 
+      - name: Build WASM
+        run: wasm-pack build rawloader-wasm --target web --release --out-dir "$GITHUB_WORKSPACE/web/wasm-pkg"
+
       - name: Build
         working-directory: web
-        run: npm run build
+        run: npx vite build
 
       - uses: actions/upload-pages-artifact@v3
         with:

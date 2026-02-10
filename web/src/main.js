@@ -21,14 +21,16 @@ import {
 } from './postprocessor.js';
 import {
   initCanvas, isHdrSupported,
-  renderToCanvas, exportCanvas,
+  renderToCanvas,
   showProgress, updateProgress, setStatus,
   showDownloadButton, hideDownloadButton,
 } from './display.js';
 import { processHdr } from './hdr-encoder.js';
+import { encodeImage } from './encoder.js';
 import { PATCH_SIZE, OVERLAP } from './constants.js';
 
 let ready = false;
+let currentExport = null;
 
 async function init() {
   setStatus('Loading WASM decoder and ONNX model\u2026');
@@ -57,6 +59,7 @@ async function processFile(arrayBuffer, baseName) {
   ready = false; // prevent concurrent runs
 
   hideDownloadButton();
+  currentExport = null;
 
   try {
     // 1. Decode RAF
@@ -141,26 +144,28 @@ async function processFile(arrayBuffer, baseName) {
       : null;
     const numPixels = visible.width * visible.height;
 
+    // Clone linear camera RGB for export (processHdr/applyColorCorrection mutate in-place)
+    const hwcForExport = hwc.slice();
+    currentExport = {
+      hwc: hwcForExport,
+      width: visible.width,
+      height: visible.height,
+      xyzToCam: xyzToCam3x3,
+      orientation: raw.orientation,
+      baseName: baseName || raw.model || 'photo',
+    };
+
+    let statusBase;
+
     if (isHdrSupported()) {
       // HDR path: BT.2020 color correction → HLG → HDR canvas
       setStatus('Applying HDR color correction\u2026');
       const hdrImageData = processHdr(hwc, numPixels, xyzToCam3x3, visible.width, visible.height, raw.orientation);
       renderToCanvas(hdrImageData);
 
-      const statusBase =
+      statusBase =
         `${raw.make} ${raw.model} \u2014 ${hdrImageData.width}\u00d7${hdrImageData.height} \u2014 ` +
         `${tiles.length} tiles in ${inferTime}s (${getBackend()})`;
-      setStatus(`${statusBase} \u2014 Encoding HDR AVIF\u2026`);
-
-      try {
-        const { blob, ext } = await exportCanvas();
-        const filename = `${baseName || raw.model || 'photo'}_hdr.${ext}`;
-        showDownloadButton(blob, filename);
-        setStatus(statusBase);
-      } catch (err) {
-        console.error('AVIF export failed:', err);
-        setStatus(statusBase);
-      }
     } else {
       // sRGB fallback
       setStatus('Applying color correction\u2026');
@@ -172,16 +177,65 @@ async function processFile(arrayBuffer, baseName) {
       const imageData = toImageData(rotated.data, rotated.width, rotated.height);
       renderToCanvas(imageData);
 
-      setStatus(
+      statusBase =
         `${raw.make} ${raw.model} \u2014 ${rotated.width}\u00d7${rotated.height} \u2014 ` +
-        `${tiles.length} tiles in ${inferTime}s (${getBackend()})`
-      );
+        `${tiles.length} tiles in ${inferTime}s (${getBackend()})`;
     }
+
+    setStatus(statusBase);
+    document.getElementById('export-controls').hidden = false;
   } catch (e) {
     setStatus(`Error: ${e.message}`);
     console.error(e);
   } finally {
     ready = true;
+  }
+}
+
+// --- Export handler ---
+
+function triggerDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+async function handleExport() {
+  if (!currentExport) return;
+
+  const { hwc, width, height, xyzToCam, orientation, baseName } = currentExport;
+  const formatSelect = document.getElementById('export-format');
+  const qualitySlider = document.getElementById('export-quality');
+  const exportBtn = document.getElementById('export-btn');
+
+  const format = formatSelect.value;
+  const quality = parseInt(qualitySlider.value, 10);
+
+  setStatus(`Encoding ${format.toUpperCase()}\u2026`);
+  exportBtn.disabled = true;
+  hideDownloadButton();
+  showProgress(true, true); // indeterminate mode
+
+  try {
+    const startTime = Date.now();
+    const { blob, ext } = await encodeImage(hwc, width, height, xyzToCam, orientation, format, quality);
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    const filename = `${baseName}.${ext}`;
+
+    triggerDownload(blob, filename);
+    showDownloadButton(blob, filename);
+    setStatus(`Exported ${format.toUpperCase()} \u2014 ${(blob.size / 1024 / 1024).toFixed(1)} MB in ${elapsed}s`);
+  } catch (e) {
+    setStatus(`Export failed: ${e.message}`);
+    console.error(e);
+  } finally {
+    exportBtn.disabled = false;
+    showProgress(false);
   }
 }
 
@@ -218,4 +272,22 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   dropZone.addEventListener('click', () => fileInput.click());
   fileInput.addEventListener('change', () => handleFile(fileInput.files[0]));
+
+  // Export controls
+  const exportBtn = document.getElementById('export-btn');
+  const formatSelect = document.getElementById('export-format');
+  const qualitySlider = document.getElementById('export-quality');
+  const qualityValue = document.getElementById('quality-value');
+
+  exportBtn.addEventListener('click', handleExport);
+
+  qualitySlider.addEventListener('input', () => {
+    qualityValue.textContent = qualitySlider.value;
+  });
+
+  formatSelect.addEventListener('change', () => {
+    const isTiff = formatSelect.value === 'tiff';
+    qualitySlider.disabled = isTiff;
+    qualitySlider.parentElement.style.opacity = isTiff ? '0.4' : '1';
+  });
 });

@@ -28,7 +28,21 @@
   </div>
 
   <canvas id="output"></canvas>
-  <a id="download-link" hidden download>Download</a>
+
+  <div id="export-controls" hidden>
+    <label for="export-format">Format</label>
+    <select id="export-format">
+      <option value="avif">HDR AVIF (BT.2020 / HLG)</option>
+      <option value="jpeg">JPEG (sRGB)</option>
+      <option value="tiff">16-bit TIFF (Linear sRGB)</option>
+    </select>
+
+    <label for="export-quality">Quality <span id="quality-value">85</span></label>
+    <input type="range" id="export-quality" min="1" max="100" value="85">
+
+    <button id="export-btn">Export</button>
+    <!-- <a id="download-link" hidden download>Download</a> -->
+  </div>
 
   <script type="module" src="src/main.js"></script>
 </body>

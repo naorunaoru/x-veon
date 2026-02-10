@@ -4,7 +4,7 @@ let wasmModule = null;
  * Initialize the WASM module (rawloader-wasm).
  */
 export async function initWasm() {
-  wasmModule = await import('../wasm/pkg/rawloader_wasm.js');
+  wasmModule = await import('../wasm-pkg/rawloader_wasm.js');
   await wasmModule.default();
 }
 

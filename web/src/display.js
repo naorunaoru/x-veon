@@ -38,33 +38,20 @@ export function renderToCanvas(imageData) {
 }
 
 /**
- * Export the current canvas content, preferring AVIF, falling back to PNG.
- * Returns { blob, ext } where ext is 'avif' or 'png'.
- */
-export function exportCanvas() {
-  return new Promise((resolve, reject) => {
-    canvasEl().toBlob(
-      (blob) => {
-        if (!blob) return reject(new Error('toBlob returned null'));
-        const ext = blob.type === 'image/avif' ? 'avif' : 'png';
-        if (ext !== 'avif') {
-          console.warn(`AVIF encoding not supported, got ${blob.type}`);
-        }
-        resolve({ blob, ext });
-      },
-      'image/avif',
-      0.9,
-    );
-  });
-}
-
-/**
  * Show/hide the progress bar.
+ * @param {boolean} visible
+ * @param {boolean} [indeterminate=false] - Show pulsing animation (no known progress)
  */
-export function showProgress(visible) {
+export function showProgress(visible, indeterminate = false) {
   progressContainer().hidden = !visible;
+  const bar = progressBar();
   if (!visible) {
-    progressBar().style.width = '0%';
+    bar.style.width = '0%';
+    bar.classList.remove('indeterminate');
+    progressText().textContent = '';
+  } else if (indeterminate) {
+    bar.style.width = '';
+    bar.classList.add('indeterminate');
     progressText().textContent = '';
   }
 }
