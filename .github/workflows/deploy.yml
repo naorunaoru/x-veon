@@ -23,13 +23,8 @@ jobs:
           lfs: true
 
       - uses: dtolnay/rust-toolchain@stable
-
-      - name: Install wasm-pack
-        run: cargo install wasm-pack
-
-      - name: Build WASM
-        working-directory: web/wasm
-        run: wasm-pack build --target web --release
+        with:
+          targets: wasm32-unknown-unknown
 
       - uses: actions/setup-node@v4
         with:
