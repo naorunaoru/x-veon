@@ -1,8 +1,8 @@
-import init, { encode_image } from '../wasm-encoder/pkg/xtrans_encoder_wasm.js';
+import init, { encode_image } from '../../wasm-encoder/pkg/xtrans_encoder_wasm.js';
 
 let ready = false;
 
-self.onmessage = async (e) => {
+self.onmessage = async (e: MessageEvent) => {
   if (e.data.type !== 'encode') return;
 
   try {
@@ -18,8 +18,8 @@ self.onmessage = async (e) => {
       new Float32Array(xyzToCam),
       orientation, format, quality,
     );
-    self.postMessage({ type: 'done', data: result.buffer }, [result.buffer]);
-  } catch (err) {
-    self.postMessage({ type: 'error', message: err.message || String(err) });
+    self.postMessage({ type: 'done', data: result.buffer }, [result.buffer] as any);
+  } catch (err: unknown) {
+    self.postMessage({ type: 'error', message: err instanceof Error ? err.message : String(err) });
   }
 };

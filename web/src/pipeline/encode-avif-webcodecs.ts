@@ -1,21 +1,13 @@
-/**
- * WebCodecs-based AVIF encoder.
- *
- * Uses the browser's native AV1 VideoEncoder (potentially hardware-accelerated)
- * to encode a single frame from the HDR canvas, then wraps the AV1 bitstream
- * in a minimal AVIF (ISOBMFF) container with correct CICP color tags.
- */
+// ISOBMFF helpers
 
-// --- ISOBMFF helpers ---
-
-function u8(v) { return new Uint8Array([v]); }
-function u16be(v) { return new Uint8Array([v >>> 8, v & 0xff]); }
-function u32be(v) {
+function u8(v: number): Uint8Array { return new Uint8Array([v]); }
+function u16be(v: number): Uint8Array { return new Uint8Array([v >>> 8, v & 0xff]); }
+function u32be(v: number): Uint8Array {
   return new Uint8Array([(v >>> 24) & 0xff, (v >>> 16) & 0xff, (v >>> 8) & 0xff, v & 0xff]);
 }
-const ascii = (s) => new TextEncoder().encode(s);
+const ascii = (s: string) => new TextEncoder().encode(s);
 
-function concat(...arrays) {
+function concat(...arrays: (Uint8Array | ArrayBuffer)[]): Uint8Array {
   const parts = arrays.map(a => a instanceof ArrayBuffer ? new Uint8Array(a) : a);
   const total = parts.reduce((s, a) => s + a.byteLength, 0);
   const result = new Uint8Array(total);
@@ -24,36 +16,34 @@ function concat(...arrays) {
   return result;
 }
 
-function box(type, payload) {
+function box(type: string, payload: Uint8Array): Uint8Array {
   return concat(u32be(8 + payload.byteLength), ascii(type), payload);
 }
 
-function fullBox(type, version, flags, payload) {
+function fullBox(type: string, version: number, flags: number, payload: Uint8Array): Uint8Array {
   return box(type, concat(
     new Uint8Array([version, (flags >> 16) & 0xff, (flags >> 8) & 0xff, flags & 0xff]),
     payload,
   ));
 }
 
-// --- CICP mapping from VideoColorSpace strings ---
+// CICP mapping from VideoColorSpace strings
 
-const PRIMARIES_MAP = { 'bt709': 1, 'bt2020': 9, 'smpte432': 12 };
-const TRANSFER_MAP = { 'bt709': 1, 'iec61966-2-1': 13, 'smpte2084': 16, 'arib-std-b67': 18 };
-const MATRIX_MAP = { 'rgb': 0, 'bt709': 1, 'bt2020-ncl': 9 };
+const PRIMARIES_MAP: Record<string, number> = { 'bt709': 1, 'bt2020': 9, 'smpte432': 12 };
+const TRANSFER_MAP: Record<string, number> = { 'bt709': 1, 'iec61966-2-1': 13, 'smpte2084': 16, 'arib-std-b67': 18 };
+const MATRIX_MAP: Record<string, number> = { 'rgb': 0, 'bt709': 1, 'bt2020-ncl': 9 };
 
-// --- AVIF container builder ---
+interface CicpInfo {
+  primaries: number;
+  transfer: number;
+  matrix: number;
+  fullRange: boolean;
+}
 
-/**
- * Build a minimal single-image AVIF file from raw AV1 data.
- *
- * @param {ArrayBuffer} av1Data - Raw AV1 bitstream (single key frame)
- * @param {ArrayBuffer} av1cData - AV1CodecConfigurationRecord (from decoderConfig.description)
- * @param {number} width
- * @param {number} height
- * @param {{primaries: number, transfer: number, matrix: number, fullRange: boolean}} cicp
- * @returns {Uint8Array}
- */
-function buildAvifContainer(av1Data, av1cData, width, height, cicp) {
+function buildAvifContainer(
+  av1Data: ArrayBuffer, av1cData: ArrayBuffer,
+  width: number, height: number, cicp: CicpInfo,
+): Uint8Array {
   const av1Bytes = new Uint8Array(av1Data);
   const av1cBytes = new Uint8Array(av1cData);
 
@@ -81,12 +71,11 @@ function buildAvifContainer(av1Data, av1cData, width, height, cicp) {
   ));
   const iprp = box('iprp', concat(ipco, ipma));
 
-  // iloc with placeholder extent_offset (patched below)
   const iloc = fullBox('iloc', 0, 0, concat(
-    new Uint8Array([0x44, 0x00]),  // offset_size=4, length_size=4, base_offset_size=0
-    u16be(1), u16be(1), u16be(0), u16be(1), // item_count, item_ID, data_ref, extent_count
-    u32be(0),                       // extent_offset (PLACEHOLDER)
-    u32be(av1Bytes.byteLength),     // extent_length
+    new Uint8Array([0x44, 0x00]),
+    u16be(1), u16be(1), u16be(0), u16be(1),
+    u32be(0),
+    u32be(av1Bytes.byteLength),
   ));
 
   const meta = fullBox('meta', 0, 0, concat(hdlr, pitm, iloc, iprp));
@@ -94,10 +83,7 @@ function buildAvifContainer(av1Data, av1cData, width, height, cicp) {
 
   const file = concat(ftyp, meta, mdat);
 
-  // Patch iloc extent_offset to point at mdat payload
-  const mdatPayloadOffset = ftyp.byteLength + meta.byteLength + 8; // +8 = mdat box header
-  // iloc position: meta starts after ftyp, skip meta's fullBox header (12),
-  // then hdlr, pitm to reach iloc, then iloc's fullBox header (12) + 10 bytes to extent_offset
+  const mdatPayloadOffset = ftyp.byteLength + meta.byteLength + 8;
   const ilocStart = ftyp.byteLength + 12 + hdlr.byteLength + pitm.byteLength;
   const extentOffsetPos = ilocStart + 12 + 10;
   new DataView(file.buffer).setUint32(extentOffsetPos, mdatPayloadOffset);
@@ -105,23 +91,13 @@ function buildAvifContainer(av1Data, av1cData, width, height, cicp) {
   return file;
 }
 
-// --- WebCodecs AV1 encoding ---
-
-/**
- * AV1 codec string based on image dimensions.
- * Format: av01.P.LLT.DD (profile.level+tier.bitdepth)
- */
-function av1Codec(width, height) {
+function av1Codec(width: number, height: number): string {
   const pixels = width * height;
-  // AV1 levels: 8=4.0 (≤2M px), 12=5.0 (≤8.9M px), 16=6.0 (≤35.6M px)
   const level = pixels <= 2228224 ? 8 : pixels <= 8912896 ? 12 : 16;
   return `av01.0.${String(level).padStart(2, '0')}M.10`;
 }
 
-/**
- * Check if WebCodecs AV1 encoding is supported for the given dimensions.
- */
-export async function isWebCodecsAvifSupported(width, height) {
+export async function isWebCodecsAvifSupported(width: number, height: number): Promise<boolean> {
   if (typeof VideoEncoder === 'undefined') return false;
   try {
     const support = await VideoEncoder.isConfigSupported({
@@ -136,25 +112,16 @@ export async function isWebCodecsAvifSupported(width, height) {
   }
 }
 
-/**
- * Encode the HDR canvas as AVIF using WebCodecs VideoEncoder.
- *
- * @param {HTMLCanvasElement} canvas - rec2100-hlg canvas with rendered image
- * @param {number} quality - 1-100
- * @returns {Promise<Blob>} AVIF file blob
- */
-export async function encodeAvifWebCodecs(canvas, quality) {
+export async function encodeAvifWebCodecs(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
   const { width, height } = canvas;
   const codec = av1Codec(width, height);
 
-  // Quality → bitrate mapping (with framerate=1, all budget goes to our single frame)
-  // Exponential: quality 1 → ~500kbps, quality 50 → ~7Mbps, quality 100 → ~100Mbps
   const bitrate = Math.round(500_000 * Math.pow(200, quality / 100));
 
   return new Promise((resolve, reject) => {
-    let av1Data = null;
-    let av1cData = null;
-    let colorSpace = null;
+    let av1Data: ArrayBuffer | null = null;
+    let av1cData: ArrayBuffer | null = null;
+    let colorSpace: VideoColorSpaceInit | null = null;
 
     const encoder = new VideoEncoder({
       output: (chunk, metadata) => {
@@ -163,7 +130,7 @@ export async function encodeAvifWebCodecs(canvas, quality) {
         av1Data = buf;
 
         if (metadata?.decoderConfig?.description) {
-          av1cData = metadata.decoderConfig.description;
+          av1cData = metadata.decoderConfig.description as ArrayBuffer;
         }
         if (metadata?.decoderConfig?.colorSpace) {
           colorSpace = metadata.decoderConfig.colorSpace;
@@ -192,25 +159,23 @@ export async function encodeAvifWebCodecs(canvas, quality) {
         return;
       }
 
-      // Read CICP from encoder's color space, fall back to BT.2020/HLG defaults
-      const cicp = {
-        primaries: PRIMARIES_MAP[colorSpace?.primaries] ?? 9,
-        transfer: TRANSFER_MAP[colorSpace?.transfer] ?? 18,
-        matrix: MATRIX_MAP[colorSpace?.matrix] ?? 9,
+      const cicp: CicpInfo = {
+        primaries: PRIMARIES_MAP[colorSpace?.primaries ?? ''] ?? 9,
+        transfer: TRANSFER_MAP[colorSpace?.transfer ?? ''] ?? 18,
+        matrix: MATRIX_MAP[colorSpace?.matrix ?? ''] ?? 9,
         fullRange: colorSpace?.fullRange ?? true,
       };
 
-      // If no av1C from decoderConfig, we can't build a valid AVIF
       if (!av1cData) {
         reject(new Error('WebCodecs did not provide AV1 codec configuration'));
         return;
       }
 
-      console.log(`WebCodecs AVIF: ${width}x${height}, ${(av1Data.byteLength / 1024).toFixed(0)}KB, ` +
+      console.log(`WebCodecs AVIF: ${width}x${height}, ${(av1Data!.byteLength / 1024).toFixed(0)}KB, ` +
         `CICP(${cicp.primaries}/${cicp.transfer}/${cicp.matrix})`);
 
-      const avif = buildAvifContainer(av1Data, av1cData, width, height, cicp);
-      resolve(new Blob([avif], { type: 'image/avif' }));
+      const avif = buildAvifContainer(av1Data!, av1cData!, width, height, cicp);
+      resolve(new Blob([avif.buffer as ArrayBuffer], { type: 'image/avif' }));
     }).catch(reject);
   });
 }

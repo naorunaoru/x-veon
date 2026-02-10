@@ -1,50 +1,15 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>X-Trans Demosaic (WebGPU)</title>
-  <link rel="stylesheet" href="style.css">
+  <title>X-Trans Demosaic</title>
 </head>
 
 <body>
-  <header>
-    <h1>X-Trans Demosaic</h1>
-    <p id="status">Loading model and WASM&hellip;</p>
-  </header>
-
-  <div id="drop-zone">
-    <p>Drop a Fujifilm RAF file here</p>
-    <label class="file-label">
-      or choose file
-      <input type="file" id="file-input" accept=".raf,.RAF" hidden>
-    </label>
-  </div>
-
-  <div id="progress-container" hidden>
-    <div id="progress-bar"></div>
-    <span id="progress-text"></span>
-  </div>
-
-  <canvas id="output"></canvas>
-
-  <div id="export-controls" hidden>
-    <label for="export-format">Format</label>
-    <select id="export-format">
-      <option value="avif">HDR AVIF (BT.2020 / HLG)</option>
-      <option value="jpeg">JPEG (sRGB)</option>
-      <option value="tiff">16-bit TIFF (Linear sRGB)</option>
-    </select>
-
-    <label for="export-quality">Quality <span id="quality-value">85</span></label>
-    <input type="range" id="export-quality" min="1" max="100" value="85">
-
-    <button id="export-btn">Export</button>
-    <!-- <a id="download-link" hidden download>Download</a> -->
-  </div>
-
-  <script type="module" src="src/main.js"></script>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
 </body>
 
 </html>

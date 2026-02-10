@@ -43,7 +43,7 @@ jobs:
 
       - name: Build WASM (decoder)
         working-directory: web
-        run: npx wasm-pack build ../rawloader-wasm --target web --release --out-dir "$PWD/wasm-pkg"
+        run: npx wasm-pack build ../rawloader-wasm --target web --release --out-dir $GITHUB_WORKSPACE/web/wasm-pkg
 
       - name: Build WASM (encoder)
         working-directory: web
