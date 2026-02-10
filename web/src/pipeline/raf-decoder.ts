@@ -1,9 +1,9 @@
 import type { RawImage } from './types';
 
-let wasmModule: Awaited<typeof import('../../wasm-pkg/rawloader_wasm.js')> | null = null;
+let wasmModule: Awaited<typeof import('../../wasm-pkg/rawloader.js')> | null = null;
 
 export async function initWasm(): Promise<void> {
-  wasmModule = await import('../../wasm-pkg/rawloader_wasm.js');
+  wasmModule = await import('../../wasm-pkg/rawloader.js');
   await wasmModule.default();
 }
 
