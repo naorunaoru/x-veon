@@ -5,10 +5,9 @@ import { useAppStore } from '@/store';
 
 interface DropZoneProps {
   className?: string;
-  compact?: boolean;
 }
 
-export function DropZone({ className, compact }: DropZoneProps) {
+export function DropZone({ className }: DropZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const addFiles = useAppStore((s) => s.addFiles);
@@ -39,43 +38,12 @@ export function DropZone({ className, compact }: DropZoneProps) {
     [handleFiles],
   );
 
-  const onClick = useCallback(() => {
-    inputRef.current?.click();
-  }, []);
-
-  if (compact) {
-    return (
-      <div
-        onDragOver={onDragOver}
-        onDragLeave={onDragLeave}
-        onDrop={onDrop}
-        onClick={onClick}
-        className={cn(
-          'border-2 border-dashed border-muted-foreground/25 rounded-lg p-3 text-center',
-          'text-sm text-muted-foreground cursor-pointer hover:border-muted-foreground/50 transition-colors',
-          isDragging && 'border-primary bg-primary/5',
-          className,
-        )}
-      >
-        <input
-          ref={inputRef}
-          type="file"
-          accept=".raf,.RAF"
-          multiple
-          hidden
-          onChange={(e) => handleFiles(e.target.files)}
-        />
-        Drop files or click to add more
-      </div>
-    );
-  }
-
   return (
     <div
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
-      onClick={onClick}
+      onClick={() => inputRef.current?.click()}
       className={cn(
         'flex flex-col items-center justify-center gap-3',
         'border-2 border-dashed border-muted-foreground/25 rounded-lg m-4',
