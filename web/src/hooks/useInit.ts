@@ -17,15 +17,20 @@ export function useInit() {
 
         const backend = getBackend() ?? 'unknown';
 
-        // Probe HDR support
-        const testCanvas = document.createElement('canvas');
-        testCanvas.width = 1;
-        testCanvas.height = 1;
-        const ctx = testCanvas.getContext('2d', {
-          colorSpace: 'rec2100-hlg' as any,
-        });
-        const attrs = (ctx as any)?.getContextAttributes?.();
-        const hdr = attrs?.colorSpace === 'rec2100-hlg';
+        // Probe HDR support — getContext throws on browsers/GPUs without Canvas HDR
+        let hdr = false;
+        try {
+          const testCanvas = document.createElement('canvas');
+          testCanvas.width = 1;
+          testCanvas.height = 1;
+          const ctx = testCanvas.getContext('2d', {
+            colorSpace: 'rec2100-hlg' as any,
+          });
+          const attrs = (ctx as any)?.getContextAttributes?.();
+          hdr = attrs?.colorSpace === 'rec2100-hlg';
+        } catch {
+          // Canvas HDR not supported — fall back to SDR
+        }
 
         setInitialized(backend, hdr, getModelMeta());
       } catch (e) {
