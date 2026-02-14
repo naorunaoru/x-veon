@@ -28,12 +28,22 @@ export async function runDemosaic(
   dy: number,
   dx: number,
   algorithm: 'bilinear' | 'markesteijn1' | 'markesteijn3' | 'dht',
+  cfaPattern: Uint32Array,
+  period: number,
 ): Promise<Float32Array> {
+  const isBayer = period === 2;
+
+  // Markesteijn is X-Trans only — fall back to bilinear for Bayer
+  if (isBayer && (algorithm === 'markesteijn1' || algorithm === 'markesteijn3')) {
+    console.warn(`[demosaic] ${algorithm} is X-Trans only, falling back to bilinear`);
+    algorithm = 'bilinear';
+  }
+
   // GPU paths
   if (algorithm === 'bilinear' && gpuAvailable()) {
     try {
       console.time('[demosaic] gpu bilinear');
-      const result = await runBilinearGpu(cfa, width, height, dy, dx);
+      const result = await runBilinearGpu(cfa, width, height, dy, dx, cfaPattern, period);
       console.timeEnd('[demosaic] gpu bilinear');
       return result;
     } catch (e) {
@@ -45,7 +55,7 @@ export async function runDemosaic(
     if (gpuAvailable()) {
       try {
         console.time('[demosaic] gpu dht');
-        const result = await runDhtGpu(cfa, width, height, dy, dx);
+        const result = await runDhtGpu(cfa, width, height, dy, dx, cfaPattern, period);
         console.timeEnd('[demosaic] gpu dht');
         return result;
       } catch (e) {
@@ -57,9 +67,13 @@ export async function runDemosaic(
     // Fall through to worker pool with algorithm='dht'
   }
 
-  // Worker pool path (parallel strips)
+  // WASM worker pool (X-Trans only — hardcoded pattern in WASM module)
+  if (isBayer) {
+    throw new Error('Traditional demosaic for Bayer requires GPU. Please use Neural Network method.');
+  }
+
   console.time(`[demosaic] pool ${algorithm}`);
-  const result = await getPool().run(cfa, width, height, dy, dx, algorithm);
+  const result = await getPool().run(cfa, width, height, dy, dx, algorithm, period);
   console.timeEnd(`[demosaic] pool ${algorithm}`);
   return result;
 }

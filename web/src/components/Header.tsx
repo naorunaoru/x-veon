@@ -9,13 +9,13 @@ export function Header() {
 
   return (
     <header className="px-4 py-3 border-b border-border">
-      <h1 className="text-base font-semibold">X-veon: neural demosaic for X-Trans sensors</h1>
+      <h1 className="text-base font-semibold">X-veon: neural demosaic</h1>
       <p className="text-xs text-muted-foreground mt-0.5">
         {initError
           ? `Init failed: ${initError}`
           : initialized
             ? `${backend}${hdrSupported ? ', HDR' : ''}${modelMeta.epoch ? ` · epoch ${modelMeta.epoch}` : ''}${modelMeta.best_val_psnr ? ` · ${modelMeta.best_val_psnr} dB` : ''}`
-            : 'Loading model and WASM\u2026'}
+            : 'Loading models and WASM\u2026'}
       </p>
     </header>
   );

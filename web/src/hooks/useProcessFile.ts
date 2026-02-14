@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { useAppStore } from '@/store';
-import { decodeRaf } from '@/pipeline/raf-decoder';
+import { decodeRaw } from '@/pipeline/raf-decoder';
 import {
   cropToVisible,
   findPatternShift,
@@ -14,15 +14,20 @@ import {
 } from '@/pipeline/preprocessor';
 import { runTile, getBackend } from '@/pipeline/inference';
 import { runDemosaic, destroyDemosaicPool } from '@/pipeline/demosaic';
-import {
-  createTileBlender,
-  cropToHWC,
-  buildColorMatrix,
-  toImageDataWithCC,
-} from '@/pipeline/postprocessor';
-import { processHdr } from '@/pipeline/hdr-encoder';
+import { createTileBlender, cropToHWC } from '@/pipeline/postprocessor';
 import { PATCH_SIZE, OVERLAP } from '@/pipeline/constants';
 import type { DemosaicMethod, ProcessingResult } from '@/pipeline/types';
+
+/** Flatten a 2D pattern array into a Uint32Array for GPU/demosaic use */
+function flattenPattern(pattern: readonly (readonly number[])[], period: number): Uint32Array {
+  const flat = new Uint32Array(period * period);
+  for (let y = 0; y < period; y++) {
+    for (let x = 0; x < period; x++) {
+      flat[y * period + x] = pattern[y][x];
+    }
+  }
+  return flat;
+}
 
 export function useProcessFile() {
   const [isProcessing, setIsProcessing] = useState(false);
@@ -36,11 +41,11 @@ export function useProcessFile() {
     useAppStore.getState().updateFileStatus(fileId, 'processing');
 
     try {
-      // 1. Decode RAF
+      // 1. Decode RAW
       let arrayBuffer: ArrayBuffer | null = await fileEntry.file.arrayBuffer();
-      const raw = decodeRaf(arrayBuffer);
+      const raw = decodeRaw(arrayBuffer);
       arrayBuffer = null;
-      console.log(`RAF: ${raw.make} ${raw.model} (${raw.width}x${raw.height})`);
+      console.log(`RAW: ${raw.make} ${raw.model} (${raw.width}x${raw.height}, cfa=${raw.cfaWidth}x${raw.cfaStr.length / raw.cfaWidth})`);
 
       // 2. Crop to visible area
       let visible = cropToVisible(raw.data, raw.width, raw.height, raw.crops);
@@ -60,14 +65,16 @@ export function useProcessFile() {
         raw.wbCoeffs[2] / raw.wbCoeffs[1],
       ]);
 
-      // 5. Find CFA pattern shift
-      const { dy, dx } = findPatternShift(raw.cfaStr, raw.cfaWidth, raw.crops);
+      // 5. Find CFA pattern shift and type
+      const cfaInfo = findPatternShift(raw.cfaStr, raw.cfaWidth, raw.crops);
+      const { pattern, period, dy, dx, cfaType } = cfaInfo;
+      console.log(`CFA: ${cfaType} (period=${period}, shift=dy${dy} dx${dx})`);
 
       // 6. LCh highlight reconstruction
-      reconstructHighlightsCfa(cfa, visWidth, visHeight, dy, dx);
+      reconstructHighlightsCfa(cfa, visWidth, visHeight, pattern, period, dy, dx);
 
       // 7. Apply white balance
-      applyWhiteBalance(cfa, visWidth, visHeight, wb, dy, dx);
+      applyWhiteBalance(cfa, visWidth, visHeight, wb, pattern, period, dy, dx);
 
       // 8. Pad for alignment
       let padded = padToAlignment(cfa, visWidth, visHeight, dy, dx);
@@ -83,6 +90,8 @@ export function useProcessFile() {
       let wPad: number;
       let tileCount: number;
 
+      const flatCfa = flattenPattern(pattern, period);
+
       if (method === 'neural-net') {
         // NN path: tile → inference → incremental blend
         const tileGrid = generateTiles(
@@ -93,13 +102,13 @@ export function useProcessFile() {
         wPad = tileGrid.wPad;
         tileCount = tileGrid.tiles.length;
 
-        const masks = makeChannelMasks(PATCH_SIZE);
+        const masks = makeChannelMasks(PATCH_SIZE, pattern, period);
         const blender = createTileBlender(hPad, wPad, PATCH_SIZE, OVERLAP);
 
         for (let i = 0; i < tileGrid.tiles.length; i++) {
           const { x, y } = tileGrid.tiles[i];
           const input = buildTileInput(tileGrid.paddedCfa, wPad, x, y, PATCH_SIZE, masks);
-          const output = await runTile(input, PATCH_SIZE);
+          const output = await runTile(cfaType, input, PATCH_SIZE);
           blender.accumulate(output, x, y);
           useAppStore.getState().updateFileProgress(fileId, i + 1, tileGrid.tiles.length);
         }
@@ -112,7 +121,7 @@ export function useProcessFile() {
         wPad = padded.width;
         tileCount = 1;
 
-        blended = await runDemosaic(padded.data, padded.width, padded.height, dy, dx, algorithm);
+        blended = await runDemosaic(padded.data, padded.width, padded.height, dy, dx, algorithm, flatCfa, period);
         padded = null!; cfa = null;
       }
 
@@ -122,37 +131,25 @@ export function useProcessFile() {
       const hwc = cropToHWC(blended, hPad, wPad, padTop, padLeft, visHeight, visWidth);
       blended = null;
 
-      // 11. Color correction + display (fused — hwc is never mutated)
+      // 11. Compute final display dimensions (after orientation)
+      const orientation = raw.orientation;
+      const swap = orientation === 'Rotate90' || orientation === 'Rotate270';
+      const finalWidth = swap ? visHeight : visWidth;
+      const finalHeight = swap ? visWidth : visHeight;
+
       const xyzToCam3x3 = raw.xyzToCam.length >= 9
         ? raw.xyzToCam.slice(0, 9)
         : null;
-      const numPixels = visWidth * visHeight;
-      const hdrSupported = useAppStore.getState().hdrSupported;
-      let imageData: ImageData;
-      let finalWidth: number;
-      let finalHeight: number;
-
-      if (hdrSupported) {
-        imageData = processHdr(hwc, numPixels, xyzToCam3x3, visWidth, visHeight, raw.orientation);
-        finalWidth = imageData.width;
-        finalHeight = imageData.height;
-      } else {
-        const colorMatrix = xyzToCam3x3 ? buildColorMatrix(xyzToCam3x3) : null;
-        imageData = toImageDataWithCC(hwc, visWidth, visHeight, colorMatrix, raw.orientation);
-        finalWidth = imageData.width;
-        finalHeight = imageData.height;
-      }
 
       const result: ProcessingResult = {
-        imageData,
         exportData: {
           hwc,
           width: visWidth,
           height: visHeight,
           xyzToCam: xyzToCam3x3,
-          orientation: raw.orientation,
+          orientation,
         },
-        isHdr: hdrSupported,
+        isHdr: useAppStore.getState().hdrSupported,
         metadata: {
           make: raw.make,
           model: raw.model,

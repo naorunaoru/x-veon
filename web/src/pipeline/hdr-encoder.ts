@@ -6,24 +6,20 @@ function buildHdrColorMatrix(xyzToCam3x3: Float32Array): Float32Array {
   return mul3x3(new Float32Array(SRGB_TO_BT2020), camToSrgb);
 }
 
-// ST 2084 (PQ) constants
-const PQ_M1 = 2610 / 16384;
-const PQ_M2 = (2523 / 4096) * 128;
-const PQ_C1 = 3424 / 4096;
-const PQ_C2 = (2413 / 4096) * 32;
-const PQ_C3 = (2392 / 4096) * 32;
+// HLG OETF constants (BT.2100)
+const HLG_A = 0.17883277;
+const HLG_B = 0.28466892;
+const HLG_C = 0.55991073;
 
-// HLG OOTF reference values (BT.2100)
-const OOTF_GAMMA = 1.2;
-const PEAK_NITS = 1000;
-
-function linearToPq(nits: number): number {
-  const y = Math.pow(nits / 10000, PQ_M1);
-  return Math.pow((PQ_C1 + PQ_C2 * y) / (1 + PQ_C3 * y), PQ_M2);
+function linearToHlg(v: number): number {
+  v = Math.max(v, 0);
+  if (v <= 1 / 12) return Math.sqrt(3 * v);
+  return HLG_A * Math.log(Math.max(12 * v - HLG_B, 1e-10)) + HLG_C;
 }
 
 /**
- * Fused HDR pipeline: color correction + rotation + OOTF + PQ + ImageData.
+ * Fused HDR pipeline: color correction + highlight blend + HLG + rotation.
+ * Mirrors infer_hdr.py — scene-referred HLG, no OOTF (display-side).
  * Reads hwc without mutation so the buffer can be reused as export data.
  */
 export function processHdr(
@@ -31,9 +27,8 @@ export function processHdr(
   width: number, height: number, orientation: string,
 ): ImageData {
   const combinedMatrix = xyzToCam3x3 ? buildHdrColorMatrix(xyzToCam3x3) : null;
-  const simple = new Float32Array(SRGB_TO_BT2020);
+  const simple = combinedMatrix ? new Float32Array(SRGB_TO_BT2020) : null;
   const blendLo = 0.8, blendRange = 0.7;
-  const gammaMinusOne = OOTF_GAMMA - 1;
 
   const swap = orientation === 'Rotate90' || orientation === 'Rotate270';
   const outW = swap ? height : width;
@@ -42,12 +37,12 @@ export function processHdr(
   let imageData: ImageData;
   try {
     imageData = new ImageData(outW, outH, {
-      colorSpace: 'rec2100-pq' as PredefinedColorSpace,
+      colorSpace: 'rec2100-hlg' as PredefinedColorSpace,
       storageFormat: 'float32',
     } as ImageDataSettings);
   } catch {
     imageData = new ImageData(outW, outH, {
-      colorSpace: 'rec2100-pq' as PredefinedColorSpace,
+      colorSpace: 'rec2100-hlg' as PredefinedColorSpace,
     } as ImageDataSettings);
   }
 
@@ -59,8 +54,8 @@ export function processHdr(
       const si = (y * width + x) * 3;
       let r = hwc[si], g = hwc[si + 1], b = hwc[si + 2];
 
-      // HDR color correction with highlight blend
-      if (combinedMatrix) {
+      // Color correction with highlight blend (mirrors infer_hdr.py)
+      if (combinedMatrix && simple) {
         const fr = combinedMatrix[0] * r + combinedMatrix[1] * g + combinedMatrix[2] * b;
         const fg = combinedMatrix[3] * r + combinedMatrix[4] * g + combinedMatrix[5] * b;
         const fb = combinedMatrix[6] * r + combinedMatrix[7] * g + combinedMatrix[8] * b;
@@ -74,13 +69,10 @@ export function processHdr(
         b = Math.max(0, fb + alpha * (sb - fb));
       }
 
-      // OOTF + PQ
-      r = Math.max(0, r); g = Math.max(0, g); b = Math.max(0, b);
-      const Y = 0.2627 * r + 0.6780 * g + 0.0593 * b;
-      const gain = Y > 0 ? Math.pow(Y, gammaMinusOne) * PEAK_NITS : 0;
-      const rPq = linearToPq(r * gain);
-      const gPq = linearToPq(g * gain);
-      const bPq = linearToPq(b * gain);
+      // HLG OETF (scene-referred, no OOTF)
+      const rH = linearToHlg(r);
+      const gH = linearToHlg(g);
+      const bH = linearToHlg(b);
 
       // Rotated destination index
       let di: number;
@@ -95,14 +87,14 @@ export function processHdr(
       }
 
       if (isFloat) {
-        (rgba as unknown as Float32Array)[di]     = rPq;
-        (rgba as unknown as Float32Array)[di + 1] = gPq;
-        (rgba as unknown as Float32Array)[di + 2] = bPq;
+        (rgba as unknown as Float32Array)[di]     = rH;
+        (rgba as unknown as Float32Array)[di + 1] = gH;
+        (rgba as unknown as Float32Array)[di + 2] = bH;
         (rgba as unknown as Float32Array)[di + 3] = 1.0;
       } else {
-        rgba[di]     = (Math.min(1, Math.max(0, rPq)) * 255 + 0.5) | 0;
-        rgba[di + 1] = (Math.min(1, Math.max(0, gPq)) * 255 + 0.5) | 0;
-        rgba[di + 2] = (Math.min(1, Math.max(0, bPq)) * 255 + 0.5) | 0;
+        rgba[di]     = (Math.min(1, Math.max(0, rH)) * 255 + 0.5) | 0;
+        rgba[di + 1] = (Math.min(1, Math.max(0, gH)) * 255 + 0.5) | 0;
+        rgba[di + 2] = (Math.min(1, Math.max(0, bH)) * 255 + 0.5) | 0;
         rgba[di + 3] = 255;
       }
     }

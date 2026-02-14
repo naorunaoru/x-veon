@@ -7,7 +7,7 @@ export async function initWasm(): Promise<void> {
   await wasmModule.default();
 }
 
-export function decodeRaf(arrayBuffer: ArrayBuffer): RawImage {
+export function decodeRaw(arrayBuffer: ArrayBuffer): RawImage {
   if (!wasmModule) throw new Error('WASM not initialized');
 
   const bytes = new Uint8Array(arrayBuffer);

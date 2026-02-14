@@ -28,6 +28,16 @@ export interface PaddedImage {
   padLeft: number;
 }
 
+export type CfaType = 'xtrans' | 'bayer';
+
+export interface CfaInfo {
+  cfaType: CfaType;
+  pattern: readonly (readonly number[])[];
+  period: number;
+  dy: number;
+  dx: number;
+}
+
 export interface PatternShift {
   dy: number;
   dx: number;
@@ -65,7 +75,6 @@ export interface ExportData {
 }
 
 export interface ProcessingResult {
-  imageData: ImageData;
   exportData: ExportData;
   isHdr: boolean;
   metadata: {

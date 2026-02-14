@@ -19,7 +19,7 @@ export function OutputPanel() {
   return (
     <main className="flex-1 flex bg-background overflow-hidden relative">
       {selectedFile.result ? (
-        <OutputCanvas key={selectedFile.id} result={selectedFile.result} />
+        <OutputCanvas key={selectedFile.id} fileId={selectedFile.id} result={selectedFile.result} />
       ) : (
         <div className="flex-1 flex items-center justify-center">
           {selectedFile.status === 'processing' ? (

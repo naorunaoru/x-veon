@@ -1,5 +1,5 @@
-import { XTRANS_PATTERN } from './constants';
-import type { CroppedImage, PaddedImage, PatternShift, TileGrid, ChannelMasks } from './types';
+import { XTRANS_PATTERN, BAYER_PATTERN } from './constants';
+import type { CfaInfo, CroppedImage, PaddedImage, TileGrid, ChannelMasks } from './types';
 
 export function cropToVisible(
   rawData: Uint16Array, fullWidth: number, fullHeight: number, crops: Uint16Array,
@@ -21,30 +21,30 @@ export function cropToVisible(
   return { data: out, width: visW, height: visH };
 }
 
-export function findPatternShift(cfaStr: string, cfaWidth: number, crops: Uint16Array): PatternShift {
-  if (cfaStr.length !== 36 || cfaWidth !== 6) {
-    throw new Error(`Unsupported CFA: ${cfaStr.length} chars, width ${cfaWidth}. Only 6x6 X-Trans supported.`);
-  }
-
-  const top = crops[0], left = crops[3];
-
-  const vis: number[][] = [];
-  for (let y = 0; y < 6; y++) {
-    vis[y] = [];
-    for (let x = 0; x < 6; x++) {
-      const srcY = (y + top) % 6;
-      const srcX = (x + left) % 6;
-      const ch = cfaStr[srcY * 6 + srcX];
-      vis[y][x] = ch === 'R' ? 0 : ch === 'G' ? 1 : 2;
+function parseCfaStr(cfaStr: string, cfaWidth: number): number[][] {
+  const cfaHeight = cfaStr.length / cfaWidth;
+  const pattern: number[][] = [];
+  for (let y = 0; y < cfaHeight; y++) {
+    pattern[y] = [];
+    for (let x = 0; x < cfaWidth; x++) {
+      const ch = cfaStr[y * cfaWidth + x];
+      pattern[y][x] = ch === 'R' ? 0 : ch === 'G' ? 1 : 2;
     }
   }
+  return pattern;
+}
 
-  for (let dy = 0; dy < 6; dy++) {
-    for (let dx = 0; dx < 6; dx++) {
+function matchShift(
+  canonical: readonly (readonly number[])[],
+  visible: number[][],
+  period: number,
+): { dy: number; dx: number } | null {
+  for (let dy = 0; dy < period; dy++) {
+    for (let dx = 0; dx < period; dx++) {
       let match = true;
-      for (let y = 0; y < 6 && match; y++) {
-        for (let x = 0; x < 6 && match; x++) {
-          if (XTRANS_PATTERN[(y + dy) % 6][(x + dx) % 6] !== vis[y][x]) {
+      for (let y = 0; y < period && match; y++) {
+        for (let x = 0; x < period && match; x++) {
+          if (canonical[(y + dy) % period][(x + dx) % period] !== visible[y][x]) {
             match = false;
           }
         }
@@ -52,8 +52,40 @@ export function findPatternShift(cfaStr: string, cfaWidth: number, crops: Uint16
       if (match) return { dy, dx };
     }
   }
+  return null;
+}
 
-  throw new Error(`CFA pattern does not match X-Trans reference: ${cfaStr}`);
+export function findPatternShift(cfaStr: string, cfaWidth: number, crops: Uint16Array): CfaInfo {
+  const period = cfaWidth;
+  const rawPattern = parseCfaStr(cfaStr, cfaWidth);
+
+  // Apply crop offset to get the visible CFA pattern
+  const top = crops[0], left = crops[3];
+  const vis: number[][] = [];
+  for (let y = 0; y < period; y++) {
+    vis[y] = [];
+    for (let x = 0; x < period; x++) {
+      vis[y][x] = rawPattern[(y + top) % period][(x + left) % period];
+    }
+  }
+
+  if (period === 6) {
+    const shift = matchShift(XTRANS_PATTERN, vis, 6);
+    if (shift) {
+      return { cfaType: 'xtrans', pattern: XTRANS_PATTERN, period: 6, ...shift };
+    }
+    throw new Error(`CFA pattern does not match X-Trans reference: ${cfaStr}`);
+  }
+
+  if (period === 2) {
+    const shift = matchShift(BAYER_PATTERN, vis, 2);
+    if (shift) {
+      return { cfaType: 'bayer', pattern: BAYER_PATTERN, period: 2, ...shift };
+    }
+    throw new Error(`CFA pattern does not match Bayer reference: ${cfaStr}`);
+  }
+
+  throw new Error(`Unsupported CFA: ${cfaStr.length} chars, width ${cfaWidth}`);
 }
 
 export function normalizeRawCfa(
@@ -72,7 +104,9 @@ export function normalizeRawCfa(
 }
 
 export function reconstructHighlightsCfa(
-  cfa: Float32Array, width: number, height: number, dy: number, dx: number,
+  cfa: Float32Array, width: number, height: number,
+  pattern: readonly (readonly number[])[], period: number,
+  dy: number, dx: number,
 ): void {
   const SQRT3 = Math.sqrt(3);
   const SQRT12 = 2 * SQRT3;
@@ -96,11 +130,10 @@ export function reconstructHighlightsCfa(
       const chCnt = [0, 0, 0];
 
       for (let jj = -1; jj <= 1; jj++) {
-        const patY = (y + jj + dy) % 6;
         const row = (y + jj) * width;
         for (let ii = -1; ii <= 1; ii++) {
           const val = src[row + x + ii];
-          const ch = XTRANS_PATTERN[patY][(x + ii + dx) % 6];
+          const ch = pattern[((y + jj + dy) % period + period) % period][((x + ii + dx) % period + period) % period];
           if (val > chMax[ch]) chMax[ch] = val;
           chSum[ch] += Math.min(val, clip);
           chCnt[ch]++;
@@ -131,7 +164,7 @@ export function reconstructHighlightsCfa(
         L + H / 3,
       ];
 
-      const ch = XTRANS_PATTERN[(y + dy) % 6][(x + dx) % 6];
+      const ch = pattern[((y + dy) % period + period) % period][((x + dx) % period + period) % period];
       cfa[y * width + x] = RGB[ch];
     }
   }
@@ -139,13 +172,15 @@ export function reconstructHighlightsCfa(
 
 export function applyWhiteBalance(
   cfa: Float32Array, width: number, height: number,
-  wb: Float32Array, dy: number, dx: number,
+  wb: Float32Array,
+  pattern: readonly (readonly number[])[], period: number,
+  dy: number, dx: number,
 ): void {
   for (let y = 0; y < height; y++) {
-    const patY = (y + dy) % 6;
+    const patY = (y + dy) % period;
     const row = y * width;
     for (let x = 0; x < width; x++) {
-      const ch = XTRANS_PATTERN[patY][(x + dx) % 6];
+      const ch = pattern[patY][(x + dx) % period];
       cfa[row + x] *= wb[ch];
     }
   }
@@ -200,16 +235,20 @@ export function generateTiles(
   return { tiles, paddedCfa, hPad, wPad };
 }
 
-export function makeChannelMasks(patchSize: number): ChannelMasks {
+export function makeChannelMasks(
+  patchSize: number,
+  pattern: readonly (readonly number[])[],
+  period: number,
+): ChannelMasks {
   const n = patchSize * patchSize;
   const r = new Float32Array(n);
   const g = new Float32Array(n);
   const b = new Float32Array(n);
   for (let y = 0; y < patchSize; y++) {
-    const patY = y % 6;
+    const patY = y % period;
     const row = y * patchSize;
     for (let x = 0; x < patchSize; x++) {
-      const ch = XTRANS_PATTERN[patY][x % 6];
+      const ch = pattern[patY][x % period];
       const idx = row + x;
       if (ch === 0) r[idx] = 1;
       else if (ch === 1) g[idx] = 1;

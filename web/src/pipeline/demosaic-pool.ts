@@ -1,6 +1,6 @@
 type Algorithm = 'bilinear' | 'markesteijn1' | 'markesteijn3' | 'dht';
 
-const STRIP_OVERLAP = 18; // 3 × X-Trans period (6), safe for 3-pass refinement + Markesteijn border
+const STRIP_OVERLAP_FACTOR = 3; // 3 × CFA period, safe for 3-pass refinement + Markesteijn border
 const MAX_WORKERS = 8;
 const MIN_STRIP_HEIGHT = 128; // Don't split if strips would be smaller than this
 
@@ -28,8 +28,11 @@ export class DemosaicPool {
     dy: number,
     dx: number,
     algorithm: Algorithm,
+    period: number,
   ): Promise<Float32Array> {
     this.ensureWorkers();
+
+    const stripOverlap = STRIP_OVERLAP_FACTOR * period;
 
     // Fast path: small image or single core — no splitting
     const effectiveWorkers = Math.min(
@@ -54,13 +57,13 @@ export class DemosaicPool {
     for (let i = 0; i < effectiveWorkers; i++) {
       const ownedStart = i * baseHeight;
       const ownedEnd = Math.min((i + 1) * baseHeight, height);
-      const startRow = Math.max(0, ownedStart - STRIP_OVERLAP);
-      const endRow = Math.min(height, ownedEnd + STRIP_OVERLAP);
+      const startRow = Math.max(0, ownedStart - stripOverlap);
+      const endRow = Math.min(height, ownedEnd + stripOverlap);
 
       strips.push({
         startRow,
         stripHeight: endRow - startRow,
-        stripDy: (dy + startRow) % 6,
+        stripDy: (dy + startRow) % period,
         innerStart: ownedStart - startRow,
         innerEnd: ownedEnd - startRow,
         ownedStart,

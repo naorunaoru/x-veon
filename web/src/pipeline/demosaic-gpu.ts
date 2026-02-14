@@ -4,24 +4,17 @@ struct Params {
   height: u32,
   dy: u32,
   dx: u32,
+  period: u32,
 }
 
 @group(0) @binding(0) var<storage, read> input: array<f32>;
 @group(0) @binding(1) var<storage, read_write> output: array<f32>;
 @group(0) @binding(2) var<uniform> params: Params;
-
-// X-Trans 6x6 CFA pattern (flattened): R=0, G=1, B=2
-const XTRANS = array<u32, 36>(
-  0, 2, 1, 2, 0, 1,
-  1, 1, 0, 1, 1, 2,
-  1, 1, 2, 1, 1, 0,
-  2, 0, 1, 0, 2, 1,
-  1, 1, 2, 1, 1, 0,
-  1, 1, 0, 1, 1, 2
-);
+@group(0) @binding(3) var<storage, read> cfa_pattern: array<u32>;
 
 fn cfa_ch(y: u32, x: u32) -> u32 {
-  return XTRANS[((y + params.dy) % 6u) * 6u + ((x + params.dx) % 6u)];
+  let p = params.period;
+  return cfa_pattern[((y + params.dy) % p) * p + ((x + params.dx) % p)];
 }
 
 @compute @workgroup_size(16, 16)
@@ -77,23 +70,17 @@ struct Params {
   height: u32,
   dy: u32,
   dx: u32,
+  period: u32,
 }
 
 @group(0) @binding(0) var<storage, read> input: array<f32>;
 @group(0) @binding(1) var<storage, read_write> green_hv: array<f32>; // planar: [green_h | green_v]
 @group(0) @binding(2) var<uniform> params: Params;
-
-const XTRANS = array<u32, 36>(
-  0, 2, 1, 2, 0, 1,
-  1, 1, 0, 1, 1, 2,
-  1, 1, 2, 1, 1, 0,
-  2, 0, 1, 0, 2, 1,
-  1, 1, 2, 1, 1, 0,
-  1, 1, 0, 1, 1, 2
-);
+@group(0) @binding(3) var<storage, read> cfa_pattern: array<u32>;
 
 fn cfa_ch(y: u32, x: u32) -> u32 {
-  return XTRANS[((y + params.dy) % 6u) * 6u + ((x + params.dx) % 6u)];
+  let p = params.period;
+  return cfa_pattern[((y + params.dy) % p) * p + ((x + params.dx) % p)];
 }
 
 @compute @workgroup_size(16, 16)
@@ -158,24 +145,18 @@ struct Params {
   height: u32,
   dy: u32,
   dx: u32,
+  period: u32,
 }
 
 @group(0) @binding(0) var<storage, read> input: array<f32>;
 @group(0) @binding(1) var<storage, read> green_hv: array<f32>;
 @group(0) @binding(2) var<storage, read_write> output: array<f32>;
 @group(0) @binding(3) var<uniform> params: Params;
-
-const XTRANS = array<u32, 36>(
-  0, 2, 1, 2, 0, 1,
-  1, 1, 0, 1, 1, 2,
-  1, 1, 2, 1, 1, 0,
-  2, 0, 1, 0, 2, 1,
-  1, 1, 2, 1, 1, 0,
-  1, 1, 0, 1, 1, 2
-);
+@group(0) @binding(4) var<storage, read> cfa_pattern: array<u32>;
 
 fn cfa_ch(y: u32, x: u32) -> u32 {
-  return XTRANS[((y + params.dy) % 6u) * 6u + ((x + params.dx) % 6u)];
+  let p = params.period;
+  return cfa_pattern[((y + params.dy) % p) * p + ((x + params.dx) % p)];
 }
 
 // Read green estimate at a neighbor pixel (average of H and V)
@@ -323,12 +304,23 @@ export function gpuAvailable(): boolean {
   return device !== null && pipeline !== null;
 }
 
+function createCfaPatternBuffer(cfaPattern: Uint32Array): GPUBuffer {
+  const buf = device!.createBuffer({
+    size: cfaPattern.byteLength,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+  });
+  device!.queue.writeBuffer(buf, 0, cfaPattern.buffer, cfaPattern.byteOffset, cfaPattern.byteLength);
+  return buf;
+}
+
 export async function runBilinearGpu(
   cfa: Float32Array,
   width: number,
   height: number,
   dy: number,
   dx: number,
+  cfaPattern: Uint32Array,
+  period: number,
 ): Promise<Float32Array> {
   if (!device || !pipeline) throw new Error('GPU demosaic not initialized');
 
@@ -352,10 +344,12 @@ export async function runBilinearGpu(
   });
 
   const paramsBuffer = device.createBuffer({
-    size: 16,
+    size: 32,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
-  device.queue.writeBuffer(paramsBuffer, 0, new Uint32Array([width, height, dy, dx]));
+  device.queue.writeBuffer(paramsBuffer, 0, new Uint32Array([width, height, dy, dx, period]));
+
+  const cfaPatternBuffer = createCfaPatternBuffer(cfaPattern);
 
   const stagingBuffer = device.createBuffer({
     size: outputBytes,
@@ -368,6 +362,7 @@ export async function runBilinearGpu(
       { binding: 0, resource: { buffer: inputBuffer } },
       { binding: 1, resource: { buffer: outputBuffer } },
       { binding: 2, resource: { buffer: paramsBuffer } },
+      { binding: 3, resource: { buffer: cfaPatternBuffer } },
     ],
   });
 
@@ -390,6 +385,7 @@ export async function runBilinearGpu(
   inputBuffer.destroy();
   outputBuffer.destroy();
   paramsBuffer.destroy();
+  cfaPatternBuffer.destroy();
   stagingBuffer.destroy();
 
   return result;
@@ -401,6 +397,8 @@ export async function runDhtGpu(
   height: number,
   dy: number,
   dx: number,
+  cfaPattern: Uint32Array,
+  period: number,
 ): Promise<Float32Array> {
   if (!device || !dhtGreenPipeline || !dhtResolvePipeline) {
     throw new Error('GPU DHT not initialized');
@@ -424,10 +422,12 @@ export async function runDhtGpu(
   device.queue.writeBuffer(inputBuffer, 0, cfa.buffer, cfa.byteOffset, cfa.byteLength);
 
   const paramsBuffer = device.createBuffer({
-    size: 16,
+    size: 32,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
-  device.queue.writeBuffer(paramsBuffer, 0, new Uint32Array([width, height, dy, dx]));
+  device.queue.writeBuffer(paramsBuffer, 0, new Uint32Array([width, height, dy, dx, period]));
+
+  const cfaPatternBuffer = createCfaPatternBuffer(cfaPattern);
 
   // Intermediate green buffer (pass 1 output, pass 2 input)
   const greenHvBuffer = device.createBuffer({
@@ -456,6 +456,7 @@ export async function runDhtGpu(
       { binding: 0, resource: { buffer: inputBuffer } },
       { binding: 1, resource: { buffer: greenHvBuffer } },
       { binding: 2, resource: { buffer: paramsBuffer } },
+      { binding: 3, resource: { buffer: cfaPatternBuffer } },
     ],
   });
 
@@ -467,6 +468,7 @@ export async function runDhtGpu(
       { binding: 1, resource: { buffer: greenHvBuffer } },
       { binding: 2, resource: { buffer: outputBuffer } },
       { binding: 3, resource: { buffer: paramsBuffer } },
+      { binding: 4, resource: { buffer: cfaPatternBuffer } },
     ],
   });
 
@@ -493,6 +495,7 @@ export async function runDhtGpu(
 
   inputBuffer.destroy();
   paramsBuffer.destroy();
+  cfaPatternBuffer.destroy();
   greenHvBuffer.destroy();
   outputBuffer.destroy();
   stagingBuffer.destroy();

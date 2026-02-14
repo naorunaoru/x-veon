@@ -53,12 +53,12 @@ export function DropZone({ className }: DropZoneProps) {
       )}
     >
       <Upload className="h-12 w-12" />
-      <p className="text-lg">Drop Fujifilm RAF files here</p>
+      <p className="text-lg">Drop RAW files here</p>
       <p className="text-sm underline">or click to browse</p>
       <input
         ref={inputRef}
         type="file"
-        accept=".raf,.RAF"
+        accept=".raf,.cr2,.cr3,.nef,.nrw,.arw,.dng,.rw2,.orf,.pef,.srw,.erf,.kdc,.dcr,.mef"
         multiple
         hidden
         onChange={(e) => handleFiles(e.target.files)}

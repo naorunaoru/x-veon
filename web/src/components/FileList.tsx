@@ -66,7 +66,7 @@ export function FileList() {
           <input
             ref={inputRef}
             type="file"
-            accept=".raf,.RAF"
+            accept=".raf,.cr2,.cr3,.nef,.nrw,.arw,.dng,.rw2,.orf,.pef,.srw,.erf,.kdc,.dcr,.mef"
             multiple
             hidden
             onChange={(e) => handleFiles(e.target.files)}
@@ -82,7 +82,7 @@ export function FileList() {
             'text-primary text-sm font-medium pointer-events-none',
           )}
         >
-          Drop RAF files here
+          Drop RAW files here
         </div>
       )}
     </div>

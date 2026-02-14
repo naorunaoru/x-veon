@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { DemosaicMethod, ExportFormat, ProcessingResult } from './pipeline/types';
 import type { ModelMeta } from './pipeline/inference';
 import { extractRafThumbnail, extractRafQuickMetadata } from './pipeline/raf-thumbnail';
+import { RAW_EXTENSIONS } from './pipeline/constants';
 
 export type FileStatus = 'queued' | 'processing' | 'done' | 'error';
 
@@ -79,7 +80,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   addFiles: (newFiles) => {
     const entries: QueuedFile[] = newFiles
-      .filter((f) => f.name.toLowerCase().endsWith('.raf'))
+      .filter((f) => {
+        const lower = f.name.toLowerCase();
+        return RAW_EXTENSIONS.some((ext) => lower.endsWith(ext));
+      })
       .map((f) => ({
         id: crypto.randomUUID(),
         file: f,
@@ -123,7 +127,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  removeFile: (id) =>
+  removeFile: (id) => {
     set((state) => {
       const files = state.files.filter((f) => f.id !== id);
       const selectedFileId =
@@ -133,7 +137,8 @@ export const useAppStore = create<AppState>((set, get) => ({
             : null
           : state.selectedFileId;
       return { files, selectedFileId };
-    }),
+    });
+  },
 
   selectFile: (id) => set({ selectedFileId: id }),
 

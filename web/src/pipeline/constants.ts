@@ -1,12 +1,23 @@
 // X-Trans 6x6 CFA pattern: R=0, G=1, B=2
-export const XTRANS_PATTERN = [
+export const XTRANS_PATTERN: readonly (readonly number[])[] = [
   [0, 2, 1, 2, 0, 1],
   [1, 1, 0, 1, 1, 2],
   [1, 1, 2, 1, 1, 0],
   [2, 0, 1, 0, 2, 1],
   [1, 1, 2, 1, 1, 0],
   [1, 1, 0, 1, 1, 2],
-] as const;
+];
+
+// Canonical Bayer 2x2 pattern (RGGB): R=0, G=1, B=2
+export const BAYER_PATTERN: readonly (readonly number[])[] = [
+  [0, 1],
+  [1, 2],
+];
+
+export const RAW_EXTENSIONS = [
+  '.raf', '.cr2', '.cr3', '.nef', '.nrw', '.arw', '.dng',
+  '.rw2', '.orf', '.pef', '.srw', '.erf', '.kdc', '.dcr', '.mef',
+];
 
 // XYZ to sRGB (D65 whitepoint)
 export const XYZ_TO_SRGB = [

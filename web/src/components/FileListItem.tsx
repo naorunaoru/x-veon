@@ -48,9 +48,9 @@ export function FileListItem({ file, selected, onSelect }: FileListItemProps) {
 
       {/* Info */}
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium truncate">{file.name}.RAF</p>
+        <p className="text-sm font-medium truncate">{file.file.name}</p>
         <p className="text-xs text-muted-foreground truncate">
-          {file.metadata?.camera ?? 'Reading\u2026'}
+          {file.metadata?.camera ?? '\u2014'}
         </p>
         {file.error && (
           <p className="text-xs text-destructive truncate">{file.error}</p>
