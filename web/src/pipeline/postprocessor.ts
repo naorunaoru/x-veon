@@ -1,13 +1,18 @@
 import { XYZ_TO_SRGB } from './constants';
 import type { RotatedImage } from './types';
 
-export function blendTiles(
-  tileOutputs: Float32Array[], coords: Array<{ x: number; y: number }>,
+export interface TileBlender {
+  accumulate(tile: Float32Array, tx: number, ty: number): void;
+  finalize(): Float32Array;
+}
+
+export function createTileBlender(
   hPad: number, wPad: number, patchSize: number, overlap: number,
-): Float32Array {
+): TileBlender {
   const planeSize = hPad * wPad;
   const output = new Float32Array(3 * planeSize);
   const weights = new Float32Array(planeSize);
+  const patchPixels = patchSize * patchSize;
 
   const w1d = new Float32Array(patchSize);
   w1d.fill(1);
@@ -16,38 +21,36 @@ export function blendTiles(
     w1d[patchSize - 1 - i] = i / overlap;
   }
 
-  const patchPixels = patchSize * patchSize;
+  return {
+    accumulate(tile: Float32Array, tx: number, ty: number): void {
+      for (let py = 0; py < patchSize; py++) {
+        const wy = w1d[py];
+        const imgY = ty + py;
+        for (let px = 0; px < patchSize; px++) {
+          const w = wy * w1d[px];
+          const imgIdx = imgY * wPad + (tx + px);
+          const tileIdx = py * patchSize + px;
 
-  for (let t = 0; t < tileOutputs.length; t++) {
-    const tile = tileOutputs[t];
-    const { x: tx, y: ty } = coords[t];
-
-    for (let py = 0; py < patchSize; py++) {
-      const wy = w1d[py];
-      const imgY = ty + py;
-      for (let px = 0; px < patchSize; px++) {
-        const w = wy * w1d[px];
-        const imgIdx = imgY * wPad + (tx + px);
-        const tileIdx = py * patchSize + px;
-
-        for (let c = 0; c < 3; c++) {
-          output[c * planeSize + imgIdx] += tile[c * patchPixels + tileIdx] * w;
+          for (let c = 0; c < 3; c++) {
+            output[c * planeSize + imgIdx] += tile[c * patchPixels + tileIdx] * w;
+          }
+          weights[imgIdx] += w;
         }
-        weights[imgIdx] += w;
       }
-    }
-  }
+    },
 
-  for (let i = 0; i < planeSize; i++) {
-    if (weights[i] > 1e-8) {
-      const invW = 1 / weights[i];
-      for (let c = 0; c < 3; c++) {
-        output[c * planeSize + i] *= invW;
+    finalize(): Float32Array {
+      for (let i = 0; i < planeSize; i++) {
+        if (weights[i] > 1e-8) {
+          const invW = 1 / weights[i];
+          for (let c = 0; c < 3; c++) {
+            output[c * planeSize + i] *= invW;
+          }
+        }
       }
-    }
-  }
-
-  return output;
+      return output;
+    },
+  };
 }
 
 export function cropToHWC(
@@ -197,4 +200,57 @@ export function toImageData(hwc: Float32Array, width: number, height: number): I
   }
 
   return new ImageData(rgba, width, height);
+}
+
+/**
+ * Fused color-correction + rotation + sRGB conversion.
+ * Reads hwc without mutation so the buffer can be reused as export data.
+ */
+export function toImageDataWithCC(
+  hwc: Float32Array, width: number, height: number,
+  colorMatrix: Float32Array | null, orientation: string,
+): ImageData {
+  const n = width * height;
+  const swap = orientation === 'Rotate90' || orientation === 'Rotate270';
+  const outW = swap ? height : width;
+  const outH = swap ? width : height;
+  const rgba = new Uint8ClampedArray(n * 4);
+
+  const blendLo = 0.8, blendRange = 0.7; // blendHi = 1.5
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const si = (y * width + x) * 3;
+      let r = hwc[si], g = hwc[si + 1], b = hwc[si + 2];
+
+      if (colorMatrix) {
+        const fr = colorMatrix[0] * r + colorMatrix[1] * g + colorMatrix[2] * b;
+        const fg = colorMatrix[3] * r + colorMatrix[4] * g + colorMatrix[5] * b;
+        const fb = colorMatrix[6] * r + colorMatrix[7] * g + colorMatrix[8] * b;
+        const maxCh = Math.max(r, g, b);
+        const alpha = Math.min(1, Math.max(0, (maxCh - blendLo) / blendRange));
+        r = Math.max(0, fr + alpha * (r - fr));
+        g = Math.max(0, fg + alpha * (g - fg));
+        b = Math.max(0, fb + alpha * (b - fb));
+      }
+
+      let di: number;
+      if (orientation === 'Rotate180') {
+        di = (n - 1 - (y * width + x)) * 4;
+      } else if (orientation === 'Rotate90') {
+        di = (x * outW + (height - 1 - y)) * 4;
+      } else if (orientation === 'Rotate270') {
+        di = ((width - 1 - x) * outW + y) * 4;
+      } else {
+        di = (y * width + x) * 4;
+      }
+
+      rgba[di]     = linearToSrgb8(r);
+      rgba[di + 1] = linearToSrgb8(g);
+      rgba[di + 2] = linearToSrgb8(b);
+      rgba[di + 3] = 255;
+    }
+  }
+
+  return new ImageData(rgba, outW, outH);
 }

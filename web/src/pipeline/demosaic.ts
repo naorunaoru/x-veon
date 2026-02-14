@@ -14,6 +14,13 @@ function getPool(): DemosaicPool {
   return pool;
 }
 
+export function destroyDemosaicPool(): void {
+  if (pool) {
+    pool.destroy();
+    pool = null;
+  }
+}
+
 export async function runDemosaic(
   cfa: Float32Array,
   width: number,
