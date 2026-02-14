@@ -4,13 +4,13 @@ Unified training script for X-Trans demosaicing.
 
 Modes:
 - train: Initial training from scratch (L1-focused)
-- finetune: Fine-tune existing model (MS-SSIM + gradient for texture)
+- finetune: Fine-tune existing model
 
 Examples:
     # Initial training
     python train.py --data-dir /path/to/npy --epochs 200
 
-    # Fine-tune with MS-SSIM
+    # Fine-tune
     python train.py --data-dir /path/to/npy --resume checkpoints/best.pt \
         --mode finetune --epochs 50 --lr 1e-4
 
@@ -21,6 +21,7 @@ Examples:
 
 import argparse
 import json
+import math
 import random
 import time
 from pathlib import Path
@@ -166,6 +167,10 @@ def main():
     # Augmentation
     parser.add_argument("--noise-min", type=float, default=0.0)
     parser.add_argument("--noise-max", type=float, default=0.005)
+    parser.add_argument("--wb-aug-range", type=float, default=0.0,
+                        help="WB shift augmentation range in log space (e.g. 0.25 = ~±28%%). Only with --apply-wb")
+    parser.add_argument("--exposure-aug-ev", type=float, default=0.0,
+                        help="Max upward exposure shift in EV (e.g. 1.5). Clips in raw space before WB.")
     parser.add_argument("--torture-fraction", type=float, default=0.0,
                         help="Fraction of training data from synthetic torture patterns")
     parser.add_argument("--torture-patterns", type=int, default=500,
@@ -216,6 +221,10 @@ def main():
     else:
         data_range = 1.0
 
+    wb_aug = args.wb_aug_range if args.apply_wb else 0.0
+    if wb_aug > 0 and not args.apply_wb:
+        print("  Warning: --wb-aug-range ignored without --apply-wb")
+
     shared_kwargs = dict(
         patch_size=args.patch_size,
         patches_per_image=args.patches_per_image,
@@ -230,6 +239,8 @@ def main():
             torture_patterns=args.torture_patterns,
             augment=True,
             noise_sigma=(args.noise_min, args.noise_max),
+            wb_aug_range=wb_aug,
+            exposure_aug_ev=args.exposure_aug_ev,
             **shared_kwargs,
         )
     else:
@@ -237,6 +248,8 @@ def main():
             files=train_files,
             augment=True,
             noise_sigma=(args.noise_min, args.noise_max),
+            wb_aug_range=wb_aug,
+            exposure_aug_ev=args.exposure_aug_ev,
             **shared_kwargs,
         )
 
@@ -348,6 +361,10 @@ def main():
     print(f"  Noise: [{args.noise_min}, {args.noise_max}]")
     if args.torture_fraction > 0:
         print(f"  Torture mixing: {args.torture_fraction*100:.1f}%")
+    if wb_aug > 0:
+        print(f"  WB augmentation: ±{(math.exp(wb_aug)-1)*100:.0f}% (log range {wb_aug:.2f})")
+    if args.exposure_aug_ev > 0:
+        print(f"  Exposure augmentation: 0 to +{args.exposure_aug_ev:.1f} EV (raw-space clipping)")
     print()
 
     for epoch in range(start_epoch, args.epochs):

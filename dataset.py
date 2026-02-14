@@ -8,6 +8,7 @@ Supports:
 """
 
 import json
+import math
 import os
 import random
 
@@ -44,6 +45,8 @@ class LinearDataset(Dataset):
         max_images: int | None = None,
         filter_file: str | None = None,
         apply_wb: bool = False,
+        wb_aug_range: float = 0.0,
+        exposure_aug_ev: float = 0.0,
         files: list[str] | None = None,
     ):
         self.patch_size = patch_size
@@ -51,6 +54,8 @@ class LinearDataset(Dataset):
         self.noise_sigma = noise_sigma
         self.patches_per_image = patches_per_image
         self.apply_wb = apply_wb
+        self.wb_aug_range = wb_aug_range
+        self.exposure_aug_ev = exposure_aug_ev
         self.data_dir = data_dir
 
         assert patch_size % 6 == 0, "patch_size must be divisible by 6 (CFA)"
@@ -145,9 +150,19 @@ class LinearDataset(Dataset):
 
         rgb = torch.from_numpy(patch.transpose(2, 0, 1).copy()).float()
 
+        # Exposure augmentation: push toward clipping in raw space (before WB)
+        if self.augment and self.exposure_aug_ev > 0:
+            ev_shift = rng.uniform(0, self.exposure_aug_ev)
+            rgb = (rgb * (2.0 ** ev_shift)).clamp(max=1.0)
+
         # Apply white balance before mosaicing (model learns WB'd data)
         if self.wb_multipliers is not None:
             wb = torch.from_numpy(self.wb_multipliers[img_idx]).float()
+            # WB shift augmentation: perturb R and B gains in log space
+            if self.augment and self.wb_aug_range > 0:
+                r_shift = math.exp(rng.uniform(-self.wb_aug_range, self.wb_aug_range))
+                b_shift = math.exp(rng.uniform(-self.wb_aug_range, self.wb_aug_range))
+                wb = wb * torch.tensor([r_shift, 1.0, b_shift])
             rgb = rgb * wb.view(3, 1, 1)
 
         # Augmentation (only flips - rotations break CFA)
@@ -196,6 +211,8 @@ def create_mixed_dataset(
     patches_per_image: int = 16,
     max_images: int | None = None,
     apply_wb: bool = False,
+    wb_aug_range: float = 0.0,
+    exposure_aug_ev: float = 0.0,
     files: list[str] | None = None,
 ) -> Dataset:
     """
@@ -209,6 +226,8 @@ def create_mixed_dataset(
         patches_per_image=patches_per_image,
         max_images=max_images,
         apply_wb=apply_wb,
+        wb_aug_range=wb_aug_range,
+        exposure_aug_ev=exposure_aug_ev,
         files=files,
     )
 
