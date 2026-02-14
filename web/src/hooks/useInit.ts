@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useAppStore } from '@/store';
 import { initWasm } from '@/pipeline/raf-decoder';
 import { initModel, getBackend, getModelMeta } from '@/pipeline/inference';
+import { initDemosaicGpuSafe } from '@/pipeline/demosaic';
 
 export function useInit() {
   const setInitialized = useAppStore((s) => s.setInitialized);
@@ -12,7 +13,7 @@ export function useInit() {
 
     async function init() {
       try {
-        await Promise.all([initWasm(), initModel('./model.onnx')]);
+        await Promise.all([initWasm(), initModel('./model.onnx'), initDemosaicGpuSafe()]);
         if (cancelled) return;
 
         const backend = getBackend() ?? 'unknown';

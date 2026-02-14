@@ -4,9 +4,10 @@
   "type": "module",
   "scripts": {
     "setup": "rustup target add wasm32-unknown-unknown && npm install && npm run build:wasm",
-    "build:wasm": "npm run build:wasm:decoder && npm run build:wasm:encoder",
+    "build:wasm": "npm run build:wasm:decoder && npm run build:wasm:encoder && npm run build:wasm:demosaic",
     "build:wasm:decoder": "wasm-pack build ../../rawloader-wasm --target web --release --out-dir \"$PWD/wasm-pkg\"",
     "build:wasm:encoder": "wasm-pack build wasm-encoder --target web --release",
+    "build:wasm:demosaic": "wasm-pack build ../../demosaic-wasm --target web --release --out-dir \"$PWD/wasm-demosaic-pkg\"",
     "dev": "npm run build:wasm && vite",
     "build": "npm run build:wasm && vite build",
     "preview": "vite preview"
@@ -33,6 +34,7 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
+    "@webgpu/types": "^0.1.69",
     "vite": "^6.0.0",
     "vite-plugin-wasm": "^3.4.1",
     "wasm-pack": "^0.14.0"

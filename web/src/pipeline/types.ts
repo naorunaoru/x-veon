@@ -52,6 +52,8 @@ export interface RotatedImage {
   height: number;
 }
 
+export type DemosaicMethod = 'neural-net' | 'markesteijn1' | 'bilinear' | 'dht';
+
 export type ExportFormat = 'avif' | 'jpeg' | 'tiff';
 
 export interface ExportData {

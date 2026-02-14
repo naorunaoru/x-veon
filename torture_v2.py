@@ -9,31 +9,7 @@ import math
 import random
 import colorsys
 
-
-def make_cfa_mask(h: int, w: int) -> torch.Tensor:
-    """X-Trans CFA pattern mask (6x6 repeating)."""
-    pattern = torch.tensor([
-        [0, 1, 2, 1, 0, 2],
-        [2, 1, 0, 2, 1, 0],
-        [1, 2, 1, 0, 2, 1],
-        [1, 0, 2, 1, 0, 2],
-        [0, 2, 1, 0, 2, 1],
-        [2, 1, 0, 2, 1, 0],
-    ], dtype=torch.long)
-    rep_y = (h + 5) // 6
-    rep_x = (w + 5) // 6
-    mask = pattern.repeat(rep_y, rep_x)[:h, :w]
-    return mask
-
-
-def make_channel_masks(h: int, w: int) -> torch.Tensor:
-    """3-channel binary masks for R, G, B positions."""
-    cfa = make_cfa_mask(h, w)
-    masks = torch.zeros(3, h, w)
-    masks[0] = (cfa == 0).float()
-    masks[1] = (cfa == 1).float()
-    masks[2] = (cfa == 2).float()
-    return masks
+from cfa import make_cfa_mask, make_channel_masks, CFA_REGISTRY
 
 
 def mosaic_linear(rgb: torch.Tensor, cfa: torch.Tensor) -> torch.Tensor:
@@ -276,15 +252,17 @@ class TortureDatasetV2(Dataset):
         (-0.123, 0.745),
     ]
     
-    def __init__(self, size: int = 288, num_patterns: int = 500, 
-                 add_noise: bool = True, noise_prob: float = 0.5):
+    def __init__(self, size: int = 288, num_patterns: int = 500,
+                 add_noise: bool = True, noise_prob: float = 0.5,
+                 cfa_type: str = "xtrans"):
         self.size = size
         self.size_hi = size * self.SUPERSAMPLE
         self.num_patterns = num_patterns
         self.add_noise = add_noise
         self.noise_prob = noise_prob
-        self.cfa = make_cfa_mask(size, size)
-        self.masks = make_channel_masks(size, size)
+        pattern = CFA_REGISTRY[cfa_type]
+        self.cfa = make_cfa_mask(size, size, pattern)
+        self.masks = make_channel_masks(size, size, pattern)
         
     def __len__(self):
         return self.num_patterns

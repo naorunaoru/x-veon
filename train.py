@@ -125,11 +125,14 @@ def evaluate(model, loader, criterion, device):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="X-Trans demosaicing training")
-    
+    parser = argparse.ArgumentParser(description="CFA demosaicing training")
+
     # Data
     parser.add_argument("--data-dir", type=str, required=True,
                         help="Directory with .npy files")
+    parser.add_argument("--cfa-type", type=str, default="xtrans",
+                        choices=["xtrans", "bayer"],
+                        help="CFA pattern type (default: xtrans)")
     parser.add_argument("--max-images", type=int, default=None)
     parser.add_argument("--filter-file", type=str, default=None,
                         help="JSON file with allowed image stems")
@@ -229,6 +232,7 @@ def main():
         patch_size=args.patch_size,
         patches_per_image=args.patches_per_image,
         apply_wb=args.apply_wb,
+        cfa_type=args.cfa_type,
     )
 
     if args.torture_fraction > 0:
@@ -357,6 +361,7 @@ def main():
     # Training loop
     history = []
     print(f"\nTraining for {args.epochs} epochs...")
+    print(f"  CFA: {args.cfa_type}")
     print(f"  Batch: {args.batch_size}, Patch: {args.patch_size}px")
     print(f"  Noise: [{args.noise_min}, {args.noise_max}]")
     if args.torture_fraction > 0:
@@ -413,6 +418,7 @@ def main():
                 "scheduler": scheduler.state_dict(),
                 "best_val_psnr": best_val_psnr,
                 "base_width": args.base_width,
+                "cfa_type": args.cfa_type,
             }, output_dir / "best.pt")
             print(f"  -> New best ({best_val_psnr:.2f} dB)")
 
@@ -425,6 +431,7 @@ def main():
                 "scheduler": scheduler.state_dict(),
                 "best_val_psnr": best_val_psnr,
                 "base_width": args.base_width,
+                "cfa_type": args.cfa_type,
             }, output_dir / "latest.pt")
 
         # Save history

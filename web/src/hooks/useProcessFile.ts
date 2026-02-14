@@ -13,6 +13,7 @@ import {
   buildTileInput,
 } from '@/pipeline/preprocessor';
 import { runTile, getBackend } from '@/pipeline/inference';
+import { runDemosaic } from '@/pipeline/demosaic';
 import {
   blendTiles,
   cropToHWC,
@@ -23,7 +24,7 @@ import {
 } from '@/pipeline/postprocessor';
 import { processHdr } from '@/pipeline/hdr-encoder';
 import { PATCH_SIZE, OVERLAP } from '@/pipeline/constants';
-import type { ProcessingResult } from '@/pipeline/types';
+import type { DemosaicMethod, ProcessingResult } from '@/pipeline/types';
 
 export function useProcessFile() {
   const [isProcessing, setIsProcessing] = useState(false);
@@ -70,32 +71,50 @@ export function useProcessFile() {
       // 8. Pad for alignment
       const padded = padToAlignment(cfa, visible.width, visible.height, dy, dx);
 
-      // 9. Tile
-      const { tiles, paddedCfa, hPad, wPad } = generateTiles(
-        padded.data, padded.width, padded.height, PATCH_SIZE, OVERLAP,
-      );
-
-      // 10. Precompute masks
-      const masks = makeChannelMasks(PATCH_SIZE);
-
-      // 11. Inference
-      const tileOutputs: Float32Array[] = [];
+      // 9. Demosaic
+      const method: DemosaicMethod = useAppStore.getState().demosaicMethod;
       const startTime = Date.now();
+      let blended: Float32Array;
+      let hPad: number;
+      let wPad: number;
+      let tileCount: number;
 
-      for (let i = 0; i < tiles.length; i++) {
-        const { x, y } = tiles[i];
-        const input = buildTileInput(paddedCfa, wPad, x, y, PATCH_SIZE, masks);
-        const output = await runTile(input, PATCH_SIZE);
-        tileOutputs.push(output);
-        useAppStore.getState().updateFileProgress(fileId, i + 1, tiles.length);
+      if (method === 'neural-net') {
+        // NN path: tile → inference → blend
+        const tileGrid = generateTiles(
+          padded.data, padded.width, padded.height, PATCH_SIZE, OVERLAP,
+        );
+        hPad = tileGrid.hPad;
+        wPad = tileGrid.wPad;
+        tileCount = tileGrid.tiles.length;
+
+        const masks = makeChannelMasks(PATCH_SIZE);
+        const tileOutputs: Float32Array[] = [];
+
+        for (let i = 0; i < tileGrid.tiles.length; i++) {
+          const { x, y } = tileGrid.tiles[i];
+          const input = buildTileInput(tileGrid.paddedCfa, wPad, x, y, PATCH_SIZE, masks);
+          const output = await runTile(input, PATCH_SIZE);
+          tileOutputs.push(output);
+          useAppStore.getState().updateFileProgress(fileId, i + 1, tileGrid.tiles.length);
+        }
+
+        blended = blendTiles(tileOutputs, tileGrid.tiles, hPad, wPad, PATCH_SIZE, OVERLAP);
+      } else {
+        // Traditional demosaic: process full image at once
+        const algorithm = method; // 'bilinear' | 'markesteijn1' | 'dht'
+        hPad = padded.height;
+        wPad = padded.width;
+        tileCount = 1;
+
+        useAppStore.getState().updateFileProgress(fileId, 0, 1);
+        blended = await runDemosaic(padded.data, padded.width, padded.height, dy, dx, algorithm);
+        useAppStore.getState().updateFileProgress(fileId, 1, 1);
       }
 
       const inferenceTime = (Date.now() - startTime) / 1000;
 
-      // 12. Blend tiles
-      const blended = blendTiles(tileOutputs, tiles, hPad, wPad, PATCH_SIZE, OVERLAP);
-
-      // 13. Crop to original size (CHW -> HWC)
+      // 10. Crop to original size (CHW -> HWC)
       const hwc = cropToHWC(
         blended, hPad, wPad, padded.padTop, padded.padLeft, visible.height, visible.width,
       );
@@ -144,9 +163,9 @@ export function useProcessFile() {
           model: raw.model,
           width: finalWidth,
           height: finalHeight,
-          tileCount: tiles.length,
+          tileCount,
           inferenceTime,
-          backend: getBackend() ?? 'unknown',
+          backend: method === 'neural-net' ? (getBackend() ?? 'unknown') : method,
         },
       };
 

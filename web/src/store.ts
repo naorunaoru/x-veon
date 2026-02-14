@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ExportFormat, ProcessingResult } from './pipeline/types';
+import type { DemosaicMethod, ExportFormat, ProcessingResult } from './pipeline/types';
 import type { ModelMeta } from './pipeline/inference';
 import { extractRafThumbnail, extractRafQuickMetadata } from './pipeline/raf-thumbnail';
 
@@ -29,6 +29,9 @@ interface AppState {
   files: QueuedFile[];
   selectedFileId: string | null;
 
+  // Processing settings
+  demosaicMethod: DemosaicMethod;
+
   // Export settings
   exportFormat: ExportFormat;
   exportQuality: number;
@@ -45,6 +48,7 @@ interface AppState {
   updateFileStatus: (id: string, status: FileStatus, error?: string) => void;
   updateFileProgress: (id: string, current: number, total: number) => void;
   setFileResult: (id: string, result: ProcessingResult) => void;
+  setDemosaicMethod: (method: DemosaicMethod) => void;
   setExportFormat: (format: ExportFormat) => void;
   setExportQuality: (quality: number) => void;
   setCanvasRef: (ref: HTMLCanvasElement | null) => void;
@@ -59,6 +63,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   files: [],
   selectedFileId: null,
+
+  demosaicMethod: 'neural-net',
 
   exportFormat: 'avif',
   exportQuality: 85,
@@ -152,6 +158,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       ),
     })),
 
+  setDemosaicMethod: (method) => set({ demosaicMethod: method }),
   setExportFormat: (format) => set({ exportFormat: format }),
   setExportQuality: (quality) => set({ exportQuality: quality }),
   setCanvasRef: (ref) => set({ canvasRef: ref }),

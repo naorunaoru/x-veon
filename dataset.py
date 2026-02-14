@@ -16,7 +16,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset, ConcatDataset
 
-from xtrans_pattern import make_cfa_mask, make_channel_masks
+from cfa import make_cfa_mask, make_channel_masks, CFA_REGISTRY, cfa_period, patch_alignment
 
 
 def mosaic(rgb: torch.Tensor, cfa_mask: torch.Tensor) -> torch.Tensor:
@@ -48,6 +48,7 @@ class LinearDataset(Dataset):
         wb_aug_range: float = 0.0,
         exposure_aug_ev: float = 0.0,
         files: list[str] | None = None,
+        cfa_type: str = "xtrans",
     ):
         self.patch_size = patch_size
         self.augment = augment
@@ -58,8 +59,13 @@ class LinearDataset(Dataset):
         self.exposure_aug_ev = exposure_aug_ev
         self.data_dir = data_dir
 
-        assert patch_size % 6 == 0, "patch_size must be divisible by 6 (CFA)"
-        assert patch_size % 16 == 0, "patch_size must be divisible by 16 (UNet)"
+        self.pattern = CFA_REGISTRY[cfa_type]
+        self.period = cfa_period(self.pattern)
+        alignment = patch_alignment(self.pattern)
+        assert patch_size % alignment == 0, (
+            f"patch_size must be divisible by {alignment} "
+            f"(lcm of CFA period {self.period} and UNet factor 16)"
+        )
 
         if files is not None:
             self.data_files = list(files)
@@ -107,8 +113,8 @@ class LinearDataset(Dataset):
             if n_missing:
                 print(f"  WB: {n_missing}/{len(self.data_files)} images missing metadata, using identity WB")
 
-        self.cfa = make_cfa_mask(patch_size, patch_size)
-        self.masks = make_channel_masks(patch_size, patch_size)
+        self.cfa = make_cfa_mask(patch_size, patch_size, self.pattern)
+        self.masks = make_channel_masks(patch_size, patch_size, self.pattern)
 
     @staticmethod
     def find_files(
@@ -142,10 +148,10 @@ class LinearDataset(Dataset):
         img = np.load(self.data_files[img_idx])
         h, w, _ = img.shape
 
-        # Random crop aligned to 6px grid
+        # Random crop aligned to CFA grid
         max_y, max_x = h - self.patch_size, w - self.patch_size
-        top = (rng.randint(0, max(0, max_y)) // 6) * 6
-        left = (rng.randint(0, max(0, max_x)) // 6) * 6
+        top = (rng.randint(0, max(0, max_y)) // self.period) * self.period
+        left = (rng.randint(0, max(0, max_x)) // self.period) * self.period
         patch = img[top:top+self.patch_size, left:left+self.patch_size]
 
         rgb = torch.from_numpy(patch.transpose(2, 0, 1).copy()).float()
@@ -190,9 +196,9 @@ class TortureDataset(Dataset):
     Import from torture_v2 for the actual pattern generation.
     """
 
-    def __init__(self, patch_size: int = 96, num_patterns: int = 1000):
+    def __init__(self, patch_size: int = 96, num_patterns: int = 1000, cfa_type: str = "xtrans"):
         from torture_v2 import TortureDatasetV2
-        self._inner = TortureDatasetV2(size=patch_size, num_patterns=num_patterns)
+        self._inner = TortureDatasetV2(size=patch_size, num_patterns=num_patterns, cfa_type=cfa_type)
 
     def __len__(self):
         return len(self._inner)
@@ -214,6 +220,7 @@ def create_mixed_dataset(
     wb_aug_range: float = 0.0,
     exposure_aug_ev: float = 0.0,
     files: list[str] | None = None,
+    cfa_type: str = "xtrans",
 ) -> Dataset:
     """
     Create a dataset mixing real images with synthetic torture patterns.
@@ -229,6 +236,7 @@ def create_mixed_dataset(
         wb_aug_range=wb_aug_range,
         exposure_aug_ev=exposure_aug_ev,
         files=files,
+        cfa_type=cfa_type,
     )
 
     if torture_fraction <= 0:
@@ -239,7 +247,7 @@ def create_mixed_dataset(
     torture_size = int(main_size * torture_fraction / (1 - torture_fraction))
     torture_size = max(1, min(torture_size, torture_patterns * 10))  # Cap at 10x patterns
 
-    torture_dataset = TortureDataset(patch_size, torture_patterns)
+    torture_dataset = TortureDataset(patch_size, torture_patterns, cfa_type=cfa_type)
 
     # Repeat torture dataset to match size
     class RepeatedDataset(Dataset):

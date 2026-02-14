@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""HDR inference for X-Trans demosaicing with tile blending and white balance."""
+"""HDR inference for CFA demosaicing with tile blending and white balance."""
 
 import argparse
 import os
@@ -12,7 +12,7 @@ import rawpy
 import torch
 
 from model import XTransUNet
-from xtrans_pattern import make_channel_masks, XTRANS_PATTERN
+from cfa import make_channel_masks, detect_cfa_from_raw, find_pattern_shift, cfa_period, CFA_REGISTRY
 
 
 # Standard color space conversion matrices
@@ -121,16 +121,6 @@ def apply_exif_rotation(img: np.ndarray, flip: int) -> np.ndarray:
         return img
 
 
-def find_pattern_shift(raw_pattern: np.ndarray) -> tuple[int, int]:
-    ref = np.array(XTRANS_PATTERN)
-    for dy in range(6):
-        for dx in range(6):
-            shifted = np.roll(np.roll(ref, dy, axis=0), dx, axis=1)
-            if np.array_equal(raw_pattern[:6, :6], shifted):
-                return dy, dx
-    raise ValueError("Could not match CFA pattern")
-
-
 def linear_to_hlg(E: np.ndarray) -> np.ndarray:
     a, b, c = 0.17883277, 0.28466892, 0.55991073
     E = np.maximum(E, 0)
@@ -213,10 +203,11 @@ def reconstruct_highlights_cfa(cfa_norm: np.ndarray, raw_pattern: np.ndarray) ->
     return out
 
 
-def process_raf(raf_path: str, model: torch.nn.Module, device: str,
+def process_raw(raw_path: str, model: torch.nn.Module, device: str,
                 patch_size: int = 288, overlap: int = 48,
-                apply_wb_to_cfa: bool = True) -> tuple[np.ndarray, dict]:
-    raw = rawpy.imread(raf_path)
+                apply_wb_to_cfa: bool = True,
+                cfa_type: str | None = None) -> tuple[np.ndarray, dict]:
+    raw = rawpy.imread(raw_path)
 
     cfa = raw.raw_image_visible.astype(np.float32)
     black = raw.black_level_per_channel[0]
@@ -234,11 +225,17 @@ def process_raf(raf_path: str, model: torch.nn.Module, device: str,
     # EXIF orientation
     exif_flip = raw.sizes.flip
 
-    # Pattern alignment
+    # Pattern alignment — auto-detect or use specified CFA type
     raw_pattern = raw.raw_colors_visible
-    dy, dx = find_pattern_shift(raw_pattern)
-    pad_top = (6 - dy) % 6
-    pad_left = (6 - dx) % 6
+    if cfa_type is not None:
+        ref_pattern = CFA_REGISTRY[cfa_type]
+    else:
+        _, ref_pattern = detect_cfa_from_raw(raw_pattern)
+
+    period = cfa_period(ref_pattern)
+    dy, dx = find_pattern_shift(raw_pattern, ref_pattern)
+    pad_top = (period - dy) % period
+    pad_left = (period - dx) % period
 
     # LCh highlight reconstruction at CFA level (before WB, clip = 1.0)
     # cfa_norm = reconstruct_highlights_cfa(cfa_norm, raw_pattern)
@@ -255,7 +252,7 @@ def process_raf(raf_path: str, model: torch.nn.Module, device: str,
     
     h_aligned, w_aligned = cfa_norm.shape
     
-    r_mask, g_mask, b_mask = make_channel_masks(patch_size, patch_size)
+    r_mask, g_mask, b_mask = make_channel_masks(patch_size, patch_size, ref_pattern)
     masks = torch.cat([r_mask.unsqueeze(0), g_mask.unsqueeze(0), b_mask.unsqueeze(0)], dim=0).to(device)
     
     confidence_map = None
@@ -330,6 +327,10 @@ def process_raf(raf_path: str, model: torch.nn.Module, device: str,
                   "confidence_map": confidence_map}
 
 
+# Backward compat
+process_raf = process_raw
+
+
 def save_hdr_avif(rgb: np.ndarray, output_path: str, quality: int = 90,
                   xyz_to_cam: np.ndarray = None, exif_flip: int = 0,
                   wb: np.ndarray = None, apply_color: bool = True):
@@ -394,17 +395,24 @@ def main():
     model.load_state_dict(ckpt["model"])
     model.to(device)
     model.eval()
-    print(f"Checkpoint: {args.checkpoint}")
-    
+    ckpt_cfa = ckpt.get("cfa_type")
+    print(f"Checkpoint: {args.checkpoint}" + (f" (cfa_type={ckpt_cfa})" if ckpt_cfa else ""))
+
+    raw_globs = ["*.RAF", "*.raf", "*.CR2", "*.cr2", "*.CR3", "*.cr3",
+                 "*.NEF", "*.nef", "*.ARW", "*.arw", "*.DNG", "*.dng"]
+
     if args.batch:
         input_dir = Path(args.input)
         output_dir = Path(args.output) if args.output else input_dir / "output"
         output_dir.mkdir(exist_ok=True)
-        for raf in list(input_dir.glob("*.RAF")) + list(input_dir.glob("*.raf")):
-            out_path = output_dir / f"{raf.stem}_hdr.avif"
-            print(f"Processing {raf.name}...")
+        raw_files = []
+        for ext in raw_globs:
+            raw_files.extend(input_dir.glob(ext))
+        for raw_file in raw_files:
+            out_path = output_dir / f"{raw_file.stem}_hdr.avif"
+            print(f"Processing {raw_file.name}...")
             wb_cfa = not args.no_wb_cfa
-            rgb, meta = process_raf(str(raf), model, device, args.patch_size, args.overlap,
+            rgb, meta = process_raw(str(raw_file), model, device, args.patch_size, args.overlap,
                                     apply_wb_to_cfa=wb_cfa)
             exif_flip = meta.get("exif_flip", 0)
             xyz_to_cam = meta.get("xyz_to_cam")
@@ -415,7 +423,7 @@ def main():
         output_path = Path(args.output) if args.output else input_path.with_suffix(".avif")
         print(f"Processing {input_path.name}...")
         wb_cfa = not args.no_wb_cfa
-        rgb, meta = process_raf(str(input_path), model, device, args.patch_size, args.overlap,
+        rgb, meta = process_raw(str(input_path), model, device, args.patch_size, args.overlap,
                                 apply_wb_to_cfa=wb_cfa)
         exif_flip = meta.get("exif_flip", 0)
         xyz_to_cam = meta.get("xyz_to_cam")

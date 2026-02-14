@@ -7,9 +7,11 @@ import { Slider } from '@/components/ui/slider';
 import { useAppStore } from '@/store';
 import { useProcessFile } from '@/hooks/useProcessFile';
 import { useExport } from '@/hooks/useExport';
-import type { ExportFormat } from '@/pipeline/types';
+import type { DemosaicMethod, ExportFormat } from '@/pipeline/types';
 
 export function SettingsPanel() {
+  const demosaicMethod = useAppStore((s) => s.demosaicMethod);
+  const setDemosaicMethod = useAppStore((s) => s.setDemosaicMethod);
   const exportFormat = useAppStore((s) => s.exportFormat);
   const exportQuality = useAppStore((s) => s.exportQuality);
   const setExportFormat = useAppStore((s) => s.setExportFormat);
@@ -28,6 +30,22 @@ export function SettingsPanel() {
 
   return (
     <div className="border-t border-border p-4 space-y-3">
+      {/* Demosaic method */}
+      <div className="flex items-center gap-3">
+        <span className="text-xs text-muted-foreground w-14 flex-shrink-0">Method</span>
+        <Select value={demosaicMethod} onValueChange={(v) => setDemosaicMethod(v as DemosaicMethod)}>
+          <SelectTrigger className="flex-1 h-8 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="neural-net">Neural Network</SelectItem>
+            <SelectItem value="markesteijn1">Markesteijn (1-pass)</SelectItem>
+            <SelectItem value="dht">DHT (GPU)</SelectItem>
+            <SelectItem value="bilinear">Bilinear</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
       {/* Format */}
       <div className="flex items-center gap-3">
         <span className="text-xs text-muted-foreground w-14 flex-shrink-0">Format</span>

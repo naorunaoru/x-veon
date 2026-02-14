@@ -21,7 +21,7 @@ import numpy as np
 import torch
 
 from model import XTransUNet
-from infer_hdr import apply_exif_rotation, process_raf, save_hdr_avif
+from infer_hdr import apply_exif_rotation, process_raw, save_hdr_avif
 
 
 # Global state
@@ -219,7 +219,7 @@ def run_inference(
     raf_path = raf_file.name if hasattr(raf_file, 'name') else raf_file
     raf_name = Path(raf_path).stem
 
-    rgb_linear, meta = process_raf(raf_path, model, str(device), patch_size=patch_size, overlap=overlap)
+    rgb_linear, meta = process_raw(raf_path, model, str(device), patch_size=patch_size, overlap=overlap)
 
     progress(0.9, desc="Encoding HDR AVIF...")
 
@@ -295,13 +295,14 @@ def create_ui():
         with gr.Tabs():
             # Inference tab
             with gr.Tab("Inference"):
-                gr.Markdown("Upload a Fujifilm RAF file. Output is HDR AVIF (HLG).")
+                gr.Markdown("Upload a raw file (RAF, CR2, NEF, ARW, DNG, ...). Output is HDR AVIF (HLG).")
                 
                 with gr.Row():
                     with gr.Column(scale=1):
                         raf_input = gr.File(
-                            label="RAF File",
-                            file_types=[".RAF", ".raf"],
+                            label="Raw File",
+                            file_types=[".RAF", ".raf", ".CR2", ".cr2", ".CR3", ".cr3",
+                                        ".NEF", ".nef", ".ARW", ".arw", ".DNG", ".dng"],
                             type="filepath",
                         )
                         
