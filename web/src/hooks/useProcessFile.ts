@@ -101,15 +101,13 @@ export function useProcessFile() {
 
         blended = blendTiles(tileOutputs, tileGrid.tiles, hPad, wPad, PATCH_SIZE, OVERLAP);
       } else {
-        // Traditional demosaic: process full image at once
-        const algorithm = method; // 'bilinear' | 'markesteijn1' | 'dht'
+        // Traditional demosaic: process full image at once (no tile progress)
+        const algorithm = method;
         hPad = padded.height;
         wPad = padded.width;
         tileCount = 1;
 
-        useAppStore.getState().updateFileProgress(fileId, 0, 1);
         blended = await runDemosaic(padded.data, padded.width, padded.height, dy, dx, algorithm);
-        useAppStore.getState().updateFileProgress(fileId, 1, 1);
       }
 
       const inferenceTime = (Date.now() - startTime) / 1000;

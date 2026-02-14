@@ -1,45 +1,17 @@
 import { initDemosaicGpu, gpuAvailable, runBilinearGpu, runDhtGpu } from './demosaic-gpu';
+import { DemosaicPool } from './demosaic-pool';
 
 export async function initDemosaicGpuSafe(): Promise<boolean> {
   return initDemosaicGpu();
 }
 
-let worker: Worker | null = null;
+let pool: DemosaicPool | null = null;
 
-function getWorker(): Worker {
-  if (!worker) {
-    worker = new Worker(new URL('./demosaic-worker.ts', import.meta.url), { type: 'module' });
+function getPool(): DemosaicPool {
+  if (!pool) {
+    pool = new DemosaicPool();
   }
-  return worker;
-}
-
-function runDemosaicWorker(
-  cfa: Float32Array,
-  width: number,
-  height: number,
-  dy: number,
-  dx: number,
-  algorithm: 'bilinear' | 'markesteijn1',
-): Promise<Float32Array> {
-  return new Promise((resolve, reject) => {
-    const w = getWorker();
-    const cfaCopy = cfa.slice();
-
-    w.onmessage = (e) => {
-      if (e.data.type === 'done') {
-        resolve(new Float32Array(e.data.data));
-      } else if (e.data.type === 'error') {
-        reject(new Error(e.data.message));
-      }
-    };
-    w.onerror = (e) => reject(new Error(e.message));
-
-    w.postMessage({
-      type: 'demosaic',
-      cfa: cfaCopy.buffer,
-      width, height, dy, dx, algorithm,
-    }, [cfaCopy.buffer]);
-  });
+  return pool;
 }
 
 export async function runDemosaic(
@@ -48,7 +20,7 @@ export async function runDemosaic(
   height: number,
   dy: number,
   dx: number,
-  algorithm: 'bilinear' | 'markesteijn1' | 'dht',
+  algorithm: 'bilinear' | 'markesteijn1' | 'markesteijn3' | 'dht',
 ): Promise<Float32Array> {
   // GPU paths
   if (algorithm === 'bilinear' && gpuAvailable()) {
@@ -70,19 +42,17 @@ export async function runDemosaic(
         console.timeEnd('[demosaic] gpu dht');
         return result;
       } catch (e) {
-        console.warn('[demosaic] GPU DHT failed, falling back to bilinear worker:', e);
+        console.warn('[demosaic] GPU DHT failed, falling back to WASM worker:', e);
       }
     } else {
-      console.warn('[demosaic] DHT requires WebGPU, falling back to bilinear worker');
+      console.warn('[demosaic] DHT GPU unavailable, using WASM worker');
     }
-    // DHT fallback: bilinear via worker
-    const result = await runDemosaicWorker(cfa, width, height, dy, dx, 'bilinear');
-    return result;
+    // Fall through to worker pool with algorithm='dht'
   }
 
-  // Worker path (off main thread)
-  console.time(`[demosaic] worker ${algorithm}`);
-  const result = await runDemosaicWorker(cfa, width, height, dy, dx, algorithm);
-  console.timeEnd(`[demosaic] worker ${algorithm}`);
+  // Worker pool path (parallel strips)
+  console.time(`[demosaic] pool ${algorithm}`);
+  const result = await getPool().run(cfa, width, height, dy, dx, algorithm);
+  console.timeEnd(`[demosaic] pool ${algorithm}`);
   return result;
 }

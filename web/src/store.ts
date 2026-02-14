@@ -140,7 +140,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   updateFileStatus: (id, status, error) =>
     set((state) => ({
       files: state.files.map((f) =>
-        f.id === id ? { ...f, status, error: error ?? null } : f,
+        f.id === id
+          ? {
+              ...f,
+              status,
+              error: error ?? null,
+              ...(status === 'processing' ? { result: null, progress: null } : {}),
+            }
+          : f,
       ),
     })),
 

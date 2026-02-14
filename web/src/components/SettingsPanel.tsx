@@ -24,7 +24,7 @@ export function SettingsPanel() {
   const { processFile, isProcessing } = useProcessFile();
   const { exportFile, isExporting } = useExport();
 
-  const canProcess = initialized && selectedFile?.status === 'queued' && !isProcessing;
+  const canProcess = initialized && !isProcessing;
   const canExport = selectedFile?.status === 'done' && !isExporting;
   const isTiff = exportFormat === 'tiff';
 
@@ -39,6 +39,7 @@ export function SettingsPanel() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="neural-net">Neural Network</SelectItem>
+            <SelectItem value="markesteijn3">Markesteijn (3-pass)</SelectItem>
             <SelectItem value="markesteijn1">Markesteijn (1-pass)</SelectItem>
             <SelectItem value="dht">DHT (GPU)</SelectItem>
             <SelectItem value="bilinear">Bilinear</SelectItem>
