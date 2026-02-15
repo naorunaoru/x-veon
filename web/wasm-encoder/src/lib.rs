@@ -4,6 +4,7 @@ mod color;
 mod encode_avif;
 mod encode_jpeg;
 mod encode_tiff;
+mod encode_uhdr;
 mod pipeline;
 mod rotation;
 mod transfer;

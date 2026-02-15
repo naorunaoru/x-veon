@@ -2,6 +2,7 @@ use crate::color::{self, Mat3};
 use crate::encode_avif;
 use crate::encode_jpeg;
 use crate::encode_tiff;
+use crate::encode_uhdr;
 use crate::rotation::{self, Orientation};
 use crate::transfer;
 
@@ -9,6 +10,7 @@ use crate::transfer;
 pub enum Format {
     Avif,
     Jpeg,
+    JpegHdr,
     Tiff,
 }
 
@@ -17,6 +19,7 @@ impl Format {
         match s {
             "avif" => Ok(Format::Avif),
             "jpeg" => Ok(Format::Jpeg),
+            "jpeg-hdr" => Ok(Format::JpegHdr),
             "tiff" => Ok(Format::Tiff),
             _ => Err(format!("unknown format: {s}")),
         }
@@ -41,7 +44,7 @@ pub fn encode(
         // Data is already in sRGB linear — just apply gamut conversion if needed
         match format {
             Format::Avif => (color::SRGB_TO_BT2020, color::SRGB_TO_BT2020),
-            Format::Jpeg | Format::Tiff => (color::IDENTITY, color::IDENTITY),
+            Format::Jpeg | Format::JpegHdr | Format::Tiff => (color::IDENTITY, color::IDENTITY),
         }
     } else {
         match format {
@@ -49,7 +52,7 @@ pub fn encode(
                 color::build_cam_to_bt2020(xyz_to_cam),
                 color::SRGB_TO_BT2020,
             ),
-            Format::Jpeg | Format::Tiff => (color::build_cam_to_srgb(xyz_to_cam), color::IDENTITY),
+            Format::Jpeg | Format::JpegHdr | Format::Tiff => (color::build_cam_to_srgb(xyz_to_cam), color::IDENTITY),
         }
     };
 
@@ -103,6 +106,56 @@ pub fn encode(
                 rgb8[i] = (transfer::srgb_oetf(rotated[i] * scale) * 255.0 + 0.5) as u8;
             }
             encode_jpeg::encode(&rgb8, rw, rh, quality)
+        }
+
+        Format::JpegHdr => {
+            // Ultra HDR JPEG: SDR base + gain map for highlight recovery
+            let peak = rotated.iter().cloned().fold(0.0f32, f32::max);
+            let scale = if peak > 1.0 { 1.0 / peak } else { 1.0 };
+
+            // No HDR headroom — fall back to regular JPEG
+            if peak <= 1.0 {
+                let mut rgb8 = vec![0u8; num * 3];
+                for i in 0..num * 3 {
+                    rgb8[i] = (transfer::srgb_oetf(rotated[i]) * 255.0 + 0.5) as u8;
+                }
+                return encode_jpeg::encode(&rgb8, rw, rh, quality);
+            }
+
+            // SDR base: peak-scaled sRGB
+            let mut sdr_rgb8 = vec![0u8; num * 3];
+            for i in 0..num * 3 {
+                sdr_rgb8[i] = (transfer::srgb_oetf(rotated[i] * scale) * 255.0 + 0.5) as u8;
+            }
+
+            // Gain map: per-pixel luminance log2 ratio
+            let offset: f32 = 1.0 / 64.0;
+            let mut gains = vec![0.0f32; num];
+            let mut gain_min: f32 = f32::MAX;
+            let mut gain_max: f32 = f32::MIN;
+
+            for i in 0..num {
+                let idx = i * 3;
+                let y_hdr = 0.2126 * rotated[idx] + 0.7152 * rotated[idx + 1] + 0.0722 * rotated[idx + 2];
+                let y_sdr = y_hdr * scale;
+                let gain = ((y_hdr + offset) / (y_sdr + offset)).max(1e-10).log2();
+                gains[i] = gain;
+                gain_min = gain_min.min(gain);
+                gain_max = gain_max.max(gain);
+            }
+
+            // Normalize to [0, 255]
+            let range = (gain_max - gain_min).max(1e-6);
+            let mut gain_luma8 = vec![0u8; num];
+            for i in 0..num {
+                gain_luma8[i] = ((gains[i] - gain_min) / range * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
+            }
+
+            encode_uhdr::encode(
+                &sdr_rgb8, rw, rh, quality,
+                &gain_luma8,
+                gain_min, gain_max, offset,
+            )
         }
 
         Format::Tiff => {

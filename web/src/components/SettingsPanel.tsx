@@ -109,6 +109,7 @@ export function SettingsPanel() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="avif">HDR AVIF (BT.2020 / HLG)</SelectItem>
+            <SelectItem value="jpeg-hdr">Ultra HDR JPEG (Gain Map)</SelectItem>
             <SelectItem value="jpeg">JPEG (sRGB)</SelectItem>
             <SelectItem value="tiff">16-bit TIFF (Linear sRGB)</SelectItem>
           </SelectContent>

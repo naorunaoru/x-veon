@@ -69,7 +69,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   demosaicMethod: 'neural-net',
 
-  exportFormat: 'avif',
+  exportFormat: 'jpeg-hdr',
   exportQuality: 85,
 
   canvasRef: null,

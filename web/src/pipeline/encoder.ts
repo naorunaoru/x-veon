@@ -68,8 +68,8 @@ export async function encodeImage(
     format, quality,
   );
 
-  const mimeTypes: Record<string, string> = { avif: 'image/avif', jpeg: 'image/jpeg', tiff: 'image/tiff' };
-  const extensions: Record<string, string> = { avif: 'avif', jpeg: 'jpg', tiff: 'tif' };
+  const mimeTypes: Record<string, string> = { avif: 'image/avif', jpeg: 'image/jpeg', 'jpeg-hdr': 'image/jpeg', tiff: 'image/tiff' };
+  const extensions: Record<string, string> = { avif: 'avif', jpeg: 'jpg', 'jpeg-hdr': 'jpg', tiff: 'tif' };
 
   const blob = new Blob([encoded.buffer as ArrayBuffer], { type: mimeTypes[format] });
   return { blob, ext: extensions[format] };
