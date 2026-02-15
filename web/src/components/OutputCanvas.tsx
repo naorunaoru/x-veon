@@ -1,13 +1,14 @@
 import { useEffect, useRef } from 'react';
 import { useAppStore } from '@/store';
 import { usePanZoom } from '@/hooks/usePanZoom';
-import { buildColorMatrix, toImageDataWithCC } from '@/pipeline/postprocessor';
+import { toImageDataWithCC } from '@/pipeline/postprocessor';
 import { processHdr } from '@/pipeline/hdr-encoder';
-import type { ProcessingResult } from '@/pipeline/types';
+import { readHwc } from '@/lib/opfs-storage';
+import type { ProcessingResultMeta } from '@/pipeline/types';
 
 interface OutputCanvasProps {
   fileId: string;
-  result: ProcessingResult;
+  result: ProcessingResultMeta;
 }
 
 export function OutputCanvas({ fileId, result }: OutputCanvasProps) {
@@ -26,29 +27,31 @@ export function OutputCanvas({ fileId, result }: OutputCanvasProps) {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    let cancelled = false;
     setCanvasRef(canvas);
     canvas.width = imgW;
     canvas.height = imgH;
 
-    const { hwc, width, height, orientation } = result.exportData;
+    const { width, height, orientation } = result.exportData;
 
-    // Generate display imageData from hwc — transient, GC'd after draw
-    const imageData = result.isHdr
-      ? processHdr(hwc, width, height, orientation)
-      : toImageDataWithCC(
-          hwc, width, height,
-          orientation,
-        );
+    readHwc(fileId).then((hwc) => {
+      if (cancelled || !hwc) return;
 
-    const ctx = (result.isHdr
-      ? canvas.getContext('2d', { colorSpace: 'rec2100-hlg' as any })
-      : canvas.getContext('2d')) as CanvasRenderingContext2D | null;
+      const imageData = result.isHdr
+        ? processHdr(hwc, width, height, orientation)
+        : toImageDataWithCC(hwc, width, height, orientation);
 
-    if (ctx) {
-      ctx.putImageData(imageData, 0, 0);
-    }
+      const ctx = (result.isHdr
+        ? canvas.getContext('2d', { colorSpace: 'rec2100-hlg' as any })
+        : canvas.getContext('2d')) as CanvasRenderingContext2D | null;
+
+      if (ctx) {
+        ctx.putImageData(imageData, 0, 0);
+      }
+    });
 
     return () => {
+      cancelled = true;
       setCanvasRef(null);
     };
   }, [fileId, imgW, imgH, setCanvasRef, result]);

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import type { CfaType, DemosaicMethod, ExportFormat, ProcessingResult } from './pipeline/types';
+import type { CfaType, DemosaicMethod, ExportFormat, ProcessingResultMeta } from './pipeline/types';
+import { deleteHwc } from './lib/opfs-storage';
 import type { ModelMeta } from './pipeline/inference';
 import { extractRafThumbnail, extractRafQuickMetadata } from './pipeline/raf-thumbnail';
 import { RAW_EXTENSIONS } from './pipeline/constants';
@@ -16,7 +17,7 @@ export interface QueuedFile {
   status: FileStatus;
   error: string | null;
   progress: { current: number; total: number } | null;
-  result: ProcessingResult | null;
+  result: ProcessingResultMeta | null;
 }
 
 interface AppState {
@@ -49,7 +50,7 @@ interface AppState {
   selectFile: (id: string | null) => void;
   updateFileStatus: (id: string, status: FileStatus, error?: string) => void;
   updateFileProgress: (id: string, current: number, total: number) => void;
-  setFileResult: (id: string, result: ProcessingResult) => void;
+  setFileResult: (id: string, result: ProcessingResultMeta) => void;
   setDemosaicMethod: (method: DemosaicMethod) => void;
   setExportFormat: (format: ExportFormat) => void;
   setExportQuality: (quality: number) => void;
@@ -130,6 +131,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   removeFile: (id) => {
+    deleteHwc(id).catch((e) => console.warn('OPFS cleanup failed:', e));
     set((state) => {
       const files = state.files.filter((f) => f.id !== id);
       const selectedFileId =

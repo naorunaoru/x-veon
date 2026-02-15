@@ -98,3 +98,18 @@ export interface ProcessingResult {
     backend: string;
   };
 }
+
+/** Lightweight result stored in Zustand — hwc pixel data lives in OPFS. */
+export interface ExportDataMeta {
+  width: number;
+  height: number;
+  xyzToCam: Float32Array | null;
+  wbCoeffs: Float32Array;
+  orientation: string;
+}
+
+export interface ProcessingResultMeta {
+  exportData: ExportDataMeta;
+  isHdr: boolean;
+  metadata: ProcessingResult['metadata'];
+}

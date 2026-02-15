@@ -3,6 +3,7 @@ import { useAppStore } from '@/store';
 import { initWasm } from '@/pipeline/raf-decoder';
 import { initModels, getBackend, getModelMeta } from '@/pipeline/inference';
 import { initDemosaicGpuSafe } from '@/pipeline/demosaic';
+import { clearAllHwc } from '@/lib/opfs-storage';
 
 export function useInit() {
   const setInitialized = useAppStore((s) => s.setInitialized);
@@ -13,7 +14,7 @@ export function useInit() {
 
     async function init() {
       try {
-        await Promise.all([initWasm(), initModels(), initDemosaicGpuSafe()]);
+        await Promise.all([initWasm(), initModels(), initDemosaicGpuSafe(), clearAllHwc()]);
         if (cancelled) return;
 
         const backend = getBackend() ?? 'unknown';

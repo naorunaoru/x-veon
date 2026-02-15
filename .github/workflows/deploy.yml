@@ -45,6 +45,10 @@ jobs:
         working-directory: web
         run: npx wasm-pack build ../rawloader-wasm --target web --release --out-dir $GITHUB_WORKSPACE/web/wasm-pkg
 
+      - name: Build WASM (demosaic)
+        working-directory: web
+        run: npx wasm-pack build wasm-demosaic --target web --release
+
       - name: Build WASM (encoder)
         working-directory: web
         run: npx wasm-pack build wasm-encoder --target web --release
