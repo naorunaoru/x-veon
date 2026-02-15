@@ -33,13 +33,24 @@ pub fn encode(
     format: Format,
     quality: u8,
 ) -> Result<Vec<u8>, String> {
+    // Check if CC is already applied (zero matrix = pre-corrected sRGB data)
+    let cc_applied = xyz_to_cam.iter().all(|row| row.iter().all(|v| v.abs() < 1e-10));
+
     // Select color matrix and highlight-blend simple matrix based on format
-    let (color_matrix, simple_matrix) = match format {
-        Format::Avif => (
-            color::build_cam_to_bt2020(xyz_to_cam),
-            color::SRGB_TO_BT2020,
-        ),
-        Format::Jpeg | Format::Tiff => (color::build_cam_to_srgb(xyz_to_cam), color::IDENTITY),
+    let (color_matrix, simple_matrix) = if cc_applied {
+        // Data is already in sRGB linear — just apply gamut conversion if needed
+        match format {
+            Format::Avif => (color::SRGB_TO_BT2020, color::SRGB_TO_BT2020),
+            Format::Jpeg | Format::Tiff => (color::IDENTITY, color::IDENTITY),
+        }
+    } else {
+        match format {
+            Format::Avif => (
+                color::build_cam_to_bt2020(xyz_to_cam),
+                color::SRGB_TO_BT2020,
+            ),
+            Format::Jpeg | Format::Tiff => (color::build_cam_to_srgb(xyz_to_cam), color::IDENTITY),
+        }
     };
 
     let n = (width as usize) * (height as usize);

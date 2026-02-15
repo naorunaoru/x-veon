@@ -116,8 +116,8 @@ export function reconstructHighlightsCfa(
   cfa: Float32Array, width: number, height: number,
   pattern: readonly (readonly number[])[], period: number,
   dy: number, dx: number,
+  clips: readonly [number, number, number] = [1, 1, 1],
 ): void {
-  const clip = 1.0;
   const chromLo = 0.2;
 
   function getCh(y: number, x: number): number {
@@ -167,10 +167,10 @@ export function reconstructHighlightsCfa(
 
   for (let y = 1; y < height - 1; y++) {
     for (let x = 1; x < width - 1; x++) {
-      const val = cfa[y * width + x];
-      if (val < chromLo || val >= clip) continue;
-
       const ch = getCh(y, x);
+      const val = cfa[y * width + x];
+      if (val < chromLo || val >= clips[ch]) continue;
+
       const ref = calcRefavg(y, x, ch);
       chromSum[ch] += val - ref;
       chromCnt[ch]++;
@@ -187,9 +187,9 @@ export function reconstructHighlightsCfa(
   for (let y = 1; y < height - 1; y++) {
     for (let x = 1; x < width - 1; x++) {
       const idx = y * width + x;
-      if (cfa[idx] < clip) continue;
-
       const ch = getCh(y, x);
+      if (cfa[idx] < clips[ch]) continue;
+
       const ref = calcRefavg(y, x, ch);
       const estimate = ref + chrom[ch];
       cfa[idx] = Math.max(cfa[idx], estimate);

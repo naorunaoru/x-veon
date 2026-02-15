@@ -208,9 +208,7 @@ export function toImageData(hwc: Float32Array, width: number, height: number): I
  * Reads hwc without mutation so the buffer can be reused as export data.
  */
 export function toImageDataWithCC(
-  hwc: Float32Array, width: number, height: number,
-  colorMatrix: Float32Array | null,
-  wb: Float32Array | null, orientation: string,
+  hwc: Float32Array, width: number, height: number, orientation: string,
 ): ImageData {
   const n = width * height;
   const swap = orientation === 'Rotate90' || orientation === 'Rotate270';
@@ -218,24 +216,12 @@ export function toImageDataWithCC(
   const outH = swap ? width : height;
   const rgba = new Uint8ClampedArray(n * 4);
 
-  const wbR = wb ? wb[0] : 1, wbG = wb ? wb[1] : 1, wbB = wb ? wb[2] : 1;
-  const blendLo = 0.85, blendRange = 0.15;
+  const scale = 1.0;
 
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const si = (y * width + x) * 3;
       let r = hwc[si], g = hwc[si + 1], b = hwc[si + 2];
-
-      if (colorMatrix) {
-        const fr = colorMatrix[0] * r + colorMatrix[1] * g + colorMatrix[2] * b;
-        const fg = colorMatrix[3] * r + colorMatrix[4] * g + colorMatrix[5] * b;
-        const fb = colorMatrix[6] * r + colorMatrix[7] * g + colorMatrix[8] * b;
-        const clipProx = Math.max(r / wbR, g / wbG, b / wbB);
-        const alpha = Math.min(1, Math.max(0, (clipProx - blendLo) / blendRange));
-        r = Math.max(0, fr + alpha * (r - fr));
-        g = Math.max(0, fg + alpha * (g - fg));
-        b = Math.max(0, fb + alpha * (b - fb));
-      }
 
       let di: number;
       if (orientation === 'Rotate180') {
@@ -248,9 +234,9 @@ export function toImageDataWithCC(
         di = (y * width + x) * 4;
       }
 
-      rgba[di]     = linearToSrgb8(r);
-      rgba[di + 1] = linearToSrgb8(g);
-      rgba[di + 2] = linearToSrgb8(b);
+      rgba[di]     = linearToSrgb8(r * scale);
+      rgba[di + 1] = linearToSrgb8(g * scale);
+      rgba[di + 2] = linearToSrgb8(b * scale);
       rgba[di + 3] = 255;
     }
   }

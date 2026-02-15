@@ -618,8 +618,8 @@ export function reconstructHighlightsSegmented(
   combineRadius = 2,
   candidating = 0.5,
   originalCfa?: Float32Array,
+  clips: readonly [number, number, number] = [1, 1, 1],
 ): void {
-  const clip = 1.0;
   const original = originalCfa ?? cfa;
 
   function getCh(y: number, x: number): number {
@@ -648,8 +648,10 @@ export function reconstructHighlightsSegmented(
     refavgs.push(new Float32Array(psize));
   }
 
-  // Cube-root clip thresholds per channel (before WB, all channels clip at 1.0)
-  const cubeClip = Math.cbrt(clip);
+  // Per-channel cube-root clip thresholds (after WB, each channel clips at wb[c])
+  const cubeClips: [number, number, number] = [
+    Math.cbrt(clips[0]), Math.cbrt(clips[1]), Math.cbrt(clips[2]),
+  ];
 
   // Segmentation structures: one per color plane
   const maxSegments = Math.max(256, Math.floor((width * height) / 4000));
@@ -693,7 +695,7 @@ export function reconstructHighlightsSegmented(
         planes[c][o] = mean[c];
         refavgs[c][o] = cubeRefavg[c];
 
-        if (mean[c] > cubeClip) {
+        if (mean[c] >= cubeClips[c]) {
           segs[c].data[o] = 1; // mark as clipped
           anyClipped++;
         }
@@ -719,7 +721,7 @@ export function reconstructHighlightsSegmented(
   // ---- Step 4: Find best candidates per segment ----
 
   for (let c = 0; c < 3; c++) {
-    calcPlaneCandidates(planes[c], refavgs[c], segs[c], cubeClip, candidating);
+    calcPlaneCandidates(planes[c], refavgs[c], segs[c], cubeClips[c], candidating);
   }
 
   // ---- Step 5: Reconstruct clipped raw pixels ----
@@ -730,9 +732,9 @@ export function reconstructHighlightsSegmented(
     for (let col = 1; col < width - 1; col++) {
       const idx = row * width + col;
       const inval = Math.max(0, original[idx]);
-      if (inval < clip) continue;
-
       const color = getCh(row, col);
+      if (inval < clips[color]) continue;
+
       const o = rawToPlane(pwidth, row, col);
       const pid = getSegmentId(segs[color], o);
 
@@ -755,8 +757,8 @@ export function _reconstructDebug(
   pattern: readonly (readonly number[])[], period: number,
   dy: number, dx: number,
   combineRadius = 2, candidating = 0.5, originalCfa?: Float32Array,
+  clips: readonly [number, number, number] = [1, 1, 1],
 ): { anyClipped: number; segCounts: number[]; candidates: { id: number; val1: number; val2: number }[][] } {
-  const clip = 1.0;
   const original = originalCfa ?? cfa;
   function getCh(y: number, x: number): number {
     return pattern[((y + dy) % period + period) % period][((x + dx) % period + period) % period];
@@ -770,7 +772,9 @@ export function _reconstructDebug(
   const planes: Float32Array[] = [];
   const refavgs: Float32Array[] = [];
   for (let c = 0; c < 3; c++) { planes.push(new Float32Array(psize)); refavgs.push(new Float32Array(psize)); }
-  const cubeClip = Math.cbrt(clip);
+  const cubeClips: [number, number, number] = [
+    Math.cbrt(clips[0]), Math.cbrt(clips[1]), Math.cbrt(clips[2]),
+  ];
   const maxSegments = Math.max(256, Math.floor((width * height) / 4000));
   const segs: Segmentation[] = [];
   for (let c = 0; c < 3; c++) segs.push(createSegmentation(pwidth, pheight, HL_BORDER + 1, maxSegments));
@@ -789,13 +793,13 @@ export function _reconstructDebug(
       const o = rawToPlane(pwidth, row, col);
       for (let c = 0; c < 3; c++) {
         planes[c][o] = mean[c]; refavgs[c][o] = cr[c];
-        if (mean[c] > cubeClip) { segs[c].data[o] = 1; anyClipped++; }
+        if (mean[c] >= cubeClips[c]) { segs[c].data[o] = 1; anyClipped++; }
       }
     }
   }
   for (let c = 0; c < 3; c++) extendBorder(planes[c], pwidth, pheight, HL_BORDER);
   for (let c = 0; c < 3; c++) { segmentsCombine(segs[c], combineRadius); segmentizePlane(segs[c]); }
-  for (let c = 0; c < 3; c++) calcPlaneCandidates(planes[c], refavgs[c], segs[c], cubeClip, candidating);
+  for (let c = 0; c < 3; c++) calcPlaneCandidates(planes[c], refavgs[c], segs[c], cubeClips[c], candidating);
 
   const segCounts = segs.map(s => s.nr - 2);
   const candidates = segs.map(s => {
@@ -809,8 +813,8 @@ export function _reconstructDebug(
     for (let col = 1; col < width - 1; col++) {
       const idx = row * width + col;
       const inval = Math.max(0, original[idx]);
-      if (inval < clip) continue;
       const color = getCh(row, col);
+      if (inval < clips[color]) continue;
       const o = rawToPlane(pwidth, row, col);
       const pid = getSegmentId(segs[color], o);
       if (pid > 1 && pid < segs[color].nr) {

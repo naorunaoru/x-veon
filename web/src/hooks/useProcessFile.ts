@@ -15,7 +15,7 @@ import {
 import { reconstructHighlightsSegmented } from '@/pipeline/highlight-segments';
 import { runTile, getBackend } from '@/pipeline/inference';
 import { runDemosaic, destroyDemosaicPool } from '@/pipeline/demosaic';
-import { createTileBlender, cropToHWC } from '@/pipeline/postprocessor';
+import { createTileBlender, cropToHWC, buildColorMatrix } from '@/pipeline/postprocessor';
 import { PATCH_SIZE, OVERLAP } from '@/pipeline/constants';
 import type { DemosaicMethod, ProcessingResult } from '@/pipeline/types';
 
@@ -75,13 +75,20 @@ export function useProcessFile() {
       const { pattern, period, dy, dx, cfaType } = cfaInfo;
       console.log(`CFA: ${cfaType} (period=${period}, shift=dy${dy} dx${dx})`);
 
-      // 6. Highlight reconstruction: opposed inpainting then segmentation
-      const originalCfa = new Float32Array(cfa);
-      reconstructHighlightsCfa(cfa, visWidth, visHeight, pattern, period, dy, dx);
-      reconstructHighlightsSegmented(cfa, visWidth, visHeight, pattern, period, dy, dx, 2, 0.5, originalCfa);
-
-      // 7. Apply white balance
+      // 6. Apply white balance (before HL reconstruction so channels are balanced)
       applyWhiteBalance(cfa, visWidth, visHeight, wb, pattern, period, dy, dx);
+
+      // 7. Highlight reconstruction: opposed inpainting then segmentation
+      // After WB, each channel clips at wb[c] (raw saturation 1.0 × wb[c]).
+      // Use ~3% margin below nominal white to catch near-saturation pixels —
+      // actual sensor clipping varies per-pixel due to quantization and noise.
+      const clipMargin = 0.97;
+      const clips: [number, number, number] = [
+        wb[0] * clipMargin, wb[1] * clipMargin, wb[2] * clipMargin,
+      ];
+      const originalCfa = new Float32Array(cfa);
+      reconstructHighlightsCfa(cfa, visWidth, visHeight, pattern, period, dy, dx, clips);
+      reconstructHighlightsSegmented(cfa, visWidth, visHeight, pattern, period, dy, dx, 2, 0.5, originalCfa, clips);
 
       // 8. Pad for alignment
       let padded = padToAlignment(cfa, visWidth, visHeight, dy, dx);
@@ -139,22 +146,18 @@ export function useProcessFile() {
       const hwc = cropToHWC(blended, hPad, wPad, padTop, padLeft, visHeight, visWidth);
       blended = null;
 
-      // 11. Compute final display dimensions (after orientation)
+      // 12. Compute final display dimensions (after orientation)
       const orientation = raw.orientation;
       const swap = orientation === 'Rotate90' || orientation === 'Rotate270';
       const finalWidth = swap ? visHeight : visWidth;
       const finalHeight = swap ? visWidth : visHeight;
-
-      const xyzToCam3x3 = raw.xyzToCam.length >= 9
-        ? raw.xyzToCam.slice(0, 9)
-        : null;
 
       const result: ProcessingResult = {
         exportData: {
           hwc,
           width: visWidth,
           height: visHeight,
-          xyzToCam: xyzToCam3x3,
+          xyzToCam: null,  // CC already applied
           wbCoeffs: wb,
           orientation,
         },
