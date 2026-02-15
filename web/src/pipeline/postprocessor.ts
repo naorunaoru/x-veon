@@ -114,9 +114,10 @@ export function buildColorMatrix(xyzToCam: Float32Array): Float32Array {
 
 export function applyColorCorrection(
   hwc: Float32Array, numPixels: number, matrix: Float32Array,
+  wb: Float32Array | null,
 ): void {
-  const blendLo = 0.8, blendHi = 1.5;
-  const blendRange = blendHi - blendLo;
+  const wbR = wb ? wb[0] : 1, wbG = wb ? wb[1] : 1, wbB = wb ? wb[2] : 1;
+  const blendLo = 0.85, blendRange = 0.15;
 
   for (let i = 0; i < numPixels; i++) {
     const idx = i * 3;
@@ -126,8 +127,8 @@ export function applyColorCorrection(
     const fg = matrix[3] * r + matrix[4] * g + matrix[5] * b;
     const fb = matrix[6] * r + matrix[7] * g + matrix[8] * b;
 
-    const maxCh = Math.max(r, g, b);
-    const alpha = Math.min(1, Math.max(0, (maxCh - blendLo) / blendRange));
+    const clipProx = Math.max(r / wbR, g / wbG, b / wbB);
+    const alpha = Math.min(1, Math.max(0, (clipProx - blendLo) / blendRange));
 
     hwc[idx]     = Math.max(0, fr + alpha * (r - fr));
     hwc[idx + 1] = Math.max(0, fg + alpha * (g - fg));
@@ -208,7 +209,8 @@ export function toImageData(hwc: Float32Array, width: number, height: number): I
  */
 export function toImageDataWithCC(
   hwc: Float32Array, width: number, height: number,
-  colorMatrix: Float32Array | null, orientation: string,
+  colorMatrix: Float32Array | null,
+  wb: Float32Array | null, orientation: string,
 ): ImageData {
   const n = width * height;
   const swap = orientation === 'Rotate90' || orientation === 'Rotate270';
@@ -216,7 +218,8 @@ export function toImageDataWithCC(
   const outH = swap ? width : height;
   const rgba = new Uint8ClampedArray(n * 4);
 
-  const blendLo = 0.8, blendRange = 0.7; // blendHi = 1.5
+  const wbR = wb ? wb[0] : 1, wbG = wb ? wb[1] : 1, wbB = wb ? wb[2] : 1;
+  const blendLo = 0.85, blendRange = 0.15;
 
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
@@ -227,8 +230,8 @@ export function toImageDataWithCC(
         const fr = colorMatrix[0] * r + colorMatrix[1] * g + colorMatrix[2] * b;
         const fg = colorMatrix[3] * r + colorMatrix[4] * g + colorMatrix[5] * b;
         const fb = colorMatrix[6] * r + colorMatrix[7] * g + colorMatrix[8] * b;
-        const maxCh = Math.max(r, g, b);
-        const alpha = Math.min(1, Math.max(0, (maxCh - blendLo) / blendRange));
+        const clipProx = Math.max(r / wbR, g / wbG, b / wbB);
+        const alpha = Math.min(1, Math.max(0, (clipProx - blendLo) / blendRange));
         r = Math.max(0, fr + alpha * (r - fr));
         g = Math.max(0, fg + alpha * (g - fg));
         b = Math.max(0, fb + alpha * (b - fb));

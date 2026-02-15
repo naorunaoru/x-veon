@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { DemosaicMethod, ExportFormat, ProcessingResult } from './pipeline/types';
+import type { CfaType, DemosaicMethod, ExportFormat, ProcessingResult } from './pipeline/types';
 import type { ModelMeta } from './pipeline/inference';
 import { extractRafThumbnail, extractRafQuickMetadata } from './pipeline/raf-thumbnail';
 import { RAW_EXTENSIONS } from './pipeline/constants';
@@ -12,6 +12,7 @@ export interface QueuedFile {
   name: string;
   thumbnailUrl: string | null;
   metadata: { camera: string } | null;
+  cfaType: CfaType | null;
   status: FileStatus;
   error: string | null;
   progress: { current: number; total: number } | null;
@@ -90,6 +91,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         name: f.name.replace(/\.[^.]+$/, ''),
         thumbnailUrl: null,
         metadata: null,
+        cfaType: (f.name.toLowerCase().endsWith('.raf') ? 'xtrans' : 'bayer') as CfaType,
         status: 'queued' as const,
         error: null,
         progress: null,
@@ -150,7 +152,7 @@ export const useAppStore = create<AppState>((set, get) => ({
               ...f,
               status,
               error: error ?? null,
-              ...(status === 'processing' ? { result: null, progress: null } : {}),
+              ...(status === 'processing' ? { progress: null } : {}),
             }
           : f,
       ),

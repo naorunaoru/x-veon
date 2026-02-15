@@ -14,6 +14,7 @@ pub fn encode_image(
     width: u32,
     height: u32,
     xyz_to_cam: &[f32],
+    wb_coeffs: &[f32],
     orientation: &str,
     format: &str,
     quality: u8,
@@ -28,8 +29,13 @@ pub fn encode_image(
     }
 
     let mat = color::mat3_from_slice(xyz_to_cam);
+    let wb = if wb_coeffs.len() >= 3 {
+        [wb_coeffs[0], wb_coeffs[1], wb_coeffs[2]]
+    } else {
+        [1.0, 1.0, 1.0]
+    };
     let fmt = pipeline::Format::parse(format).map_err(|e| JsError::new(&e))?;
 
-    pipeline::encode(data, width, height, &mat, orientation, fmt, quality)
+    pipeline::encode(data, width, height, &mat, &wb, orientation, fmt, quality)
         .map_err(|e| JsError::new(&e))
 }

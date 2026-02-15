@@ -13,13 +13,14 @@ function getWorker(): Worker {
 
 function encodeViaWorker(
   hwc: Float32Array, width: number, height: number,
-  xyzToCam: Float32Array, orientation: string,
+  xyzToCam: Float32Array, wbCoeffs: Float32Array, orientation: string,
   format: string, quality: number,
 ): Promise<Uint8Array> {
   return new Promise((resolve, reject) => {
     const w = getWorker();
     const hwcCopy = hwc.slice();
     const xyzToCamCopy = xyzToCam.slice();
+    const wbCopy = wbCoeffs.slice();
 
     w.onmessage = (e) => {
       if (e.data.type === 'done') {
@@ -35,14 +36,16 @@ function encodeViaWorker(
       hwc: hwcCopy.buffer,
       width, height,
       xyzToCam: xyzToCamCopy.buffer,
+      wbCoeffs: wbCopy.buffer,
       orientation, format, quality,
-    }, [hwcCopy.buffer, xyzToCamCopy.buffer]);
+    }, [hwcCopy.buffer, xyzToCamCopy.buffer, wbCopy.buffer]);
   });
 }
 
 export async function encodeImage(
   hwc: Float32Array, width: number, height: number,
-  xyzToCam: Float32Array | null, orientation: string,
+  xyzToCam: Float32Array | null, wbCoeffs: Float32Array,
+  orientation: string,
   format: ExportFormat, quality: number,
   canvas?: HTMLCanvasElement | null,
 ): Promise<{ blob: Blob; ext: string }> {
@@ -61,7 +64,7 @@ export async function encodeImage(
   // JPEG, TIFF, or AVIF fallback — encode in Web Worker
   const encoded = await encodeViaWorker(
     hwc, width, height,
-    xyzToCam ?? new Float32Array(9), orientation,
+    xyzToCam ?? new Float32Array(9), wbCoeffs, orientation,
     format, quality,
   );
 

@@ -225,7 +225,7 @@ def run_inference(
 
     output_path = tempfile.mktemp(suffix=".avif", prefix=f"{raf_name}_hdr_")
     save_hdr_avif(rgb_linear, output_path, 90, meta.get("xyz_to_cam"), meta.get("exif_flip", 0),
-                  None, True)
+                  wb=None, wb_for_blend=meta["wb"], apply_color=True)
 
     # Read and base64 encode for HTML display
     with open(output_path, "rb") as f:

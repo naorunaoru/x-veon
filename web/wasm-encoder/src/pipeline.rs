@@ -28,6 +28,7 @@ pub fn encode(
     width: u32,
     height: u32,
     xyz_to_cam: &Mat3,
+    wb: &[f32; 3],
     orientation: &str,
     format: Format,
     quality: u8,
@@ -42,6 +43,9 @@ pub fn encode(
     };
 
     let n = (width as usize) * (height as usize);
+    let wb_r = wb[0].max(1e-6);
+    let wb_g = wb[1].max(1e-6);
+    let wb_b = wb[2].max(1e-6);
 
     // Color correction + highlight blending
     let mut buf = Vec::with_capacity(n * 3);
@@ -61,9 +65,10 @@ pub fn encode(
         let sg = simple_matrix[1][0] * r + simple_matrix[1][1] * g + simple_matrix[1][2] * b;
         let sb = simple_matrix[2][0] * r + simple_matrix[2][1] * g + simple_matrix[2][2] * b;
 
-        // Highlight blend: ramp from full correction to simple for bright pixels
-        let max_ch = r.max(g).max(b);
-        let alpha = ((max_ch - 0.8) / 0.7).clamp(0.0, 1.0);
+        // Highlight blend: ramp from full correction to simple near sensor clipping.
+        // Divide WB'd values by WB multiplier to get sensor-space proximity [0..1].
+        let clip_prox = (r / wb_r).max(g / wb_g).max(b / wb_b);
+        let alpha = ((clip_prox - 0.85) / 0.15).clamp(0.0, 1.0);
 
         buf.push((fr + alpha * (sr - fr)).max(0.0));
         buf.push((fg + alpha * (sg - fg)).max(0.0));
@@ -96,11 +101,20 @@ pub fn encode(
         }
 
         Format::Avif => {
-            // HLG OETF → 10-bit
+            // HLG OETF → find peak → normalize → 10-bit
+            let mut hlg_buf = vec![0.0f32; num * 3];
+            let mut peak: f32 = 0.0;
+            for i in 0..num * 3 {
+                let v = transfer::hlg_oetf(rotated[i]);
+                hlg_buf[i] = v;
+                if v > peak {
+                    peak = v;
+                }
+            }
+            let scale = if peak > 1.0 { 1.0 / peak } else { 1.0 };
             let mut rgb10 = vec![0u16; num * 3];
             for i in 0..num * 3 {
-                rgb10[i] = (transfer::hlg_oetf(rotated[i]) * 1023.0 + 0.5).clamp(0.0, 1023.0)
-                    as u16;
+                rgb10[i] = (hlg_buf[i] * scale * 1023.0 + 0.5).clamp(0.0, 1023.0) as u16;
             }
             encode_avif::encode(&rgb10, rw, rh, quality)
         }

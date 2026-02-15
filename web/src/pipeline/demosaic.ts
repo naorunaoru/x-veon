@@ -1,5 +1,8 @@
 import { initDemosaicGpu, gpuAvailable, runBilinearGpu, runDhtGpu } from './demosaic-gpu';
 import { DemosaicPool } from './demosaic-pool';
+import type { DemosaicMethod } from './types';
+
+type TraditionalMethod = Exclude<DemosaicMethod, 'neural-net'>;
 
 export async function initDemosaicGpuSafe(): Promise<boolean> {
   return initDemosaicGpu();
@@ -27,18 +30,10 @@ export async function runDemosaic(
   height: number,
   dy: number,
   dx: number,
-  algorithm: 'bilinear' | 'markesteijn1' | 'markesteijn3' | 'dht',
+  algorithm: TraditionalMethod,
   cfaPattern: Uint32Array,
   period: number,
 ): Promise<Float32Array> {
-  const isBayer = period === 2;
-
-  // Markesteijn is X-Trans only — fall back to bilinear for Bayer
-  if (isBayer && (algorithm === 'markesteijn1' || algorithm === 'markesteijn3')) {
-    console.warn(`[demosaic] ${algorithm} is X-Trans only, falling back to bilinear`);
-    algorithm = 'bilinear';
-  }
-
   // GPU paths
   if (algorithm === 'bilinear' && gpuAvailable()) {
     try {
@@ -51,29 +46,20 @@ export async function runDemosaic(
     }
   }
 
-  if (algorithm === 'dht') {
-    if (gpuAvailable()) {
-      try {
-        console.time('[demosaic] gpu dht');
-        const result = await runDhtGpu(cfa, width, height, dy, dx, cfaPattern, period);
-        console.timeEnd('[demosaic] gpu dht');
-        return result;
-      } catch (e) {
-        console.warn('[demosaic] GPU DHT failed, falling back to WASM worker:', e);
-      }
-    } else {
-      console.warn('[demosaic] DHT GPU unavailable, using WASM worker');
+  if (algorithm === 'dht' && gpuAvailable()) {
+    try {
+      console.time('[demosaic] gpu dht');
+      const result = await runDhtGpu(cfa, width, height, dy, dx, cfaPattern, period);
+      console.timeEnd('[demosaic] gpu dht');
+      return result;
+    } catch (e) {
+      console.warn('[demosaic] GPU DHT failed, falling back to WASM worker:', e);
     }
-    // Fall through to worker pool with algorithm='dht'
   }
 
-  // WASM worker pool (X-Trans only — hardcoded pattern in WASM module)
-  if (isBayer) {
-    throw new Error('Traditional demosaic for Bayer requires GPU. Please use Neural Network method.');
-  }
-
+  // WASM worker pool
   console.time(`[demosaic] pool ${algorithm}`);
-  const result = await getPool().run(cfa, width, height, dy, dx, algorithm, period);
+  const result = await getPool().run(cfa, width, height, dy, dx, algorithm, period, period === 2);
   console.timeEnd(`[demosaic] pool ${algorithm}`);
   return result;
 }

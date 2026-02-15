@@ -16,10 +16,28 @@ export function OutputPanel() {
     );
   }
 
+  const isReprocessing = selectedFile.status === 'processing' && !!selectedFile.result;
+
   return (
     <main className="flex-1 flex bg-background overflow-hidden relative">
       {selectedFile.result ? (
-        <OutputCanvas key={selectedFile.id} fileId={selectedFile.id} result={selectedFile.result} />
+        <>
+          <OutputCanvas key={selectedFile.id} fileId={selectedFile.id} result={selectedFile.result} />
+          {isReprocessing && (
+            <div className="absolute inset-0 flex items-center justify-center bg-background/50 pointer-events-none">
+              <div className="flex flex-col items-center gap-4 w-64">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                {selectedFile.progress && (
+                  <Progress
+                    value={(selectedFile.progress.current / selectedFile.progress.total) * 100}
+                    label={`${selectedFile.progress.current}/${selectedFile.progress.total} tiles`}
+                    className="w-full"
+                  />
+                )}
+              </div>
+            </div>
+          )}
+        </>
       ) : (
         <div className="flex-1 flex items-center justify-center">
           {selectedFile.status === 'processing' ? (

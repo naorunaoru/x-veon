@@ -1,4 +1,12 @@
-type Algorithm = 'bilinear' | 'markesteijn1' | 'markesteijn3' | 'dht';
+import type { DemosaicMethod } from './types';
+
+type Algorithm = Exclude<DemosaicMethod, 'neural-net'>;
+
+/** Map (dy%2, dx%2) → Bayer variant string for demosaic_bayer WASM */
+const BAYER_VARIANT_MAP = ['rggb', 'grbg', 'gbrg', 'bggr'] as const;
+function bayerVariantForShift(dy: number, dx: number): string {
+  return BAYER_VARIANT_MAP[(dy % 2) * 2 + (dx % 2)];
+}
 
 const STRIP_OVERLAP_FACTOR = 3; // 3 × CFA period, safe for 3-pass refinement + Markesteijn border
 const MAX_WORKERS = 8;
@@ -29,6 +37,7 @@ export class DemosaicPool {
     dx: number,
     algorithm: Algorithm,
     period: number,
+    isBayer: boolean,
   ): Promise<Float32Array> {
     this.ensureWorkers();
 
@@ -40,7 +49,7 @@ export class DemosaicPool {
       Math.floor(height / MIN_STRIP_HEIGHT),
     );
     if (effectiveWorkers <= 1) {
-      return this.runOne(0, cfa, width, height, dy, dx, algorithm);
+      return this.runOne(0, cfa, width, height, dy, dx, algorithm, isBayer);
     }
 
     // Split into horizontal strips
@@ -76,7 +85,7 @@ export class DemosaicPool {
         strip.startRow * width,
         (strip.startRow + strip.stripHeight) * width,
       );
-      return this.runOne(i, stripCfa, width, strip.stripHeight, strip.stripDy, dx, algorithm);
+      return this.runOne(i, stripCfa, width, strip.stripHeight, strip.stripDy, dx, algorithm, isBayer);
     });
 
     const results = await Promise.all(promises);
@@ -109,6 +118,7 @@ export class DemosaicPool {
     dy: number,
     dx: number,
     algorithm: Algorithm,
+    isBayer: boolean,
   ): Promise<Float32Array> {
     return new Promise((resolve, reject) => {
       const w = this.workers[workerIdx];
@@ -127,6 +137,7 @@ export class DemosaicPool {
         type: 'demosaic',
         cfa: cfaCopy.buffer,
         width, height, dy, dx, algorithm,
+        bayerVariant: isBayer ? bayerVariantForShift(dy, dx) : undefined,
       }, [cfaCopy.buffer]);
     });
   }

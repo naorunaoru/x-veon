@@ -32,6 +32,7 @@ XYZ_TO_BT2020 = np.array([
 
 
 def apply_color_correction(rgb: np.ndarray, xyz_to_cam: np.ndarray = None,
+                           wb: np.ndarray = None,
                            to_bt2020: bool = True) -> np.ndarray:
     """Convert white-balanced camera RGB to sRGB or BT.2020.
 
@@ -41,6 +42,8 @@ def apply_color_correction(rgb: np.ndarray, xyz_to_cam: np.ndarray = None,
     Args:
         rgb: (H, W, 3) linear camera RGB (white-balanced)
         xyz_to_cam: (3, 3) from rawpy.rgb_xyz_matrix — maps XYZ -> Camera (no WB)
+        wb: (3,) white balance multipliers (normalized to G=1), used to compute
+            per-channel sensor clip proximity for highlight blend threshold
         to_bt2020: if True, output BT.2020; if False, output sRGB
 
     Returns:
@@ -72,19 +75,30 @@ def apply_color_correction(rgb: np.ndarray, xyz_to_cam: np.ndarray = None,
 
         if to_bt2020:
             combined = SRGB_TO_BT2020 @ cam_to_srgb
-            simple = SRGB_TO_BT2020  # fallback for highlights (no cam correction)
         else:
             combined = cam_to_srgb
-            simple = np.eye(3, dtype=np.float32)
 
-        # Blend towards simple matrix in highlights to avoid color cast from clipping
-        max_ch = np.max(rgb_flat, axis=1, keepdims=True)
-        blend_lo, blend_hi = 0.8, 1.5
-        alpha = np.clip((max_ch - blend_lo) / (blend_hi - blend_lo), 0, 1)
+        # Highlight desaturation toward mean (hue-preserving) in WB'd camera space.
+        # Dual gate: clip proximity × neutralness. Mean target moves straight
+        # toward neutral in chromaticity space, so partial gating is safe.
+        if wb is not None:
+            sensor = rgb_flat / wb[np.newaxis, :]
+        else:
+            sensor = rgb_flat
+        clip_proximity = np.max(sensor, axis=1)
+        min_sensor = np.min(sensor, axis=1)
+        neutralness = np.where(clip_proximity > 1e-6, min_sensor / clip_proximity, 1.0)
 
-        result_full = rgb_flat @ combined.T
-        result_simple = rgb_flat @ simple.T
-        result_full = (1 - alpha) * result_full + alpha * result_simple
+        t_clip = np.clip((clip_proximity - 0.8) / 0.2, 0, 1)
+        t_clip = t_clip * t_clip * (3 - 2 * t_clip)
+        t_neut = np.clip((neutralness - 0.15) / 0.2, 0, 1)
+        t_neut = t_neut * t_neut * (3 - 2 * t_neut)
+        t = (t_clip * t_neut)[:, np.newaxis]
+
+        L = np.mean(rgb_flat, axis=1, keepdims=True)
+        compressed = rgb_flat + t * (L - rgb_flat)
+
+        result_full = compressed @ combined.T
     else:
         # Fallback when no camera matrix available: assume camera RGB ~ sRGB
         if to_bt2020:
@@ -333,7 +347,8 @@ process_raf = process_raw
 
 def save_hdr_avif(rgb: np.ndarray, output_path: str, quality: int = 90,
                   xyz_to_cam: np.ndarray = None, exif_flip: int = 0,
-                  wb: np.ndarray = None, apply_color: bool = True):
+                  wb: np.ndarray = None, wb_for_blend: np.ndarray = None,
+                  apply_color: bool = True):
     # Apply white balance with shadow rolloff
     # In very dark areas, reduce WB strength to avoid noise amplification
     if wb is not None:
@@ -344,10 +359,11 @@ def save_hdr_avif(rgb: np.ndarray, output_path: str, quality: int = 90,
         # Blend between unity WB (1,1,1) and camera WB
         effective_wb = blend * wb + (1 - blend) * 1.0
         rgb = rgb * effective_wb
-    
+
     # Apply color correction: camera RGB -> sRGB -> BT.2020
     if apply_color:
-        rgb = apply_color_correction(rgb, xyz_to_cam=xyz_to_cam, to_bt2020=True)
+        rgb = apply_color_correction(rgb, xyz_to_cam=xyz_to_cam,
+                                     wb=wb_for_blend, to_bt2020=True)
         rgb = np.maximum(rgb, 0)  # Clip negative values from matrix math
     
     # Apply EXIF rotation
@@ -355,9 +371,9 @@ def save_hdr_avif(rgb: np.ndarray, output_path: str, quality: int = 90,
         rgb = apply_exif_rotation(rgb, exif_flip)
 
     hlg = linear_to_hlg(rgb)
-    hlg_u16 = (np.clip(hlg, 0, 1) * 65535).astype(np.uint16)
+    hlg_u16 = (np.clip(hlg, 0, hlg.max()) / max(hlg.max(), 1.0) * 65535).astype(np.uint16)
     bgr_u16 = hlg_u16[:, :, ::-1]
-    
+
     temp_png = output_path + ".tmp.png"
     cv2.imwrite(temp_png, bgr_u16)
     
@@ -417,7 +433,8 @@ def main():
             exif_flip = meta.get("exif_flip", 0)
             xyz_to_cam = meta.get("xyz_to_cam")
             save_hdr_avif(rgb, str(out_path), args.quality, xyz_to_cam, exif_flip,
-                         None, not args.no_color)
+                         wb=None, wb_for_blend=meta["wb"],
+                         apply_color=not args.no_color)
     else:
         input_path = Path(args.input)
         output_path = Path(args.output) if args.output else input_path.with_suffix(".avif")
@@ -428,7 +445,8 @@ def main():
         exif_flip = meta.get("exif_flip", 0)
         xyz_to_cam = meta.get("xyz_to_cam")
         save_hdr_avif(rgb, str(output_path), args.quality, xyz_to_cam, exif_flip,
-                     None, not args.no_color)
+                     wb=None, wb_for_blend=meta["wb"],
+                     apply_color=not args.no_color)
         print(f"Saved: {output_path}")
 
 

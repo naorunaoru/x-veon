@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useAppStore } from '@/store';
 import { decodeRaw } from '@/pipeline/raf-decoder';
 import {
@@ -29,14 +29,18 @@ function flattenPattern(pattern: readonly (readonly number[])[], period: number)
   return flat;
 }
 
+
 export function useProcessFile() {
   const [isProcessing, setIsProcessing] = useState(false);
+  const lockRef = useRef(false);
 
   const processFile = useCallback(async (fileId: string) => {
+    if (lockRef.current) return;
     const store = useAppStore.getState();
     const fileEntry = store.files.find((f) => f.id === fileId);
-    if (!fileEntry || isProcessing) return;
+    if (!fileEntry) return;
 
+    lockRef.current = true;
     setIsProcessing(true);
     useAppStore.getState().updateFileStatus(fileId, 'processing');
 
@@ -121,7 +125,8 @@ export function useProcessFile() {
         wPad = padded.width;
         tileCount = 1;
 
-        blended = await runDemosaic(padded.data, padded.width, padded.height, dy, dx, algorithm, flatCfa, period);
+        // After padToAlignment, the CFA is shifted to canonical (0,0) alignment
+        blended = await runDemosaic(padded.data, padded.width, padded.height, 0, 0, algorithm, flatCfa, period);
         padded = null!; cfa = null;
       }
 
@@ -147,6 +152,7 @@ export function useProcessFile() {
           width: visWidth,
           height: visHeight,
           xyzToCam: xyzToCam3x3,
+          wbCoeffs: wb,
           orientation,
         },
         isHdr: useAppStore.getState().hdrSupported,
@@ -167,9 +173,10 @@ export function useProcessFile() {
       console.error(e);
     } finally {
       destroyDemosaicPool();
+      lockRef.current = false;
       setIsProcessing(false);
     }
-  }, [isProcessing]);
+  }, []);
 
   return { processFile, isProcessing };
 }

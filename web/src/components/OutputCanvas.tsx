@@ -30,15 +30,15 @@ export function OutputCanvas({ fileId, result }: OutputCanvasProps) {
     canvas.width = imgW;
     canvas.height = imgH;
 
-    const { hwc, width, height, xyzToCam, orientation } = result.exportData;
+    const { hwc, width, height, xyzToCam, wbCoeffs, orientation } = result.exportData;
 
     // Generate display imageData from hwc — transient, GC'd after draw
     const imageData = result.isHdr
-      ? processHdr(hwc, width * height, xyzToCam, width, height, orientation)
+      ? processHdr(hwc, width * height, xyzToCam, wbCoeffs, width, height, orientation)
       : toImageDataWithCC(
           hwc, width, height,
           xyzToCam ? buildColorMatrix(xyzToCam) : null,
-          orientation,
+          wbCoeffs, orientation,
         );
 
     const ctx = (result.isHdr

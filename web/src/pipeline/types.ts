@@ -62,7 +62,17 @@ export interface RotatedImage {
   height: number;
 }
 
-export type DemosaicMethod = 'neural-net' | 'markesteijn3' | 'markesteijn1' | 'bilinear' | 'dht';
+export type DemosaicMethod =
+  | 'neural-net'
+  | 'bilinear'
+  // X-Trans
+  | 'markesteijn3'
+  | 'markesteijn1'
+  | 'dht'
+  // Bayer
+  | 'ahd'
+  | 'ppg'
+  | 'mhc';
 
 export type ExportFormat = 'avif' | 'jpeg' | 'tiff';
 
@@ -71,6 +81,7 @@ export interface ExportData {
   width: number;
   height: number;
   xyzToCam: Float32Array | null;
+  wbCoeffs: Float32Array;
   orientation: string;
 }
 

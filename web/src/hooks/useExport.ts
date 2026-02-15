@@ -33,6 +33,7 @@ export function useExport() {
         exportData.width,
         exportData.height,
         exportData.xyzToCam,
+        exportData.wbCoeffs,
         exportData.orientation,
         exportFormat,
         exportQuality,
