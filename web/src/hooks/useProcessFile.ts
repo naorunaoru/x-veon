@@ -16,7 +16,7 @@ import {
 import { reconstructHighlightsSegmented } from '@/pipeline/highlight-segments';
 import { runTile, getBackend } from '@/pipeline/inference';
 import { runDemosaic, destroyDemosaicPool } from '@/pipeline/demosaic';
-import { createTileBlender, cropToHWC, buildColorMatrix } from '@/pipeline/postprocessor';
+import { createTileBlender, cropToHWC, buildColorMatrix, applyColorCorrection } from '@/pipeline/postprocessor';
 import { PATCH_SIZE, OVERLAP } from '@/pipeline/constants';
 import type { DemosaicMethod, ProcessingResultMeta } from '@/pipeline/types';
 import { writeHwc } from '@/lib/opfs-storage';
@@ -150,6 +150,12 @@ export function useProcessFile() {
       // 10. Crop to original size (CHW -> HWC)
       const hwc = cropToHWC(blended, hPad, wPad, padTop, padLeft, visHeight, visWidth);
       blended = null;
+
+      // 11. Apply camera → sRGB color correction
+      if (raw.xyzToCam) {
+        const ccMatrix = buildColorMatrix(raw.xyzToCam);
+        applyColorCorrection(hwc, visWidth * visHeight, ccMatrix, wb);
+      }
 
       // 12. Compute final display dimensions (after orientation)
       const orientation = raw.orientation;
