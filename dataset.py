@@ -14,9 +14,11 @@ import random
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torch.utils.data import Dataset, ConcatDataset
 
 from cfa import make_cfa_mask, make_channel_masks, CFA_REGISTRY, cfa_period, patch_alignment
+from losses import _gaussian_kernel_2d
 
 
 def mosaic(rgb: torch.Tensor, cfa_mask: torch.Tensor) -> torch.Tensor:
@@ -49,10 +51,12 @@ class LinearDataset(Dataset):
         exposure_aug_ev: float = 0.0,
         files: list[str] | None = None,
         cfa_type: str = "xtrans",
+        olpf_sigma: tuple[float, float] = (0.0, 0.0),
     ):
         self.patch_size = patch_size
         self.augment = augment
         self.noise_sigma = noise_sigma
+        self.olpf_sigma = olpf_sigma
         self.patches_per_image = patches_per_image
         self.apply_wb = apply_wb
         self.wb_aug_range = wb_aug_range
@@ -178,6 +182,16 @@ class LinearDataset(Dataset):
             if rng.random() > 0.5:
                 rgb = rgb.flip(1)
 
+        # OLPF simulation: blur RGB before mosaicing (optical domain)
+        ref = rgb
+        if self.augment and self.olpf_sigma[1] > 0:
+            sigma = rng.uniform(*self.olpf_sigma)
+            if sigma > 0:
+                ks = max(3, int(sigma * 6) | 1)
+                pad = ks // 2
+                kernel = _gaussian_kernel_2d(ks, sigma, 3)
+                rgb = F.conv2d(rgb.unsqueeze(0), kernel, padding=pad, groups=3).squeeze(0)
+
         cfa_img = mosaic(rgb, self.cfa)
 
         # Add noise
@@ -187,7 +201,7 @@ class LinearDataset(Dataset):
                 cfa_img = cfa_img + torch.randn_like(cfa_img) * sigma
 
         input_tensor = torch.cat([cfa_img, self.masks], dim=0)
-        return input_tensor, rgb
+        return input_tensor, ref
 
 
 class TortureDataset(Dataset):
@@ -221,6 +235,7 @@ def create_mixed_dataset(
     exposure_aug_ev: float = 0.0,
     files: list[str] | None = None,
     cfa_type: str = "xtrans",
+    olpf_sigma: tuple[float, float] = (0.0, 0.0),
 ) -> Dataset:
     """
     Create a dataset mixing real images with synthetic torture patterns.
@@ -237,6 +252,7 @@ def create_mixed_dataset(
         exposure_aug_ev=exposure_aug_ev,
         files=files,
         cfa_type=cfa_type,
+        olpf_sigma=olpf_sigma,
     )
 
     if torture_fraction <= 0:

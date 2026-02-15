@@ -170,6 +170,8 @@ def main():
     # Augmentation
     parser.add_argument("--noise-min", type=float, default=0.0)
     parser.add_argument("--noise-max", type=float, default=0.005)
+    parser.add_argument("--olpf-sigma-max", type=float, default=0.0,
+                        help="Max Gaussian sigma for OLPF blur simulation (0 = disabled). Applied to RGB before mosaicing.")
     parser.add_argument("--wb-aug-range", type=float, default=0.0,
                         help="WB shift augmentation range in log space (e.g. 0.25 = ~±28%%). Only with --apply-wb")
     parser.add_argument("--exposure-aug-ev", type=float, default=0.0,
@@ -235,6 +237,8 @@ def main():
         cfa_type=args.cfa_type,
     )
 
+    olpf_sigma = (0.0, args.olpf_sigma_max)
+
     if args.torture_fraction > 0:
         train_dataset = create_mixed_dataset(
             data_dir=None,
@@ -245,6 +249,7 @@ def main():
             noise_sigma=(args.noise_min, args.noise_max),
             wb_aug_range=wb_aug,
             exposure_aug_ev=args.exposure_aug_ev,
+            olpf_sigma=olpf_sigma,
             **shared_kwargs,
         )
     else:
@@ -254,6 +259,7 @@ def main():
             noise_sigma=(args.noise_min, args.noise_max),
             wb_aug_range=wb_aug,
             exposure_aug_ev=args.exposure_aug_ev,
+            olpf_sigma=olpf_sigma,
             **shared_kwargs,
         )
 

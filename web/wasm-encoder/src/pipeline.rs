@@ -94,10 +94,13 @@ pub fn encode(
 
     match format {
         Format::Jpeg => {
+            // Scale super-whites into [0,1] instead of hard-clipping
+            let peak = rotated.iter().cloned().fold(0.0f32, f32::max);
+            let scale = if peak > 1.0 { 1.0 / peak } else { 1.0 };
             // sRGB gamma → 8-bit
             let mut rgb8 = vec![0u8; num * 3];
             for i in 0..num * 3 {
-                rgb8[i] = (transfer::srgb_oetf(rotated[i]) * 255.0 + 0.5) as u8;
+                rgb8[i] = (transfer::srgb_oetf(rotated[i] * scale) * 255.0 + 0.5) as u8;
             }
             encode_jpeg::encode(&rgb8, rw, rh, quality)
         }

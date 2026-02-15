@@ -216,7 +216,12 @@ export function toImageDataWithCC(
   const outH = swap ? width : height;
   const rgba = new Uint8ClampedArray(n * 4);
 
-  const scale = 1.0;
+  // Find peak to scale super-whites into [0,1] instead of hard-clipping
+  let peak = 0;
+  for (let i = 0; i < n * 3; i++) {
+    if (hwc[i] > peak) peak = hwc[i];
+  }
+  const scale = peak > 1.0 ? 1.0 / peak : 1.0;
 
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
