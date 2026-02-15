@@ -88,6 +88,37 @@ export function findPatternShift(cfaStr: string, cfaWidth: number, crops: Uint16
   throw new Error(`Unsupported CFA: ${cfaStr.length} chars, width ${cfaWidth}`);
 }
 
+/**
+ * Per-channel normalized clip levels from the 4-element whiteLevels array.
+ * Maps CFA positions to R/G/B using the first 2×2 block of the CFA string,
+ * then computes (whiteLevel[c] - black) / range for each channel.
+ */
+export function channelClips(
+  cfaStr: string, cfaWidth: number, whiteLevels: Uint16Array,
+  black: number, range: number,
+): [number, number, number] {
+  // Default to whiteLevels[0] (= 1.0 in normalized space)
+  const wl: [number, number, number] = [
+    whiteLevels[0], whiteLevels[0], whiteLevels[0],
+  ];
+  // Map first 2×2 of CFA pattern to R/G/B, taking minimum per channel
+  for (let y = 0; y < 2; y++) {
+    for (let x = 0; x < 2; x++) {
+      const ci = y * cfaWidth + x;
+      const wi = y * 2 + x;
+      if (wi >= whiteLevels.length || ci >= cfaStr.length) continue;
+      const ch = cfaStr[ci] === 'R' ? 0 : cfaStr[ci] === 'G' ? 1 : 2;
+      wl[ch] = Math.min(wl[ch], whiteLevels[wi]);
+    }
+  }
+  return [
+    // HACK!
+    (wl[0] - black) / range * 0.93,
+    (wl[1] - black) / range * 0.93,
+    (wl[2] - black) / range * 0.93,
+  ];
+}
+
 export function normalizeRawCfa(
   rawData: Uint16Array, width: number, height: number,
   blackLevels: Uint16Array, whiteLevels: Uint16Array,

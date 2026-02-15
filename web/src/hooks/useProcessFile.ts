@@ -5,6 +5,7 @@ import {
   cropToVisible,
   findPatternShift,
   normalizeRawCfa,
+  channelClips,
   reconstructHighlightsCfa,
   applyWhiteBalance,
   padToAlignment,
@@ -79,12 +80,15 @@ export function useProcessFile() {
       applyWhiteBalance(cfa, visWidth, visHeight, wb, pattern, period, dy, dx);
 
       // 7. Highlight reconstruction: opposed inpainting then segmentation
-      // After WB, each channel clips at wb[c] (raw saturation 1.0 × wb[c]).
-      // Use ~3% margin below nominal white to catch near-saturation pixels —
-      // actual sensor clipping varies per-pixel due to quantization and noise.
-      const clipMargin = 0.97;
+      // Per-channel clip in normalized space: (whiteLevel[c] - black) / range,
+      // then multiplied by WB. When all white levels are the same this equals
+      // wb[c]; when they differ (common on Sony/Canon) it gives the actual
+      // per-channel saturation.
+      const black = raw.blackLevels[0];
+      const range = raw.whiteLevels[0] - black;
+      const clipNorm = channelClips(raw.cfaStr, raw.cfaWidth, raw.whiteLevels, black, range);
       const clips: [number, number, number] = [
-        wb[0] * clipMargin, wb[1] * clipMargin, wb[2] * clipMargin,
+        clipNorm[0] * wb[0], clipNorm[1] * wb[1], clipNorm[2] * wb[2],
       ];
       const originalCfa = new Float32Array(cfa);
       reconstructHighlightsCfa(cfa, visWidth, visHeight, pattern, period, dy, dx, clips);
