@@ -1,10 +1,5 @@
 import { SRGB_TO_BT2020 } from './constants';
-import { buildColorMatrix, mul3x3 } from './postprocessor';
-
-function buildHdrColorMatrix(xyzToCam3x3: Float32Array): Float32Array {
-  const camToSrgb = buildColorMatrix(xyzToCam3x3);
-  return mul3x3(new Float32Array(SRGB_TO_BT2020), camToSrgb);
-}
+import { buildColorMatrix } from './postprocessor';
 
 // HLG OETF constants (BT.2100)
 const HLG_A = 0.17883277;
@@ -17,16 +12,8 @@ function linearToHlg(v: number): number {
   return HLG_A * Math.log(Math.max(12 * v - HLG_B, 1e-10)) + HLG_C;
 }
 
-/** Smoothstep: 0 at edge0, 1 at edge1, smooth Hermite interpolation between. */
-function smoothstep(x: number, edge0: number, edge1: number): number {
-  const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
-  return t * t * (3 - 2 * t);
-}
-
 /**
- * Fused HDR pipeline: highlight desaturation (camera space) + color correction + HLG + rotation.
- * Desaturates towards camera-space luminance before the color matrix, preventing the matrix's
- * negative off-diagonals from amplifying channel imbalances into magenta fringes.
+ * Fused HDR pipeline: color correction + HLG + rotation.
  * Reads hwc without mutation so the buffer can be reused as export data.
  */
 export function processHdr(
@@ -34,14 +21,17 @@ export function processHdr(
   wb: Float32Array | null,
   width: number, height: number, orientation: string,
 ): ImageData {
-  const combinedMatrix = xyzToCam3x3 ? buildHdrColorMatrix(xyzToCam3x3) : null;
+  const camToSrgb = xyzToCam3x3 ? buildColorMatrix(xyzToCam3x3) : null;
+  const srgbToBt2020 = new Float32Array(SRGB_TO_BT2020);
+
   const wbR = wb ? wb[0] : 1, wbG = wb ? wb[1] : 1, wbB = wb ? wb[2] : 1;
+  const blendLo = 0.85, blendRange = 0.15;
 
   const swap = orientation === 'Rotate90' || orientation === 'Rotate270';
   const outW = swap ? height : width;
   const outH = swap ? width : height;
 
-  // Pass 1: highlight desaturation (camera space) + color correction + HLG, track peak
+  // Pass 1: color correction + HLG, track peak
   const hlgBuf = new Float32Array(numPixels * 3);
   let peak = 0;
 
@@ -50,26 +40,24 @@ export function processHdr(
       const si = (y * width + x) * 3;
       let r = hwc[si], g = hwc[si + 1], b = hwc[si + 2];
 
-      // Highlight desaturation toward mean (hue-preserving) in WB'd camera space.
-      // Dual gate: clip proximity × neutralness. Mean target moves straight
-      // toward neutral in chromaticity space, so partial gating is safe.
-      const sR = r / wbR, sG = g / wbG, sB = b / wbB;
-      const clipProx = Math.max(sR, sG, sB);
-      const minSensor = Math.min(sR, sG, sB);
-      const neutralness = clipProx > 1e-6 ? minSensor / clipProx : 1;
-      const t = smoothstep(clipProx, 0.8, 1.0) * smoothstep(neutralness, 0.25, 0.45);
-      if (t > 0) {
-        const L = (r + g + b) / 3;
-        r = r + t * (L - r);
-        g = g + t * (L - g);
-        b = b + t * (L - b);
+      // Step 1: cam→sRGB with highlight blending (same as SDR path)
+      if (camToSrgb) {
+        const fr = camToSrgb[0] * r + camToSrgb[1] * g + camToSrgb[2] * b;
+        const fg = camToSrgb[3] * r + camToSrgb[4] * g + camToSrgb[5] * b;
+        const fb = camToSrgb[6] * r + camToSrgb[7] * g + camToSrgb[8] * b;
+        const clipProx = Math.max(r / wbR, g / wbG, b / wbB);
+        const alpha = Math.min(1, Math.max(0, (clipProx - blendLo) / blendRange));
+        r = Math.max(0, fr + alpha * (r - fr));
+        g = Math.max(0, fg + alpha * (g - fg));
+        b = Math.max(0, fb + alpha * (b - fb));
       }
 
-      if (combinedMatrix) {
-        const or = r, og = g, ob = b;
-        r = combinedMatrix[0] * or + combinedMatrix[1] * og + combinedMatrix[2] * ob;
-        g = combinedMatrix[3] * or + combinedMatrix[4] * og + combinedMatrix[5] * ob;
-        b = combinedMatrix[6] * or + combinedMatrix[7] * og + combinedMatrix[8] * ob;
+      // Step 2: sRGB→BT.2020 gamut conversion (mild, no blending needed)
+      {
+        const sr = r, sg = g, sb = b;
+        r = srgbToBt2020[0] * sr + srgbToBt2020[1] * sg + srgbToBt2020[2] * sb;
+        g = srgbToBt2020[3] * sr + srgbToBt2020[4] * sg + srgbToBt2020[5] * sb;
+        b = srgbToBt2020[6] * sr + srgbToBt2020[7] * sg + srgbToBt2020[8] * sb;
       }
 
       r = Math.max(0, r);

@@ -12,6 +12,7 @@ import {
   makeChannelMasks,
   buildTileInput,
 } from '@/pipeline/preprocessor';
+import { reconstructHighlightsSegmented } from '@/pipeline/highlight-segments';
 import { runTile, getBackend } from '@/pipeline/inference';
 import { runDemosaic, destroyDemosaicPool } from '@/pipeline/demosaic';
 import { createTileBlender, cropToHWC } from '@/pipeline/postprocessor';
@@ -74,8 +75,10 @@ export function useProcessFile() {
       const { pattern, period, dy, dx, cfaType } = cfaInfo;
       console.log(`CFA: ${cfaType} (period=${period}, shift=dy${dy} dx${dx})`);
 
-      // 6. LCh highlight reconstruction
+      // 6. Highlight reconstruction: opposed inpainting then segmentation
+      const originalCfa = new Float32Array(cfa);
       reconstructHighlightsCfa(cfa, visWidth, visHeight, pattern, period, dy, dx);
+      reconstructHighlightsSegmented(cfa, visWidth, visHeight, pattern, period, dy, dx, 2, 0.5, originalCfa);
 
       // 7. Apply white balance
       applyWhiteBalance(cfa, visWidth, visHeight, wb, pattern, period, dy, dx);

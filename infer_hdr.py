@@ -78,27 +78,7 @@ def apply_color_correction(rgb: np.ndarray, xyz_to_cam: np.ndarray = None,
         else:
             combined = cam_to_srgb
 
-        # Highlight desaturation toward mean (hue-preserving) in WB'd camera space.
-        # Dual gate: clip proximity × neutralness. Mean target moves straight
-        # toward neutral in chromaticity space, so partial gating is safe.
-        if wb is not None:
-            sensor = rgb_flat / wb[np.newaxis, :]
-        else:
-            sensor = rgb_flat
-        clip_proximity = np.max(sensor, axis=1)
-        min_sensor = np.min(sensor, axis=1)
-        neutralness = np.where(clip_proximity > 1e-6, min_sensor / clip_proximity, 1.0)
-
-        t_clip = np.clip((clip_proximity - 0.8) / 0.2, 0, 1)
-        t_clip = t_clip * t_clip * (3 - 2 * t_clip)
-        t_neut = np.clip((neutralness - 0.15) / 0.2, 0, 1)
-        t_neut = t_neut * t_neut * (3 - 2 * t_neut)
-        t = (t_clip * t_neut)[:, np.newaxis]
-
-        L = np.mean(rgb_flat, axis=1, keepdims=True)
-        compressed = rgb_flat + t * (L - rgb_flat)
-
-        result_full = compressed @ combined.T
+        result_full = rgb_flat @ combined.T
     else:
         # Fallback when no camera matrix available: assume camera RGB ~ sRGB
         if to_bt2020:
