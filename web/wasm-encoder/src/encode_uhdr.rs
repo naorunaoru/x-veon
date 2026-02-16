@@ -11,6 +11,7 @@ pub fn encode(
     gain_min: f32,
     gain_max: f32,
     offset: f32,
+    hdr_capacity_max: f32,
 ) -> Result<Vec<u8>, String> {
     // Encode both JPEGs
     let primary_jpeg = encode_jpeg::encode(sdr_rgb8, width, height, quality)?;
@@ -18,7 +19,7 @@ pub fn encode(
         encode_jpeg::encode_grayscale(gain_luma8, width, height, GAIN_MAP_QUALITY)?;
 
     // Build gain map XMP (hdrgm attributes) and inject into gain map JPEG
-    let gm_xmp = build_gainmap_xmp(gain_min, gain_max, offset);
+    let gm_xmp = build_gainmap_xmp(gain_min, gain_max, offset, hdr_capacity_max);
     let gm_xmp_app1 = build_xmp_app1(&gm_xmp);
     // Gain map JPEG with XMP: SOI + XMP_APP1 + rest_of_gainmap
     let gainmap_jpeg_len = 2 + gm_xmp_app1.len() + (gainmap_jpeg_raw.len() - 2);
@@ -96,7 +97,7 @@ fn build_primary_xmp(gainmap_size: usize) -> String {
 }
 
 /// Gain map image XMP: all hdrgm numeric attributes.
-fn build_gainmap_xmp(gain_min: f32, gain_max: f32, offset: f32) -> String {
+fn build_gainmap_xmp(gain_min: f32, gain_max: f32, offset: f32, hdr_capacity_max: f32) -> String {
     let body = format!(
         r#"<x:xmpmeta xmlns:x="adobe:ns:meta/">
   <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
@@ -113,7 +114,7 @@ fn build_gainmap_xmp(gain_min: f32, gain_max: f32, offset: f32) -> String {
       hdrgm:BaseRenditionIsHDR="False"/>
   </rdf:RDF>
 </x:xmpmeta>"#,
-        gain_min, gain_max, offset, offset, gain_max
+        gain_min, gain_max, offset, offset, hdr_capacity_max
     );
     format!("<?xpacket begin='\u{FEFF}' id='W5M0MpCehiHzreSzNTczkc9d'?>\n{body}\n<?xpacket end='w'?>")
 }

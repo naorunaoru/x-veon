@@ -1,0 +1,2440 @@
+{
+  "generator": "opendrt_reference.py",
+  "preset": "Base + Default (ART CTL)",
+  "notes": "Input is P3-D65 scene-linear. Output is display-linear before EOTF.",
+  "tolerance": 1e-05,
+  "vectors": [
+    {
+      "name": "grey_0.001__sdr_709__base",
+      "preset": "base",
+      "input": [
+        0.001,
+        0.001,
+        0.001
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        1.3399149038732703e-05,
+        1.3399150428881101e-05,
+        1.339915033510045e-05
+      ]
+    },
+    {
+      "name": "grey_0.001__hdr_2020__base",
+      "preset": "base",
+      "input": [
+        0.001,
+        0.001,
+        0.001
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        1.2726219223813482e-06,
+        1.2726219222540858e-06,
+        1.27262192232408e-06
+      ]
+    },
+    {
+      "name": "grey_0.005__sdr_709__base",
+      "preset": "base",
+      "input": [
+        0.005,
+        0.005,
+        0.005
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.000766765107909478,
+        0.000766765187460596,
+        0.0007667651820940066
+      ]
+    },
+    {
+      "name": "grey_0.005__hdr_2020__base",
+      "preset": "base",
+      "input": [
+        0.005,
+        0.005,
+        0.005
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        7.471429295615702e-05,
+        7.471429294868558e-05,
+        7.471429295279487e-05
+      ]
+    },
+    {
+      "name": "grey_0.01__sdr_709__base",
+      "preset": "base",
+      "input": [
+        0.01,
+        0.01,
+        0.01
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.0031752255114357933,
+        0.0031752258408622846,
+        0.0031752258186388796
+      ]
+    },
+    {
+      "name": "grey_0.01__hdr_2020__base",
+      "preset": "base",
+      "input": [
+        0.01,
+        0.01,
+        0.01
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.000316146800544774,
+        0.00031614680051315924,
+        0.0003161468005305473
+      ]
+    },
+    {
+      "name": "grey_0.05__sdr_709__base",
+      "preset": "base",
+      "input": [
+        0.05,
+        0.05,
+        0.05
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.03980980650106006,
+        0.03980981063128791,
+        0.039809810352659056
+      ]
+    },
+    {
+      "name": "grey_0.05__hdr_2020__base",
+      "preset": "base",
+      "input": [
+        0.05,
+        0.05,
+        0.05
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.004401684400545448,
+        0.00440168440010528,
+        0.004401684400347372
+      ]
+    },
+    {
+      "name": "grey_0.18__sdr_709__base",
+      "preset": "base",
+      "input": [
+        0.18,
+        0.18,
+        0.18
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.17999998930799996,
+        0.18000000798281995,
+        0.18000000672299996
+      ]
+    },
+    {
+      "name": "grey_0.18__hdr_2020__base",
+      "preset": "base",
+      "input": [
+        0.18,
+        0.18,
+        0.18
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.02577331174435603,
+        0.02577331174177869,
+        0.025773311743196223
+      ]
+    },
+    {
+      "name": "grey_0.5__sdr_709__base",
+      "preset": "base",
+      "input": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.42038823456978336,
+        0.4203882781846449,
+        0.42038827524234745
+      ]
+    },
+    {
+      "name": "grey_0.5__hdr_2020__base",
+      "preset": "base",
+      "input": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.0914149775791817,
+        0.0914149775700402,
+        0.09141497757506803
+      ]
+    },
+    {
+      "name": "grey_1.0__sdr_709__base",
+      "preset": "base",
+      "input": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.6083941320057396,
+        0.6083941951260262,
+        0.6083941908678754
+      ]
+    },
+    {
+      "name": "grey_1.0__hdr_2020__base",
+      "preset": "base",
+      "input": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.19143501733660243,
+        0.1914350173174589,
+        0.19143501732798787
+      ]
+    },
+    {
+      "name": "grey_2.0__sdr_709__base",
+      "preset": "base",
+      "input": [
+        2.0,
+        2.0,
+        2.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.764691667572246,
+        0.7646917469082466,
+        0.7646917415561693
+      ]
+    },
+    {
+      "name": "grey_2.0__hdr_2020__base",
+      "preset": "base",
+      "input": [
+        2.0,
+        2.0,
+        2.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.34767235794890833,
+        0.3476723579141411,
+        0.34767235793326307
+      ]
+    },
+    {
+      "name": "grey_4.0__sdr_709__base",
+      "preset": "base",
+      "input": [
+        4.0,
+        4.0,
+        4.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.870746550387904,
+        0.8707466407269933,
+        0.8707466346326378
+      ]
+    },
+    {
+      "name": "grey_4.0__hdr_2020__base",
+      "preset": "base",
+      "input": [
+        4.0,
+        4.0,
+        4.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.5355333372521602,
+        0.5355333371986069,
+        0.5355333372280612
+      ]
+    },
+    {
+      "name": "grey_8.0__sdr_709__base",
+      "preset": "base",
+      "input": [
+        8.0,
+        8.0,
+        8.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.9336150485084814,
+        0.9336151453701149,
+        0.9336151388357428
+      ]
+    },
+    {
+      "name": "grey_8.0__hdr_2020__base",
+      "preset": "base",
+      "input": [
+        8.0,
+        8.0,
+        8.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.7078589068058557,
+        0.7078589067350697,
+        0.707858906774002
+      ]
+    },
+    {
+      "name": "grey_16.0__sdr_709__base",
+      "preset": "base",
+      "input": [
+        16.0,
+        16.0,
+        16.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.9680237533785058,
+        0.9680238538100082,
+        0.9680238470348095
+      ]
+    },
+    {
+      "name": "grey_16.0__hdr_2020__base",
+      "preset": "base",
+      "input": [
+        16.0,
+        16.0,
+        16.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.8336114691934976,
+        0.8336114691101364,
+        0.833611469155985
+      ]
+    },
+    {
+      "name": "grey_50.0__sdr_709__base",
+      "preset": "base",
+      "input": [
+        50.0,
+        50.0,
+        50.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.9926805544727301,
+        0.9926806574623511,
+        0.9926806505145794
+      ]
+    },
+    {
+      "name": "grey_50.0__hdr_2020__base",
+      "preset": "base",
+      "input": [
+        50.0,
+        50.0,
+        50.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.9429112056413806,
+        0.9429112055470895,
+        0.9429112055989496
+      ]
+    },
+    {
+      "name": "grey_100.0__sdr_709__base",
+      "preset": "base",
+      "input": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.998638522437222,
+        0.9986386260449762,
+        0.9986386190555048
+      ]
+    },
+    {
+      "name": "grey_100.0__hdr_2020__base",
+      "preset": "base",
+      "input": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.9722439057432409,
+        0.9722439056460166,
+        0.97224390569949
+      ]
+    },
+    {
+      "name": "red_0.18__sdr_709__base",
+      "preset": "base",
+      "input": [
+        0.18,
+        0.0,
+        0.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.19174065671101292,
+        0.000709188045211967,
+        2.726446032147681e-06
+      ]
+    },
+    {
+      "name": "red_0.18__hdr_2020__base",
+      "preset": "base",
+      "input": [
+        0.18,
+        0.0,
+        0.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.014427187354175544,
+        0.0011924070519341865,
+        3.8730680523752866e-05
+      ]
+    },
+    {
+      "name": "red_1.0__sdr_709__base",
+      "preset": "base",
+      "input": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        1.0,
+        0.007826716856976182,
+        0.002242450609621426
+      ]
+    },
+    {
+      "name": "red_1.0__hdr_2020__base",
+      "preset": "base",
+      "input": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.13468202549673575,
+        0.011196139138237039,
+        0.000430609735643087
+      ]
+    },
+    {
+      "name": "red_4.0__sdr_709__base",
+      "preset": "base",
+      "input": [
+        4.0,
+        0.0,
+        0.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        1.0,
+        0.1427837616778906,
+        0.16916030227734513
+      ]
+    },
+    {
+      "name": "red_4.0__hdr_2020__base",
+      "preset": "base",
+      "input": [
+        4.0,
+        0.0,
+        0.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.5277506006459761,
+        0.05645212022829962,
+        0.02009843660122466
+      ]
+    },
+    {
+      "name": "green_0.18__sdr_709__base",
+      "preset": "base",
+      "input": [
+        0.0,
+        0.18,
+        0.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.0,
+        0.1456733629417872,
+        0.0
+      ]
+    },
+    {
+      "name": "green_0.18__hdr_2020__base",
+      "preset": "base",
+      "input": [
+        0.0,
+        0.18,
+        0.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.003970259812555182,
+        0.018008364740323277,
+        0.00039208783253491525
+      ]
+    },
+    {
+      "name": "green_1.0__sdr_709__base",
+      "preset": "base",
+      "input": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.0,
+        0.7872599343856432,
+        0.0
+      ]
+    },
+    {
+      "name": "green_1.0__hdr_2020__base",
+      "preset": "base",
+      "input": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.0371501727256091,
+        0.16757355991640432,
+        0.003925697438405668
+      ]
+    },
+    {
+      "name": "green_4.0__sdr_709__base",
+      "preset": "base",
+      "input": [
+        0.0,
+        4.0,
+        0.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.05660979432928751,
+        1.0,
+        0.2042884185615112
+      ]
+    },
+    {
+      "name": "green_4.0__hdr_2020__base",
+      "preset": "base",
+      "input": [
+        0.0,
+        4.0,
+        0.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.16594530837672514,
+        0.627602089122552,
+        0.05313307096449964
+      ]
+    },
+    {
+      "name": "blue_0.18__sdr_709__base",
+      "preset": "base",
+      "input": [
+        0.0,
+        0.0,
+        0.18
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.002367065944758332,
+        0.0034919606004015827,
+        0.18152982275572838
+      ]
+    },
+    {
+      "name": "blue_0.18__hdr_2020__base",
+      "preset": "base",
+      "input": [
+        0.0,
+        0.0,
+        0.18
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.001235953701134496,
+        0.000647277311415824,
+        0.01959891115853144
+      ]
+    },
+    {
+      "name": "blue_1.0__sdr_709__base",
+      "preset": "base",
+      "input": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.05864181081019863,
+        0.06048534932883395,
+        0.8549044302941708
+      ]
+    },
+    {
+      "name": "blue_1.0__hdr_2020__base",
+      "preset": "base",
+      "input": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.011789362919059429,
+        0.0064935993692254845,
+        0.176942357759534
+      ]
+    },
+    {
+      "name": "blue_4.0__sdr_709__base",
+      "preset": "base",
+      "input": [
+        0.0,
+        0.0,
+        4.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.34759518692708324,
+        0.34761829699776914,
+        1.0
+      ]
+    },
+    {
+      "name": "blue_4.0__hdr_2020__base",
+      "preset": "base",
+      "input": [
+        0.0,
+        0.0,
+        4.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.09311988424304363,
+        0.07388968083294559,
+        0.6203091916619154
+      ]
+    },
+    {
+      "name": "yellow_1.0__sdr_709__base",
+      "preset": "base",
+      "input": [
+        1.0,
+        1.0,
+        0.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.6955103393579803,
+        0.6955104203908857,
+        0.04142693852699103
+      ]
+    },
+    {
+      "name": "yellow_1.0__hdr_2020__base",
+      "preset": "base",
+      "input": [
+        1.0,
+        1.0,
+        0.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.17935667577231276,
+        0.18585721952893364,
+        0.005955499035276755
+      ]
+    },
+    {
+      "name": "cyan_1.0__sdr_709__base",
+      "preset": "base",
+      "input": [
+        0.0,
+        1.0,
+        1.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.045434309245876825,
+        0.6766905811109095,
+        0.6654721031042554
+      ]
+    },
+    {
+      "name": "cyan_1.0__hdr_2020__base",
+      "preset": "base",
+      "input": [
+        0.0,
+        1.0,
+        1.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.052747569385170875,
+        0.18042389694131705,
+        0.188890257659685
+      ]
+    },
+    {
+      "name": "magenta_1.0__sdr_709__base",
+      "preset": "base",
+      "input": [
+        1.0,
+        0.0,
+        1.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.7758413142625733,
+        0.12113109016801238,
+        0.7001539859935854
+      ]
+    },
+    {
+      "name": "magenta_1.0__hdr_2020__base",
+      "preset": "base",
+      "input": [
+        1.0,
+        0.0,
+        1.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.151899225443261,
+        0.019413666593874817,
+        0.18416504918133966
+      ]
+    },
+    {
+      "name": "near_neutral__sdr_709__base",
+      "preset": "base",
+      "input": [
+        0.18,
+        0.17,
+        0.19
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.182225008455201,
+        0.1698047046791742,
+        0.19155714319337766
+      ]
+    },
+    {
+      "name": "near_neutral__hdr_2020__base",
+      "preset": "base",
+      "input": [
+        0.18,
+        0.17,
+        0.19
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.02559921277905966,
+        0.024483391928568212,
+        0.027200726077143234
+      ]
+    },
+    {
+      "name": "near_clip_neutral__sdr_709__base",
+      "preset": "base",
+      "input": [
+        0.95,
+        0.95,
+        0.95
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.595124539636972,
+        0.5951246013805515,
+        0.5951245972152746
+      ]
+    },
+    {
+      "name": "near_clip_neutral__hdr_2020__base",
+      "preset": "base",
+      "input": [
+        0.95,
+        0.95,
+        0.95
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.18205072318786553,
+        0.18205072316966042,
+        0.18205072317967322
+      ]
+    },
+    {
+      "name": "near_clip_red__sdr_709__base",
+      "preset": "base",
+      "input": [
+        1.0,
+        0.2,
+        0.2
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.9287081741884957,
+        0.1689754913147981,
+        0.18238652563203103
+      ]
+    },
+    {
+      "name": "near_clip_red__hdr_2020__base",
+      "preset": "base",
+      "input": [
+        1.0,
+        0.2,
+        0.2
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.14676978479695155,
+        0.04365995392791095,
+        0.03681561833620373
+      ]
+    },
+    {
+      "name": "negative__sdr_709__base",
+      "preset": "base",
+      "input": [
+        -0.01,
+        0.5,
+        0.3
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.0,
+        0.45471086691619333,
+        0.2613485206924104
+      ]
+    },
+    {
+      "name": "negative__hdr_2020__base",
+      "preset": "base",
+      "input": [
+        -0.01,
+        0.5,
+        0.3
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.019296259401818863,
+        0.07828599148006746,
+        0.05015353470962531
+      ]
+    },
+    {
+      "name": "hdr_mixed__sdr_709__base",
+      "preset": "base",
+      "input": [
+        5.0,
+        0.5,
+        0.1
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        1.0,
+        0.3573804896939383,
+        0.28224801290292856
+      ]
+    },
+    {
+      "name": "hdr_mixed__hdr_2020__base",
+      "preset": "base",
+      "input": [
+        5.0,
+        0.5,
+        0.1
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.6188115182697251,
+        0.15001841404939834,
+        0.061273542414985734
+      ]
+    },
+    {
+      "name": "hdr_bright__sdr_709__base",
+      "preset": "base",
+      "input": [
+        10.0,
+        8.0,
+        6.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.9719912469845309,
+        0.9330382329226008,
+        0.8999616963164307
+      ]
+    },
+    {
+      "name": "hdr_bright__hdr_2020__base",
+      "preset": "base",
+      "input": [
+        10.0,
+        8.0,
+        6.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.7510832717571189,
+        0.7101723878266201,
+        0.6482841218710451
+      ]
+    },
+    {
+      "name": "hdr_saturated__sdr_709__base",
+      "preset": "base",
+      "input": [
+        20.0,
+        0.5,
+        0.5
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        1.0,
+        0.5319656848519096,
+        0.5515460958826175
+      ]
+    },
+    {
+      "name": "hdr_saturated__hdr_2020__base",
+      "preset": "base",
+      "input": [
+        20.0,
+        0.5,
+        0.5
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.8297523077765835,
+        0.3400481824538765,
+        0.3075392129176596
+      ]
+    },
+    {
+      "name": "grey_0.001__sdr_709__default",
+      "preset": "default",
+      "input": [
+        0.001,
+        0.001,
+        0.001
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.000307272158410142,
+        0.00030727219028932296,
+        0.000307272188138725
+      ]
+    },
+    {
+      "name": "grey_0.001__hdr_2020__default",
+      "preset": "default",
+      "input": [
+        0.001,
+        0.001,
+        0.001
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        2.9664354371154727e-05,
+        2.966435436818829e-05,
+        2.966435436981983e-05
+      ]
+    },
+    {
+      "name": "grey_0.005__sdr_709__default",
+      "preset": "default",
+      "input": [
+        0.005,
+        0.005,
+        0.005
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.001000127376742754,
+        0.0010001274805049752,
+        0.0010001274735050832
+      ]
+    },
+    {
+      "name": "grey_0.005__hdr_2020__default",
+      "preset": "default",
+      "input": [
+        0.005,
+        0.005,
+        0.005
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        9.777789077482883e-05,
+        9.777789076505102e-05,
+        9.777789077042881e-05
+      ]
+    },
+    {
+      "name": "grey_0.01__sdr_709__default",
+      "preset": "default",
+      "input": [
+        0.01,
+        0.01,
+        0.01
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.0023542755529569956,
+        0.0023542757972107443,
+        0.0023542757807331685
+      ]
+    },
+    {
+      "name": "grey_0.01__hdr_2020__default",
+      "preset": "default",
+      "input": [
+        0.01,
+        0.01,
+        0.01
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.00023313543514498578,
+        0.00023313543512167218,
+        0.00023313543513449466
+      ]
+    },
+    {
+      "name": "grey_0.05__sdr_709__default",
+      "preset": "default",
+      "input": [
+        0.05,
+        0.05,
+        0.05
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.026411179179703075,
+        0.02641118191983667,
+        0.02641118173498481
+      ]
+    },
+    {
+      "name": "grey_0.05__hdr_2020__default",
+      "preset": "default",
+      "input": [
+        0.05,
+        0.05,
+        0.05
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.002832558604845783,
+        0.0028325586045625274,
+        0.0028325586047183177
+      ]
+    },
+    {
+      "name": "grey_0.18__sdr_709__default",
+      "preset": "default",
+      "input": [
+        0.18,
+        0.18,
+        0.18
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.180574991803647,
+        0.18057501053812294,
+        0.1805750092742785
+      ]
+    },
+    {
+      "name": "grey_0.18__hdr_2020__default",
+      "preset": "default",
+      "input": [
+        0.18,
+        0.18,
+        0.18
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.025892226886866185,
+        0.025892226884276958,
+        0.02589222688570103
+      ]
+    },
+    {
+      "name": "grey_0.5__sdr_709__default",
+      "preset": "default",
+      "input": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.44796133493742063,
+        0.44796138141296393,
+        0.4479613782776824
+      ]
+    },
+    {
+      "name": "grey_0.5__hdr_2020__default",
+      "preset": "default",
+      "input": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.10252819976576073,
+        0.10252819975550789,
+        0.10252819976114695
+      ]
+    },
+    {
+      "name": "grey_1.0__sdr_709__default",
+      "preset": "default",
+      "input": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.6365775474402146,
+        0.6365776134845024,
+        0.6365776090290959
+      ]
+    },
+    {
+      "name": "grey_1.0__hdr_2020__default",
+      "preset": "default",
+      "input": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.2130120162433166,
+        0.21301201622201538,
+        0.21301201623373106
+      ]
+    },
+    {
+      "name": "grey_2.0__sdr_709__default",
+      "preset": "default",
+      "input": [
+        2.0,
+        2.0,
+        2.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.7854631604417995,
+        0.7854632419328217,
+        0.785463236435365
+      ]
+    },
+    {
+      "name": "grey_2.0__hdr_2020__default",
+      "preset": "default",
+      "input": [
+        2.0,
+        2.0,
+        2.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.37732281609537266,
+        0.37732281605764034,
+        0.37732281607839313
+      ]
+    },
+    {
+      "name": "grey_4.0__sdr_709__default",
+      "preset": "default",
+      "input": [
+        4.0,
+        4.0,
+        4.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.8835754405165408,
+        0.8835755321866146,
+        0.8835755260024698
+      ]
+    },
+    {
+      "name": "grey_4.0__hdr_2020__default",
+      "preset": "default",
+      "input": [
+        4.0,
+        4.0,
+        4.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.5657450285115991,
+        0.5657450284550246,
+        0.5657450284861406
+      ]
+    },
+    {
+      "name": "grey_8.0__sdr_709__default",
+      "preset": "default",
+      "input": [
+        8.0,
+        8.0,
+        8.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.9408202699848613,
+        0.940820367594029,
+        0.9408203610092278
+      ]
+    },
+    {
+      "name": "grey_8.0__hdr_2020__default",
+      "preset": "default",
+      "input": [
+        8.0,
+        8.0,
+        8.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.7316550950908592,
+        0.7316550950176935,
+        0.7316550950579346
+      ]
+    },
+    {
+      "name": "grey_16.0__sdr_709__default",
+      "preset": "default",
+      "input": [
+        16.0,
+        16.0,
+        16.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.9718919522467342,
+        0.9718920530795585,
+        0.9718920462772863
+      ]
+    },
+    {
+      "name": "grey_16.0__hdr_2020__default",
+      "preset": "default",
+      "input": [
+        16.0,
+        16.0,
+        16.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.849133019917766,
+        0.8491330198328526,
+        0.8491330198795549
+      ]
+    },
+    {
+      "name": "grey_50.0__sdr_709__default",
+      "preset": "default",
+      "input": [
+        50.0,
+        50.0,
+        50.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.9940522192492397,
+        0.9940523223811694,
+        0.9940523154237976
+      ]
+    },
+    {
+      "name": "grey_50.0__hdr_2020__default",
+      "preset": "default",
+      "input": [
+        50.0,
+        50.0,
+        50.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.9490168136468612,
+        0.9490168135519594,
+        0.9490168136041554
+      ]
+    },
+    {
+      "name": "grey_100.0__sdr_709__default",
+      "preset": "default",
+      "input": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.9993944696965759,
+        0.9993945733827587,
+        0.9993945663879964
+      ]
+    },
+    {
+      "name": "grey_100.0__hdr_2020__default",
+      "preset": "default",
+      "input": [
+        100.0,
+        100.0,
+        100.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.9754912583533223,
+        0.9754912582557731,
+        0.9754912583094251
+      ]
+    },
+    {
+      "name": "red_0.18__sdr_709__default",
+      "preset": "default",
+      "input": [
+        0.18,
+        0.0,
+        0.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.12893915092064653,
+        0.0008593036705141592,
+        2.1365238465245434e-05
+      ]
+    },
+    {
+      "name": "red_0.18__hdr_2020__default",
+      "preset": "default",
+      "input": [
+        0.18,
+        0.0,
+        0.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.010303008331851828,
+        0.0009018894930175094,
+        5.784745799304588e-05
+      ]
+    },
+    {
+      "name": "red_1.0__sdr_709__default",
+      "preset": "default",
+      "input": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.7242378871719528,
+        0.007995942569494338,
+        0.00046381337234980625
+      ]
+    },
+    {
+      "name": "red_1.0__hdr_2020__default",
+      "preset": "default",
+      "input": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.11092770737205904,
+        0.009537481579167702,
+        8.473207108752634e-05
+      ]
+    },
+    {
+      "name": "red_4.0__sdr_709__default",
+      "preset": "default",
+      "input": [
+        4.0,
+        0.0,
+        0.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        1.0,
+        0.18885027331144666,
+        0.20450017614566982
+      ]
+    },
+    {
+      "name": "red_4.0__hdr_2020__default",
+      "preset": "default",
+      "input": [
+        4.0,
+        0.0,
+        0.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.3755992531624839,
+        0.0436526693477687,
+        0.013738881836553868
+      ]
+    },
+    {
+      "name": "green_0.18__sdr_709__default",
+      "preset": "default",
+      "input": [
+        0.0,
+        0.18,
+        0.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.0,
+        0.09684624397033037,
+        0.0
+      ]
+    },
+    {
+      "name": "green_0.18__hdr_2020__default",
+      "preset": "default",
+      "input": [
+        0.0,
+        0.18,
+        0.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.002805752682979776,
+        0.012434831053121148,
+        0.00035596323489491173
+      ]
+    },
+    {
+      "name": "green_1.0__sdr_709__default",
+      "preset": "default",
+      "input": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        3.873476502474326e-05,
+        0.631857969715199,
+        0.001197598272006208
+      ]
+    },
+    {
+      "name": "green_1.0__hdr_2020__default",
+      "preset": "default",
+      "input": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.03190021990822807,
+        0.14321733304225462,
+        0.003188293833655905
+      ]
+    },
+    {
+      "name": "green_4.0__sdr_709__default",
+      "preset": "default",
+      "input": [
+        0.0,
+        4.0,
+        0.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.2698782464007087,
+        0.9958556173655897,
+        0.35370580732069073
+      ]
+    },
+    {
+      "name": "green_4.0__hdr_2020__default",
+      "preset": "default",
+      "input": [
+        0.0,
+        4.0,
+        0.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.1505889275403234,
+        0.48869778472047054,
+        0.06811468749447401
+      ]
+    },
+    {
+      "name": "blue_0.18__sdr_709__default",
+      "preset": "default",
+      "input": [
+        0.0,
+        0.0,
+        0.18
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.0004762796749808262,
+        0.0011796159112209008,
+        0.14519715057164856
+      ]
+    },
+    {
+      "name": "blue_0.18__hdr_2020__default",
+      "preset": "default",
+      "input": [
+        0.0,
+        0.0,
+        0.18
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.0008329286685369335,
+        0.00032670956763669135,
+        0.015900443103199234
+      ]
+    },
+    {
+      "name": "blue_1.0__sdr_709__default",
+      "preset": "default",
+      "input": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.08259387855270561,
+        0.08368025249672037,
+        0.7707721791641945
+      ]
+    },
+    {
+      "name": "blue_1.0__hdr_2020__default",
+      "preset": "default",
+      "input": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.011483566315052856,
+        0.006350290900028855,
+        0.17611196272923638
+      ]
+    },
+    {
+      "name": "blue_4.0__sdr_709__default",
+      "preset": "default",
+      "input": [
+        0.0,
+        0.0,
+        4.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.505953529307732,
+        0.5059535747456207,
+        1.0
+      ]
+    },
+    {
+      "name": "blue_4.0__hdr_2020__default",
+      "preset": "default",
+      "input": [
+        0.0,
+        0.0,
+        4.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.13268116842124567,
+        0.11667567748236979,
+        0.5629925660492578
+      ]
+    },
+    {
+      "name": "yellow_1.0__sdr_709__default",
+      "preset": "default",
+      "input": [
+        1.0,
+        1.0,
+        0.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.6404340789496159,
+        0.6404341521162329,
+        0.14497514171747006
+      ]
+    },
+    {
+      "name": "yellow_1.0__hdr_2020__default",
+      "preset": "default",
+      "input": [
+        1.0,
+        1.0,
+        0.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.18036765575957936,
+        0.186745636433465,
+        0.010235833631795387
+      ]
+    },
+    {
+      "name": "cyan_1.0__sdr_709__default",
+      "preset": "default",
+      "input": [
+        0.0,
+        1.0,
+        1.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.23674342281325256,
+        0.63668755647035,
+        0.6296105708014432
+      ]
+    },
+    {
+      "name": "cyan_1.0__hdr_2020__default",
+      "preset": "default",
+      "input": [
+        0.0,
+        1.0,
+        1.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.06677747573872238,
+        0.1873309956511328,
+        0.19532503499356407
+      ]
+    },
+    {
+      "name": "magenta_1.0__sdr_709__default",
+      "preset": "default",
+      "input": [
+        1.0,
+        0.0,
+        1.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.7018758225124768,
+        0.2840123938044669,
+        0.6536228857887603
+      ]
+    },
+    {
+      "name": "magenta_1.0__hdr_2020__default",
+      "preset": "default",
+      "input": [
+        1.0,
+        0.0,
+        1.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.1625148686798294,
+        0.0330144835582239,
+        0.19405367665638948
+      ]
+    },
+    {
+      "name": "near_neutral__sdr_709__default",
+      "preset": "default",
+      "input": [
+        0.18,
+        0.17,
+        0.19
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.18288631231243896,
+        0.17065895483381716,
+        0.1920748248392376
+      ]
+    },
+    {
+      "name": "near_neutral__hdr_2020__default",
+      "preset": "default",
+      "input": [
+        0.18,
+        0.17,
+        0.19
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.02564237148395141,
+        0.024231434676283803,
+        0.027667662712572576
+      ]
+    },
+    {
+      "name": "near_clip_neutral__sdr_709__default",
+      "preset": "default",
+      "input": [
+        0.95,
+        0.95,
+        0.95
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.6236539736033719,
+        0.623654038306852,
+        0.6236540339418976
+      ]
+    },
+    {
+      "name": "near_clip_neutral__hdr_2020__default",
+      "preset": "default",
+      "input": [
+        0.95,
+        0.95,
+        0.95
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.2028616375276804,
+        0.20286163750739422,
+        0.20286163751855163
+      ]
+    },
+    {
+      "name": "near_clip_red__sdr_709__default",
+      "preset": "default",
+      "input": [
+        1.0,
+        0.2,
+        0.2
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.7462149435170201,
+        0.16600316915190416,
+        0.17621270006028683
+      ]
+    },
+    {
+      "name": "near_clip_red__hdr_2020__default",
+      "preset": "default",
+      "input": [
+        1.0,
+        0.2,
+        0.2
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.13451607380909766,
+        0.03886507223490876,
+        0.03249068408816398
+      ]
+    },
+    {
+      "name": "negative__sdr_709__default",
+      "preset": "default",
+      "input": [
+        -0.01,
+        0.5,
+        0.3
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.00012165200154981417,
+        0.4375201179535392,
+        0.26285304906803536
+      ]
+    },
+    {
+      "name": "negative__hdr_2020__default",
+      "preset": "default",
+      "input": [
+        -0.01,
+        0.5,
+        0.3
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.019248512348049463,
+        0.07944899074987596,
+        0.050236173731210185
+      ]
+    },
+    {
+      "name": "hdr_mixed__sdr_709__default",
+      "preset": "default",
+      "input": [
+        5.0,
+        0.5,
+        0.1
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        1.0,
+        0.3894544472516343,
+        0.3464137868787573
+      ]
+    },
+    {
+      "name": "hdr_mixed__hdr_2020__default",
+      "preset": "default",
+      "input": [
+        5.0,
+        0.5,
+        0.1
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.45792778499620584,
+        0.12059951997505944,
+        0.056183679817034815
+      ]
+    },
+    {
+      "name": "hdr_bright__sdr_709__default",
+      "preset": "default",
+      "input": [
+        10.0,
+        8.0,
+        6.0
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        0.9494297784825022,
+        0.9388696588134974,
+        0.9299022764350467
+      ]
+    },
+    {
+      "name": "hdr_bright__hdr_2020__default",
+      "preset": "default",
+      "input": [
+        10.0,
+        8.0,
+        6.0
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.7414152846653747,
+        0.7274008424798261,
+        0.7061996748169947
+      ]
+    },
+    {
+      "name": "hdr_saturated__sdr_709__default",
+      "preset": "default",
+      "input": [
+        20.0,
+        0.5,
+        0.5
+      ],
+      "config": "sdr_709",
+      "tn_Lp": 100.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 0,
+      "expected": [
+        1.0,
+        0.7127741755740908,
+        0.7193709770849838
+      ]
+    },
+    {
+      "name": "hdr_saturated__hdr_2020__default",
+      "preset": "default",
+      "input": [
+        20.0,
+        0.5,
+        0.5
+      ],
+      "config": "hdr_2020",
+      "tn_Lp": 1000.0,
+      "tn_gb": 0.13,
+      "pt_hdr": 0.5,
+      "display_gamut": 2,
+      "expected": [
+        0.7606863958005177,
+        0.39073410557828137,
+        0.36618958004404506
+      ]
+    }
+  ]
+}

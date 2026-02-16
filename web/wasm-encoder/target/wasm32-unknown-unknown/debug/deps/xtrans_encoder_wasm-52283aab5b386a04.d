@@ -1,0 +1,13 @@
+/Users/naoru/projects/xtrans-demosaic/web/wasm-encoder/target/wasm32-unknown-unknown/debug/deps/xtrans_encoder_wasm-52283aab5b386a04.d: src/lib.rs src/color.rs src/encode_avif.rs src/encode_jpeg.rs src/encode_tiff.rs src/encode_uhdr.rs src/pipeline.rs src/rotation.rs src/transfer.rs
+
+/Users/naoru/projects/xtrans-demosaic/web/wasm-encoder/target/wasm32-unknown-unknown/debug/deps/libxtrans_encoder_wasm-52283aab5b386a04.rmeta: src/lib.rs src/color.rs src/encode_avif.rs src/encode_jpeg.rs src/encode_tiff.rs src/encode_uhdr.rs src/pipeline.rs src/rotation.rs src/transfer.rs
+
+src/lib.rs:
+src/color.rs:
+src/encode_avif.rs:
+src/encode_jpeg.rs:
+src/encode_tiff.rs:
+src/encode_uhdr.rs:
+src/pipeline.rs:
+src/rotation.rs:
+src/transfer.rs:

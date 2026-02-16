@@ -5,6 +5,7 @@ mod encode_avif;
 mod encode_jpeg;
 mod encode_tiff;
 mod encode_uhdr;
+mod opendrt;
 mod pipeline;
 mod rotation;
 mod transfer;
@@ -19,6 +20,8 @@ pub fn encode_image(
     orientation: &str,
     format: &str,
     quality: u8,
+    tone_map: &str,
+    look_preset: &str,
 ) -> Result<Vec<u8>, JsError> {
     console_error_panic_hook::set_once();
 
@@ -36,7 +39,12 @@ pub fn encode_image(
         [1.0, 1.0, 1.0]
     };
     let fmt = pipeline::Format::parse(format).map_err(|e| JsError::new(&e))?;
+    let tm = pipeline::ToneMap::parse(tone_map);
+    let preset = match look_preset {
+        "default" => opendrt::LookPreset::Default,
+        _ => opendrt::LookPreset::Base,
+    };
 
-    pipeline::encode(data, width, height, &mat, &wb, orientation, fmt, quality)
+    pipeline::encode(data, width, height, &mat, &wb, orientation, fmt, quality, tm, preset)
         .map_err(|e| JsError::new(&e))
 }

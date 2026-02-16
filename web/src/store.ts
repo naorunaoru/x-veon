@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { CfaType, DemosaicMethod, ExportFormat, ProcessingResultMeta } from './pipeline/types';
+import type { CfaType, DemosaicMethod, ExportFormat, ToneMap, LookPreset, ProcessingResultMeta } from './pipeline/types';
 import { deleteHwc } from './lib/opfs-storage';
 import type { ModelMeta } from './pipeline/inference';
 import { extractRafThumbnail, extractRafQuickMetadata } from './pipeline/raf-thumbnail';
@@ -38,6 +38,8 @@ interface AppState {
   // Export settings
   exportFormat: ExportFormat;
   exportQuality: number;
+  toneMap: ToneMap;
+  lookPreset: LookPreset;
 
   // Canvas ref for WebCodecs AVIF export
   canvasRef: HTMLCanvasElement | null;
@@ -54,6 +56,8 @@ interface AppState {
   setDemosaicMethod: (method: DemosaicMethod) => void;
   setExportFormat: (format: ExportFormat) => void;
   setExportQuality: (quality: number) => void;
+  setToneMap: (toneMap: ToneMap) => void;
+  setLookPreset: (preset: LookPreset) => void;
   setCanvasRef: (ref: HTMLCanvasElement | null) => void;
 }
 
@@ -71,6 +75,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   exportFormat: 'jpeg-hdr',
   exportQuality: 85,
+  toneMap: 'legacy',
+  lookPreset: 'default',
 
   canvasRef: null,
 
@@ -177,5 +183,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setDemosaicMethod: (method) => set({ demosaicMethod: method }),
   setExportFormat: (format) => set({ exportFormat: format }),
   setExportQuality: (quality) => set({ exportQuality: quality }),
+  setToneMap: (toneMap) => set({ toneMap }),
+  setLookPreset: (preset) => set({ lookPreset: preset }),
   setCanvasRef: (ref) => set({ canvasRef: ref }),
 }));

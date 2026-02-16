@@ -2,3 +2,5 @@ node_modules/
 dist/
 wasm-pkg/
 wasm-demosaic/pkg/
+wasm-encoder/pkg/
+wasm-encoder/target/

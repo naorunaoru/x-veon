@@ -22,7 +22,7 @@ export function useExport() {
     const file = state.files.find((f) => f.id === fileId);
     if (!file?.result) return;
 
-    const { exportFormat, exportQuality, canvasRef } = state;
+    const { exportFormat, exportQuality, toneMap, lookPreset, canvasRef } = state;
     const { exportData } = file.result;
 
     setIsExporting(true);
@@ -42,6 +42,8 @@ export function useExport() {
         exportFormat,
         exportQuality,
         canvasRef,
+        toneMap,
+        lookPreset,
       );
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       console.log(`Exported ${exportFormat.toUpperCase()} - ${(blob.size / 1024 / 1024).toFixed(1)} MB in ${elapsed}s`);

@@ -76,6 +76,10 @@ export type DemosaicMethod =
 
 export type ExportFormat = 'avif' | 'jpeg' | 'jpeg-hdr' | 'tiff';
 
+export type ToneMap = 'legacy' | 'opendrt';
+
+export type LookPreset = 'base' | 'default';
+
 export interface ExportData {
   hwc: Float32Array;
   width: number;
