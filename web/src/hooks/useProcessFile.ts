@@ -19,7 +19,7 @@ import { runDemosaic, destroyDemosaicPool } from '@/pipeline/demosaic';
 import { createTileBlender, cropToHWC, buildColorMatrix, applyColorCorrection } from '@/pipeline/postprocessor';
 import { PATCH_SIZE, OVERLAP } from '@/pipeline/constants';
 import type { DemosaicMethod, ProcessingResultMeta } from '@/pipeline/types';
-import { writeHwc } from '@/lib/opfs-storage';
+import { writeHwc, hwcKey } from '@/lib/opfs-storage';
 
 /** Flatten a 2D pattern array into a Uint32Array for GPU/demosaic use */
 function flattenPattern(pattern: readonly (readonly number[])[], period: number): Uint32Array {
@@ -169,7 +169,7 @@ export function useProcessFile() {
       const finalHeight = swap ? visWidth : visHeight;
 
       // Persist large hwc buffer to OPFS (off JS heap)
-      await writeHwc(fileId, hwc);
+      await writeHwc(hwcKey(fileId, method), hwc);
 
       const resultMeta: ProcessingResultMeta = {
         exportData: {
@@ -190,7 +190,7 @@ export function useProcessFile() {
         },
       };
 
-      useAppStore.getState().setFileResult(fileId, resultMeta);
+      useAppStore.getState().setFileResult(fileId, resultMeta, method);
     } catch (e) {
       useAppStore.getState().updateFileStatus(fileId, 'error', (e as Error).message);
       console.error(e);

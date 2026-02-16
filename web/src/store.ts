@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { CfaType, DemosaicMethod, ExportFormat, LookPreset, ProcessingResultMeta } from './pipeline/types';
-import { deleteHwc } from './lib/opfs-storage';
+import { deleteHwcForFile } from './lib/opfs-storage';
 import type { ModelMeta } from './pipeline/inference';
 import { extractRafThumbnail, extractRafQuickMetadata } from './pipeline/raf-thumbnail';
 import { RAW_EXTENSIONS } from './pipeline/constants';
@@ -18,6 +18,8 @@ export interface QueuedFile {
   error: string | null;
   progress: { current: number; total: number } | null;
   result: ProcessingResultMeta | null;
+  resultMethod: DemosaicMethod | null;
+  cachedResults: Partial<Record<DemosaicMethod, ProcessingResultMeta>>;
 }
 
 interface AppState {
@@ -54,7 +56,8 @@ interface AppState {
   selectFile: (id: string | null) => void;
   updateFileStatus: (id: string, status: FileStatus, error?: string) => void;
   updateFileProgress: (id: string, current: number, total: number) => void;
-  setFileResult: (id: string, result: ProcessingResultMeta) => void;
+  setFileResult: (id: string, result: ProcessingResultMeta, method: DemosaicMethod) => void;
+  restoreCachedResult: (id: string, method: DemosaicMethod) => void;
   setDemosaicMethod: (method: DemosaicMethod) => void;
   setExportFormat: (format: ExportFormat) => void;
   setExportQuality: (quality: number) => void;
@@ -106,6 +109,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         error: null,
         progress: null,
         result: null,
+        resultMethod: null,
+        cachedResults: {},
       }));
 
     if (entries.length === 0) return;
@@ -139,7 +144,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   removeFile: (id) => {
-    deleteHwc(id).catch((e) => console.warn('OPFS cleanup failed:', e));
+    deleteHwcForFile(id).catch((e) => console.warn('OPFS cleanup failed:', e));
     set((state) => {
       const files = state.files.filter((f) => f.id !== id);
       const selectedFileId =
@@ -175,11 +180,31 @@ export const useAppStore = create<AppState>((set, get) => ({
       ),
     })),
 
-  setFileResult: (id, result) =>
+  setFileResult: (id, result, method) =>
     set((state) => ({
       files: state.files.map((f) =>
-        f.id === id ? { ...f, result, status: 'done', progress: null } : f,
+        f.id === id ? {
+          ...f,
+          result,
+          resultMethod: method,
+          // Only cache NN results — traditional methods are fast to recompute
+          cachedResults: method === 'neural-net'
+            ? { ...f.cachedResults, [method]: result }
+            : f.cachedResults,
+          status: 'done' as const,
+          progress: null,
+        } : f,
       ),
+    })),
+
+  restoreCachedResult: (id, method) =>
+    set((state) => ({
+      files: state.files.map((f) => {
+        if (f.id !== id) return f;
+        const cached = f.cachedResults[method];
+        if (!cached) return f;
+        return { ...f, result: cached, resultMethod: method, status: 'done' as const, progress: null };
+      }),
     })),
 
   setDemosaicMethod: (method) => set({ demosaicMethod: method }),

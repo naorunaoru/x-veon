@@ -16,7 +16,7 @@ const DEMOSAIC_OPTIONS: { value: DemosaicMethod; label: string; cfa?: CfaType }[
   // X-Trans
   { value: 'markesteijn3', label: 'Markesteijn (3-pass)', cfa: 'xtrans' },
   { value: 'markesteijn1', label: 'Markesteijn (1-pass)', cfa: 'xtrans' },
-  { value: 'dht', label: 'DHT (GPU)', cfa: 'xtrans' },
+  { value: 'dht', label: 'DHT', cfa: 'xtrans' },
   // Bayer
   { value: 'ahd', label: 'AHD', cfa: 'bayer' },
   { value: 'ppg', label: 'PPG', cfa: 'bayer' },
@@ -60,15 +60,20 @@ export function SettingsPanel() {
     }
   }, [selectedFile?.id, selectedFile?.status, nextQueuedId, initialized, isProcessing, processFile]);
 
-  // Auto-reprocess on method change
+  // Auto-reprocess on method change (restore from cache if available)
+  const restoreCachedResult = useAppStore((s) => s.restoreCachedResult);
   const prevMethodRef = useRef(demosaicMethod);
   useEffect(() => {
     if (prevMethodRef.current === demosaicMethod) return;
     prevMethodRef.current = demosaicMethod;
     if (initialized && selectedFile && (selectedFile.status === 'done' || selectedFile.status === 'error') && !isProcessing) {
-      processFile(selectedFile.id);
+      if (selectedFile.cachedResults[demosaicMethod]) {
+        restoreCachedResult(selectedFile.id, demosaicMethod);
+      } else {
+        processFile(selectedFile.id);
+      }
     }
-  }, [demosaicMethod, initialized, selectedFile, isProcessing, processFile]);
+  }, [demosaicMethod, initialized, selectedFile, isProcessing, processFile, restoreCachedResult]);
   const { exportFile, isExporting } = useExport();
 
   const [exportOpen, setExportOpen] = useState(false);

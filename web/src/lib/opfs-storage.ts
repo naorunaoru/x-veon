@@ -7,20 +7,25 @@ async function getHwcDir(): Promise<FileSystemDirectoryHandle> {
   return hwcDir;
 }
 
-/** Write a Float32Array to OPFS, keyed by file ID. */
-export async function writeHwc(fileId: string, hwc: Float32Array): Promise<void> {
+/** Build the OPFS key for a file+method pair. */
+export function hwcKey(fileId: string, method: string): string {
+  return `${fileId}::${method}`;
+}
+
+/** Write a Float32Array to OPFS. */
+export async function writeHwc(key: string, hwc: Float32Array): Promise<void> {
   const dir = await getHwcDir();
-  const fh = await dir.getFileHandle(fileId, { create: true });
+  const fh = await dir.getFileHandle(key, { create: true });
   const writable = await fh.createWritable();
   await writable.write(hwc.buffer as ArrayBuffer);
   await writable.close();
 }
 
-/** Read a Float32Array from OPFS by file ID. Returns null if missing. */
-export async function readHwc(fileId: string): Promise<Float32Array | null> {
+/** Read a Float32Array from OPFS. Returns null if missing. */
+export async function readHwc(key: string): Promise<Float32Array | null> {
   try {
     const dir = await getHwcDir();
-    const fh = await dir.getFileHandle(fileId);
+    const fh = await dir.getFileHandle(key);
     const file = await fh.getFile();
     const buffer = await file.arrayBuffer();
     return new Float32Array(buffer);
@@ -30,11 +35,17 @@ export async function readHwc(fileId: string): Promise<Float32Array | null> {
   }
 }
 
-/** Delete the OPFS file for a given file ID. No-op if missing. */
-export async function deleteHwc(fileId: string): Promise<void> {
+/** Delete all OPFS entries for a given file ID (all method variants). */
+export async function deleteHwcForFile(fileId: string): Promise<void> {
   try {
     const dir = await getHwcDir();
-    await dir.removeEntry(fileId);
+    const prefix = `${fileId}::`;
+    // @ts-expect-error keys() exists at runtime but missing from TS lib types
+    for await (const key of dir.keys() as AsyncIterableIterator<string>) {
+      if (key.startsWith(prefix)) {
+        await dir.removeEntry(key);
+      }
+    }
   } catch (e) {
     if (e instanceof DOMException && e.name === 'NotFoundError') return;
     throw e;

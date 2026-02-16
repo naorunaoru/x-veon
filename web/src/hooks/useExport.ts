@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { useAppStore } from '@/store';
 import { encodeImage } from '@/pipeline/encoder';
-import { readHwc } from '@/lib/opfs-storage';
+import { readHwc, hwcKey } from '@/lib/opfs-storage';
 
 function triggerDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -28,7 +28,7 @@ export function useExport() {
     setIsExporting(true);
 
     try {
-      const hwc = await readHwc(fileId);
+      const hwc = await readHwc(file.resultMethod ? hwcKey(fileId, file.resultMethod) : fileId);
       if (!hwc) throw new Error('Image data not found. The file may need to be reprocessed.');
 
       const startTime = Date.now();

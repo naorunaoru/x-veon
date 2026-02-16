@@ -1,7 +1,8 @@
-import { useEffect, useRef, useMemo } from 'react';
+import { useEffect, useRef, useMemo, useState } from 'react';
+import { Loader2 } from 'lucide-react';
 import { useAppStore } from '@/store';
 import { usePanZoom } from '@/hooks/usePanZoom';
-import { readHwc } from '@/lib/opfs-storage';
+import { readHwc, hwcKey } from '@/lib/opfs-storage';
 import { HdrRenderer } from '@/gl/renderer';
 import { configFromPreset, computeTonescaleParams } from '@/gl/opendrt-params';
 import type { ProcessingResultMeta } from '@/pipeline/types';
@@ -15,6 +16,7 @@ export function OutputCanvas({ fileId, result }: OutputCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<HdrRenderer | null>(null);
+  const [loadingHwc, setLoadingHwc] = useState(true);
   const setCanvasRef = useAppStore((s) => s.setCanvasRef);
 
   const lookPreset = useAppStore((s) => s.lookPreset);
@@ -48,6 +50,7 @@ export function OutputCanvas({ fileId, result }: OutputCanvasProps) {
 
     let cancelled = false;
     setCanvasRef(canvas);
+    setLoadingHwc(true);
     canvas.width = imgW;
     canvas.height = imgH;
 
@@ -59,11 +62,13 @@ export function OutputCanvas({ fileId, result }: OutputCanvasProps) {
     rendererRef.current = renderer;
     renderer.setOrientation(orientationIndex);
 
-    readHwc(fileId).then((hwc) => {
+    const method = useAppStore.getState().files.find((f) => f.id === fileId)?.resultMethod;
+    readHwc(method ? hwcKey(fileId, method) : fileId).then((hwc) => {
       if (cancelled || !hwc) return;
       renderer.uploadImage(hwc, width, height);
       applyOpenDrt(renderer, lookPreset, renderer.isHdrDisplay ? renderer.hdrHeadroom : undefined);
       renderer.render();
+      setLoadingHwc(false);
     });
 
     return () => {
@@ -85,7 +90,7 @@ export function OutputCanvas({ fileId, result }: OutputCanvasProps) {
   return (
     <div
       ref={containerRef}
-      className="w-full h-full overflow-hidden"
+      className="w-full h-full overflow-hidden relative"
       style={{ cursor: isDragging ? 'grabbing' : 'grab', touchAction: 'none' }}
       {...handlers}
     >
@@ -97,6 +102,11 @@ export function OutputCanvas({ fileId, result }: OutputCanvasProps) {
           imageRendering: scale > 1 ? 'pixelated' : 'auto',
         }}
       />
+      {loadingHwc && (
+        <div className="absolute inset-0 flex items-center justify-center bg-background/50">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      )}
     </div>
   );
 }
