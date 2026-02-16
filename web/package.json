@@ -5,7 +5,7 @@
   "scripts": {
     "setup": "rustup target add wasm32-unknown-unknown && npm install && npm run build:wasm",
     "build:wasm": "npm run build:wasm:decoder && npm run build:wasm:encoder && npm run build:wasm:demosaic",
-    "build:wasm:decoder": "wasm-pack build ../../rawloader-wasm --target web --release --out-dir \"$PWD/wasm-pkg\"",
+    "build:wasm:decoder": "wasm-pack build wasm-rawloader --target web --release",
     "build:wasm:encoder": "wasm-pack build wasm-encoder --target web --release",
     "build:wasm:demosaic": "wasm-pack build ../../demosaic-wasm --target web --release --out-dir \"$PWD/wasm-demosaic-pkg\"",
     "dev": "npm run build:wasm && vite",

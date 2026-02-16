@@ -1,0 +1,26 @@
+[package]
+name = "rawloader-wasm"
+version = "0.1.0"
+edition = "2021"
+description = "WASM bindings for the rawloader crate with EXIF/DR support"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["console_error_panic_hook"]
+
+[dependencies]
+rawloader = { path = "../../../rawloader-wasm" }
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+console_error_panic_hook = { version = "0.1", optional = true }
+exif = { package = "kamadak-exif", version = "0.5" }
+
+[dependencies.web-sys]
+version = "0.3"
+features = ["console"]
+
+[profile.release]
+opt-level = "s"
+lto = true

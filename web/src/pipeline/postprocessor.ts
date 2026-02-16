@@ -114,25 +114,14 @@ export function buildColorMatrix(xyzToCam: Float32Array): Float32Array {
 
 export function applyColorCorrection(
   hwc: Float32Array, numPixels: number, matrix: Float32Array,
-  wb: Float32Array | null,
 ): void {
-  const wbR = wb ? wb[0] : 1, wbG = wb ? wb[1] : 1, wbB = wb ? wb[2] : 1;
-  const blendLo = 0.85, blendRange = 0.15;
-
   for (let i = 0; i < numPixels; i++) {
     const idx = i * 3;
     const r = hwc[idx], g = hwc[idx + 1], b = hwc[idx + 2];
 
-    const fr = matrix[0] * r + matrix[1] * g + matrix[2] * b;
-    const fg = matrix[3] * r + matrix[4] * g + matrix[5] * b;
-    const fb = matrix[6] * r + matrix[7] * g + matrix[8] * b;
-
-    const clipProx = Math.max(r / wbR, g / wbG, b / wbB);
-    const alpha = Math.min(1, Math.max(0, (clipProx - blendLo) / blendRange));
-
-    hwc[idx]     = Math.max(0, fr + alpha * (r - fr));
-    hwc[idx + 1] = Math.max(0, fg + alpha * (g - fg));
-    hwc[idx + 2] = Math.max(0, fb + alpha * (b - fb));
+    hwc[idx]     = Math.max(0, matrix[0] * r + matrix[1] * g + matrix[2] * b);
+    hwc[idx + 1] = Math.max(0, matrix[3] * r + matrix[4] * g + matrix[5] * b);
+    hwc[idx + 2] = Math.max(0, matrix[6] * r + matrix[7] * g + matrix[8] * b);
   }
 }
 

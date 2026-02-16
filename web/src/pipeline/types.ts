@@ -12,6 +12,7 @@ export interface RawImage {
   cfaStr: string;
   cfaWidth: number;
   crops: Uint16Array;
+  drGain: number;
 }
 
 export interface CroppedImage {

@@ -152,10 +152,15 @@ export function useProcessFile() {
       blended = null;
 
       // 11. Apply camera → sRGB color correction
-      // if (raw.xyzToCam) {
-      //   const ccMatrix = buildColorMatrix(raw.xyzToCam);
-      //   applyColorCorrection(hwc, visWidth * visHeight, ccMatrix, wb);
-      // }
+      if (raw.xyzToCam) {
+        const ccMatrix = buildColorMatrix(raw.xyzToCam);
+        applyColorCorrection(hwc, visWidth * visHeight, ccMatrix);
+      }
+
+      // 11b. Fuji DR compensation — undo deliberate underexposure
+      if (raw.drGain > 1.0) {
+        for (let i = 0; i < hwc.length; i++) hwc[i] *= raw.drGain;
+      }
 
       // 12. Compute final display dimensions (after orientation)
       const orientation = raw.orientation;
