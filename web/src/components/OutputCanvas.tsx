@@ -22,6 +22,8 @@ export function OutputCanvas({ fileId, result }: OutputCanvasProps) {
 
   const toneMap = useAppStore((s) => s.toneMap);
   const lookPreset = useAppStore((s) => s.lookPreset);
+  const displayHdr = useAppStore((s) => s.displayHdr);
+  const displayHdrHeadroom = useAppStore((s) => s.displayHdrHeadroom);
 
   const imgW = result.metadata.width;
   const imgH = result.metadata.height;
@@ -52,14 +54,16 @@ export function OutputCanvas({ fileId, result }: OutputCanvasProps) {
 
     if (HdrRenderer.isSupported()) {
       // WebGL2 path
-      const renderer = new HdrRenderer(canvas);
+      const renderer = new HdrRenderer(canvas,
+        displayHdr ? { hdr: true, headroom: displayHdrHeadroom } : undefined,
+      );
       rendererRef.current = renderer;
       renderer.setOrientation(orientationIndex);
 
       readHwc(fileId).then((hwc) => {
         if (cancelled || !hwc) return;
         renderer.uploadImage(hwc, width, height);
-        applyToneMap(renderer, toneMap, lookPreset);
+        applyToneMap(renderer, toneMap, lookPreset, renderer.isHdrDisplay ? renderer.hdrHeadroom : undefined);
         renderer.render();
       });
     } else {
@@ -86,13 +90,13 @@ export function OutputCanvas({ fileId, result }: OutputCanvasProps) {
       rendererRef.current = null;
       setCanvasRef(null);
     };
-  }, [fileId, imgW, imgH, setCanvasRef, result, orientationIndex]);
+  }, [fileId, imgW, imgH, setCanvasRef, result, orientationIndex, displayHdr, displayHdrHeadroom]);
 
   // Re-render when tone map settings change (cheap: uniform update + draw)
   useEffect(() => {
     const renderer = rendererRef.current;
     if (!renderer) return;
-    applyToneMap(renderer, toneMap, lookPreset);
+    applyToneMap(renderer, toneMap, lookPreset, renderer.isHdrDisplay ? renderer.hdrHeadroom : undefined);
     renderer.render();
   }, [toneMap, lookPreset]);
 
@@ -119,9 +123,10 @@ function applyToneMap(
   renderer: HdrRenderer,
   toneMap: string,
   lookPreset: string,
+  hdrHeadroom?: number,
 ): void {
   if (toneMap === 'opendrt') {
-    const cfg = configFromPreset(lookPreset as 'base' | 'default');
+    const cfg = configFromPreset(lookPreset as 'base' | 'default', hdrHeadroom);
     const ts = computeTonescaleParams(cfg);
     renderer.setOpenDrtMode(ts, cfg);
   } else {

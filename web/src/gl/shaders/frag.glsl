@@ -8,6 +8,7 @@ out vec4 fragColor;
 uniform sampler2D u_image;
 uniform int u_orientation;       // 0=Normal, 1=Rot90, 2=Rot180, 3=Rot270
 uniform int u_toneMapMode;       // 0=legacy, 1=opendrt
+uniform int u_hdrDisplay;        // 0=SDR (clamp to 1.0), 1=HDR extended range
 uniform float u_legacyPeakScale;
 
 // Tonescale precomputed params
@@ -112,7 +113,11 @@ float softplus(float x, float s, float x0, float y0) {
 // ── sRGB OETF ───────────────────────────────────────────────────────────
 
 float srgb_oetf(float v) {
-  v = clamp(v, 0.0, 1.0);
+  if (u_hdrDisplay == 0) {
+    v = clamp(v, 0.0, 1.0);
+  } else {
+    v = max(v, 0.0); // HDR: allow values > 1.0
+  }
   return v <= 0.0031308 ? v * 12.92 : 1.055 * pow(v, 1.0 / 2.4) - 0.055;
 }
 
@@ -326,7 +331,10 @@ vec3 opendrt(vec3 rgb_in) {
   g *= tsn;
   b *= tsn;
 
-  return clamp(vec3(r, g, b), 0.0, 1.0);
+  if (u_hdrDisplay == 0) {
+    return clamp(vec3(r, g, b), 0.0, 1.0);
+  }
+  return max(vec3(r, g, b), 0.0); // HDR: no upper clamp
 }
 
 // ── EXIF rotation (remap UV) ────────────────────────────────────────────
@@ -348,8 +356,13 @@ void main() {
   if (u_toneMapMode == 1) {
     display = opendrt(linear);
   } else {
-    // Legacy: scale super-whites, clamp to [0,1]
-    display = clamp(linear * u_legacyPeakScale, 0.0, 1.0);
+    // Legacy: scale super-whites
+    display = linear * u_legacyPeakScale;
+    if (u_hdrDisplay == 0) {
+      display = clamp(display, 0.0, 1.0);
+    } else {
+      display = max(display, 0.0);
+    }
   }
 
   // sRGB OETF

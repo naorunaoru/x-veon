@@ -156,36 +156,43 @@ pub fn encode(
                 sdr_rgb8[i] = (transfer::srgb_oetf(lin) * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
             }
 
-            // Gain map: per-pixel luminance log2 ratio.
+            // Per-channel gain map: log2(hdr_c / sdr_c) independently per RGB channel.
             let offset: f32 = 1.0 / 64.0;
-            let mut gains = vec![0.0f32; num];
-            let mut gain_min: f32 = f32::MAX;
-            let mut gain_max: f32 = f32::MIN;
+            let mut gains = vec![0.0f32; num * 3];
+            let mut gain_min = [f32::MAX; 3];
+            let mut gain_max = [f32::MIN; 3];
 
             for i in 0..num {
                 let idx = i * 3;
-                let y_hdr = 0.2126 * rotated[idx] + 0.7152 * rotated[idx + 1] + 0.0722 * rotated[idx + 2];
-                let y_sdr = 0.2126 * sdr_lin[idx]
-                    + 0.7152 * sdr_lin[idx + 1]
-                    + 0.0722 * sdr_lin[idx + 2];
-                let gain = ((y_hdr + offset) / (y_sdr + offset)).max(1e-10).log2();
-                gains[i] = gain;
-                gain_min = gain_min.min(gain);
-                gain_max = gain_max.max(gain);
+                for c in 0..3 {
+                    let gain = ((rotated[idx + c] + offset) / (sdr_lin[idx + c] + offset)).max(1e-10).log2();
+                    gains[idx + c] = gain;
+                    gain_min[c] = gain_min[c].min(gain);
+                    gain_max[c] = gain_max[c].max(gain);
+                }
             }
 
-            // Normalize to [0, 255]
-            let range = (gain_max - gain_min).max(1e-6);
-            let mut gain_luma8 = vec![0u8; num];
+            // Normalize to [0, 255] per channel
+            let range = [
+                (gain_max[0] - gain_min[0]).max(1e-6),
+                (gain_max[1] - gain_min[1]).max(1e-6),
+                (gain_max[2] - gain_min[2]).max(1e-6),
+            ];
+            let mut gain_rgb8 = vec![0u8; num * 3];
             for i in 0..num {
-                gain_luma8[i] = ((gains[i] - gain_min) / range * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
+                let idx = i * 3;
+                for c in 0..3 {
+                    gain_rgb8[idx + c] = ((gains[idx + c] - gain_min[c]) / range[c] * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
+                }
             }
 
+            // HDR capacity: max gain across all channels
+            let capacity = gain_max[0].max(gain_max[1]).max(gain_max[2]);
             encode_uhdr::encode(
                 &sdr_rgb8, rw, rh, quality,
-                &gain_luma8,
+                &gain_rgb8,
                 gain_min, gain_max, offset,
-                gain_max, // legacy: content peak IS the capacity
+                capacity,
             )
         }
 
@@ -294,35 +301,42 @@ fn encode_opendrt(
                 hdr_lin[idx + 2] = hdr[2];
             }
 
-            // Gain map: per-pixel luminance log2 ratio.
+            // Per-channel gain map: log2(hdr_c / sdr_c) independently per RGB channel.
             // HDR output is normalized to [0,1] relative to its peak (1000 nit),
             // SDR to its peak (100 nit). Scale HDR to SDR-relative nits for correct ratio.
             let peak_ratio = cfg_hdr.peak_luminance / cfg_sdr.peak_luminance;
             let offset: f32 = 1.0 / 64.0;
-            let mut gains = vec![0.0f32; num];
-            let mut gain_min: f32 = f32::MAX;
-            let mut gain_max: f32 = f32::MIN;
+            let mut gains = vec![0.0f32; num * 3];
+            let mut gain_min = [f32::MAX; 3];
+            let mut gain_max = [f32::MIN; 3];
 
             for i in 0..num {
                 let idx = i * 3;
-                let y_hdr = 0.2627 * hdr_lin[idx] + 0.6780 * hdr_lin[idx + 1] + 0.0593 * hdr_lin[idx + 2];
-                let y_sdr = 0.2126 * sdr_lin[idx] + 0.7152 * sdr_lin[idx + 1] + 0.0722 * sdr_lin[idx + 2];
-                let gain = ((y_hdr * peak_ratio + offset) / (y_sdr + offset)).max(1e-10).log2();
-                gains[i] = gain;
-                gain_min = gain_min.min(gain);
-                gain_max = gain_max.max(gain);
+                for c in 0..3 {
+                    let gain = ((hdr_lin[idx + c] * peak_ratio + offset) / (sdr_lin[idx + c] + offset)).max(1e-10).log2();
+                    gains[idx + c] = gain;
+                    gain_min[c] = gain_min[c].min(gain);
+                    gain_max[c] = gain_max[c].max(gain);
+                }
             }
 
-            // Normalize to [0, 255]
-            let range = (gain_max - gain_min).max(1e-6);
-            let mut gain_luma8 = vec![0u8; num];
+            // Normalize to [0, 255] per channel
+            let range = [
+                (gain_max[0] - gain_min[0]).max(1e-6),
+                (gain_max[1] - gain_min[1]).max(1e-6),
+                (gain_max[2] - gain_min[2]).max(1e-6),
+            ];
+            let mut gain_rgb8 = vec![0u8; num * 3];
             for i in 0..num {
-                gain_luma8[i] = ((gains[i] - gain_min) / range * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
+                let idx = i * 3;
+                for c in 0..3 {
+                    gain_rgb8[idx + c] = ((gains[idx + c] - gain_min[c]) / range[c] * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
+                }
             }
 
             encode_uhdr::encode(
                 &sdr_rgb8, rw, rh, quality,
-                &gain_luma8,
+                &gain_rgb8,
                 gain_min, gain_max, offset,
                 peak_ratio.log2(),
             )

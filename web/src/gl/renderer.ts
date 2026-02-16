@@ -1,14 +1,14 @@
 // WebGL2 HDR preview renderer with OpenDRT tone mapping in a fragment shader.
 
 import type { OpenDrtConfig, TonescaleParams } from './opendrt-params';
-import { SRGB_TO_P3D65, P3D65_TO_REC709 } from './color-matrices';
+import { SRGB_TO_P3D65, P3D65_TO_REC709, IDENTITY_3X3 } from './color-matrices';
 import VERT_SRC from './shaders/vert.glsl?raw';
 import FRAG_SRC from './shaders/frag.glsl?raw';
 
 // ── Uniform name list ────────────────────────────────────────────────────
 
 const UNIFORM_NAMES = [
-  'u_image', 'u_orientation', 'u_toneMapMode', 'u_legacyPeakScale',
+  'u_image', 'u_orientation', 'u_toneMapMode', 'u_hdrDisplay', 'u_legacyPeakScale',
   'u_ts_s', 'u_ts_s1', 'u_ts_m2', 'u_ts_dsc', 'u_ts_x0',
   'u_odrt_tone', 'u_odrt_rs', 'u_odrt_pt', 'u_odrt_pt2',
   'u_odrt_lcon', 'u_odrt_hcon',
@@ -29,8 +29,10 @@ export class HdrRenderer {
   private imgH = 0;
   private _canvas: HTMLCanvasElement;
   private peakScale = 1.0;
+  private _isHdrDisplay = false;
+  private _hdrHeadroom = 1.0;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, opts?: { hdr?: boolean; headroom?: number }) {
     this._canvas = canvas;
     const gl = canvas.getContext('webgl2', {
       alpha: false,
@@ -42,6 +44,32 @@ export class HdrRenderer {
     });
     if (!gl) throw new Error('WebGL2 not available');
     this.gl = gl;
+
+    // Configure HDR display output (float16 backbuffer + P3 + extended range)
+    if (opts?.hdr) {
+      try {
+        if (typeof gl.drawingBufferStorage === 'function') {
+          gl.drawingBufferStorage(gl.RGBA16F, canvas.width, canvas.height);
+        }
+        if ('drawingBufferColorSpace' in gl) {
+          gl.drawingBufferColorSpace = 'display-p3';
+        }
+        // Extended tone mapping: try new API first, then legacy
+        let extOk = false;
+        if (typeof gl.drawingBufferToneMapping === 'function') {
+          try { gl.drawingBufferToneMapping({ mode: 'extended' }); extOk = true; } catch { /* */ }
+        }
+        if (!extOk && typeof canvas.configureHighDynamicRange === 'function') {
+          try { canvas.configureHighDynamicRange({ mode: 'extended' }); extOk = true; } catch { /* */ }
+        }
+        if (extOk) {
+          this._isHdrDisplay = true;
+          this._hdrHeadroom = opts.headroom ?? 2.0;
+        }
+      } catch {
+        // Fall back to SDR silently
+      }
+    }
 
     // Compile and link
     const vs = this.compileShader(gl.VERTEX_SHADER, VERT_SRC);
@@ -68,12 +96,21 @@ export class HdrRenderer {
     // Set constant uniforms
     gl.useProgram(this.program);
     this.setMat3('u_srgbToP3', SRGB_TO_P3D65);
-    this.setMat3('u_p3ToDisplay', P3D65_TO_REC709);
+    this.setMat3('u_p3ToDisplay', this._isHdrDisplay ? IDENTITY_3X3 : P3D65_TO_REC709);
+    gl.uniform1i(this.loc('u_hdrDisplay'), this._isHdrDisplay ? 1 : 0);
     gl.uniform1i(this.loc('u_image'), 0);
   }
 
   get canvas(): HTMLCanvasElement {
     return this._canvas;
+  }
+
+  get isHdrDisplay(): boolean {
+    return this._isHdrDisplay;
+  }
+
+  get hdrHeadroom(): number {
+    return this._hdrHeadroom;
   }
 
   static isSupported(): boolean {

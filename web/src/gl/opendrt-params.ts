@@ -142,8 +142,12 @@ function defaultSdr(): OpenDrtConfig {
   };
 }
 
-export function configFromPreset(preset: LookPreset): OpenDrtConfig {
-  return preset === 'default' ? defaultSdr() : baseSdr();
+export function configFromPreset(preset: LookPreset, hdrHeadroom?: number): OpenDrtConfig {
+  const cfg = preset === 'default' ? defaultSdr() : baseSdr();
+  if (hdrHeadroom != null && hdrHeadroom > 1.0) {
+    cfg.peak_luminance = hdrHeadroom * 100;
+  }
+  return cfg;
 }
 
 // ── TonescaleParams (matching opendrt.rs TonescaleParams::new, lines 209-230) ──

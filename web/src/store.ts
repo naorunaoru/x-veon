@@ -41,6 +41,10 @@ interface AppState {
   toneMap: ToneMap;
   lookPreset: LookPreset;
 
+  // HDR display output (WebGL2 extended range)
+  displayHdr: boolean;
+  displayHdrHeadroom: number;
+
   // Canvas ref for WebCodecs AVIF export
   canvasRef: HTMLCanvasElement | null;
 
@@ -58,6 +62,7 @@ interface AppState {
   setExportQuality: (quality: number) => void;
   setToneMap: (toneMap: ToneMap) => void;
   setLookPreset: (preset: LookPreset) => void;
+  setDisplayHdr: (enabled: boolean, headroom: number) => void;
   setCanvasRef: (ref: HTMLCanvasElement | null) => void;
 }
 
@@ -77,6 +82,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   exportQuality: 85,
   toneMap: 'legacy',
   lookPreset: 'default',
+
+  displayHdr: false,
+  displayHdrHeadroom: 1.0,
 
   canvasRef: null,
 
@@ -185,5 +193,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   setExportQuality: (quality) => set({ exportQuality: quality }),
   setToneMap: (toneMap) => set({ toneMap }),
   setLookPreset: (preset) => set({ lookPreset: preset }),
+  setDisplayHdr: (enabled, headroom) => set({ displayHdr: enabled, displayHdrHeadroom: headroom }),
   setCanvasRef: (ref) => set({ canvasRef: ref }),
 }));

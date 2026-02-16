@@ -4,6 +4,7 @@ import { initWasm } from '@/pipeline/raf-decoder';
 import { initModels, getBackend, getModelMeta } from '@/pipeline/inference';
 import { initDemosaicGpuSafe } from '@/pipeline/demosaic';
 import { clearAllHwc } from '@/lib/opfs-storage';
+import { probeHdrDisplay } from '@/gl/hdr-display';
 
 export function useInit() {
   const setInitialized = useAppStore((s) => s.setInitialized);
@@ -19,7 +20,7 @@ export function useInit() {
 
         const backend = getBackend() ?? 'unknown';
 
-        // Probe HDR support — getContext throws on browsers/GPUs without Canvas HDR
+        // Probe 2D canvas HDR (rec2100-hlg for export preview)
         let hdr = false;
         try {
           const testCanvas = document.createElement('canvas');
@@ -32,6 +33,12 @@ export function useInit() {
           hdr = attrs?.colorSpace === 'rec2100-hlg';
         } catch {
           // Canvas HDR not supported — fall back to SDR
+        }
+
+        // Probe WebGL2 display HDR (float16 backbuffer + extended range)
+        const hdrDisplayInfo = probeHdrDisplay();
+        if (hdrDisplayInfo.supported) {
+          useAppStore.getState().setDisplayHdr(true, hdrDisplayInfo.headroom);
         }
 
         setInitialized(backend, hdr, getModelMeta());

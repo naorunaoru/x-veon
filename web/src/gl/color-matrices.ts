@@ -25,3 +25,10 @@ export const P3D65_TO_REC2020 = new Float32Array([
   0.04574384897, 0.9417772198, 0.01247893122,
  -0.001210340355, 0.0176017173, 0.9836086231,
 ]);
+
+// Identity 3×3 — used when HDR display mode keeps output in P3 (no gamut conversion).
+export const IDENTITY_3X3 = new Float32Array([
+  1, 0, 0,
+  0, 1, 0,
+  0, 0, 1,
+]);

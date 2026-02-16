@@ -39,6 +39,8 @@ export function SettingsPanel() {
     s.files.find((f) => f.id === s.selectedFileId),
   );
   const initialized = useAppStore((s) => s.initialized);
+  const displayHdr = useAppStore((s) => s.displayHdr);
+  const displayHdrHeadroom = useAppStore((s) => s.displayHdrHeadroom);
 
   const cfaType = selectedFile?.cfaType ?? null;
   const availableMethods = DEMOSAIC_OPTIONS.filter(
@@ -132,6 +134,11 @@ export function SettingsPanel() {
             <SelectItem value="opendrt">OpenDRT</SelectItem>
           </SelectContent>
         </Select>
+        {displayHdr && (
+          <span className="text-[10px] font-medium text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded whitespace-nowrap">
+            HDR {Math.round(displayHdrHeadroom * 100)}
+          </span>
+        )}
       </div>
 
       {/* Look Preset (only visible when OpenDRT is selected) */}
