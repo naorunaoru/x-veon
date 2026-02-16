@@ -178,11 +178,11 @@ export class HdrRenderer {
   }
 
   setLegacyMode(): void {
-
     const gl = this.gl;
     gl.useProgram(this.program);
     gl.uniform1i(this.loc('u_toneMapMode'), 0);
-    gl.uniform1f(this.loc('u_legacyPeakScale'), this.peakScale);
+    // HDR: don't compress super-whites — let the display clip at its native peak
+    gl.uniform1f(this.loc('u_legacyPeakScale'), this._isHdrDisplay ? 1.0 : this.peakScale);
   }
 
   setOpenDrtMode(ts: TonescaleParams, cfg: OpenDrtConfig): void {

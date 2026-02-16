@@ -128,6 +128,10 @@ function applyToneMap(
   if (toneMap === 'opendrt') {
     const cfg = configFromPreset(lookPreset as 'base' | 'default', hdrHeadroom);
     const ts = computeTonescaleParams(cfg);
+    if (hdrHeadroom != null && hdrHeadroom > 1.0) {
+      // HDR: don't scale down to SDR range — let values > 1.0 pass through as HDR highlights
+      ts.ts_dsc = 1.0;
+    }
     renderer.setOpenDrtMode(ts, cfg);
   } else {
     renderer.setLegacyMode();
