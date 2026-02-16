@@ -1,9 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useMemo } from 'react';
 import { useAppStore } from '@/store';
 import { usePanZoom } from '@/hooks/usePanZoom';
-import { toImageDataWithCC } from '@/pipeline/postprocessor';
-import { processHdr } from '@/pipeline/hdr-encoder';
 import { readHwc } from '@/lib/opfs-storage';
+import { HdrRenderer } from '@/gl/renderer';
+import { configFromPreset, computeTonescaleParams } from '@/gl/opendrt-params';
 import type { ProcessingResultMeta } from '@/pipeline/types';
 
 interface OutputCanvasProps {
@@ -14,7 +14,12 @@ interface OutputCanvasProps {
 export function OutputCanvas({ fileId, result }: OutputCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const rendererRef = useRef<HdrRenderer | null>(null);
   const setCanvasRef = useAppStore((s) => s.setCanvasRef);
+
+  const lookPreset = useAppStore((s) => s.lookPreset);
+  const displayHdr = useAppStore((s) => s.displayHdr);
+  const displayHdrHeadroom = useAppStore((s) => s.displayHdrHeadroom);
 
   const imgW = result.metadata.width;
   const imgH = result.metadata.height;
@@ -23,38 +28,59 @@ export function OutputCanvas({ fileId, result }: OutputCanvasProps) {
     containerRef, imgW, imgH,
   );
 
+  const orientationIndex = useMemo(() => {
+    const o = result.exportData.orientation;
+    if (o === 'Rotate90') return 1;
+    if (o === 'Rotate180') return 2;
+    if (o === 'Rotate270') return 3;
+    return 0;
+  }, [result.exportData.orientation]);
+
+  // Initialize renderer + upload image (once per file)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+
+    if (!HdrRenderer.isSupported()) {
+      console.error('WebGL2 is required but not available');
+      return;
+    }
 
     let cancelled = false;
     setCanvasRef(canvas);
     canvas.width = imgW;
     canvas.height = imgH;
 
-    const { width, height, orientation } = result.exportData;
+    const { width, height } = result.exportData;
+
+    const renderer = new HdrRenderer(canvas,
+      displayHdr ? { hdr: true, headroom: displayHdrHeadroom } : undefined,
+    );
+    rendererRef.current = renderer;
+    renderer.setOrientation(orientationIndex);
 
     readHwc(fileId).then((hwc) => {
       if (cancelled || !hwc) return;
-
-      const imageData = result.isHdr
-        ? processHdr(hwc, width, height, orientation)
-        : toImageDataWithCC(hwc, width, height, orientation);
-
-      const ctx = (result.isHdr
-        ? canvas.getContext('2d', { colorSpace: 'rec2100-hlg' as any })
-        : canvas.getContext('2d')) as CanvasRenderingContext2D | null;
-
-      if (ctx) {
-        ctx.putImageData(imageData, 0, 0);
-      }
+      renderer.uploadImage(hwc, width, height);
+      applyOpenDrt(renderer, lookPreset, renderer.isHdrDisplay ? renderer.hdrHeadroom : undefined);
+      renderer.render();
     });
 
     return () => {
       cancelled = true;
+      rendererRef.current?.dispose();
+      rendererRef.current = null;
       setCanvasRef(null);
     };
-  }, [fileId, imgW, imgH, setCanvasRef, result]);
+  }, [fileId, imgW, imgH, setCanvasRef, result, orientationIndex, displayHdr, displayHdrHeadroom]);
+
+  // Re-render when look preset changes (cheap: uniform update + draw)
+  useEffect(() => {
+    const renderer = rendererRef.current;
+    if (!renderer) return;
+    applyOpenDrt(renderer, lookPreset, renderer.isHdrDisplay ? renderer.hdrHeadroom : undefined);
+    renderer.render();
+  }, [lookPreset]);
 
   return (
     <div
@@ -73,4 +99,17 @@ export function OutputCanvas({ fileId, result }: OutputCanvasProps) {
       />
     </div>
   );
+}
+
+function applyOpenDrt(
+  renderer: HdrRenderer,
+  lookPreset: string,
+  hdrHeadroom?: number,
+): void {
+  const cfg = configFromPreset(lookPreset as 'base' | 'default', hdrHeadroom);
+  const ts = computeTonescaleParams(cfg);
+  if (hdrHeadroom != null && hdrHeadroom > 1.0) {
+    ts.ts_dsc = 1.0;
+  }
+  renderer.setOpenDrtMode(ts, cfg);
 }

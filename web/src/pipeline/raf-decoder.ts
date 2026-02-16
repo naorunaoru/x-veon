@@ -1,9 +1,9 @@
 import type { RawImage } from './types';
 
-let wasmModule: Awaited<typeof import('../../wasm-pkg/rawloader.js')> | null = null;
+let wasmModule: Awaited<typeof import('../../wasm-rawloader/pkg/rawloader_wasm.js')> | null = null;
 
 export async function initWasm(): Promise<void> {
-  wasmModule = await import('../../wasm-pkg/rawloader.js');
+  wasmModule = await import('../../wasm-rawloader/pkg/rawloader_wasm.js');
   await wasmModule.default();
 }
 
@@ -27,5 +27,6 @@ export function decodeRaw(arrayBuffer: ArrayBuffer): RawImage {
     cfaStr: img.get_cfastr(),
     cfaWidth: img.get_cfawidth(),
     crops: img.get_crops(),
+    drGain: img.get_dr_gain(),
   };
 }

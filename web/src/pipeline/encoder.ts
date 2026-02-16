@@ -1,8 +1,6 @@
-import { isWebCodecsAvifSupported, encodeAvifWebCodecs } from './encode-avif-webcodecs';
-import type { ExportFormat } from './types';
+import type { ExportFormat, LookPreset } from './types';
 
 let worker: Worker | null = null;
-let webCodecsAvif: boolean | null = null;
 
 function getWorker(): Worker {
   if (!worker) {
@@ -14,7 +12,7 @@ function getWorker(): Worker {
 function encodeViaWorker(
   hwc: Float32Array, width: number, height: number,
   xyzToCam: Float32Array, wbCoeffs: Float32Array, orientation: string,
-  format: string, quality: number,
+  format: string, quality: number, lookPreset: LookPreset,
 ): Promise<Uint8Array> {
   return new Promise((resolve, reject) => {
     const w = getWorker();
@@ -37,7 +35,7 @@ function encodeViaWorker(
       width, height,
       xyzToCam: xyzToCamCopy.buffer,
       wbCoeffs: wbCopy.buffer,
-      orientation, format, quality,
+      orientation, format, quality, lookPreset,
     }, [hwcCopy.buffer, xyzToCamCopy.buffer, wbCopy.buffer]);
   });
 }
@@ -47,29 +45,16 @@ export async function encodeImage(
   xyzToCam: Float32Array | null, wbCoeffs: Float32Array,
   orientation: string,
   format: ExportFormat, quality: number,
-  canvas?: HTMLCanvasElement | null,
+  lookPreset: LookPreset = 'base',
 ): Promise<{ blob: Blob; ext: string }> {
-  // AVIF: try WebCodecs first (captures from the already-rendered HDR canvas)
-  if (format === 'avif' && canvas) {
-    if (webCodecsAvif === null) {
-      webCodecsAvif = await isWebCodecsAvifSupported(canvas.width, canvas.height);
-      console.log(`WebCodecs AV1: ${webCodecsAvif ? 'supported' : 'not available, using rav1e WASM'}`);
-    }
-    if (webCodecsAvif) {
-      const blob = await encodeAvifWebCodecs(canvas, quality);
-      return { blob, ext: 'avif' };
-    }
-  }
-
-  // JPEG, TIFF, or AVIF fallback — encode in Web Worker
   const encoded = await encodeViaWorker(
     hwc, width, height,
     xyzToCam ?? new Float32Array(9), wbCoeffs, orientation,
-    format, quality,
+    format, quality, lookPreset,
   );
 
-  const mimeTypes: Record<string, string> = { avif: 'image/avif', jpeg: 'image/jpeg', 'jpeg-hdr': 'image/jpeg', tiff: 'image/tiff' };
-  const extensions: Record<string, string> = { avif: 'avif', jpeg: 'jpg', 'jpeg-hdr': 'jpg', tiff: 'tif' };
+  const mimeTypes: Record<string, string> = { avif: 'image/avif', 'jpeg-hdr': 'image/jpeg', tiff: 'image/tiff' };
+  const extensions: Record<string, string> = { avif: 'avif', 'jpeg-hdr': 'jpg', tiff: 'tif' };
 
   const blob = new Blob([encoded.buffer as ArrayBuffer], { type: mimeTypes[format] });
   return { blob, ext: extensions[format] };

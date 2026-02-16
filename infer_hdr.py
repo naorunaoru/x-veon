@@ -197,6 +197,21 @@ def reconstruct_highlights_cfa(cfa_norm: np.ndarray, raw_pattern: np.ndarray) ->
     return out
 
 
+def extract_dr_gain(raw_path: str) -> float:
+    """Extract Fuji DevelopmentDynamicRange from EXIF.
+    Returns 1.0 (DR100), 2.0 (DR200), or 4.0 (DR400)."""
+    try:
+        import subprocess
+        result = subprocess.run(
+            ['exiftool', '-Fuji:DevelopmentDynamicRange', '-n', '-s3', raw_path],
+            capture_output=True, text=True, timeout=5
+        )
+        value = int(result.stdout.strip())
+        return value / 100.0
+    except (ValueError, subprocess.TimeoutExpired, FileNotFoundError):
+        return 1.0
+
+
 def process_raw(raw_path: str, model: torch.nn.Module, device: str,
                 patch_size: int = 288, overlap: int = 48,
                 apply_wb_to_cfa: bool = True,
@@ -316,9 +331,11 @@ def process_raw(raw_path: str, model: torch.nn.Module, device: str,
     if not apply_wb_to_cfa:
         rgb = rgb * wb
     raw.close()
-    
+
+    dr_gain = extract_dr_gain(raw_path)
+
     return rgb, {"wb": wb, "xyz_to_cam": xyz_to_cam, "exif_flip": exif_flip,
-                  "confidence_map": confidence_map}
+                  "confidence_map": confidence_map, "dr_gain": dr_gain}
 
 
 # Backward compat
@@ -328,7 +345,7 @@ process_raf = process_raw
 def save_hdr_avif(rgb: np.ndarray, output_path: str, quality: int = 90,
                   xyz_to_cam: np.ndarray = None, exif_flip: int = 0,
                   wb: np.ndarray = None, wb_for_blend: np.ndarray = None,
-                  apply_color: bool = True):
+                  apply_color: bool = True, dr_gain: float = 1.0):
     # Apply white balance with shadow rolloff
     # In very dark areas, reduce WB strength to avoid noise amplification
     if wb is not None:
@@ -345,7 +362,12 @@ def save_hdr_avif(rgb: np.ndarray, output_path: str, quality: int = 90,
         rgb = apply_color_correction(rgb, xyz_to_cam=xyz_to_cam,
                                      wb=wb_for_blend, to_bt2020=True)
         rgb = np.maximum(rgb, 0)  # Clip negative values from matrix math
-    
+
+    # Fuji DR compensation — undo deliberate underexposure
+    if dr_gain > 1.0:
+        rgb = rgb * dr_gain
+        print(f"  DR gain: {dr_gain}x applied")
+
     # Apply EXIF rotation
     if exif_flip != 0:
         rgb = apply_exif_rotation(rgb, exif_flip)
@@ -414,7 +436,8 @@ def main():
             xyz_to_cam = meta.get("xyz_to_cam")
             save_hdr_avif(rgb, str(out_path), args.quality, xyz_to_cam, exif_flip,
                          wb=None, wb_for_blend=meta["wb"],
-                         apply_color=not args.no_color)
+                         apply_color=not args.no_color,
+                         dr_gain=meta.get("dr_gain", 1.0))
     else:
         input_path = Path(args.input)
         output_path = Path(args.output) if args.output else input_path.with_suffix(".avif")
@@ -426,7 +449,8 @@ def main():
         xyz_to_cam = meta.get("xyz_to_cam")
         save_hdr_avif(rgb, str(output_path), args.quality, xyz_to_cam, exif_flip,
                      wb=None, wb_for_blend=meta["wb"],
-                     apply_color=not args.no_color)
+                     apply_color=not args.no_color,
+                     dr_gain=meta.get("dr_gain", 1.0))
         print(f"Saved: {output_path}")
 
 

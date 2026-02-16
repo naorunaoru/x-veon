@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { CfaType, DemosaicMethod, ExportFormat, ProcessingResultMeta } from './pipeline/types';
+import type { CfaType, DemosaicMethod, ExportFormat, LookPreset, ProcessingResultMeta } from './pipeline/types';
 import { deleteHwc } from './lib/opfs-storage';
 import type { ModelMeta } from './pipeline/inference';
 import { extractRafThumbnail, extractRafQuickMetadata } from './pipeline/raf-thumbnail';
@@ -25,7 +25,6 @@ interface AppState {
   initialized: boolean;
   initError: string | null;
   backend: string | null;
-  hdrSupported: boolean;
   modelMeta: ModelMeta;
 
   // File management
@@ -38,12 +37,17 @@ interface AppState {
   // Export settings
   exportFormat: ExportFormat;
   exportQuality: number;
+  lookPreset: LookPreset;
+
+  // HDR display output (WebGL2 extended range)
+  displayHdr: boolean;
+  displayHdrHeadroom: number;
 
   // Canvas ref for WebCodecs AVIF export
   canvasRef: HTMLCanvasElement | null;
 
   // Actions
-  setInitialized: (backend: string, hdrSupported: boolean, modelMeta: ModelMeta) => void;
+  setInitialized: (backend: string, modelMeta: ModelMeta) => void;
   setInitError: (error: string) => void;
   addFiles: (files: File[]) => void;
   removeFile: (id: string) => void;
@@ -54,6 +58,8 @@ interface AppState {
   setDemosaicMethod: (method: DemosaicMethod) => void;
   setExportFormat: (format: ExportFormat) => void;
   setExportQuality: (quality: number) => void;
+  setLookPreset: (preset: LookPreset) => void;
+  setDisplayHdr: (enabled: boolean, headroom: number) => void;
   setCanvasRef: (ref: HTMLCanvasElement | null) => void;
 }
 
@@ -61,7 +67,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   initialized: false,
   initError: null,
   backend: null,
-  hdrSupported: false,
   modelMeta: {},
 
   files: [],
@@ -71,11 +76,15 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   exportFormat: 'jpeg-hdr',
   exportQuality: 85,
+  lookPreset: 'default',
+
+  displayHdr: false,
+  displayHdrHeadroom: 1.0,
 
   canvasRef: null,
 
-  setInitialized: (backend, hdrSupported, modelMeta) =>
-    set({ initialized: true, backend, hdrSupported, modelMeta }),
+  setInitialized: (backend, modelMeta) =>
+    set({ initialized: true, backend, modelMeta }),
 
   setInitError: (error) =>
     set({ initError: error }),
@@ -177,5 +186,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setDemosaicMethod: (method) => set({ demosaicMethod: method }),
   setExportFormat: (format) => set({ exportFormat: format }),
   setExportQuality: (quality) => set({ exportQuality: quality }),
+  setLookPreset: (preset) => set({ lookPreset: preset }),
+  setDisplayHdr: (enabled, headroom) => set({ displayHdr: enabled, displayHdrHeadroom: headroom }),
   setCanvasRef: (ref) => set({ canvasRef: ref }),
 }));

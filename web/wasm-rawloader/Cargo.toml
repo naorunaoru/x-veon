@@ -1,7 +1,8 @@
 [package]
-name = "xtrans-encoder-wasm"
+name = "rawloader-wasm"
 version = "0.1.0"
 edition = "2021"
+description = "WASM bindings for the rawloader crate with EXIF/DR support"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -10,22 +11,15 @@ crate-type = ["cdylib", "rlib"]
 default = ["console_error_panic_hook"]
 
 [dependencies]
+rawloader = { path = "../../../rawloader-wasm" }
 wasm-bindgen = "0.2"
 js-sys = "0.3"
 console_error_panic_hook = { version = "0.1", optional = true }
+exif = { package = "kamadak-exif", version = "0.5" }
 
-# Phase 1: JPEG
-jpeg-encoder = "0.6"
-
-# Phase 2: TIFF
-tiff = "0.9"
-
-# Phase 3: HDR AVIF
-rav1e = { version = "0.7", default-features = false }
-avif-serialize = "0.8"
-
-[dev-dependencies]
-serde_json = "1"
+[dependencies.web-sys]
+version = "0.3"
+features = ["console"]
 
 [profile.release]
 opt-level = "s"

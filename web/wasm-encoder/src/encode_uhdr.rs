@@ -7,18 +7,19 @@ pub fn encode(
     width: u32,
     height: u32,
     quality: u8,
-    gain_luma8: &[u8],
-    gain_min: f32,
-    gain_max: f32,
+    gain_rgb8: &[u8],
+    gain_min: [f32; 3],
+    gain_max: [f32; 3],
     offset: f32,
+    hdr_capacity_max: f32,
 ) -> Result<Vec<u8>, String> {
     // Encode both JPEGs
     let primary_jpeg = encode_jpeg::encode(sdr_rgb8, width, height, quality)?;
     let gainmap_jpeg_raw =
-        encode_jpeg::encode_grayscale(gain_luma8, width, height, GAIN_MAP_QUALITY)?;
+        encode_jpeg::encode(gain_rgb8, width, height, GAIN_MAP_QUALITY)?;
 
     // Build gain map XMP (hdrgm attributes) and inject into gain map JPEG
-    let gm_xmp = build_gainmap_xmp(gain_min, gain_max, offset);
+    let gm_xmp = build_gainmap_xmp(gain_min, gain_max, offset, hdr_capacity_max);
     let gm_xmp_app1 = build_xmp_app1(&gm_xmp);
     // Gain map JPEG with XMP: SOI + XMP_APP1 + rest_of_gainmap
     let gainmap_jpeg_len = 2 + gm_xmp_app1.len() + (gainmap_jpeg_raw.len() - 2);
@@ -95,25 +96,40 @@ fn build_primary_xmp(gainmap_size: usize) -> String {
     format!("<?xpacket begin='\u{FEFF}' id='W5M0MpCehiHzreSzNTczkc9d'?>\n{body}\n<?xpacket end='w'?>")
 }
 
-/// Gain map image XMP: all hdrgm numeric attributes.
-fn build_gainmap_xmp(gain_min: f32, gain_max: f32, offset: f32) -> String {
+/// Gain map image XMP: all hdrgm numeric attributes (per-channel for 3-ch gain map).
+fn build_gainmap_xmp(gain_min: [f32; 3], gain_max: [f32; 3], offset: f32, hdr_capacity_max: f32) -> String {
     let body = format!(
         r#"<x:xmpmeta xmlns:x="adobe:ns:meta/">
   <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
     <rdf:Description
       xmlns:hdrgm="http://ns.adobe.com/hdr-gain-map/1.0/"
       hdrgm:Version="1.0"
-      hdrgm:GainMapMin="{:.6}"
-      hdrgm:GainMapMax="{:.6}"
       hdrgm:Gamma="1.0"
       hdrgm:OffsetSDR="{:.6}"
       hdrgm:OffsetHDR="{:.6}"
       hdrgm:HDRCapacityMin="0.0"
       hdrgm:HDRCapacityMax="{:.6}"
-      hdrgm:BaseRenditionIsHDR="False"/>
+      hdrgm:BaseRenditionIsHDR="False">
+      <hdrgm:GainMapMin>
+        <rdf:Seq>
+          <rdf:li>{:.6}</rdf:li>
+          <rdf:li>{:.6}</rdf:li>
+          <rdf:li>{:.6}</rdf:li>
+        </rdf:Seq>
+      </hdrgm:GainMapMin>
+      <hdrgm:GainMapMax>
+        <rdf:Seq>
+          <rdf:li>{:.6}</rdf:li>
+          <rdf:li>{:.6}</rdf:li>
+          <rdf:li>{:.6}</rdf:li>
+        </rdf:Seq>
+      </hdrgm:GainMapMax>
+    </rdf:Description>
   </rdf:RDF>
 </x:xmpmeta>"#,
-        gain_min, gain_max, offset, offset, gain_max
+        offset, offset, hdr_capacity_max,
+        gain_min[0], gain_min[1], gain_min[2],
+        gain_max[0], gain_max[1], gain_max[2],
     );
     format!("<?xpacket begin='\u{FEFF}' id='W5M0MpCehiHzreSzNTczkc9d'?>\n{body}\n<?xpacket end='w'?>")
 }

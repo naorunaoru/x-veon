@@ -1,5 +1,4 @@
 import { XYZ_TO_SRGB } from './constants';
-import type { RotatedImage } from './types';
 
 export interface TileBlender {
   accumulate(tile: Float32Array, tx: number, ty: number): void;
@@ -114,137 +113,14 @@ export function buildColorMatrix(xyzToCam: Float32Array): Float32Array {
 
 export function applyColorCorrection(
   hwc: Float32Array, numPixels: number, matrix: Float32Array,
-  wb: Float32Array | null,
 ): void {
-  const wbR = wb ? wb[0] : 1, wbG = wb ? wb[1] : 1, wbB = wb ? wb[2] : 1;
-  const blendLo = 0.85, blendRange = 0.15;
-
   for (let i = 0; i < numPixels; i++) {
     const idx = i * 3;
     const r = hwc[idx], g = hwc[idx + 1], b = hwc[idx + 2];
 
-    const fr = matrix[0] * r + matrix[1] * g + matrix[2] * b;
-    const fg = matrix[3] * r + matrix[4] * g + matrix[5] * b;
-    const fb = matrix[6] * r + matrix[7] * g + matrix[8] * b;
-
-    const clipProx = Math.max(r / wbR, g / wbG, b / wbB);
-    const alpha = Math.min(1, Math.max(0, (clipProx - blendLo) / blendRange));
-
-    hwc[idx]     = Math.max(0, fr + alpha * (r - fr));
-    hwc[idx + 1] = Math.max(0, fg + alpha * (g - fg));
-    hwc[idx + 2] = Math.max(0, fb + alpha * (b - fb));
+    hwc[idx]     = Math.max(0, matrix[0] * r + matrix[1] * g + matrix[2] * b);
+    hwc[idx + 1] = Math.max(0, matrix[3] * r + matrix[4] * g + matrix[5] * b);
+    hwc[idx + 2] = Math.max(0, matrix[6] * r + matrix[7] * g + matrix[8] * b);
   }
 }
 
-export function applyExifRotation(
-  hwc: Float32Array, width: number, height: number, orientation: string,
-): RotatedImage {
-  if (orientation === 'Normal' || orientation === 'Unknown') {
-    return { data: hwc, width, height };
-  }
-
-  const n = width * height;
-
-  if (orientation === 'Rotate180') {
-    const out = new Float32Array(n * 3);
-    for (let i = 0; i < n; i++) {
-      const si = (n - 1 - i) * 3;
-      const di = i * 3;
-      out[di] = hwc[si]; out[di + 1] = hwc[si + 1]; out[di + 2] = hwc[si + 2];
-    }
-    return { data: out, width, height };
-  }
-
-  if (orientation === 'Rotate90' || orientation === 'Rotate270') {
-    const out = new Float32Array(n * 3);
-    const newW = height, newH = width;
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const si = (y * width + x) * 3;
-        let dx: number, dy: number;
-        if (orientation === 'Rotate90') {
-          dx = height - 1 - y;
-          dy = x;
-        } else {
-          dx = y;
-          dy = width - 1 - x;
-        }
-        const di = (dy * newW + dx) * 3;
-        out[di] = hwc[si]; out[di + 1] = hwc[si + 1]; out[di + 2] = hwc[si + 2];
-      }
-    }
-    return { data: out, width: newW, height: newH };
-  }
-
-  return { data: hwc, width, height };
-}
-
-function linearToSrgb8(v: number): number {
-  v = Math.max(0, Math.min(1, v));
-  if (v <= 0.0031308) {
-    return (v * 12.92 * 255 + 0.5) | 0;
-  }
-  return ((1.055 * Math.pow(v, 1 / 2.4) - 0.055) * 255 + 0.5) | 0;
-}
-
-export function toImageData(hwc: Float32Array, width: number, height: number): ImageData {
-  const n = width * height;
-  const rgba = new Uint8ClampedArray(n * 4);
-
-  for (let i = 0; i < n; i++) {
-    const si = i * 3;
-    const di = i * 4;
-    rgba[di]     = linearToSrgb8(hwc[si]);
-    rgba[di + 1] = linearToSrgb8(hwc[si + 1]);
-    rgba[di + 2] = linearToSrgb8(hwc[si + 2]);
-    rgba[di + 3] = 255;
-  }
-
-  return new ImageData(rgba, width, height);
-}
-
-/**
- * Fused color-correction + rotation + sRGB conversion.
- * Reads hwc without mutation so the buffer can be reused as export data.
- */
-export function toImageDataWithCC(
-  hwc: Float32Array, width: number, height: number, orientation: string,
-): ImageData {
-  const n = width * height;
-  const swap = orientation === 'Rotate90' || orientation === 'Rotate270';
-  const outW = swap ? height : width;
-  const outH = swap ? width : height;
-  const rgba = new Uint8ClampedArray(n * 4);
-
-  // Find peak to scale super-whites into [0,1] instead of hard-clipping
-  let peak = 0;
-  for (let i = 0; i < n * 3; i++) {
-    if (hwc[i] > peak) peak = hwc[i];
-  }
-  const scale = peak > 1.0 ? 1.0 / peak : 1.0;
-
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const si = (y * width + x) * 3;
-      let r = hwc[si], g = hwc[si + 1], b = hwc[si + 2];
-
-      let di: number;
-      if (orientation === 'Rotate180') {
-        di = (n - 1 - (y * width + x)) * 4;
-      } else if (orientation === 'Rotate90') {
-        di = (x * outW + (height - 1 - y)) * 4;
-      } else if (orientation === 'Rotate270') {
-        di = ((width - 1 - x) * outW + y) * 4;
-      } else {
-        di = (y * width + x) * 4;
-      }
-
-      rgba[di]     = linearToSrgb8(r * scale);
-      rgba[di + 1] = linearToSrgb8(g * scale);
-      rgba[di + 2] = linearToSrgb8(b * scale);
-      rgba[di + 3] = 255;
-    }
-  }
-
-  return new ImageData(rgba, outW, outH);
-}

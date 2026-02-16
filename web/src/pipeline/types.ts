@@ -12,6 +12,7 @@ export interface RawImage {
   cfaStr: string;
   cfaWidth: number;
   crops: Uint16Array;
+  drGain: number;
 }
 
 export interface CroppedImage {
@@ -56,12 +57,6 @@ export interface ChannelMasks {
   b: Float32Array;
 }
 
-export interface RotatedImage {
-  data: Float32Array;
-  width: number;
-  height: number;
-}
-
 export type DemosaicMethod =
   | 'neural-net'
   | 'bilinear'
@@ -74,7 +69,9 @@ export type DemosaicMethod =
   | 'ppg'
   | 'mhc';
 
-export type ExportFormat = 'avif' | 'jpeg' | 'jpeg-hdr' | 'tiff';
+export type ExportFormat = 'avif' | 'jpeg-hdr' | 'tiff';
+
+export type LookPreset = 'base' | 'default';
 
 export interface ExportData {
   hwc: Float32Array;
@@ -87,7 +84,6 @@ export interface ExportData {
 
 export interface ProcessingResult {
   exportData: ExportData;
-  isHdr: boolean;
   metadata: {
     make: string;
     model: string;
@@ -110,6 +106,5 @@ export interface ExportDataMeta {
 
 export interface ProcessingResultMeta {
   exportData: ExportDataMeta;
-  isHdr: boolean;
   metadata: ProcessingResult['metadata'];
 }

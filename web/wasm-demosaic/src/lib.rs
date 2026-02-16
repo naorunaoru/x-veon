@@ -49,12 +49,14 @@ pub fn demosaic_image(
 /// Demosaic a Bayer CFA image to 3-channel planar RGB.
 ///
 /// `cfa_type`: "rggb", "bggr", "grbg", or "gbrg".
+/// `algorithm`: "bilinear", "mhc", "ppg", or "ahd".
 #[wasm_bindgen]
 pub fn demosaic_bayer(
     cfa: &[f32],
     width: u32,
     height: u32,
     cfa_type: &str,
+    algorithm: &str,
 ) -> Result<Vec<f32>, JsError> {
     console_error_panic_hook::set_once();
 
@@ -77,8 +79,16 @@ pub fn demosaic_bayer(
         _ => return Err(JsError::new(&format!("unknown Bayer pattern: '{cfa_type}'"))),
     };
 
+    let algo = match algorithm {
+        "bilinear" => demosaic::Algorithm::Bilinear,
+        "mhc" => demosaic::Algorithm::Mhc,
+        "ppg" => demosaic::Algorithm::Ppg,
+        "ahd" => demosaic::Algorithm::Ahd,
+        _ => return Err(JsError::new(&format!("unknown Bayer algorithm: '{algorithm}'"))),
+    };
+
     let mut output = vec![0.0f32; 3 * w * h];
-    demosaic::demosaic(cfa, w, h, &pattern, demosaic::Algorithm::Bilinear, &mut output)
+    demosaic::demosaic(cfa, w, h, &pattern, algo, &mut output)
         .map_err(|e| JsError::new(&format!("{e}")))?;
 
     Ok(output)
