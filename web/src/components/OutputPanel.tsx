@@ -7,7 +7,6 @@ export function OutputPanel() {
   const selectedFile = useAppStore((s) =>
     s.files.find((f) => f.id === s.selectedFileId),
   );
-
   if (!selectedFile) {
     return (
       <main className="flex-1 flex items-center justify-center bg-background">
@@ -54,7 +53,7 @@ export function OutputPanel() {
           ) : selectedFile.status === 'error' ? (
             <p className="text-destructive">{selectedFile.error}</p>
           ) : (
-            <p className="text-muted-foreground">Click Process to demosaic</p>
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
           )}
         </div>
       )}

@@ -9,6 +9,7 @@ export function FileList() {
   const selectedFileId = useAppStore((s) => s.selectedFileId);
   const selectFile = useAppStore((s) => s.selectFile);
   const addFiles = useAppStore((s) => s.addFiles);
+  const removeFile = useAppStore((s) => s.removeFile);
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
 
@@ -55,6 +56,7 @@ export function FileList() {
               file={f}
               selected={f.id === selectedFileId}
               onSelect={() => selectFile(f.id)}
+              onRemove={() => removeFile(f.id)}
             />
           ))}
           <button

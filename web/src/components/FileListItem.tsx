@@ -1,4 +1,4 @@
-import { Circle, Loader2, CheckCircle2, AlertCircle, ImageIcon } from 'lucide-react';
+import { Circle, Loader2, CheckCircle2, AlertCircle, ImageIcon, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { QueuedFile } from '@/store';
 
@@ -6,6 +6,7 @@ interface FileListItemProps {
   file: QueuedFile;
   selected: boolean;
   onSelect: () => void;
+  onRemove: () => void;
 }
 
 function StatusIcon({ status }: { status: QueuedFile['status'] }) {
@@ -21,12 +22,12 @@ function StatusIcon({ status }: { status: QueuedFile['status'] }) {
   }
 }
 
-export function FileListItem({ file, selected, onSelect }: FileListItemProps) {
+export function FileListItem({ file, selected, onSelect, onRemove }: FileListItemProps) {
   return (
     <div
       onClick={onSelect}
       className={cn(
-        'flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors',
+        'flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors overflow-hidden',
         'hover:bg-accent',
         selected && 'bg-accent ring-1 ring-ring',
       )}
@@ -56,6 +57,17 @@ export function FileListItem({ file, selected, onSelect }: FileListItemProps) {
           <p className="text-xs text-destructive truncate">{file.error}</p>
         )}
       </div>
+
+      {/* Remove */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onRemove();
+        }}
+        className="flex-shrink-0 text-muted-foreground/50 hover:text-destructive transition-colors"
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </button>
 
       {/* Status */}
       <div className="flex-shrink-0">

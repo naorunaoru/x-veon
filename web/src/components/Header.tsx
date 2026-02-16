@@ -9,7 +9,7 @@ export function Header() {
 
   return (
     <header className="px-4 py-3 border-b border-border">
-      <h1 className="text-base font-semibold">X-veon: neural demosaic</h1>
+      <h1 className="text-base font-semibold">X-veon RAW processor</h1>
       <p className="text-xs text-muted-foreground mt-0.5">
         {initError
           ? `Init failed: ${initError}`

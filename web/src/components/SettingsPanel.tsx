@@ -1,14 +1,15 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { Slider } from '@/components/ui/slider';
+import { cn } from '@/lib/utils';
 import { useAppStore } from '@/store';
 import { useProcessFile } from '@/hooks/useProcessFile';
 import { useExport } from '@/hooks/useExport';
-import type { CfaType, DemosaicMethod, ExportFormat, LookPreset } from '@/pipeline/types';
+import { ExportDialog } from '@/components/ExportDialog';
+import type { CfaType, DemosaicMethod } from '@/pipeline/types';
 
 const DEMOSAIC_OPTIONS: { value: DemosaicMethod; label: string; cfa?: CfaType }[] = [
   { value: 'neural-net', label: 'X-veon' },
@@ -27,18 +28,12 @@ const DEMOSAIC_OPTIONS: { value: DemosaicMethod; label: string; cfa?: CfaType }[
 export function SettingsPanel() {
   const demosaicMethod = useAppStore((s) => s.demosaicMethod);
   const setDemosaicMethod = useAppStore((s) => s.setDemosaicMethod);
-  const exportFormat = useAppStore((s) => s.exportFormat);
-  const exportQuality = useAppStore((s) => s.exportQuality);
   const lookPreset = useAppStore((s) => s.lookPreset);
   const setLookPreset = useAppStore((s) => s.setLookPreset);
-  const setExportFormat = useAppStore((s) => s.setExportFormat);
-  const setExportQuality = useAppStore((s) => s.setExportQuality);
   const selectedFile = useAppStore((s) =>
     s.files.find((f) => f.id === s.selectedFileId),
   );
   const initialized = useAppStore((s) => s.initialized);
-  const displayHdr = useAppStore((s) => s.displayHdr);
-  const displayHdrHeadroom = useAppStore((s) => s.displayHdrHeadroom);
 
   const cfaType = selectedFile?.cfaType ?? null;
   const availableMethods = DEMOSAIC_OPTIONS.filter(
@@ -53,45 +48,36 @@ export function SettingsPanel() {
   }, [cfaType]);
 
   const { processFile, isProcessing } = useProcessFile();
+
+  // Auto-process: start processing when a queued file is selected
+  useEffect(() => {
+    if (initialized && selectedFile?.status === 'queued' && !isProcessing) {
+      processFile(selectedFile.id);
+    }
+  }, [selectedFile?.id, selectedFile?.status, initialized, isProcessing, processFile]);
+
+  // Auto-reprocess on method change
+  const prevMethodRef = useRef(demosaicMethod);
+  useEffect(() => {
+    if (prevMethodRef.current === demosaicMethod) return;
+    prevMethodRef.current = demosaicMethod;
+    if (initialized && selectedFile && (selectedFile.status === 'done' || selectedFile.status === 'error') && !isProcessing) {
+      processFile(selectedFile.id);
+    }
+  }, [demosaicMethod, initialized, selectedFile, isProcessing, processFile]);
   const { exportFile, isExporting } = useExport();
 
-  // [ / ] keyboard shortcuts to cycle demosaic method and auto-reprocess
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement).tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-      if (e.key === '[' || e.key === ']') {
-        e.preventDefault();
-        const dir = e.key === '[' ? -1 : 1;
-        // Read latest available methods + current method from store
-        const method = useAppStore.getState().demosaicMethod;
-        const idx = availableMethods.findIndex((o) => o.value === method);
-        const next = availableMethods[(idx + dir + availableMethods.length) % availableMethods.length];
-        if (next && next.value !== method) {
-          setDemosaicMethod(next.value);
-          // Auto-process if a file is selected and not already processing
-          const state = useAppStore.getState();
-          const file = state.files.find((f) => f.id === state.selectedFileId);
-          if (file && state.initialized && file.status !== 'processing') {
-            // Defer to next tick so the store update is committed
-            setTimeout(() => processFile(file.id), 0);
-          }
-        }
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [availableMethods, setDemosaicMethod, processFile]);
+  const [exportOpen, setExportOpen] = useState(false);
 
-  const canProcess = initialized && !isProcessing;
+  const canProcess = initialized && !isProcessing && !!selectedFile;
   const canExport = selectedFile?.status === 'done' && !isExporting;
-  const isTiff = exportFormat === 'tiff';
 
   return (
     <div className="border-t border-border p-4 space-y-3">
       {/* Demosaic method */}
       <div className="flex items-center gap-3">
         <span className="text-xs text-muted-foreground w-14 flex-shrink-0">Method</span>
+        <div className="flex-1 flex rounded-md bg-muted p-0.5">
         <Select value={demosaicMethod} onValueChange={(v) => setDemosaicMethod(v as DemosaicMethod)}>
           <SelectTrigger className="flex-1 h-8 text-xs">
             <SelectValue />
@@ -102,57 +88,28 @@ export function SettingsPanel() {
             ))}
           </SelectContent>
         </Select>
-      </div>
-
-      {/* Format */}
-      <div className="flex items-center gap-3">
-        <span className="text-xs text-muted-foreground w-14 flex-shrink-0">Format</span>
-        <Select value={exportFormat} onValueChange={(v) => setExportFormat(v as ExportFormat)}>
-          <SelectTrigger className="flex-1 h-8 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="jpeg-hdr">Ultra HDR JPEG</SelectItem>
-            <SelectItem value="avif">AVIF (BT.2020 / HLG)</SelectItem>
-            <SelectItem value="tiff">TIFF (Linear sRGB)</SelectItem>
-          </SelectContent>
-        </Select>
+        </div>
       </div>
 
       {/* Look Preset */}
       <div className="flex items-center gap-3">
         <span className="text-xs text-muted-foreground w-14 flex-shrink-0">Look</span>
-        <Select value={lookPreset} onValueChange={(v) => setLookPreset(v as LookPreset)}>
-          <SelectTrigger className="flex-1 h-8 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="base">Base</SelectItem>
-            <SelectItem value="default">Default</SelectItem>
-          </SelectContent>
-        </Select>
-        {displayHdr && (
-          <span className="text-[10px] font-medium text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded whitespace-nowrap">
-            HDR {Math.round(displayHdrHeadroom * 100)}
-          </span>
-        )}
-      </div>
-
-      {/* Quality */}
-      <div className={`flex items-center gap-3 ${isTiff ? 'opacity-40' : ''}`}>
-        <span className="text-xs text-muted-foreground w-14 flex-shrink-0">Quality</span>
-        <Slider
-          value={[exportQuality]}
-          onValueChange={([v]) => setExportQuality(v)}
-          min={1}
-          max={100}
-          step={1}
-          disabled={isTiff}
-          className="flex-1"
-        />
-        <span className="text-xs text-muted-foreground w-7 text-right tabular-nums">
-          {exportQuality}
-        </span>
+        <div className="flex-1 flex rounded-md bg-muted p-0.5">
+          {([['default', 'Default'], ['base', 'Base']] as const).map(([value, label]) => (
+            <button
+              key={value}
+              className={cn(
+                'flex-1 rounded-sm px-2 py-1 text-xs font-medium transition-colors',
+                lookPreset === value
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+              onClick={() => setLookPreset(value)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Actions */}
@@ -177,18 +134,18 @@ export function SettingsPanel() {
           variant="secondary"
           className="flex-1"
           disabled={!canExport}
-          onClick={() => selectedFile && exportFile(selectedFile.id)}
+          onClick={() => setExportOpen(true)}
         >
-          {isExporting ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-              Exporting
-            </>
-          ) : (
-            'Export'
-          )}
+          Export
         </Button>
       </div>
+
+      <ExportDialog
+        open={exportOpen}
+        onOpenChange={setExportOpen}
+        onExport={() => selectedFile && exportFile(selectedFile.id)}
+        isExporting={isExporting}
+      />
     </div>
   );
 }
