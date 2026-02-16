@@ -109,26 +109,30 @@ pub fn encode(
         }
 
         Format::JpegHdr => {
-            // Ultra HDR JPEG: SDR base + gain map for highlight recovery
-            let peak = rotated.iter().cloned().fold(0.0f32, f32::max);
+            // Ultra HDR JPEG: SDR base + gain map for highlight recovery.
+            // HLG OETF for peak normalization (same as AVIF) to preserve mid-tone brightness.
+            // TODO: bake HLG OOTF (system gamma 1.2) to match AVIF display contrast
+            let mut hlg_buf = vec![0.0f32; num * 3];
+            let mut peak: f32 = 0.0;
+            for i in 0..num * 3 {
+                let v = transfer::hlg_oetf(rotated[i]);
+                hlg_buf[i] = v;
+                if v > peak {
+                    peak = v;
+                }
+            }
             let scale = if peak > 1.0 { 1.0 / peak } else { 1.0 };
 
-            // No HDR headroom — fall back to regular JPEG
-            if peak <= 1.0 {
-                let mut rgb8 = vec![0u8; num * 3];
-                for i in 0..num * 3 {
-                    rgb8[i] = (transfer::srgb_oetf(rotated[i]) * 255.0 + 0.5) as u8;
-                }
-                return encode_jpeg::encode(&rgb8, rw, rh, quality);
-            }
-
-            // SDR base: peak-scaled sRGB
+            // SDR base: HLG-normalized → linear (tone-mapped) → sRGB 8-bit
+            let mut sdr_lin = vec![0.0f32; num * 3];
             let mut sdr_rgb8 = vec![0u8; num * 3];
             for i in 0..num * 3 {
-                sdr_rgb8[i] = (transfer::srgb_oetf(rotated[i] * scale) * 255.0 + 0.5) as u8;
+                let lin = transfer::hlg_oetf_inv(hlg_buf[i] * scale);
+                sdr_lin[i] = lin;
+                sdr_rgb8[i] = (transfer::srgb_oetf(lin) * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
             }
 
-            // Gain map: per-pixel luminance log2 ratio
+            // Gain map: per-pixel luminance log2 ratio.
             let offset: f32 = 1.0 / 64.0;
             let mut gains = vec![0.0f32; num];
             let mut gain_min: f32 = f32::MAX;
@@ -137,7 +141,9 @@ pub fn encode(
             for i in 0..num {
                 let idx = i * 3;
                 let y_hdr = 0.2126 * rotated[idx] + 0.7152 * rotated[idx + 1] + 0.0722 * rotated[idx + 2];
-                let y_sdr = y_hdr * scale;
+                let y_sdr = 0.2126 * sdr_lin[idx]
+                    + 0.7152 * sdr_lin[idx + 1]
+                    + 0.0722 * sdr_lin[idx + 2];
                 let gain = ((y_hdr + offset) / (y_sdr + offset)).max(1e-10).log2();
                 gains[i] = gain;
                 gain_min = gain_min.min(gain);

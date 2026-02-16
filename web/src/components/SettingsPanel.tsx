@@ -11,7 +11,7 @@ import { useExport } from '@/hooks/useExport';
 import type { CfaType, DemosaicMethod, ExportFormat } from '@/pipeline/types';
 
 const DEMOSAIC_OPTIONS: { value: DemosaicMethod; label: string; cfa?: CfaType }[] = [
-  { value: 'neural-net', label: 'Neural Network' },
+  { value: 'neural-net', label: 'X-veon' },
   // X-Trans
   { value: 'markesteijn3', label: 'Markesteijn (3-pass)', cfa: 'xtrans' },
   { value: 'markesteijn1', label: 'Markesteijn (1-pass)', cfa: 'xtrans' },
