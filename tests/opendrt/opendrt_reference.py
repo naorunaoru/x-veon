@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """OpenDRT reference implementation — Base + Default presets.
 
-Line-for-line port of ref/opendrt_art.ctl transform() for Base and Default presets.
+Line-for-line port of opendrt_art.ctl transform() for Base and Default presets.
 Used to generate golden test vectors for validating the Rust implementation.
 
 Input:  scene-linear P3-D65 RGB

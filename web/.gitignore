@@ -1,8 +1,8 @@
 node_modules/
 dist/
-wasm-demosaic/pkg/
-wasm-demosaic/traget/
-wasm-encoder/pkg/
-wasm-encoder/target/
-wasm-rawloader/pkg/
-wasm-rawloader/target/
+wasm/demosaic/pkg/
+wasm/demosaic/target/
+wasm/encoder/pkg/
+wasm/encoder/target/
+wasm/rawloader/pkg/
+wasm/rawloader/target/

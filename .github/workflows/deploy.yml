@@ -27,6 +27,9 @@ jobs:
           repository: naorunaoru/rawloader
           path: rawloader-wasm
 
+      - name: Symlink rawloader for Cargo path dep
+        run: ln -s $GITHUB_WORKSPACE/rawloader-wasm $GITHUB_WORKSPACE/../rawloader-wasm
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -43,15 +46,15 @@ jobs:
 
       - name: Build WASM (decoder)
         working-directory: web
-        run: npx wasm-pack build ../rawloader-wasm --target web --release --out-dir $GITHUB_WORKSPACE/web/wasm-pkg
+        run: npx wasm-pack build wasm/rawloader --target web --release
 
       - name: Build WASM (demosaic)
         working-directory: web
-        run: npx wasm-pack build wasm-demosaic --target web --release
+        run: npx wasm-pack build wasm/demosaic --target web --release
 
       - name: Build WASM (encoder)
         working-directory: web
-        run: npx wasm-pack build wasm-encoder --target web --release
+        run: npx wasm-pack build wasm/encoder --target web --release
 
       - name: Build
         working-directory: web

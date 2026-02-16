@@ -1,6 +1,6 @@
 //! OpenDRT v1.0.0 — display rendering transform with look presets.
 //!
-//! Ported from ref/opendrt_art.ctl (ART CTL by agriggio, based on Jed Smith's OpenDRT).
+//! Ported from opendrt_art.ctl (ART CTL by agriggio, based on Jed Smith's OpenDRT).
 //! License: GPLv3
 //!
 //! Input:  scene-linear P3-D65 RGB
@@ -611,7 +611,7 @@ mod tests {
     }
 
     fn run_vectors(preset_filter: Option<&str>) {
-        let data = include_str!("../../../ref/opendrt_test_vectors.json");
+        let data = include_str!("../../../tests/opendrt/opendrt_test_vectors.json");
         let parsed: serde_json::Value = serde_json::from_str(data).expect("parse test vectors");
         let tolerance: f64 = parsed["tolerance"].as_f64().unwrap();
         let vectors = parsed["vectors"].as_array().unwrap();

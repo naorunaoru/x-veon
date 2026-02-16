@@ -1,4 +1,4 @@
-import init, { encode_image } from '../../wasm-encoder/pkg/xtrans_encoder_wasm.js';
+import init, { encode_image } from '../../wasm/encoder/pkg/xtrans_encoder_wasm.js';
 
 let ready = false;
 

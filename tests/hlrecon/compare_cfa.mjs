@@ -12,11 +12,11 @@ import { resolve, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const wasmPkgDir = resolve(__dirname, '../../web/wasm-pkg');
+const wasmPkgDir = resolve(__dirname, '../../web/wasm/rawloader/pkg');
 
 // Load WASM module synchronously
-const wasmBytes = readFileSync(join(wasmPkgDir, 'rawloader_bg.wasm'));
-const { initSync, decode_image } = await import(join(wasmPkgDir, 'rawloader.js'));
+const wasmBytes = readFileSync(join(wasmPkgDir, 'rawloader_wasm_bg.wasm'));
+const { initSync, decode_image } = await import(join(wasmPkgDir, 'rawloader_wasm.js'));
 initSync(wasmBytes);
 
 const [,, rawPath, fixturePath] = process.argv;

@@ -19,5 +19,5 @@
     }
   },
   "include": ["src"],
-  "exclude": ["node_modules", "dist", "wasm-pkg", "wasm-encoder"]
+  "exclude": ["node_modules", "dist", "wasm-pkg", "wasm"]
 }
