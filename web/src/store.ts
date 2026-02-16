@@ -75,7 +75,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   demosaicMethod: 'neural-net',
 
   exportFormat: 'jpeg-hdr',
-  exportQuality: 85,
+  exportQuality: 95,
   lookPreset: 'default',
 
   displayHdr: false,
@@ -111,11 +111,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (entries.length === 0) return;
 
     const currentFiles = get().files;
-    const shouldSelect = currentFiles.length === 0;
 
     set({
       files: [...currentFiles, ...entries],
-      ...(shouldSelect ? { selectedFileId: entries[0].id } : {}),
+      selectedFileId: entries[0].id,
     });
 
     // Extract thumbnails and metadata async

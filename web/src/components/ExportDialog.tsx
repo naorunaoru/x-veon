@@ -21,6 +21,10 @@ interface ExportDialogProps {
 }
 
 export function ExportDialog({ open, onOpenChange, onExport, isExporting }: ExportDialogProps) {
+  const fileName = useAppStore((s) => {
+    const f = s.files.find((f) => f.id === s.selectedFileId);
+    return f?.name ?? 'file';
+  });
   const exportFormat = useAppStore((s) => s.exportFormat);
   const exportQuality = useAppStore((s) => s.exportQuality);
   const setExportFormat = useAppStore((s) => s.setExportFormat);
@@ -32,7 +36,7 @@ export function ExportDialog({ open, onOpenChange, onExport, isExporting }: Expo
     <Dialog open={open} onOpenChange={(v) => { if (!isExporting) onOpenChange(v); }}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Export Settings</DialogTitle>
+          <DialogTitle>Export {fileName}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-3 py-2">

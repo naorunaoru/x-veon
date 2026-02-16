@@ -49,12 +49,16 @@ export function SettingsPanel() {
 
   const { processFile, isProcessing } = useProcessFile();
 
-  // Auto-process: start processing when a queued file is selected
+  // Auto-process: work through queued files sequentially
+  const nextQueuedId = useAppStore((s) => s.files.find((f) => f.status === 'queued')?.id ?? null);
   useEffect(() => {
-    if (initialized && selectedFile?.status === 'queued' && !isProcessing) {
+    if (!initialized || isProcessing) return;
+    if (selectedFile?.status === 'queued') {
       processFile(selectedFile.id);
+    } else if (nextQueuedId) {
+      processFile(nextQueuedId);
     }
-  }, [selectedFile?.id, selectedFile?.status, initialized, isProcessing, processFile]);
+  }, [selectedFile?.id, selectedFile?.status, nextQueuedId, initialized, isProcessing, processFile]);
 
   // Auto-reprocess on method change
   const prevMethodRef = useRef(demosaicMethod);
