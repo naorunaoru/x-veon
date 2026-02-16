@@ -7,7 +7,7 @@
     "build:wasm": "npm run build:wasm:decoder && npm run build:wasm:encoder && npm run build:wasm:demosaic",
     "build:wasm:decoder": "wasm-pack build wasm-rawloader --target web --release",
     "build:wasm:encoder": "wasm-pack build wasm-encoder --target web --release",
-    "build:wasm:demosaic": "wasm-pack build ../../demosaic-wasm --target web --release --out-dir \"$PWD/wasm-demosaic-pkg\"",
+    "build:wasm:demosaic": "wasm-pack build wasm-demosaic --target web --release",
     "dev": "npm run build:wasm && vite",
     "build": "npm run build:wasm && vite build",
     "preview": "vite preview"

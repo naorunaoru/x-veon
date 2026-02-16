@@ -103,3 +103,5 @@ test_rafs
 data/*
 
 web/node_modules
+web/**/target/
+web/**/pkg/
