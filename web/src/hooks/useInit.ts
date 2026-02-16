@@ -20,28 +20,13 @@ export function useInit() {
 
         const backend = getBackend() ?? 'unknown';
 
-        // Probe 2D canvas HDR (rec2100-hlg for export preview)
-        let hdr = false;
-        try {
-          const testCanvas = document.createElement('canvas');
-          testCanvas.width = 1;
-          testCanvas.height = 1;
-          const ctx = testCanvas.getContext('2d', {
-            colorSpace: 'rec2100-hlg' as any,
-          });
-          const attrs = (ctx as any)?.getContextAttributes?.();
-          hdr = attrs?.colorSpace === 'rec2100-hlg';
-        } catch {
-          // Canvas HDR not supported — fall back to SDR
-        }
-
         // Probe WebGL2 display HDR (float16 backbuffer + extended range)
         const hdrDisplayInfo = probeHdrDisplay();
         if (hdrDisplayInfo.supported) {
           useAppStore.getState().setDisplayHdr(true, hdrDisplayInfo.headroom);
         }
 
-        setInitialized(backend, hdr, getModelMeta());
+        setInitialized(backend, getModelMeta());
       } catch (e) {
         if (!cancelled) setInitError((e as Error).message);
       }

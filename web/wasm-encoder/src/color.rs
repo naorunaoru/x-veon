@@ -6,18 +6,6 @@ pub const XYZ_TO_SRGB: Mat3 = [
     [ 0.0556434, -0.2040259,  1.0572252],
 ];
 
-pub const SRGB_TO_BT2020: Mat3 = [
-    [0.6274039, 0.3292830, 0.0433131],
-    [0.0690973, 0.9195404, 0.0113623],
-    [0.0163914, 0.0880133, 0.8955953],
-];
-
-pub const IDENTITY: Mat3 = [
-    [1.0, 0.0, 0.0],
-    [0.0, 1.0, 0.0],
-    [0.0, 0.0, 1.0],
-];
-
 // ── P3-D65 working space (OpenDRT) ──────────────────────────────────────
 
 /// XYZ → P3-D65 (ART CTL line 133)
@@ -50,31 +38,6 @@ pub fn mul3x3(a: &Mat3, b: &Mat3) -> Mat3 {
         }
     }
     r
-}
-
-/// Build Camera→sRGB matrix using dcraw convention.
-///
-/// 1. sRGB→XYZ→Camera = forward matrix
-/// 2. Row-normalize (sRGB white [1,1,1] → camera neutral [1,1,1])
-/// 3. Invert to get Camera→sRGB
-pub fn build_cam_to_srgb(xyz_to_cam: &Mat3) -> Mat3 {
-    let srgb_to_xyz = invert3x3(&XYZ_TO_SRGB);
-    let mut srgb_to_cam = mul3x3(xyz_to_cam, &srgb_to_xyz);
-
-    for i in 0..3 {
-        let sum: f32 = srgb_to_cam[i].iter().sum();
-        for j in 0..3 {
-            srgb_to_cam[i][j] /= sum;
-        }
-    }
-
-    invert3x3(&srgb_to_cam)
-}
-
-/// Build Camera→BT.2020 = SRGB_TO_BT2020 * Camera→sRGB
-pub fn build_cam_to_bt2020(xyz_to_cam: &Mat3) -> Mat3 {
-    let cam_to_srgb = build_cam_to_srgb(xyz_to_cam);
-    mul3x3(&SRGB_TO_BT2020, &cam_to_srgb)
 }
 
 /// Parse flat 9-element slice into Mat3.

@@ -7,9 +7,7 @@ out vec4 fragColor;
 // ── Uniforms ────────────────────────────────────────────────────────────
 uniform sampler2D u_image;
 uniform int u_orientation;       // 0=Normal, 1=Rot90, 2=Rot180, 3=Rot270
-uniform int u_toneMapMode;       // 0=legacy, 1=opendrt
 uniform int u_hdrDisplay;        // 0=SDR (clamp to 1.0), 1=HDR extended range
-uniform float u_legacyPeakScale;
 
 // Tonescale precomputed params
 uniform float u_ts_s;
@@ -352,18 +350,7 @@ void main() {
   vec2 texUV = rotateUV(v_uv);
   vec3 linear = texture(u_image, texUV).rgb;
 
-  vec3 display;
-  if (u_toneMapMode == 1) {
-    display = opendrt(linear);
-  } else {
-    // Legacy: scale super-whites
-    display = linear * u_legacyPeakScale;
-    if (u_hdrDisplay == 0) {
-      display = clamp(display, 0.0, 1.0);
-    } else {
-      display = max(display, 0.0);
-    }
-  }
+  vec3 display = opendrt(linear);
 
   // sRGB OETF
   fragColor = vec4(srgb_oetf(display.r), srgb_oetf(display.g), srgb_oetf(display.b), 1.0);

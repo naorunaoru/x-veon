@@ -8,7 +8,7 @@ import { Slider } from '@/components/ui/slider';
 import { useAppStore } from '@/store';
 import { useProcessFile } from '@/hooks/useProcessFile';
 import { useExport } from '@/hooks/useExport';
-import type { CfaType, DemosaicMethod, ExportFormat, ToneMap, LookPreset } from '@/pipeline/types';
+import type { CfaType, DemosaicMethod, ExportFormat, LookPreset } from '@/pipeline/types';
 
 const DEMOSAIC_OPTIONS: { value: DemosaicMethod; label: string; cfa?: CfaType }[] = [
   { value: 'neural-net', label: 'X-veon' },
@@ -29,8 +29,6 @@ export function SettingsPanel() {
   const setDemosaicMethod = useAppStore((s) => s.setDemosaicMethod);
   const exportFormat = useAppStore((s) => s.exportFormat);
   const exportQuality = useAppStore((s) => s.exportQuality);
-  const toneMap = useAppStore((s) => s.toneMap);
-  const setToneMap = useAppStore((s) => s.setToneMap);
   const lookPreset = useAppStore((s) => s.lookPreset);
   const setLookPreset = useAppStore((s) => s.setLookPreset);
   const setExportFormat = useAppStore((s) => s.setExportFormat);
@@ -116,22 +114,21 @@ export function SettingsPanel() {
           <SelectContent>
             <SelectItem value="avif">HDR AVIF (BT.2020 / HLG)</SelectItem>
             <SelectItem value="jpeg-hdr">Ultra HDR JPEG (Gain Map)</SelectItem>
-            <SelectItem value="jpeg">JPEG (sRGB)</SelectItem>
             <SelectItem value="tiff">16-bit TIFF (Linear sRGB)</SelectItem>
           </SelectContent>
         </Select>
       </div>
 
-      {/* Tone Map */}
+      {/* Look Preset */}
       <div className="flex items-center gap-3">
-        <span className="text-xs text-muted-foreground w-14 flex-shrink-0">Tone</span>
-        <Select value={toneMap} onValueChange={(v) => setToneMap(v as ToneMap)}>
+        <span className="text-xs text-muted-foreground w-14 flex-shrink-0">Look</span>
+        <Select value={lookPreset} onValueChange={(v) => setLookPreset(v as LookPreset)}>
           <SelectTrigger className="flex-1 h-8 text-xs">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="legacy">Legacy</SelectItem>
-            <SelectItem value="opendrt">OpenDRT</SelectItem>
+            <SelectItem value="base">Base</SelectItem>
+            <SelectItem value="default">Default</SelectItem>
           </SelectContent>
         </Select>
         {displayHdr && (
@@ -140,22 +137,6 @@ export function SettingsPanel() {
           </span>
         )}
       </div>
-
-      {/* Look Preset (only visible when OpenDRT is selected) */}
-      {toneMap === 'opendrt' && (
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-muted-foreground w-14 flex-shrink-0">Look</span>
-          <Select value={lookPreset} onValueChange={(v) => setLookPreset(v as LookPreset)}>
-            <SelectTrigger className="flex-1 h-8 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="base">Base</SelectItem>
-              <SelectItem value="default">Default</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      )}
 
       {/* Quality */}
       <div className={`flex items-center gap-3 ${isTiff ? 'opacity-40' : ''}`}>

@@ -8,7 +8,7 @@ import FRAG_SRC from './shaders/frag.glsl?raw';
 // ── Uniform name list ────────────────────────────────────────────────────
 
 const UNIFORM_NAMES = [
-  'u_image', 'u_orientation', 'u_toneMapMode', 'u_hdrDisplay', 'u_legacyPeakScale',
+  'u_image', 'u_orientation', 'u_hdrDisplay',
   'u_ts_s', 'u_ts_s1', 'u_ts_m2', 'u_ts_dsc', 'u_ts_x0',
   'u_odrt_tone', 'u_odrt_rs', 'u_odrt_pt', 'u_odrt_pt2',
   'u_odrt_lcon', 'u_odrt_hcon',
@@ -28,7 +28,6 @@ export class HdrRenderer {
   private imgW = 0;
   private imgH = 0;
   private _canvas: HTMLCanvasElement;
-  private peakScale = 1.0;
   private _isHdrDisplay = false;
   private _hdrHeadroom = 1.0;
 
@@ -163,12 +162,6 @@ export class HdrRenderer {
       );
     }
 
-    // Compute peak for legacy mode
-    let peak = 0;
-    for (let i = 0; i < hwc.length; i++) {
-      if (hwc[i] > peak) peak = hwc[i];
-    }
-    this.peakScale = peak > 1.0 ? 1.0 / peak : 1.0;
   }
 
   setOrientation(orient: number): void {
@@ -177,19 +170,9 @@ export class HdrRenderer {
     gl.uniform1i(this.loc('u_orientation'), orient);
   }
 
-  setLegacyMode(): void {
-    const gl = this.gl;
-    gl.useProgram(this.program);
-    gl.uniform1i(this.loc('u_toneMapMode'), 0);
-    // HDR: don't compress super-whites — let the display clip at its native peak
-    gl.uniform1f(this.loc('u_legacyPeakScale'), this._isHdrDisplay ? 1.0 : this.peakScale);
-  }
-
   setOpenDrtMode(ts: TonescaleParams, cfg: OpenDrtConfig): void {
-
     const gl = this.gl;
     gl.useProgram(this.program);
-    gl.uniform1i(this.loc('u_toneMapMode'), 1);
 
     // Tonescale params
     gl.uniform1f(this.loc('u_ts_s'), ts.ts_s);

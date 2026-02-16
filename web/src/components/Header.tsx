@@ -4,7 +4,7 @@ export function Header() {
   const initialized = useAppStore((s) => s.initialized);
   const initError = useAppStore((s) => s.initError);
   const backend = useAppStore((s) => s.backend);
-  const hdrSupported = useAppStore((s) => s.hdrSupported);
+  const displayHdr = useAppStore((s) => s.displayHdr);
   const modelMeta = useAppStore((s) => s.modelMeta);
 
   return (
@@ -14,7 +14,7 @@ export function Header() {
         {initError
           ? `Init failed: ${initError}`
           : initialized
-            ? `${backend}${hdrSupported ? ', HDR' : ''}${modelMeta.epoch ? ` · epoch ${modelMeta.epoch}` : ''}${modelMeta.best_val_psnr ? ` · ${modelMeta.best_val_psnr} dB` : ''}`
+            ? `${backend}${displayHdr ? ', HDR' : ''}${modelMeta.epoch ? ` · epoch ${modelMeta.epoch}` : ''}${modelMeta.best_val_psnr ? ` · ${modelMeta.best_val_psnr} dB` : ''}`
             : 'Loading models and WASM\u2026'}
       </p>
     </header>

@@ -179,7 +179,6 @@ export function useProcessFile() {
           wbCoeffs: wb,
           orientation,
         },
-        isHdr: useAppStore.getState().hdrSupported,
         metadata: {
           make: raw.make,
           model: raw.model,

@@ -9,17 +9,6 @@ pub fn srgb_oetf(v: f32) -> f32 {
     }
 }
 
-/// sRGB EOTF (inverse OETF): sRGB non-linear [0,1] → linear [0,1]
-#[inline]
-pub fn srgb_eotf(v: f32) -> f32 {
-    let v = v.clamp(0.0, 1.0);
-    if v <= 0.04045 {
-        v / 12.92
-    } else {
-        ((v + 0.055) / 1.055).powf(2.4)
-    }
-}
-
 /// BT.2100 HLG OETF: linear scene light → non-linear HLG signal.
 /// Input can exceed 1.0 (HDR content).
 #[inline]
@@ -35,17 +24,3 @@ pub fn hlg_oetf(e: f32) -> f32 {
     }
 }
 
-/// BT.2100 HLG OETF inverse: non-linear HLG signal → linear scene light.
-/// Threshold at 0.5 = sqrt(3 * 1/12).
-#[inline]
-pub fn hlg_oetf_inv(v: f32) -> f32 {
-    let v = v.max(0.0);
-    if v <= 0.5 {
-        v * v / 3.0
-    } else {
-        const A: f32 = 0.17883277;
-        const B: f32 = 0.28466892;
-        const C: f32 = 0.55991073;
-        (((v - C) / A).exp() + B) / 12.0
-    }
-}

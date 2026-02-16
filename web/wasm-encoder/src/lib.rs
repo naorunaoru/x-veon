@@ -16,11 +16,10 @@ pub fn encode_image(
     width: u32,
     height: u32,
     xyz_to_cam: &[f32],
-    wb_coeffs: &[f32],
+    _wb_coeffs: &[f32],
     orientation: &str,
     format: &str,
     quality: u8,
-    tone_map: &str,
     look_preset: &str,
 ) -> Result<Vec<u8>, JsError> {
     console_error_panic_hook::set_once();
@@ -33,18 +32,12 @@ pub fn encode_image(
     }
 
     let mat = color::mat3_from_slice(xyz_to_cam);
-    let wb = if wb_coeffs.len() >= 3 {
-        [wb_coeffs[0], wb_coeffs[1], wb_coeffs[2]]
-    } else {
-        [1.0, 1.0, 1.0]
-    };
     let fmt = pipeline::Format::parse(format).map_err(|e| JsError::new(&e))?;
-    let tm = pipeline::ToneMap::parse(tone_map);
     let preset = match look_preset {
         "default" => opendrt::LookPreset::Default,
         _ => opendrt::LookPreset::Base,
     };
 
-    pipeline::encode(data, width, height, &mat, &wb, orientation, fmt, quality, tm, preset)
+    pipeline::encode(data, width, height, &mat, orientation, fmt, quality, preset)
         .map_err(|e| JsError::new(&e))
 }
