@@ -4,7 +4,6 @@ import { Button } from '@/components/ui/button';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { cn } from '@/lib/utils';
 import { useAppStore } from '@/store';
 import { useProcessFile } from '@/hooks/useProcessFile';
 import { useExport } from '@/hooks/useExport';
@@ -28,8 +27,6 @@ const DEMOSAIC_OPTIONS: { value: DemosaicMethod; label: string; cfa?: CfaType }[
 export function SettingsPanel() {
   const demosaicMethod = useAppStore((s) => s.demosaicMethod);
   const setDemosaicMethod = useAppStore((s) => s.setDemosaicMethod);
-  const lookPreset = useAppStore((s) => s.lookPreset);
-  const setLookPreset = useAppStore((s) => s.setLookPreset);
   const selectedFile = useAppStore((s) =>
     s.files.find((f) => f.id === s.selectedFileId),
   );
@@ -97,27 +94,6 @@ export function SettingsPanel() {
             ))}
           </SelectContent>
         </Select>
-        </div>
-      </div>
-
-      {/* Look Preset */}
-      <div className="flex items-center gap-3">
-        <span className="text-xs text-muted-foreground w-14 flex-shrink-0">Look</span>
-        <div className="flex-1 flex rounded-md bg-muted p-0.5">
-          {([['default', 'Default'], ['base', 'Base'], ['flat', 'Flat']] as const).map(([value, label]) => (
-            <button
-              key={value}
-              className={cn(
-                'flex-1 rounded-sm px-2 py-1 text-xs font-medium transition-colors',
-                lookPreset === value
-                  ? 'bg-background text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-              onClick={() => setLookPreset(value)}
-            >
-              {label}
-            </button>
-          ))}
         </div>
       </div>
 

@@ -214,6 +214,52 @@ impl OpenDrtConfig {
             (LookPreset::Flat, true) => Self::flat_hdr(),
         }
     }
+
+    /// Unpack from a 38-element f32 slice sent from TypeScript `packConfig()`.
+    /// Layout must match the TS packing order exactly.
+    pub fn from_packed(d: &[f32], gamut: DisplayGamut) -> Self {
+        Self {
+            tn_lg:           d[0],
+            tn_con:          d[1],
+            tn_sh:           d[2],
+            tn_toe:          d[3],
+            tn_off:          d[4],
+            tn_lcon_enable:  d[5] > 0.5,
+            tn_lcon:         d[6],
+            tn_lcon_w:       d[7],
+            tn_lcon_pc:      d[8],
+            tn_hcon_enable:  d[9] > 0.5,
+            tn_hcon:         d[10],
+            tn_hcon_pv:      d[11],
+            tn_hcon_st:      d[12],
+            rs_sa:           d[13],
+            rs_rw:           d[14],
+            rs_bw:           d[15],
+            pt_r:            d[16],
+            pt_g:            d[17],
+            pt_b:            d[18],
+            pt_rng_low:      d[19],
+            pt_rng_high:     d[20],
+            ptl_enable:      d[21] > 0.5,
+            ptm_enable:      d[22] > 0.5,
+            ptm_low:         d[23],
+            ptm_low_st:      d[24],
+            ptm_high:        d[25],
+            ptm_high_st:     d[26],
+            brl_enable:      d[27] > 0.5,
+            brl_r:           d[28],
+            brl_g:           d[29],
+            brl_b:           d[30],
+            brl_c:           d[31],
+            brl_m:           d[32],
+            brl_y:           d[33],
+            brl_rng:         d[34],
+            peak_luminance:  d[35],
+            grey_boost:      d[36],
+            pt_hdr:          d[37],
+            display_gamut:   gamut,
+        }
+    }
 }
 
 // ── Pre-computed tonescale constants (pixel-independent) ─────────────────

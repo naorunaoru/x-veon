@@ -108,3 +108,41 @@ export interface ProcessingResultMeta {
   exportData: ExportDataMeta;
   metadata: ProcessingResult['metadata'];
 }
+
+/** IDB-safe version of ProcessingResultMeta (Float32Array → number[]). */
+export interface SerializableResultMeta {
+  exportData: {
+    width: number;
+    height: number;
+    xyzToCam: number[] | null;
+    wbCoeffs: number[];
+    orientation: string;
+  };
+  metadata: ProcessingResult['metadata'];
+}
+
+export function serializeResultMeta(meta: ProcessingResultMeta): SerializableResultMeta {
+  return {
+    exportData: {
+      width: meta.exportData.width,
+      height: meta.exportData.height,
+      xyzToCam: meta.exportData.xyzToCam ? Array.from(meta.exportData.xyzToCam) : null,
+      wbCoeffs: Array.from(meta.exportData.wbCoeffs),
+      orientation: meta.exportData.orientation,
+    },
+    metadata: meta.metadata,
+  };
+}
+
+export function deserializeResultMeta(meta: SerializableResultMeta): ProcessingResultMeta {
+  return {
+    exportData: {
+      width: meta.exportData.width,
+      height: meta.exportData.height,
+      xyzToCam: meta.exportData.xyzToCam ? new Float32Array(meta.exportData.xyzToCam) : null,
+      wbCoeffs: new Float32Array(meta.exportData.wbCoeffs),
+      orientation: meta.exportData.orientation,
+    },
+    metadata: meta.metadata,
+  };
+}

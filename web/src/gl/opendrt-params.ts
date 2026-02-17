@@ -158,6 +158,41 @@ export function configFromPreset(preset: LookPreset, hdrHeadroom?: number): Open
   return cfg;
 }
 
+/** Merge user overrides on top of a preset config. Auto-enables feature groups when relevant params are overridden. */
+export function configWithOverrides(
+  base: OpenDrtConfig,
+  overrides: Partial<OpenDrtConfig>,
+): OpenDrtConfig {
+  const cfg = { ...base, ...overrides };
+  // Auto-enable feature groups when their params are explicitly set
+  if ('tn_lcon' in overrides && !('tn_lcon_enable' in overrides)) {
+    cfg.tn_lcon_enable = cfg.tn_lcon !== 0;
+  }
+  if (('brl_r' in overrides || 'brl_g' in overrides || 'brl_b' in overrides ||
+       'brl_c' in overrides || 'brl_m' in overrides || 'brl_y' in overrides) &&
+      !('brl_enable' in overrides)) {
+    cfg.brl_enable = true;
+  }
+  return cfg;
+}
+
+/** Pack config into a flat Float32Array for WASM transfer. Layout must match Rust from_packed(). */
+export function packConfig(cfg: OpenDrtConfig): Float32Array {
+  const b = (v: boolean) => v ? 1.0 : 0.0;
+  return new Float32Array([
+    cfg.tn_lg, cfg.tn_con, cfg.tn_sh, cfg.tn_toe, cfg.tn_off,
+    b(cfg.tn_lcon_enable), cfg.tn_lcon, cfg.tn_lcon_w, cfg.tn_lcon_pc,
+    b(cfg.tn_hcon_enable), cfg.tn_hcon, cfg.tn_hcon_pv, cfg.tn_hcon_st,
+    cfg.rs_sa, cfg.rs_rw, cfg.rs_bw,
+    cfg.pt_r, cfg.pt_g, cfg.pt_b, cfg.pt_rng_low, cfg.pt_rng_high,
+    b(cfg.ptl_enable), b(cfg.ptm_enable),
+    cfg.ptm_low, cfg.ptm_low_st, cfg.ptm_high, cfg.ptm_high_st,
+    b(cfg.brl_enable), cfg.brl_r, cfg.brl_g, cfg.brl_b,
+    cfg.brl_c, cfg.brl_m, cfg.brl_y, cfg.brl_rng,
+    cfg.peak_luminance, cfg.grey_boost, cfg.pt_hdr,
+  ]); // 38 elements
+}
+
 // ── TonescaleParams (matching opendrt.rs TonescaleParams::new, lines 209-230) ──
 
 export function computeTonescaleParams(cfg: OpenDrtConfig): TonescaleParams {

@@ -41,23 +41,42 @@ export function usePanZoom(
   const [isDragging, setIsDragging] = useState(false);
   const fitScaleRef = useRef(1);
   const dragStartRef = useRef({ x: 0, y: 0, ox: 0, oy: 0 });
+  const prevSizeRef = useRef({ w: 0, h: 0 });
 
-  // Recompute fit scale on container resize
+  // Fit-to-view on mount / content change; preserve zoom + center-anchor on container resize
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    const update = () => {
-      const rect = container.getBoundingClientRect();
-      const fs = computeFitScale(rect.width, rect.height, contentWidth, contentHeight);
-      fitScaleRef.current = fs;
-      const c = centerOffset(rect.width, rect.height, contentWidth, contentHeight, fs);
-      setState({ scale: fs, offsetX: c.x, offsetY: c.y });
-    };
+    // Initial / content change → fit-to-view
+    const rect = container.getBoundingClientRect();
+    const fs = computeFitScale(rect.width, rect.height, contentWidth, contentHeight);
+    fitScaleRef.current = fs;
+    const c = centerOffset(rect.width, rect.height, contentWidth, contentHeight, fs);
+    setState({ scale: fs, offsetX: c.x, offsetY: c.y });
+    prevSizeRef.current = { w: rect.width, h: rect.height };
 
-    update();
+    // Container resize → preserve scale, anchor canvas center
+    const ro = new ResizeObserver(() => {
+      const r = container.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) return;
+      const { w: oldW, h: oldH } = prevSizeRef.current;
+      const newFs = computeFitScale(r.width, r.height, contentWidth, contentHeight);
+      fitScaleRef.current = newFs;
 
-    const ro = new ResizeObserver(update);
+      setState((s) => {
+        const scale = Math.max(newFs, s.scale);
+        // Canvas point at old container center → keep at new center
+        const cx = (oldW / 2 - s.offsetX) / s.scale;
+        const cy = (oldH / 2 - s.offsetY) / s.scale;
+        const ox = r.width / 2 - cx * scale;
+        const oy = r.height / 2 - cy * scale;
+        if (scale === s.scale && ox === s.offsetX && oy === s.offsetY) return s;
+        return { scale, offsetX: ox, offsetY: oy };
+      });
+
+      prevSizeRef.current = { w: r.width, h: r.height };
+    });
     ro.observe(container);
     return () => ro.disconnect();
   }, [containerRef, contentWidth, contentHeight]);
