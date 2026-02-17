@@ -60,25 +60,31 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
     let cancelled = false;
     const rendererKey = `${fileId}:${hwcW}:${hwcH}:${displayHdr}:${displayHdrHeadroom}`;
 
-    if (rendererKey !== rendererKeyRef.current) {
-      rendererRef.current?.dispose();
-      canvas.width = hwcW;
-      canvas.height = hwcH;
-      const renderer = new HdrRenderer(canvas,
-        displayHdr ? { hdr: true, headroom: displayHdrHeadroom } : undefined,
-      );
-      rendererRef.current = renderer;
-      rendererKeyRef.current = rendererKey;
-    }
+    (async () => {
+      // Create or reuse renderer
+      if (rendererKey !== rendererKeyRef.current) {
+        rendererRef.current?.dispose();
+        rendererRef.current = null;
+        rendererKeyRef.current = '';
+        canvas.width = hwcW;
+        canvas.height = hwcH;
+        const renderer = await HdrRenderer.create(canvas,
+          displayHdr ? { hdr: true, headroom: displayHdrHeadroom } : undefined,
+        );
+        if (cancelled) { renderer.dispose(); return; }
+        rendererRef.current = renderer;
+        rendererKeyRef.current = rendererKey;
+      }
 
-    const renderer = rendererRef.current!;
-    setCanvasRef(null);
-    setRendererRef(null);
-    setLoadingHwc(true);
+      const renderer = rendererRef.current!;
+      setCanvasRef(null);
+      setRendererRef(null);
+      setLoadingHwc(true);
 
-    const method = useAppStore.getState().files.find((f) => f.id === fileId)?.resultMethod ?? null;
-    readHwc(method ? hwcKey(fileId, method) : fileId).then((hwc) => {
+      const method = useAppStore.getState().files.find((f) => f.id === fileId)?.resultMethod ?? null;
+      const hwc = await readHwc(method ? hwcKey(fileId, method) : fileId);
       if (cancelled || !hwc) return;
+
       renderer.uploadImage(hwc, hwcW, hwcH);
       const file = useAppStore.getState().files.find((f) => f.id === fileId);
       const preset = file?.lookPreset ?? 'default';
@@ -88,7 +94,7 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
       setCanvasRef(canvas);
       setRendererRef(renderer);
       setLoadingHwc(false);
-    });
+    })();
 
     return () => { cancelled = true; };
   }, [fileId, result, imgW, imgH, hwcW, hwcH, setCanvasRef, setRendererRef, displayHdr, displayHdrHeadroom]);

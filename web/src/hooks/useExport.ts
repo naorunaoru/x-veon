@@ -56,15 +56,15 @@ export function useExport() {
 
         if (exportFormat === 'jpeg-hdr') {
           // Dual render: SDR (Rec.709) + HDR (Rec.2020)
-          data = renderer.renderForExport(sdrConfig, sdrTs, 'rec709');
-          hdrData = renderer.renderForExport(hdrConfig, hdrTs, 'rec2020');
+          data = await renderer.renderForExport(sdrConfig, sdrTs, 'rec709');
+          hdrData = await renderer.renderForExport(hdrConfig, hdrTs, 'rec2020');
         } else {
           // AVIF: HDR only (Rec.2020)
-          data = renderer.renderForExport(hdrConfig, hdrTs, 'rec2020');
+          data = await renderer.renderForExport(hdrConfig, hdrTs, 'rec2020');
         }
       } else {
         // JPEG / TIFF: SDR (Rec.709)
-        data = renderer.renderForExport(sdrConfig, sdrTs, 'rec709');
+        data = await renderer.renderForExport(sdrConfig, sdrTs, 'rec709');
       }
 
       const { blob, ext } = await encodeImage(
