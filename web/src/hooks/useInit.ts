@@ -7,22 +7,25 @@ import { initDemosaicGpuSafe } from '@/pipeline/demosaic';
 import { probeHdrDisplay } from '@/gl/hdr-display';
 import { getAllFiles, getSetting } from '@/lib/idb-storage';
 import type { PersistedFile } from '@/lib/idb-storage';
-import { hasHwc, hwcKey, listRawFileIds, listHwcFileIds, deleteAllForFile } from '@/lib/opfs-storage';
+import { hasHwc, hwcKey, listRawFileIds, listHwcFileIds, deleteAllForFile, readThumbnail } from '@/lib/opfs-storage';
 import { deserializeResultMeta } from '@/pipeline/types';
 import type { DemosaicMethod, ExportFormat, ProcessingResultMeta } from '@/pipeline/types';
 import type { OpenDrtConfig } from '@/gl/opendrt-params';
 
-function persistedToQueued(p: PersistedFile): QueuedFile {
+async function persistedToQueued(p: PersistedFile): Promise<QueuedFile> {
   const result: ProcessingResultMeta | null = p.resultMeta
     ? deserializeResultMeta(p.resultMeta)
     : null;
+
+  // Load thumbnail from OPFS
+  const thumbBlob = await readThumbnail(p.id).catch(() => null);
 
   return {
     id: p.id,
     file: null,
     name: p.name,
     originalName: p.originalName,
-    thumbnailUrl: p.thumbnailBlob ? URL.createObjectURL(p.thumbnailBlob) : null,
+    thumbnailUrl: thumbBlob ? URL.createObjectURL(thumbBlob) : null,
     metadata: p.camera ? { camera: p.camera } : null,
     cfaType: p.cfaType,
     status: p.status === 'done' ? 'done' : 'queued',
@@ -66,7 +69,7 @@ export function useInit() {
         // Validate restored 'done' files — check HWC exists in OPFS
         const files: QueuedFile[] = [];
         for (const p of persistedFiles) {
-          const qf = persistedToQueued(p);
+          const qf = await persistedToQueued(p);
           if (qf.status === 'done' && qf.resultMethod) {
             const exists = await hasHwc(hwcKey(qf.id, qf.resultMethod));
             if (!exists) {

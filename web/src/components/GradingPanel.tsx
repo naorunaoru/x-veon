@@ -93,11 +93,12 @@ export function GradingPanel() {
     <aside className="flex flex-col h-screen w-[240px] min-w-[240px] border-l border-border bg-background">
       <div className="flex items-center justify-between px-4 py-3 border-b border-border">
         <span className="text-sm font-medium">Grading</span>
-        {hasOverrides && fileId && (
+        {fileId && (
           <Button
             variant="ghost"
             size="sm"
             className="h-6 w-6 p-0"
+            disabled={!hasOverrides}
             onClick={() => resetFileOpenDrtOverrides(fileId)}
             title="Reset to preset"
           >

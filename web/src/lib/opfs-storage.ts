@@ -2,6 +2,7 @@
 
 let hwcDir: FileSystemDirectoryHandle | null = null;
 let rawDir: FileSystemDirectoryHandle | null = null;
+let thumbDir: FileSystemDirectoryHandle | null = null;
 
 async function getHwcDir(): Promise<FileSystemDirectoryHandle> {
   if (hwcDir) return hwcDir;
@@ -15,6 +16,13 @@ async function getRawDir(): Promise<FileSystemDirectoryHandle> {
   const root = await navigator.storage.getDirectory();
   rawDir = await root.getDirectoryHandle('raw', { create: true });
   return rawDir;
+}
+
+async function getThumbDir(): Promise<FileSystemDirectoryHandle> {
+  if (thumbDir) return thumbDir;
+  const root = await navigator.storage.getDirectory();
+  thumbDir = await root.getDirectoryHandle('thumbnails', { create: true });
+  return thumbDir;
 }
 
 // ── HWC (demosaiced result) storage ─────────────────────────────────────────
@@ -99,13 +107,48 @@ export async function deleteRawForFile(fileId: string): Promise<void> {
   }
 }
 
+// ── Thumbnail storage ───────────────────────────────────────────────────────
+
+/** Write a thumbnail Blob to OPFS. */
+export async function writeThumbnail(fileId: string, blob: Blob): Promise<void> {
+  const dir = await getThumbDir();
+  const fh = await dir.getFileHandle(fileId, { create: true });
+  const writable = await fh.createWritable();
+  await writable.write(blob);
+  await writable.close();
+}
+
+/** Read a thumbnail Blob from OPFS. Returns null if missing. */
+export async function readThumbnail(fileId: string): Promise<Blob | null> {
+  try {
+    const dir = await getThumbDir();
+    const fh = await dir.getFileHandle(fileId);
+    return await fh.getFile();
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'NotFoundError') return null;
+    throw e;
+  }
+}
+
+/** Delete the thumbnail for a given file ID. */
+async function deleteThumbnailForFile(fileId: string): Promise<void> {
+  try {
+    const dir = await getThumbDir();
+    await dir.removeEntry(fileId);
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'NotFoundError') return;
+    throw e;
+  }
+}
+
 // ── Combined cleanup ────────────────────────────────────────────────────────
 
-/** Delete all OPFS data (raw + hwc) for a file. */
+/** Delete all OPFS data (raw + hwc + thumbnail) for a file. */
 export async function deleteAllForFile(fileId: string): Promise<void> {
   await Promise.all([
     deleteRawForFile(fileId),
     deleteHwcForFile(fileId),
+    deleteThumbnailForFile(fileId),
   ]);
 }
 

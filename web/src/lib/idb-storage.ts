@@ -10,7 +10,6 @@ export interface PersistedFile {
   fileSize: number;
   cfaType: CfaType | null;
   camera: string | null;
-  thumbnailBlob: Blob | null;
   status: 'queued' | 'done' | 'error';
   error: string | null;
   resultMethod: DemosaicMethod | null;

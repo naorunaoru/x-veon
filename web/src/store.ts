@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { CfaType, DemosaicMethod, ExportFormat, LookPreset, ProcessingResultMeta } from './pipeline/types';
 import { serializeResultMeta } from './pipeline/types';
 import type { OpenDrtConfig } from './gl/opendrt-params';
-import { deleteAllForFile, writeRaw } from './lib/opfs-storage';
+import { deleteAllForFile, writeRaw, writeThumbnail } from './lib/opfs-storage';
 import { putFile, deleteFile as idbDeleteFile, debouncedPutFile, putSetting } from './lib/idb-storage';
 import type { PersistedFile } from './lib/idb-storage';
 import type { ModelMeta } from './pipeline/inference';
@@ -95,7 +95,6 @@ function fileToPersistedFile(f: QueuedFile): PersistedFile {
     fileSize: f.file?.size ?? 0,
     cfaType: f.cfaType,
     camera: f.metadata?.camera ?? null,
-    thumbnailBlob: null, // Updated separately after extraction
     status: f.status === 'processing' ? 'queued' : f.status,
     error: f.error,
     resultMethod: f.resultMethod,
@@ -187,6 +186,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         const thumbBlob = extractRafThumbnail(buf);
         const meta = extractRafQuickMetadata(buf);
 
+        // Write thumbnail to OPFS
+        if (thumbBlob) {
+          writeThumbnail(entry.id, thumbBlob).catch((e) => console.warn('OPFS thumbnail write failed:', e));
+        }
+
         set((state) => ({
           files: state.files.map((f) =>
             f.id === entry.id
@@ -199,12 +203,10 @@ export const useAppStore = create<AppState>((set, get) => ({
           ),
         }));
 
-        // Persist to IDB with thumbnail and metadata
+        // Persist metadata to IDB
         const updated = get().files.find((f) => f.id === entry.id);
         if (updated) {
-          const persisted = fileToPersistedFile(updated);
-          persisted.thumbnailBlob = thumbBlob;
-          putFile(persisted).catch((e) => console.warn('IDB persist failed:', e));
+          putFile(fileToPersistedFile(updated)).catch((e) => console.warn('IDB persist failed:', e));
         }
       });
     }
