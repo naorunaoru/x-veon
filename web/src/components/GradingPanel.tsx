@@ -258,6 +258,21 @@ export function GradingPanel() {
           />
         </section>
 
+        {/* Detail */}
+        <section className="space-y-3">
+          <h3 className="text-[11px] uppercase tracking-wider text-muted-foreground">Detail</h3>
+          <ParamSlider
+            label="Sharpening"
+            paramKey="sharpen_amount"
+            min={0}
+            max={2}
+            step={0.01}
+            value={effectiveValue('sharpen_amount')}
+            defaultValue={baseConfig.sharpen_amount}
+            onChange={handleChange}
+          />
+        </section>
+
         {/* Look Preset */}
         <section className="space-y-1.5">
           <h3 className="text-[11px] uppercase tracking-wider text-muted-foreground">Look</h3>

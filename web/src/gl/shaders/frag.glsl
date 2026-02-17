@@ -36,6 +36,8 @@ uniform mat3 u_p3ToDisplay;
 uniform float u_exposure;     // EV stops
 uniform float u_wb_temp;      // white balance temperature: warm(+) / cool(-)
 uniform float u_wb_tint;      // white balance tint: magenta(+) / green(-)
+uniform float u_sharpen_amount; // unsharp mask strength (0 = off)
+uniform vec2  u_texel_size;     // 1/imageWidth, 1/imageHeight
 
 // ── Constants ───────────────────────────────────────────────────────────
 const float PI = 3.14159265;
@@ -344,6 +346,16 @@ vec3 opendrt(vec3 rgb_in) {
 
 void main() {
   vec3 linear = texture(u_image, v_uv).rgb;
+
+  // Unsharp mask sharpening (in linear/raw space, commutes with exposure+WB)
+  if (u_sharpen_amount > 0.0) {
+    vec3 t = texture(u_image, v_uv + vec2(0.0, u_texel_size.y)).rgb;
+    vec3 b = texture(u_image, v_uv - vec2(0.0, u_texel_size.y)).rgb;
+    vec3 l = texture(u_image, v_uv - vec2(u_texel_size.x, 0.0)).rgb;
+    vec3 r = texture(u_image, v_uv + vec2(u_texel_size.x, 0.0)).rgb;
+    vec3 blur = (t + b + l + r) * 0.25;
+    linear = max(linear + u_sharpen_amount * (linear - blur), 0.0);
+  }
 
   // Pre-processing: exposure + white balance correction
   linear *= exp2(u_exposure);

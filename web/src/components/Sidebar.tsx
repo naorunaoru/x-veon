@@ -10,7 +10,7 @@ export function Sidebar() {
   const hasFiles = useAppStore((s) => s.files.length > 0);
 
   return (
-    <aside className="flex flex-col h-screen w-[480px] min-w-[480px] border-r border-border">
+    <aside className="flex flex-col h-screen w-[360px] min-w-[360px] border-r border-border">
       <Header />
       <div className="flex-1 overflow-hidden flex flex-col">
         {!initialized && !hasFiles ? (
