@@ -37,15 +37,15 @@ https://naorunaoru.github.io/x-veon
 What it can do:
 - open RAW files from different cameras, tested mainly on Fujifilm RAFs and Sony ARWs
 - perform neural net or traditional numeric demosaicing for comparison
+- limited color grading creative controls
 - preview and save HDR photos
 
 Supported output formats: 
 - UHD JPEG: 3-channel gain map, works best
 - AVIF is super slow and has incorrect gamma, which can be solved by moving from HLG to PQ
-- TIFF is most likely broken and clipping, but it's there
+- uncompressed 16-bit TIFF is there too
 
 What it can't do yet:
-- perform any adjustments apart from OpenDRT tone mapping preset
 - export as DNG
 - passthrough full EXIF metadata
 - do batch operations
