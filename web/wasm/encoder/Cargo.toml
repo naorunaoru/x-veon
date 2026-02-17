@@ -24,8 +24,6 @@ tiff = "0.9"
 rav1e = { version = "0.7", default-features = false }
 avif-serialize = "0.8"
 
-[dev-dependencies]
-serde_json = "1"
 
 [profile.release]
 opt-level = "s"
