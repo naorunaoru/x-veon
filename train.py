@@ -69,12 +69,13 @@ def get_device():
     return torch.device("cpu")
 
 
-def train_epoch(model, loader, optimizer, criterion, device):
+def train_epoch(model, loader, optimizer, criterion, device, scaler=None):
     model.train()
     total_loss = 0.0
     total_psnr = 0.0
     component_sums = {}
     n_batches = 0
+    use_amp = scaler is not None
 
     for batch in loader:
         inputs, targets = batch
@@ -82,10 +83,17 @@ def train_epoch(model, loader, optimizer, criterion, device):
         targets = targets.to(device)
 
         optimizer.zero_grad()
-        outputs = model(inputs)
-        loss, components = criterion(outputs, targets)
-        loss.backward()
-        optimizer.step()
+        with torch.autocast(device.type, enabled=use_amp):
+            outputs = model(inputs)
+            loss, components = criterion(outputs, targets)
+
+        if use_amp:
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            loss.backward()
+            optimizer.step()
 
         total_loss += loss.item()
         for k, v in components.items():
@@ -99,7 +107,7 @@ def train_epoch(model, loader, optimizer, criterion, device):
 
 
 @torch.no_grad()
-def evaluate(model, loader, criterion, device):
+def evaluate(model, loader, criterion, device, use_amp=False):
     model.eval()
     total_loss = 0.0
     total_psnr = 0.0
@@ -111,8 +119,9 @@ def evaluate(model, loader, criterion, device):
         inputs = inputs.to(device)
         targets = targets.to(device)
 
-        outputs = model(inputs)
-        loss, components = criterion(outputs, targets)
+        with torch.autocast(device.type, enabled=use_amp):
+            outputs = model(inputs)
+            loss, components = criterion(outputs, targets)
 
         total_loss += loss.item()
         for k, v in components.items():
@@ -195,6 +204,8 @@ def main():
                         help="DataLoader workers (0 for main process)")
     parser.add_argument("--seed", type=int, default=42,
                         help="Random seed for train/val split")
+    parser.add_argument("--amp", action="store_true",
+                        help="Enable automatic mixed precision (float16)")
     
     args = parser.parse_args()
 
@@ -354,6 +365,13 @@ def main():
         else:
             print(f"  Loaded model weights (fresh optimizer for fine-tuning)")
 
+    # AMP scaler (no-op on CPU, works on CUDA and MPS)
+    scaler = torch.amp.GradScaler(device.type, enabled=args.amp) if args.amp else None
+    if args.amp:
+        if args.resume and "scaler" in ckpt:
+            scaler.load_state_dict(ckpt["scaler"])
+        print(f"  AMP enabled (float16 mixed precision)")
+
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -382,10 +400,10 @@ def main():
         t0 = time.time()
 
         train_loss, train_psnr, train_comp = train_epoch(
-            model, train_loader, optimizer, criterion, device
+            model, train_loader, optimizer, criterion, device, scaler=scaler
         )
         val_loss, val_psnr, val_comp = evaluate(
-            model, val_loader, criterion, device
+            model, val_loader, criterion, device, use_amp=args.amp
         )
         scheduler.step()
 
@@ -417,7 +435,7 @@ def main():
         # Save best
         if val_psnr > best_val_psnr:
             best_val_psnr = val_psnr
-            torch.save({
+            ckpt_data = {
                 "epoch": epoch,
                 "model": model.state_dict(),
                 "optimizer": optimizer.state_dict(),
@@ -425,12 +443,15 @@ def main():
                 "best_val_psnr": best_val_psnr,
                 "base_width": args.base_width,
                 "cfa_type": args.cfa_type,
-            }, output_dir / "best.pt")
+            }
+            if scaler is not None:
+                ckpt_data["scaler"] = scaler.state_dict()
+            torch.save(ckpt_data, output_dir / "best.pt")
             print(f"  -> New best ({best_val_psnr:.2f} dB)")
 
         # Save periodic checkpoint
         if (epoch + 1) % 10 == 0:
-            torch.save({
+            ckpt_data = {
                 "epoch": epoch,
                 "model": model.state_dict(),
                 "optimizer": optimizer.state_dict(),
@@ -438,7 +459,10 @@ def main():
                 "best_val_psnr": best_val_psnr,
                 "base_width": args.base_width,
                 "cfa_type": args.cfa_type,
-            }, output_dir / "latest.pt")
+            }
+            if scaler is not None:
+                ckpt_data["scaler"] = scaler.state_dict()
+            torch.save(ckpt_data, output_dir / "latest.pt")
 
         # Save history
         with open(output_dir / "history.json", "w") as f:
