@@ -1,57 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/store';
+import type { HistogramData } from '@/gl/renderer';
 
-type Mode = 'luma' | 'rgb';
+type Mode = 'luma' | 'rgb' | 'ev';
 
 const BINS = 256;
-const SAMPLE_W = 320;
-const SAMPLE_H = 320;
-
-interface HistogramData {
-  r: Uint32Array;
-  g: Uint32Array;
-  b: Uint32Array;
-  l: Uint32Array;
-}
-
-// Offscreen canvas reused across calls
-let _sampleCanvas: OffscreenCanvas | null = null;
-let _sampleCtx: OffscreenCanvasRenderingContext2D | null = null;
-
-function getSampleCtx(): OffscreenCanvasRenderingContext2D | null {
-  if (!_sampleCtx) {
-    _sampleCanvas = new OffscreenCanvas(SAMPLE_W, SAMPLE_H);
-    _sampleCtx = _sampleCanvas.getContext('2d', { willReadFrequently: true });
-  }
-  return _sampleCtx;
-}
-
-function computeHistogram(source: HTMLCanvasElement): HistogramData | null {
-  const ctx = getSampleCtx();
-  if (!ctx || source.width === 0 || source.height === 0) return null;
-
-  ctx.clearRect(0, 0, SAMPLE_W, SAMPLE_H);
-  ctx.drawImage(source, 0, 0, SAMPLE_W, SAMPLE_H);
-  const { data } = ctx.getImageData(0, 0, SAMPLE_W, SAMPLE_H);
-
-  const r = new Uint32Array(BINS);
-  const g = new Uint32Array(BINS);
-  const b = new Uint32Array(BINS);
-  const l = new Uint32Array(BINS);
-
-  for (let i = 0; i < data.length; i += 4) {
-    const ri = data[i], gi = data[i + 1], bi = data[i + 2];
-    r[ri]++;
-    g[gi]++;
-    b[bi]++;
-    // Rec.709 luminance
-    const lum = Math.min(255, Math.round(0.2126 * ri + 0.7152 * gi + 0.0722 * bi));
-    l[lum]++;
-  }
-
-  return { r, g, b, l };
-}
+const EV_MIN = -8;
+const EV_RANGE = 16;
+const ZONE_COUNT = 16;
+const ZONE_BAR_H = 16; // logical canvas pixels
 
 function drawChannel(
   ctx: CanvasRenderingContext2D,
@@ -78,6 +36,55 @@ function drawChannel(
   ctx.stroke();
 }
 
+function drawEvTicks(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+  const ticks = [-6, -3, 0, 3, 6];
+  ctx.lineWidth = 1;
+  ctx.font = '16px sans-serif';
+  ctx.textAlign = 'center';
+
+  for (const ev of ticks) {
+    const x = ((ev - EV_MIN) / EV_RANGE) * w;
+    // Vertical guide line
+    ctx.strokeStyle = ev === 0 ? 'rgba(255, 255, 255, 0.35)' : 'rgba(255, 255, 255, 0.15)';
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, h);
+    ctx.stroke();
+    // Label
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    const label = ev === 0 ? '0' : (ev > 0 ? `+${ev}` : `${ev}`);
+    ctx.fillText(label, x, h - 4);
+  }
+}
+
+function drawZoneBar(
+  ctx: CanvasRenderingContext2D,
+  bins: Uint32Array,
+  w: number,
+  y: number,
+): void {
+  const zoneCounts = new Float64Array(ZONE_COUNT);
+  let maxZone = 0;
+  for (let z = 0; z < ZONE_COUNT; z++) {
+    let sum = 0;
+    for (let i = 0; i < 16; i++) {
+      sum += bins[z * 16 + i];
+    }
+    zoneCounts[z] = sum;
+    if (sum > maxZone) maxZone = sum;
+  }
+  if (maxZone === 0) return;
+
+  const zoneW = w / ZONE_COUNT;
+  for (let z = 0; z < ZONE_COUNT; z++) {
+    const t = z / (ZONE_COUNT - 1);
+    const brightness = Math.round(30 + t * 200);
+    const alpha = 0.15 + 0.85 * (zoneCounts[z] / maxZone);
+    ctx.fillStyle = `rgba(${brightness}, ${brightness}, ${brightness}, ${alpha})`;
+    ctx.fillRect(z * zoneW, y, zoneW - 1, ZONE_BAR_H);
+  }
+}
+
 function drawHistogram(
   canvas: HTMLCanvasElement,
   data: HistogramData,
@@ -87,12 +94,13 @@ function drawHistogram(
   if (!ctx) return;
 
   const w = canvas.width;
-  const h = canvas.height;
-  ctx.clearRect(0, 0, w, h);
+  const fullH = canvas.height;
+  const h = mode === 'ev' ? fullH - ZONE_BAR_H - 4 : fullH;
+  ctx.clearRect(0, 0, w, fullH);
 
   // Find global max for consistent Y scaling
   let maxCount = 0;
-  const channels = mode === 'luma' ? [data.l] : [data.r, data.g, data.b];
+  const channels = mode === 'rgb' ? [data.r, data.g, data.b] : [data.l];
   for (const ch of channels) {
     // Skip first and last bins (pure black/white) for better scaling
     for (let i = 1; i < BINS - 1; i++) {
@@ -102,7 +110,11 @@ function drawHistogram(
   if (maxCount === 0) return;
   const maxLog = Math.log(1 + maxCount);
 
-  if (mode === 'luma') {
+  if (mode === 'ev') {
+    drawChannel(ctx, data.l, w, h, maxLog, 'rgba(120, 180, 255, 0.6)', 'rgba(160, 210, 255, 0.5)');
+    drawEvTicks(ctx, w, h);
+    drawZoneBar(ctx, data.l, w, h + 4);
+  } else if (mode === 'luma') {
     drawChannel(ctx, data.l, w, h, maxLog, 'rgba(200, 200, 200, 0.7)', 'rgba(255, 255, 255, 0.4)');
   } else {
     ctx.globalCompositeOperation = 'screen';
@@ -117,30 +129,34 @@ export function Histogram() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [mode, setMode] = useState<Mode>('luma');
 
-  const sourceCanvas = useAppStore((s) => s.canvasRef);
+  const renderer = useAppStore((s) => s.rendererRef);
   const selectedFile = useAppStore((s) => s.files.find((f) => f.id === s.selectedFileId));
   const lookPreset = selectedFile?.lookPreset ?? 'default';
   const overrides = selectedFile?.openDrtOverrides ?? {};
 
   useEffect(() => {
-    if (!sourceCanvas || !canvasRef.current) return;
+    if (!renderer || !canvasRef.current) return;
 
-    const raf = requestAnimationFrame(() => {
-      const data = computeHistogram(sourceCanvas);
-      if (data && canvasRef.current) {
+    renderer.histogramMode = mode === 'ev' ? 'hdr' : 'sdr';
+
+    let cancelled = false;
+
+    renderer.render();
+    renderer.getHistogramData().then((data) => {
+      if (!cancelled && data && canvasRef.current) {
         drawHistogram(canvasRef.current, data, mode);
       }
     });
 
-    return () => cancelAnimationFrame(raf);
-  }, [sourceCanvas, lookPreset, overrides, mode]);
+    return () => { cancelled = true; };
+  }, [renderer, lookPreset, overrides, mode]);
 
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
         <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Histogram</span>
         <div className="flex rounded bg-muted p-0.5 gap-0.5">
-          {(['luma', 'rgb'] as const).map((m) => (
+          {(['luma', 'rgb', 'ev'] as const).map((m) => (
             <button
               key={m}
               className={cn(
@@ -151,7 +167,7 @@ export function Histogram() {
               )}
               onClick={() => setMode(m)}
             >
-              {m === 'luma' ? 'L' : 'RGB'}
+              {m === 'luma' ? 'L' : m === 'rgb' ? 'RGB' : 'EV'}
             </button>
           ))}
         </div>

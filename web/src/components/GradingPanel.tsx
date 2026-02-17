@@ -130,7 +130,6 @@ export function GradingPanel() {
     (_: keyof OpenDrtConfig, cct: number) => {
       if (!fileId || !exportData?.camToXyz) return;
       const wbTemp = findWbTempForCct(cct, exportData.wbCoeffs, exportData.camToXyz);
-      console.log(cct, wbTemp)
       setFileOpenDrtOverride(fileId, 'wb_temp', wbTemp);
     },
     [fileId, exportData, setFileOpenDrtOverride],
@@ -140,7 +139,6 @@ export function GradingPanel() {
     (_: keyof OpenDrtConfig, tintVal: number) => {
       if (!fileId || !exportData?.camToXyz) return;
       const wbTint = findWbTintForTint(tintVal, exportData.wbCoeffs, exportData.camToXyz);
-      console.log(tintVal, wbTint)
       setFileOpenDrtOverride(fileId, 'wb_tint', wbTint);
     },
     [fileId, exportData, setFileOpenDrtOverride],

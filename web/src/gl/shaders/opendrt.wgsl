@@ -346,7 +346,7 @@ fn opendrt(rgb_in: vec3f) -> vec3f {
   g = (sat_l2 * rs_sa - g) * inv_sa;
   b = (sat_l2 * rs_sa - b) * inv_sa;
 
-  // Display gamut conversion (P3 -> Rec.709 for SDR)
+  // Display gamut conversion (e. g. P3 -> Rec.709 for SDR)
   let disp = p3_to_display * vec3f(r, g, b);
   r = disp.x;
   g = disp.y;
