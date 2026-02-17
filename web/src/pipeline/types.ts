@@ -6,6 +6,7 @@ export interface RawImage {
   blackLevels: Uint16Array;
   whiteLevels: Uint16Array;
   xyzToCam: Float32Array;
+  camToXyz: Float32Array;
   orientation: string;
   make: string;
   model: string;
@@ -13,6 +14,7 @@ export interface RawImage {
   cfaWidth: number;
   crops: Uint16Array;
   drGain: number;
+  exposureBias: number;
 }
 
 export interface CroppedImage {
@@ -92,6 +94,9 @@ export interface ProcessingResult {
     tileCount: number;
     inferenceTime: number;
     backend: string;
+    exposureBias: number;
+    colorTemp: number;
+    tint: number;
   };
 }
 
@@ -101,6 +106,7 @@ export interface ExportDataMeta {
   height: number;
   xyzToCam: Float32Array | null;
   wbCoeffs: Float32Array;
+  camToXyz: Float32Array;
   orientation: string;
 }
 
@@ -116,6 +122,7 @@ export interface SerializableResultMeta {
     height: number;
     xyzToCam: number[] | null;
     wbCoeffs: number[];
+    camToXyz?: number[];
     orientation: string;
   };
   metadata: ProcessingResult['metadata'];
@@ -128,6 +135,7 @@ export function serializeResultMeta(meta: ProcessingResultMeta): SerializableRes
       height: meta.exportData.height,
       xyzToCam: meta.exportData.xyzToCam ? Array.from(meta.exportData.xyzToCam) : null,
       wbCoeffs: Array.from(meta.exportData.wbCoeffs),
+      camToXyz: Array.from(meta.exportData.camToXyz),
       orientation: meta.exportData.orientation,
     },
     metadata: meta.metadata,
@@ -135,12 +143,18 @@ export function serializeResultMeta(meta: ProcessingResultMeta): SerializableRes
 }
 
 export function deserializeResultMeta(meta: SerializableResultMeta): ProcessingResultMeta {
+  // Default cam_to_xyz: 3×4 identity fallback for data persisted before this field existed.
+  // Layout is row-major with stride 4 (4th column = unused camera channel).
+  const camToXyz = meta.exportData.camToXyz
+    ? new Float32Array(meta.exportData.camToXyz)
+    : new Float32Array([1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0]);
   return {
     exportData: {
       width: meta.exportData.width,
       height: meta.exportData.height,
       xyzToCam: meta.exportData.xyzToCam ? new Float32Array(meta.exportData.xyzToCam) : null,
       wbCoeffs: new Float32Array(meta.exportData.wbCoeffs),
+      camToXyz,
       orientation: meta.exportData.orientation,
     },
     metadata: meta.metadata,

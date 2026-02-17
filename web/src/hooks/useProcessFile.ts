@@ -19,6 +19,7 @@ import { runDemosaic, destroyDemosaicPool } from '@/pipeline/demosaic';
 import { createTileBlender, cropToHWC, buildColorMatrix, applyColorCorrection } from '@/pipeline/postprocessor';
 import { PATCH_SIZE, OVERLAP } from '@/pipeline/constants';
 import type { DemosaicMethod, ProcessingResultMeta } from '@/pipeline/types';
+import { estimateColorTemperature } from '@/pipeline/color-temperature';
 import { writeHwc, hwcKey, readRaw } from '@/lib/opfs-storage';
 
 /** Flatten a 2D pattern array into a Uint32Array for GPU/demosaic use */
@@ -175,6 +176,9 @@ export function useProcessFile() {
       const finalWidth = swap ? visHeight : visWidth;
       const finalHeight = swap ? visWidth : visHeight;
 
+      // 13. Estimate illuminant color temperature and tint from WB + color matrix
+      const { temp: colorTemp, tint } = estimateColorTemperature(wb, raw.camToXyz);
+
       // Persist large hwc buffer to OPFS (off JS heap)
       await writeHwc(hwcKey(fileId, method), hwc);
 
@@ -184,6 +188,7 @@ export function useProcessFile() {
           height: visHeight,
           xyzToCam: null,  // CC already applied
           wbCoeffs: wb,
+          camToXyz: raw.camToXyz,
           orientation,
         },
         metadata: {
@@ -194,6 +199,9 @@ export function useProcessFile() {
           tileCount,
           inferenceTime,
           backend: method === 'neural-net' ? (getBackend() ?? 'unknown') : method,
+          exposureBias: raw.exposureBias,
+          colorTemp,
+          tint,
         },
       };
 

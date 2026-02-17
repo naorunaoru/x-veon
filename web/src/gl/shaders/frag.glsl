@@ -32,6 +32,11 @@ uniform float u_odrt_ptl_enable;
 uniform mat3 u_srgbToP3;
 uniform mat3 u_p3ToDisplay;
 
+// Pre-processing (applied before OpenDRT)
+uniform float u_exposure;     // EV stops
+uniform float u_wb_temp;      // white balance temperature: warm(+) / cool(-)
+uniform float u_wb_tint;      // white balance tint: magenta(+) / green(-)
+
 // ── Constants ───────────────────────────────────────────────────────────
 const float PI = 3.14159265;
 const float SQRT3 = 1.7320508;
@@ -291,9 +296,9 @@ vec3 opendrt(vec3 rgb_in) {
   g = g * ts_pt_cmp + (1.0 - ts_pt_cmp);
   b = b * ts_pt_cmp + (1.0 - ts_pt_cmp);
 
-  // Inverse rendering space
+  // Inverse rendering space (clamp to avoid division by zero at rs_sa=1.0)
   float sat_l2 = r * rs_rw + g * rs_gw + b * rs_bw;
-  float inv_sa = 1.0 / (rs_sa - 1.0);
+  float inv_sa = 1.0 / (min(rs_sa, 0.999) - 1.0);
   r = (sat_l2 * rs_sa - r) * inv_sa;
   g = (sat_l2 * rs_sa - g) * inv_sa;
   b = (sat_l2 * rs_sa - b) * inv_sa;
@@ -339,6 +344,16 @@ vec3 opendrt(vec3 rgb_in) {
 
 void main() {
   vec3 linear = texture(u_image, v_uv).rgb;
+
+  // Pre-processing: exposure + white balance correction
+  linear *= exp2(u_exposure);
+  linear.r *= exp2(u_wb_temp);
+  linear.g *= exp2(-u_wb_tint);
+  linear.b *= exp2(-u_wb_temp);
+  // Compensate tint luminance shift: G is ~72% of perceived luminance,
+  // so adjusting it alone causes a visible brightness change.
+  // Normalize so that a neutral gray pixel keeps the same luminance.
+  linear /= 0.2126 * exp2(u_wb_temp) + 0.7152 * exp2(-u_wb_tint) + 0.0722 * exp2(-u_wb_temp);
 
   vec3 display = opendrt(linear);
 

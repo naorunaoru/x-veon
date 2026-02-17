@@ -15,6 +15,7 @@ const UNIFORM_NAMES = [
   'u_odrt_brl_rgb', 'u_odrt_brl_cmy',
   'u_odrt_ptm', 'u_odrt_ptm_high_st', 'u_odrt_ptl_enable',
   'u_srgbToP3', 'u_p3ToDisplay',
+  'u_exposure', 'u_wb_temp', 'u_wb_tint',
 ] as const;
 
 export type DisplayGamut = 'rec709' | 'rec2020';
@@ -324,6 +325,11 @@ export class HdrRenderer {
       cfg.ptm_enable ? 1.0 : 0.0, cfg.ptm_low, cfg.ptm_low_st, cfg.ptm_high);
     gl.uniform1f(this.loc('u_odrt_ptm_high_st'), cfg.ptm_high_st);
     gl.uniform1f(this.loc('u_odrt_ptl_enable'), cfg.ptl_enable ? 1.0 : 0.0);
+
+    // Pre-processing uniforms
+    gl.uniform1f(this.loc('u_exposure'), cfg.exposure);
+    gl.uniform1f(this.loc('u_wb_temp'), cfg.wb_temp);
+    gl.uniform1f(this.loc('u_wb_tint'), cfg.wb_tint);
   }
 
   private ensureExportFbo(w: number, h: number): void {
