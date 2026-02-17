@@ -23,9 +23,11 @@ interface ParamSliderProps {
   minLabel?: string;
   /** Label shown at the right (max) end of the slider. */
   maxLabel?: string;
+  /** Custom inline style for the slider track (e.g. gradient background). */
+  trackStyle?: React.CSSProperties;
 }
 
-function ParamSlider({ label, paramKey, min, max, step, value, defaultValue, onChange, infoLabel, minLabel, maxLabel }: ParamSliderProps) {
+function ParamSlider({ label, paramKey, min, max, step, value, defaultValue, onChange, infoLabel, minLabel, maxLabel, trackStyle }: ParamSliderProps) {
   const isModified = value !== defaultValue;
 
   return (
@@ -44,6 +46,7 @@ function ParamSlider({ label, paramKey, min, max, step, value, defaultValue, onC
         step={step}
         value={[value]}
         onValueChange={([v]) => onChange(paramKey, v)}
+        trackStyle={trackStyle}
       />
       {(minLabel || maxLabel) && (
         <div className="flex justify-between -mt-0.5">
@@ -237,6 +240,7 @@ export function GradingPanel() {
             infoLabel={shootingInfo?.temp}
             minLabel="2000K"
             maxLabel="12000K"
+            trackStyle={{ background: 'linear-gradient(to right, #5B8FC9, #E8A438)' }}
           />
           <ParamSlider
             label="Tint"
@@ -248,8 +252,9 @@ export function GradingPanel() {
             defaultValue={shootingInfo?.baseTint ?? 0}
             onChange={handleTintChange}
             infoLabel={shootingInfo?.tint}
-            minLabel="Green"
-            maxLabel="Magenta"
+            minLabel="Magenta"
+            maxLabel="Green"
+            trackStyle={{ background: 'linear-gradient(to right, #C850C0, #4BA84D)' }}
           />
         </section>
 
