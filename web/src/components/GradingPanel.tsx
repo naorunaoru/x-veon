@@ -68,6 +68,7 @@ export function GradingPanel() {
   const resetFileOpenDrtOverrides = useAppStore((s) => s.resetFileOpenDrtOverrides);
 
   const fileId = selectedFile?.id ?? null;
+  const hasResult = selectedFile?.status === 'done';
   const lookPreset = selectedFile?.lookPreset ?? 'default';
   const overrides = selectedFile?.openDrtOverrides ?? {};
 
@@ -107,7 +108,7 @@ export function GradingPanel() {
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-5">
+      <div className={cn("flex-1 overflow-y-auto px-4 py-3 space-y-5", !hasResult && "opacity-50 pointer-events-none")}>
         <Histogram />
 
         {/* Look Preset */}

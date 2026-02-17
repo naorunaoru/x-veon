@@ -52,7 +52,10 @@ export function usePanZoom(
       const fs = computeFitScale(rect.width, rect.height, contentWidth, contentHeight);
       fitScaleRef.current = fs;
       const c = centerOffset(rect.width, rect.height, contentWidth, contentHeight, fs);
-      setState({ scale: fs, offsetX: c.x, offsetY: c.y });
+      setState((prev) => {
+        if (prev.scale === fs && prev.offsetX === c.x && prev.offsetY === c.y) return prev;
+        return { scale: fs, offsetX: c.x, offsetY: c.y };
+      });
     };
 
     update();
