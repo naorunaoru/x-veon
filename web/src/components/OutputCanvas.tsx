@@ -20,8 +20,11 @@ export function OutputCanvas({ fileId, result }: OutputCanvasProps) {
   const [loadingHwc, setLoadingHwc] = useState(true);
   const setCanvasRef = useAppStore((s) => s.setCanvasRef);
 
-  const lookPreset = useAppStore((s) => s.lookPreset);
-  const openDrtOverrides = useAppStore((s) => s.openDrtOverrides);
+  // Per-file grading
+  const selectedFile = useAppStore((s) => s.files.find((f) => f.id === fileId));
+  const lookPreset = selectedFile?.lookPreset ?? 'default';
+  const openDrtOverrides = selectedFile?.openDrtOverrides ?? {};
+
   const displayHdr = useAppStore((s) => s.displayHdr);
   const displayHdrHeadroom = useAppStore((s) => s.displayHdrHeadroom);
 
@@ -68,8 +71,10 @@ export function OutputCanvas({ fileId, result }: OutputCanvasProps) {
     readHwc(method ? hwcKey(fileId, method) : fileId).then((hwc) => {
       if (cancelled || !hwc) return;
       renderer.uploadImage(hwc, width, height);
-      const overrides = useAppStore.getState().openDrtOverrides;
-      applyOpenDrt(renderer, lookPreset, overrides, renderer.isHdrDisplay ? renderer.hdrHeadroom : undefined);
+      const file = useAppStore.getState().files.find((f) => f.id === fileId);
+      const preset = file?.lookPreset ?? 'default';
+      const overrides = file?.openDrtOverrides ?? {};
+      applyOpenDrt(renderer, preset, overrides, renderer.isHdrDisplay ? renderer.hdrHeadroom : undefined);
       renderer.render();
       setLoadingHwc(false);
     });

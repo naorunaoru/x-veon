@@ -19,7 +19,7 @@ import { runDemosaic, destroyDemosaicPool } from '@/pipeline/demosaic';
 import { createTileBlender, cropToHWC, buildColorMatrix, applyColorCorrection } from '@/pipeline/postprocessor';
 import { PATCH_SIZE, OVERLAP } from '@/pipeline/constants';
 import type { DemosaicMethod, ProcessingResultMeta } from '@/pipeline/types';
-import { writeHwc, hwcKey } from '@/lib/opfs-storage';
+import { writeHwc, hwcKey, readRaw } from '@/lib/opfs-storage';
 
 /** Flatten a 2D pattern array into a Uint32Array for GPU/demosaic use */
 function flattenPattern(pattern: readonly (readonly number[])[], period: number): Uint32Array {
@@ -48,8 +48,15 @@ export function useProcessFile() {
     useAppStore.getState().updateFileStatus(fileId, 'processing');
 
     try {
-      // 1. Decode RAW
-      let arrayBuffer: ArrayBuffer | null = await fileEntry.file.arrayBuffer();
+      // 1. Decode RAW (File object for fresh drops, OPFS for restored sessions)
+      let arrayBuffer: ArrayBuffer | null;
+      if (fileEntry.file) {
+        arrayBuffer = await fileEntry.file.arrayBuffer();
+      } else {
+        const raw = await readRaw(fileEntry.id);
+        if (!raw) throw new Error('RAW file not found in storage. Please re-add this file.');
+        arrayBuffer = raw;
+      }
       const raw = decodeRaw(arrayBuffer);
       arrayBuffer = null;
       console.log(`RAW: ${raw.make} ${raw.model} (${raw.width}x${raw.height}, cfa=${raw.cfaWidth}x${raw.cfaStr.length / raw.cfaWidth})`);

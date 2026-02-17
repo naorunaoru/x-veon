@@ -49,7 +49,7 @@ export function FileListItem({ file, selected, onSelect, onRemove }: FileListIte
 
       {/* Info */}
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium truncate">{file.file.name}</p>
+        <p className="text-sm font-medium truncate">{file.originalName}</p>
         <p className="text-xs text-muted-foreground truncate">
           {file.metadata?.camera ?? '\u2014'}
         </p>

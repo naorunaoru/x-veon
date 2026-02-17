@@ -23,12 +23,12 @@ export function useExport() {
     const file = state.files.find((f) => f.id === fileId);
     if (!file?.result) return;
 
-    const { exportFormat, exportQuality, lookPreset, openDrtOverrides } = state;
+    const { exportFormat, exportQuality } = state;
     const { exportData } = file.result;
 
-    // Compute merged OpenDRT config (preset + user overrides) and pack for WASM
-    const baseConfig = configFromPreset(lookPreset);
-    const mergedConfig = configWithOverrides(baseConfig, openDrtOverrides);
+    // Compute merged OpenDRT config (per-file preset + overrides) and pack for WASM
+    const baseConfig = configFromPreset(file.lookPreset);
+    const mergedConfig = configWithOverrides(baseConfig, file.openDrtOverrides);
     const packedConfig = packConfig(mergedConfig);
 
     setIsExporting(true);
