@@ -32,9 +32,9 @@ export function OutputCanvas({ fileId, result }: OutputCanvasProps) {
 
   const orientationIndex = useMemo(() => {
     const o = result.exportData.orientation;
-    if (o === 'Rotate90') return 1;
+    if (o === 'Rotate90') return 3;
     if (o === 'Rotate180') return 2;
-    if (o === 'Rotate270') return 3;
+    if (o === 'Rotate270') return 1;
     return 0;
   }, [result.exportData.orientation]);
 

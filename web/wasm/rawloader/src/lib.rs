@@ -130,15 +130,16 @@ impl Image {
 }
 
 #[wasm_bindgen]
-pub fn decode_image(arr: js_sys::Uint8Array) -> Image {
+pub fn decode_image(arr: js_sys::Uint8Array) -> Result<Image, JsValue> {
     console_error_panic_hook::set_once();
     let vec = arr.to_vec();
-    let image = rawloader::decode_file_vec(&vec).unwrap();
+    let image = rawloader::decode_file_vec(&vec)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
     let cam_to_xyz = image.cam_to_xyz();
 
     let vector = match image.data {
         rawloader::RawImageData::Integer(v) => v,
-        _ => panic!("cannot decode floats yet"),
+        _ => return Err(JsValue::from_str("Float raw data is not supported")),
     };
 
     let orientation_string = match image.orientation {
@@ -155,7 +156,7 @@ pub fn decode_image(arr: js_sys::Uint8Array) -> Image {
 
     let dr_gain = exif_parse::extract_dr_gain(&vec);
 
-    Image {
+    Ok(Image {
         make: image.make.clone(),
         model: image.model.clone(),
         width: image.width,
@@ -173,5 +174,5 @@ pub fn decode_image(arr: js_sys::Uint8Array) -> Image {
         cam_to_xyz: flatten_matrix(&cam_to_xyz),
         dr_gain,
         data: js_sys::Uint16Array::from(&vector[..]),
-    }
+    })
 }

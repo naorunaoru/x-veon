@@ -142,8 +142,16 @@ function defaultSdr(): OpenDrtConfig {
   };
 }
 
+function flatSdr(): OpenDrtConfig {
+  return {
+    ...baseSdr(),
+    tn_con: 1.15,
+    rs_sa: 0.2,
+  };
+}
+
 export function configFromPreset(preset: LookPreset, hdrHeadroom?: number): OpenDrtConfig {
-  const cfg = preset === 'default' ? defaultSdr() : baseSdr();
+  const cfg = preset === 'default' ? defaultSdr() : preset === 'flat' ? flatSdr() : baseSdr();
   if (hdrHeadroom != null && hdrHeadroom > 1.0) {
     cfg.peak_luminance = hdrHeadroom * 100;
   }

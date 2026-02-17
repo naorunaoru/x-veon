@@ -39,6 +39,7 @@ pub enum DisplayGamut {
 pub enum LookPreset {
     Base,
     Default,
+    Flat,
 }
 
 // ── Config (ART CTL lines 878-1077) ──────────────────────────────────────
@@ -186,12 +187,31 @@ impl OpenDrtConfig {
         }
     }
 
+    /// Flat preset: reduced contrast and saturation for a muted, editorial look.
+    pub fn flat_sdr() -> Self {
+        Self {
+            tn_con: 1.15,
+            rs_sa: 0.2,
+            ..Self::base_sdr()
+        }
+    }
+
+    pub fn flat_hdr() -> Self {
+        Self {
+            peak_luminance: 1000.0,
+            display_gamut: DisplayGamut::Rec2020,
+            ..Self::flat_sdr()
+        }
+    }
+
     pub fn from_preset(preset: LookPreset, hdr: bool) -> Self {
         match (preset, hdr) {
             (LookPreset::Base, false) => Self::base_sdr(),
             (LookPreset::Base, true) => Self::base_hdr(),
             (LookPreset::Default, false) => Self::default_sdr(),
             (LookPreset::Default, true) => Self::default_hdr(),
+            (LookPreset::Flat, false) => Self::flat_sdr(),
+            (LookPreset::Flat, true) => Self::flat_hdr(),
         }
     }
 }

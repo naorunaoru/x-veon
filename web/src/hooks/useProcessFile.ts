@@ -192,7 +192,8 @@ export function useProcessFile() {
 
       useAppStore.getState().setFileResult(fileId, resultMeta, method);
     } catch (e) {
-      useAppStore.getState().updateFileStatus(fileId, 'error', (e as Error).message);
+      const msg = e instanceof Error ? e.message : typeof e === 'string' ? e : String(e);
+      useAppStore.getState().updateFileStatus(fileId, 'error', msg);
       console.error(e);
     } finally {
       destroyDemosaicPool();

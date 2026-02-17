@@ -104,7 +104,7 @@ export function SettingsPanel() {
       <div className="flex items-center gap-3">
         <span className="text-xs text-muted-foreground w-14 flex-shrink-0">Look</span>
         <div className="flex-1 flex rounded-md bg-muted p-0.5">
-          {([['default', 'Default'], ['base', 'Base']] as const).map(([value, label]) => (
+          {([['default', 'Default'], ['base', 'Base'], ['flat', 'Flat']] as const).map(([value, label]) => (
             <button
               key={value}
               className={cn(

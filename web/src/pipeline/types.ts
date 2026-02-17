@@ -69,9 +69,9 @@ export type DemosaicMethod =
   | 'ppg'
   | 'mhc';
 
-export type ExportFormat = 'avif' | 'jpeg-hdr' | 'tiff';
+export type ExportFormat = 'jpeg-hdr' | 'avif' | 'tiff';
 
-export type LookPreset = 'base' | 'default';
+export type LookPreset = 'default' | 'base' | 'flat';
 
 export interface ExportData {
   hwc: Float32Array;

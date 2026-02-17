@@ -35,6 +35,7 @@ pub fn encode_image(
     let fmt = pipeline::Format::parse(format).map_err(|e| JsError::new(&e))?;
     let preset = match look_preset {
         "default" => opendrt::LookPreset::Default,
+        "flat" => opendrt::LookPreset::Flat,
         _ => opendrt::LookPreset::Base,
     };
 
