@@ -42,6 +42,10 @@ export interface OpenDrtConfig {
   peak_luminance: number;
   grey_boost: number;
   pt_hdr: number;
+  // Pre-processing (applied before OpenDRT in shader)
+  exposure: number;   // EV stops
+  wb_temp: number;    // white balance temperature correction: warm(+) / cool(-)
+  wb_tint: number;    // white balance tint correction: magenta(+) / green(-)
 }
 
 export interface TonescaleParams {
@@ -109,6 +113,9 @@ function baseSdr(): OpenDrtConfig {
     peak_luminance: 100.0,
     grey_boost: 0.13,
     pt_hdr: 0.5,
+    exposure: 0.0,
+    wb_temp: 0.0,
+    wb_tint: 0.0,
   };
 }
 

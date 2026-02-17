@@ -56,6 +56,7 @@ pub struct Image {
     xyz_to_cam: js_sys::Float32Array,
     cam_to_xyz: js_sys::Float32Array,
     dr_gain: f32,
+    exposure_bias: f32,
 }
 
 #[wasm_bindgen]
@@ -127,6 +128,10 @@ impl Image {
     pub fn get_dr_gain(&self) -> f32 {
         self.dr_gain
     }
+
+    pub fn get_exposure_bias(&self) -> f32 {
+        self.exposure_bias
+    }
 }
 
 #[wasm_bindgen]
@@ -155,6 +160,7 @@ pub fn decode_image(arr: js_sys::Uint8Array) -> Result<Image, JsValue> {
     };
 
     let dr_gain = exif_parse::extract_dr_gain(&vec);
+    let exposure_bias = exif_parse::extract_exposure_bias(&vec);
 
     Ok(Image {
         make: image.make.clone(),
@@ -173,6 +179,7 @@ pub fn decode_image(arr: js_sys::Uint8Array) -> Result<Image, JsValue> {
         xyz_to_cam: flatten_matrix(&image.xyz_to_cam),
         cam_to_xyz: flatten_matrix(&cam_to_xyz),
         dr_gain,
+        exposure_bias,
         data: js_sys::Uint16Array::from(&vector[..]),
     })
 }

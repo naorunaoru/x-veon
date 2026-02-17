@@ -28,5 +28,7 @@ export function decodeRaw(arrayBuffer: ArrayBuffer): RawImage {
     cfaWidth: img.get_cfawidth(),
     crops: img.get_crops(),
     drGain: img.get_dr_gain(),
+    camToXyz: img.get_cam_to_xyz(),
+    exposureBias: img.get_exposure_bias(),
   };
 }

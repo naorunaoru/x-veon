@@ -6,6 +6,42 @@ macro_rules! log {
     };
 }
 
+/// Extract EXIF ExposureBiasValue from raw file bytes.
+/// Returns the exposure compensation in EV (e.g. -0.33, +1.0).
+/// Defaults to 0.0 if tag not found.
+pub fn extract_exposure_bias(raw_bytes: &[u8]) -> f32 {
+    let data = if is_raf(raw_bytes) {
+        let jpeg_offset = match u32::from_be_bytes(raw_bytes[84..88].try_into().unwrap_or([0;4])) as usize {
+            0 => return 0.0,
+            o if o >= raw_bytes.len() => return 0.0,
+            o => o,
+        };
+        &raw_bytes[jpeg_offset..]
+    } else {
+        raw_bytes
+    };
+
+    let reader = std::io::BufReader::new(std::io::Cursor::new(data));
+    let exif_data = match exif::Reader::new().read_from_container(&mut std::io::BufReader::new(reader)) {
+        Ok(e) => e,
+        Err(_) => return 0.0,
+    };
+
+    for field in exif_data.fields() {
+        if field.tag == exif::Tag::ExposureBiasValue {
+            if let exif::Value::SRational(vals) = &field.value {
+                if let Some(r) = vals.first() {
+                    if r.denom != 0 {
+                        return r.num as f32 / r.denom as f32;
+                    }
+                }
+            }
+        }
+    }
+
+    0.0
+}
+
 /// Extract Fuji Dynamic Range gain from raw file bytes.
 /// Returns 1.0 (DR100), 2.0 (DR200), or 4.0 (DR400).
 /// Defaults to 1.0 if tag not found or not a Fuji file.
