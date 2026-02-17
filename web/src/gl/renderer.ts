@@ -16,6 +16,7 @@ const UNIFORM_NAMES = [
   'u_odrt_ptm', 'u_odrt_ptm_high_st', 'u_odrt_ptl_enable',
   'u_srgbToP3', 'u_p3ToDisplay',
   'u_exposure', 'u_wb_temp', 'u_wb_tint',
+  'u_sharpen_amount', 'u_texel_size',
 ] as const;
 
 export type DisplayGamut = 'rec709' | 'rec2020';
@@ -188,6 +189,9 @@ export class HdrRenderer {
       );
     }
 
+    // Set texel size for sharpening kernel
+    gl.useProgram(this.program);
+    gl.uniform2f(this.loc('u_texel_size'), 1 / width, 1 / height);
   }
 
   setOpenDrtMode(ts: TonescaleParams, cfg: OpenDrtConfig): void {
@@ -330,6 +334,7 @@ export class HdrRenderer {
     gl.uniform1f(this.loc('u_exposure'), cfg.exposure);
     gl.uniform1f(this.loc('u_wb_temp'), cfg.wb_temp);
     gl.uniform1f(this.loc('u_wb_tint'), cfg.wb_tint);
+    gl.uniform1f(this.loc('u_sharpen_amount'), cfg.sharpen_amount);
   }
 
   private ensureExportFbo(w: number, h: number): void {

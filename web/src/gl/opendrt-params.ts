@@ -46,6 +46,7 @@ export interface OpenDrtConfig {
   exposure: number;   // EV stops
   wb_temp: number;    // white balance temperature correction: warm(+) / cool(-)
   wb_tint: number;    // white balance tint correction: magenta(+) / green(-)
+  sharpen_amount: number; // unsharp mask strength (0 = off)
 }
 
 export interface TonescaleParams {
@@ -116,6 +117,7 @@ function baseSdr(): OpenDrtConfig {
     exposure: 0.0,
     wb_temp: 0.0,
     wb_tint: 0.0,
+    sharpen_amount: 0.0,
   };
 }
 
