@@ -158,6 +158,24 @@ export function configFromPreset(preset: LookPreset, hdrHeadroom?: number): Open
   return cfg;
 }
 
+/** Merge user overrides on top of a preset config. Auto-enables feature groups when relevant params are overridden. */
+export function configWithOverrides(
+  base: OpenDrtConfig,
+  overrides: Partial<OpenDrtConfig>,
+): OpenDrtConfig {
+  const cfg = { ...base, ...overrides };
+  // Auto-enable feature groups when their params are explicitly set
+  if ('tn_lcon' in overrides && !('tn_lcon_enable' in overrides)) {
+    cfg.tn_lcon_enable = cfg.tn_lcon !== 0;
+  }
+  if (('brl_r' in overrides || 'brl_g' in overrides || 'brl_b' in overrides ||
+       'brl_c' in overrides || 'brl_m' in overrides || 'brl_y' in overrides) &&
+      !('brl_enable' in overrides)) {
+    cfg.brl_enable = true;
+  }
+  return cfg;
+}
+
 // ── TonescaleParams (matching opendrt.rs TonescaleParams::new, lines 209-230) ──
 
 export function computeTonescaleParams(cfg: OpenDrtConfig): TonescaleParams {

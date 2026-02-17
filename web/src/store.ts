@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { CfaType, DemosaicMethod, ExportFormat, LookPreset, ProcessingResultMeta } from './pipeline/types';
+import type { OpenDrtConfig } from './gl/opendrt-params';
 import { deleteHwcForFile } from './lib/opfs-storage';
 import type { ModelMeta } from './pipeline/inference';
 import { extractRafThumbnail, extractRafQuickMetadata } from './pipeline/raf-thumbnail';
@@ -41,6 +42,9 @@ interface AppState {
   exportQuality: number;
   lookPreset: LookPreset;
 
+  // OpenDRT per-parameter overrides (merged on top of preset)
+  openDrtOverrides: Partial<OpenDrtConfig>;
+
   // HDR display output (WebGL2 extended range)
   displayHdr: boolean;
   displayHdrHeadroom: number;
@@ -62,6 +66,8 @@ interface AppState {
   setExportFormat: (format: ExportFormat) => void;
   setExportQuality: (quality: number) => void;
   setLookPreset: (preset: LookPreset) => void;
+  setOpenDrtOverride: <K extends keyof OpenDrtConfig>(key: K, value: OpenDrtConfig[K]) => void;
+  resetOpenDrtOverrides: () => void;
   setDisplayHdr: (enabled: boolean, headroom: number) => void;
   setCanvasRef: (ref: HTMLCanvasElement | null) => void;
 }
@@ -80,6 +86,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   exportFormat: 'jpeg-hdr',
   exportQuality: 95,
   lookPreset: 'default',
+  openDrtOverrides: {},
 
   displayHdr: false,
   displayHdrHeadroom: 1.0,
@@ -210,7 +217,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   setDemosaicMethod: (method) => set({ demosaicMethod: method }),
   setExportFormat: (format) => set({ exportFormat: format }),
   setExportQuality: (quality) => set({ exportQuality: quality }),
-  setLookPreset: (preset) => set({ lookPreset: preset }),
+  setLookPreset: (preset) => set({ lookPreset: preset, openDrtOverrides: {} }),
+  setOpenDrtOverride: (key, value) =>
+    set((state) => ({ openDrtOverrides: { ...state.openDrtOverrides, [key]: value } })),
+  resetOpenDrtOverrides: () => set({ openDrtOverrides: {} }),
   setDisplayHdr: (enabled, headroom) => set({ displayHdr: enabled, displayHdrHeadroom: headroom }),
   setCanvasRef: (ref) => set({ canvasRef: ref }),
 }));

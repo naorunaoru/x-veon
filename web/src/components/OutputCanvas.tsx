@@ -4,7 +4,8 @@ import { useAppStore } from '@/store';
 import { usePanZoom } from '@/hooks/usePanZoom';
 import { readHwc, hwcKey } from '@/lib/opfs-storage';
 import { HdrRenderer } from '@/gl/renderer';
-import { configFromPreset, computeTonescaleParams } from '@/gl/opendrt-params';
+import { configFromPreset, configWithOverrides, computeTonescaleParams } from '@/gl/opendrt-params';
+import type { OpenDrtConfig } from '@/gl/opendrt-params';
 import type { ProcessingResultMeta } from '@/pipeline/types';
 
 interface OutputCanvasProps {
@@ -20,6 +21,7 @@ export function OutputCanvas({ fileId, result }: OutputCanvasProps) {
   const setCanvasRef = useAppStore((s) => s.setCanvasRef);
 
   const lookPreset = useAppStore((s) => s.lookPreset);
+  const openDrtOverrides = useAppStore((s) => s.openDrtOverrides);
   const displayHdr = useAppStore((s) => s.displayHdr);
   const displayHdrHeadroom = useAppStore((s) => s.displayHdrHeadroom);
 
@@ -66,7 +68,8 @@ export function OutputCanvas({ fileId, result }: OutputCanvasProps) {
     readHwc(method ? hwcKey(fileId, method) : fileId).then((hwc) => {
       if (cancelled || !hwc) return;
       renderer.uploadImage(hwc, width, height);
-      applyOpenDrt(renderer, lookPreset, renderer.isHdrDisplay ? renderer.hdrHeadroom : undefined);
+      const overrides = useAppStore.getState().openDrtOverrides;
+      applyOpenDrt(renderer, lookPreset, overrides, renderer.isHdrDisplay ? renderer.hdrHeadroom : undefined);
       renderer.render();
       setLoadingHwc(false);
     });
@@ -79,13 +82,13 @@ export function OutputCanvas({ fileId, result }: OutputCanvasProps) {
     };
   }, [fileId, imgW, imgH, setCanvasRef, result, orientationIndex, displayHdr, displayHdrHeadroom]);
 
-  // Re-render when look preset changes (cheap: uniform update + draw)
+  // Re-render when look preset or overrides change (cheap: uniform update + draw)
   useEffect(() => {
     const renderer = rendererRef.current;
     if (!renderer) return;
-    applyOpenDrt(renderer, lookPreset, renderer.isHdrDisplay ? renderer.hdrHeadroom : undefined);
+    applyOpenDrt(renderer, lookPreset, openDrtOverrides, renderer.isHdrDisplay ? renderer.hdrHeadroom : undefined);
     renderer.render();
-  }, [lookPreset]);
+  }, [lookPreset, openDrtOverrides]);
 
   return (
     <div
@@ -114,9 +117,11 @@ export function OutputCanvas({ fileId, result }: OutputCanvasProps) {
 function applyOpenDrt(
   renderer: HdrRenderer,
   lookPreset: string,
+  overrides: Partial<OpenDrtConfig>,
   hdrHeadroom?: number,
 ): void {
-  const cfg = configFromPreset(lookPreset as 'base' | 'default', hdrHeadroom);
+  const base = configFromPreset(lookPreset as 'base' | 'default', hdrHeadroom);
+  const cfg = configWithOverrides(base, overrides);
   const ts = computeTonescaleParams(cfg);
   if (hdrHeadroom != null && hdrHeadroom > 1.0) {
     ts.ts_dsc = 1.0;
