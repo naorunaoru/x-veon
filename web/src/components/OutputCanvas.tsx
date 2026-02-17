@@ -22,6 +22,7 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
   const rendererKeyRef = useRef('');
   const [loadingHwc, setLoadingHwc] = useState(true);
   const setCanvasRef = useAppStore((s) => s.setCanvasRef);
+  const setRendererRef = useAppStore((s) => s.setRendererRef);
 
   // Per-file grading — targeted primitive selectors to avoid re-renders from unrelated file changes
   const lookPreset = useAppStore((s) => s.files.find((f) => f.id === fileId)?.lookPreset ?? 'default');
@@ -39,38 +40,40 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
     containerRef, imgW, imgH,
   );
 
-  const orientationIndex = useMemo(() => {
+  // CSS rotation correction: rotate canvas to match EXIF orientation.
+  // Canvas stays at unrotated (texture) dimensions; CSS handles visual rotation.
+  const rotationCss = useMemo(() => {
     const o = result.exportData.orientation;
-    if (o === 'Rotate90') return 3;
-    if (o === 'Rotate180') return 2;
-    if (o === 'Rotate270') return 1;
-    return 0;
-  }, [result.exportData.orientation]);
+    if (o === 'Rotate90') return `translate(${hwcH}px, 0px) rotate(90deg)`;
+    if (o === 'Rotate180') return `translate(${hwcW}px, ${hwcH}px) rotate(180deg)`;
+    if (o === 'Rotate270') return `translate(0px, ${hwcW}px) rotate(270deg)`;
+    return '';
+  }, [result.exportData.orientation, hwcW, hwcH]);
 
   // Create/reuse renderer + load HWC image.
-  // The renderer is only recreated when dimensions, orientation, or HDR mode change.
+  // The renderer is only recreated when dimensions or HDR mode change.
   // Method changes only reload the HWC texture — no renderer destruction, zoom preserved.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !HdrRenderer.isSupported()) return;
 
     let cancelled = false;
-    const rendererKey = `${fileId}:${imgW}:${imgH}:${orientationIndex}:${displayHdr}:${displayHdrHeadroom}`;
+    const rendererKey = `${fileId}:${hwcW}:${hwcH}:${displayHdr}:${displayHdrHeadroom}`;
 
     if (rendererKey !== rendererKeyRef.current) {
       rendererRef.current?.dispose();
-      canvas.width = imgW;
-      canvas.height = imgH;
+      canvas.width = hwcW;
+      canvas.height = hwcH;
       const renderer = new HdrRenderer(canvas,
         displayHdr ? { hdr: true, headroom: displayHdrHeadroom } : undefined,
       );
       rendererRef.current = renderer;
-      renderer.setOrientation(orientationIndex);
       rendererKeyRef.current = rendererKey;
     }
 
     const renderer = rendererRef.current!;
     setCanvasRef(null);
+    setRendererRef(null);
     setLoadingHwc(true);
 
     const method = useAppStore.getState().files.find((f) => f.id === fileId)?.resultMethod ?? null;
@@ -83,11 +86,12 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
       applyOpenDrt(renderer, preset, overrides, renderer.isHdrDisplay ? renderer.hdrHeadroom : undefined);
       renderer.render();
       setCanvasRef(canvas);
+      setRendererRef(renderer);
       setLoadingHwc(false);
     });
 
     return () => { cancelled = true; };
-  }, [fileId, result, imgW, imgH, hwcW, hwcH, setCanvasRef, orientationIndex, displayHdr, displayHdrHeadroom]);
+  }, [fileId, result, imgW, imgH, hwcW, hwcH, setCanvasRef, setRendererRef, displayHdr, displayHdrHeadroom]);
 
   // Dispose renderer on unmount only
   useEffect(() => () => {
@@ -95,6 +99,7 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
     rendererRef.current = null;
     rendererKeyRef.current = '';
     useAppStore.getState().setCanvasRef(null);
+    useAppStore.getState().setRendererRef(null);
   }, []);
 
   // Re-render when look preset or overrides change (cheap: uniform update + draw)
@@ -116,7 +121,7 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
         ref={canvasRef}
         style={{
           transformOrigin: '0 0',
-          transform,
+          transform: rotationCss ? `${transform} ${rotationCss}` : transform,
           imageRendering: scale > 1 ? 'pixelated' : 'auto',
         }}
       />

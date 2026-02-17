@@ -6,8 +6,8 @@ out vec4 fragColor;
 
 // ── Uniforms ────────────────────────────────────────────────────────────
 uniform sampler2D u_image;
-uniform int u_orientation;       // 0=Normal, 1=Rot90, 2=Rot180, 3=Rot270
 uniform int u_hdrDisplay;        // 0=SDR (clamp to 1.0), 1=HDR extended range
+uniform int u_exportMode;        // 0=display (apply OETF), 1=export (output display-linear)
 
 // Tonescale precomputed params
 uniform float u_ts_s;
@@ -335,23 +335,18 @@ vec3 opendrt(vec3 rgb_in) {
   return max(vec3(r, g, b), 0.0); // HDR: no upper clamp
 }
 
-// ── EXIF rotation (remap UV) ────────────────────────────────────────────
-
-vec2 rotateUV(vec2 uv) {
-  if (u_orientation == 1) return vec2(1.0 - uv.y, uv.x);       // Rotate90
-  if (u_orientation == 2) return vec2(1.0 - uv.x, 1.0 - uv.y); // Rotate180
-  if (u_orientation == 3) return vec2(uv.y, 1.0 - uv.x);       // Rotate270
-  return uv;
-}
-
 // ── Main ────────────────────────────────────────────────────────────────
 
 void main() {
-  vec2 texUV = rotateUV(v_uv);
-  vec3 linear = texture(u_image, texUV).rgb;
+  vec3 linear = texture(u_image, v_uv).rgb;
 
   vec3 display = opendrt(linear);
 
-  // sRGB OETF
-  fragColor = vec4(srgb_oetf(display.r), srgb_oetf(display.g), srgb_oetf(display.b), 1.0);
+  if (u_exportMode == 1) {
+    // Export: output display-linear (no OETF, no clamp)
+    fragColor = vec4(display, 1.0);
+  } else {
+    // Display: apply sRGB OETF
+    fragColor = vec4(srgb_oetf(display.r), srgb_oetf(display.g), srgb_oetf(display.b), 1.0);
+  }
 }

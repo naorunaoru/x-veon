@@ -12,6 +12,7 @@ pub fn encode(
     gain_max: [f32; 3],
     offset: f32,
     hdr_capacity_max: f32,
+    exif_app1: &[u8],
 ) -> Result<Vec<u8>, String> {
     // Encode both JPEGs
     let primary_jpeg = encode_jpeg::encode(sdr_rgb8, width, height, quality)?;
@@ -33,17 +34,17 @@ pub fn encode(
     let primary_xmp_app1 = build_xmp_app1(&primary_xmp);
 
     // Compute sizes for MPF offset calculation.
-    // Final layout: SOI(2) + XMP_APP1 + MPF_APP2 + primary_body + gainmap_jpeg
+    // Final layout: SOI(2) + EXIF_APP1 + XMP_APP1 + MPF_APP2 + primary_body + gainmap_jpeg
     let primary_body = &primary_jpeg[2..]; // everything after SOI
     let mpf_data_len = mpf_payload_len();
     let mpf_app2_total = 2 + 2 + 4 + mpf_data_len; // marker(2) + length(2) + "MPF\0"(4) + data
 
     let primary_reconstructed_len =
-        2 + primary_xmp_app1.len() + mpf_app2_total + primary_body.len();
+        2 + exif_app1.len() + primary_xmp_app1.len() + mpf_app2_total + primary_body.len();
 
     // MPF TIFF header starts right after "MPF\0":
-    //   SOI(2) + XMP_APP1(len) + APP2_marker(2) + APP2_length(2) + "MPF\0"(4)
-    let mpf_tiff_offset = 2 + primary_xmp_app1.len() + 2 + 2 + 4;
+    //   SOI(2) + EXIF_APP1(len) + XMP_APP1(len) + APP2_marker(2) + APP2_length(2) + "MPF\0"(4)
+    let mpf_tiff_offset = 2 + exif_app1.len() + primary_xmp_app1.len() + 2 + 2 + 4;
     let image2_offset = primary_reconstructed_len - mpf_tiff_offset;
 
     let mpf_app2 = build_mpf(
@@ -55,6 +56,7 @@ pub fn encode(
     // Assemble final file
     let mut out = Vec::with_capacity(primary_reconstructed_len + gainmap_jpeg.len());
     out.extend_from_slice(&[0xFF, 0xD8]); // SOI
+    out.extend_from_slice(exif_app1);
     out.extend_from_slice(&primary_xmp_app1);
     out.extend_from_slice(&mpf_app2);
     out.extend_from_slice(primary_body);

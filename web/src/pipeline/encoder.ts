@@ -10,16 +10,15 @@ function getWorker(): Worker {
 }
 
 function encodeViaWorker(
-  hwc: Float32Array, width: number, height: number,
-  xyzToCam: Float32Array, wbCoeffs: Float32Array, orientation: string,
-  format: string, quality: number, odrtConfig: Float32Array,
+  data: Float32Array, hdrData: Float32Array,
+  width: number, height: number,
+  orientation: string, format: string,
+  quality: number, peakLuminance: number,
 ): Promise<Uint8Array> {
   return new Promise((resolve, reject) => {
     const w = getWorker();
-    const hwcCopy = hwc.slice();
-    const xyzToCamCopy = xyzToCam.slice();
-    const wbCopy = wbCoeffs.slice();
-    const odrtCopy = odrtConfig.slice();
+    const dataCopy = data.slice();
+    const hdrCopy = hdrData.slice();
 
     w.onmessage = (e) => {
       if (e.data.type === 'done') {
@@ -32,27 +31,28 @@ function encodeViaWorker(
 
     w.postMessage({
       type: 'encode',
-      hwc: hwcCopy.buffer,
+      data: dataCopy.buffer,
+      hdrData: hdrCopy.buffer,
       width, height,
-      xyzToCam: xyzToCamCopy.buffer,
-      wbCoeffs: wbCopy.buffer,
       orientation, format, quality,
-      odrtConfig: odrtCopy.buffer,
-    }, [hwcCopy.buffer, xyzToCamCopy.buffer, wbCopy.buffer, odrtCopy.buffer]);
+      peakLuminance,
+    }, [dataCopy.buffer, hdrCopy.buffer]);
   });
 }
 
 export async function encodeImage(
-  hwc: Float32Array, width: number, height: number,
-  xyzToCam: Float32Array | null, wbCoeffs: Float32Array,
+  data: Float32Array,
+  hdrData: Float32Array | null,
+  width: number, height: number,
   orientation: string,
-  format: ExportFormat, quality: number,
-  odrtConfig: Float32Array,
+  format: ExportFormat,
+  quality: number,
+  peakLuminance: number,
 ): Promise<{ blob: Blob; ext: string }> {
   const encoded = await encodeViaWorker(
-    hwc, width, height,
-    xyzToCam ?? new Float32Array(9), wbCoeffs, orientation,
-    format, quality, odrtConfig,
+    data, hdrData ?? new Float32Array(0),
+    width, height,
+    orientation, format, quality, peakLuminance,
   );
 
   const mimeTypes: Record<string, string> = { avif: 'image/avif', 'jpeg-hdr': 'image/jpeg', tiff: 'image/tiff' };

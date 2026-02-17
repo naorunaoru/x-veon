@@ -6,6 +6,7 @@ import { deleteAllForFile, writeRaw, writeThumbnail } from './lib/opfs-storage';
 import { putFile, deleteFile as idbDeleteFile, debouncedPutFile, putSetting } from './lib/idb-storage';
 import type { PersistedFile } from './lib/idb-storage';
 import type { ModelMeta } from './pipeline/inference';
+import type { HdrRenderer } from './gl/renderer';
 import { extractRafThumbnail, extractRafQuickMetadata } from './pipeline/raf-thumbnail';
 import { RAW_EXTENSIONS } from './pipeline/constants';
 
@@ -54,6 +55,9 @@ interface AppState {
   // Canvas ref for WebCodecs AVIF export
   canvasRef: HTMLCanvasElement | null;
 
+  // Renderer ref for GPU export readback
+  rendererRef: HdrRenderer | null;
+
   // Actions
   setInitialized: (backend: string, modelMeta: ModelMeta) => void;
   setInitError: (error: string) => void;
@@ -75,6 +79,7 @@ interface AppState {
 
   setDisplayHdr: (enabled: boolean, headroom: number) => void;
   setCanvasRef: (ref: HTMLCanvasElement | null) => void;
+  setRendererRef: (ref: HdrRenderer | null) => void;
 
   // Restore from IndexedDB on startup
   restoreFromDb: (files: QueuedFile[], settings: {
@@ -134,6 +139,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   displayHdrHeadroom: 1.0,
 
   canvasRef: null,
+  rendererRef: null,
 
   setInitialized: (backend, modelMeta) =>
     set({ initialized: true, backend, modelMeta }),
@@ -331,6 +337,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setDisplayHdr: (enabled, headroom) => set({ displayHdr: enabled, displayHdrHeadroom: headroom }),
   setCanvasRef: (ref) => set({ canvasRef: ref }),
+  setRendererRef: (ref) => set({ rendererRef: ref }),
 
   restoreFromDb: (files, settings) =>
     set({

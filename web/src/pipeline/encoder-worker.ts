@@ -11,14 +11,13 @@ self.onmessage = async (e: MessageEvent) => {
       ready = true;
     }
 
-    const { hwc, width, height, xyzToCam, wbCoeffs, orientation, format, quality, odrtConfig } = e.data;
+    const { data, hdrData, width, height, orientation, format, quality, peakLuminance } = e.data;
     const result = encode_image(
-      new Float32Array(hwc),
+      new Float32Array(data),
+      new Float32Array(hdrData),
       width, height,
-      new Float32Array(xyzToCam),
-      new Float32Array(wbCoeffs),
       orientation, format, quality,
-      new Float32Array(odrtConfig),
+      peakLuminance,
     );
     self.postMessage({ type: 'done', data: result.buffer }, [result.buffer] as any);
   } catch (err: unknown) {
