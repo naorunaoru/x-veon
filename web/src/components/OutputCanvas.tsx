@@ -54,7 +54,6 @@ export function OutputCanvas({ fileId, result }: OutputCanvasProps) {
     }
 
     let cancelled = false;
-    setCanvasRef(canvas);
     setLoadingHwc(true);
     canvas.width = imgW;
     canvas.height = imgH;
@@ -76,6 +75,7 @@ export function OutputCanvas({ fileId, result }: OutputCanvasProps) {
       const overrides = file?.openDrtOverrides ?? {};
       applyOpenDrt(renderer, preset, overrides, renderer.isHdrDisplay ? renderer.hdrHeadroom : undefined);
       renderer.render();
+      setCanvasRef(canvas);
       setLoadingHwc(false);
     });
 
