@@ -51,6 +51,10 @@ const TAG_STRIP_OFFSETS = 0x0111;
 const TAG_STRIP_LENGTHS = 0x0117;
 const TAG_SUB_IFD = 0x014A;
 const TAG_NEW_SUBFILE_TYPE = 0x00FE;
+const TAG_EXIF_IFD = 0x8769;
+const TAG_LENS_MODEL = 0xA434;
+const TAG_FOCAL_LENGTH = 0x920A;  // RATIONAL
+const TAG_F_NUMBER = 0x829D;      // RATIONAL
 
 const TYPE_SIZES: Record<number, number> = {
   1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 7: 1, 8: 2, 9: 4, 10: 8, 11: 4, 12: 8,
@@ -121,14 +125,25 @@ function getEntryString(entry: IfdEntry, buffer: ArrayBuffer): string {
   return readString(buffer, entry.valueOffset, size);
 }
 
+function getEntryRational(entry: IfdEntry, view: DataView, le: boolean): number {
+  // RATIONAL = two u32 (num, denom), always stored at offset (8 bytes > 4)
+  if (entry.valueOffset + 8 > view.byteLength) return 0;
+  const num = getU32(view, entry.valueOffset, le);
+  const denom = getU32(view, entry.valueOffset + 4, le);
+  return denom !== 0 ? num / denom : 0;
+}
+
 interface TiffResult {
   jpeg: Blob | null;
   make: string;
   model: string;
+  lensModel: string;
+  focalLength: number;
+  fNumber: number;
 }
 
 function parseTiff(buffer: ArrayBuffer): TiffResult {
-  const result: TiffResult = { jpeg: null, make: '', model: '' };
+  const result: TiffResult = { jpeg: null, make: '', model: '', lensModel: '', focalLength: 0, fNumber: 0 };
   if (!isTiff(buffer)) return result;
 
   const view = new DataView(buffer);
@@ -148,6 +163,7 @@ function parseTiff(buffer: ArrayBuffer): TiffResult {
 
     let jpegOff = 0;
     let jpegLen = 0;
+    let exifIfdOffset = 0;
 
     for (const entry of ifd.entries) {
       switch (entry.tag) {
@@ -156,6 +172,9 @@ function parseTiff(buffer: ArrayBuffer): TiffResult {
           break;
         case TAG_MODEL:
           if (!result.model) result.model = getEntryString(entry, buffer);
+          break;
+        case TAG_EXIF_IFD:
+          exifIfdOffset = entry.valueOffset;
           break;
         case TAG_JPEG_OFFSET:
           jpegOff = entry.type === 3
@@ -204,6 +223,26 @@ function parseTiff(buffer: ArrayBuffer): TiffResult {
       }
     }
 
+    // Parse Exif sub-IFD for lens metadata
+    if (exifIfdOffset > 0 && exifIfdOffset < buffer.byteLength) {
+      const exifIfd = parseIfd(view, buffer, exifIfdOffset, le);
+      if (exifIfd) {
+        for (const entry of exifIfd.entries) {
+          switch (entry.tag) {
+            case TAG_LENS_MODEL:
+              if (!result.lensModel) result.lensModel = getEntryString(entry, buffer);
+              break;
+            case TAG_FOCAL_LENGTH:
+              if (!result.focalLength) result.focalLength = getEntryRational(entry, view, le);
+              break;
+            case TAG_F_NUMBER:
+              if (!result.fNumber) result.fNumber = getEntryRational(entry, view, le);
+              break;
+          }
+        }
+      }
+    }
+
     // IFD1 typically contains the EXIF thumbnail
     if (jpegOff > 0 && jpegLen > 0) {
       if (!bestJpeg || jpegLen > bestJpeg.length) {
@@ -240,16 +279,40 @@ export function extractRafThumbnail(buffer: ArrayBuffer): Blob | null {
   return parseTiff(buffer).jpeg;
 }
 
-export function extractRafQuickMetadata(buffer: ArrayBuffer): { camera: string } | null {
-  // Try RAF first
-  const raf = extractRafMeta(buffer);
-  if (raf) return raf;
+export interface QuickMetadata {
+  camera: string;
+  lensModel: string;
+  focalLength: number;
+  fNumber: number;
+}
 
-  // Fall back to TIFF/EXIF
+export function extractRafQuickMetadata(buffer: ArrayBuffer): QuickMetadata | null {
+  // Try RAF header for camera name
+  const rafMeta = extractRafMeta(buffer);
+
+  if (rafMeta) {
+    // RAF: also parse the embedded JPEG for lens EXIF
+    const jpegBlob = extractRafJpeg(buffer);
+    if (jpegBlob) {
+      // The embedded JPEG is already in the buffer — find its EXIF directly
+      // Reuse parseTiff on the embedded JPEG (it starts with JPEG SOI, not TIFF,
+      // but we can parse the EXIF APP1 segment). Actually, the embedded JPEG
+      // is a regular JPEG — parseTiff only handles TIFF containers.
+      // For RAF, lens info will be filled by the full WASM decode later.
+    }
+    return { camera: rafMeta.camera, lensModel: '', focalLength: 0, fNumber: 0 };
+  }
+
+  // TIFF-based RAW (ARW, CR2, NEF, DNG, etc.)
   const tiff = parseTiff(buffer);
   if (tiff.make || tiff.model) {
     const camera = [tiff.make, tiff.model].filter(Boolean).join(' ');
-    return { camera };
+    return {
+      camera,
+      lensModel: tiff.lensModel,
+      focalLength: tiff.focalLength,
+      fNumber: tiff.fNumber,
+    };
   }
 
   return null;

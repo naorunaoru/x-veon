@@ -87,6 +87,34 @@ class ChromaLoss(nn.Module):
         return F.l1_loss(pred_hp, target_hp)
 
 
+class ZipperLoss(nn.Module):
+    """Penalize spurious high-frequency oscillations (zipper artifacts).
+
+    Uses the Laplacian (2nd-order derivative) to detect alternating pixel
+    patterns that shouldn't exist in a properly demosaiced image.  The
+    first-order Sobel gradient loss already penalizes edge errors, but
+    zipper is specifically a *second-order* phenomenon — rapid sign
+    alternation — that Sobel largely misses.
+    """
+
+    def __init__(self):
+        super().__init__()
+        laplacian = torch.tensor([
+            [0,  1, 0],
+            [1, -4, 1],
+            [0,  1, 0],
+        ], dtype=torch.float32).view(1, 1, 3, 3)
+        self.register_buffer('laplacian', laplacian)
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        B, C, H, W = pred.shape
+        pred_flat = pred.reshape(B * C, 1, H, W)
+        target_flat = target.reshape(B * C, 1, H, W)
+        lap_pred = F.conv2d(pred_flat, self.laplacian, padding=1)
+        lap_target = F.conv2d(target_flat, self.laplacian, padding=1)
+        return F.l1_loss(lap_pred, lap_target)
+
+
 class ColorBiasLoss(nn.Module):
     """Penalize systematic color shift (DC bias) between prediction and target."""
 
@@ -240,6 +268,7 @@ class DemosaicLoss(nn.Module):
         gradient_weight: float = 0.1,
         chroma_weight: float = 0.05,
         color_bias_weight: float = 0.0,
+        zipper_weight: float = 0.0,
         per_channel_norm: bool = False,
         use_huber: bool = False,
         huber_delta: float = 1.0,
@@ -251,6 +280,7 @@ class DemosaicLoss(nn.Module):
         self.gradient_weight = gradient_weight
         self.chroma_weight = chroma_weight
         self.color_bias_weight = color_bias_weight
+        self.zipper_weight = zipper_weight
         self.per_channel_norm = per_channel_norm
         self.use_huber = use_huber
         self.huber_delta = huber_delta
@@ -260,12 +290,13 @@ class DemosaicLoss(nn.Module):
         self.gradient = SobelGradientLoss() if gradient_weight > 0 else None
         self.chroma = ChromaLoss() if chroma_weight > 0 else None
         self.color_bias = ColorBiasLoss() if color_bias_weight > 0 else None
+        self.zipper = ZipperLoss() if zipper_weight > 0 else None
 
     @classmethod
     def base(cls, data_range: float = 1.0) -> "DemosaicLoss":
         """Preset for initial training: L1-focused for high PSNR."""
         return cls(l1_weight=1.0, msssim_weight=0.0, gradient_weight=0.1, chroma_weight=0.05,
-                   data_range=data_range)
+                   zipper_weight=0.05, data_range=data_range)
 
     @classmethod
     def finetune(cls, msssim_weight: float = 0.3, gradient_weight: float = 0.2,
@@ -276,6 +307,7 @@ class DemosaicLoss(nn.Module):
             msssim_weight=msssim_weight,
             gradient_weight=gradient_weight,
             chroma_weight=0.02,
+            zipper_weight=0.1,
             data_range=data_range,
         )
 
@@ -322,6 +354,12 @@ class DemosaicLoss(nn.Module):
             chroma = self.chroma(pred, target)
             components['chroma'] = chroma.item()
             total = total + self.chroma_weight * chroma
+
+        # Zipper (2nd-order oscillation penalty)
+        if self.zipper is not None and self.zipper_weight > 0:
+            zipper = self.zipper(pred, target)
+            components['zipper'] = zipper.item()
+            total = total + self.zipper_weight * zipper
 
         # Color bias (DC shift penalty)
         if self.color_bias is not None and self.color_bias_weight > 0:

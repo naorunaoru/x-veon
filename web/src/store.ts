@@ -8,6 +8,7 @@ import type { PersistedFile } from './lib/idb-storage';
 import type { ModelMeta } from './pipeline/inference';
 import type { HdrRenderer } from './gl/renderer';
 import { extractRafThumbnail, extractRafQuickMetadata } from './pipeline/raf-thumbnail';
+import type { QuickMetadata } from './pipeline/raf-thumbnail';
 import { RAW_EXTENSIONS } from './pipeline/constants';
 
 export type FileStatus = 'queued' | 'processing' | 'done' | 'error';
@@ -18,7 +19,7 @@ export interface QueuedFile {
   name: string;
   originalName: string;
   thumbnailUrl: string | null;
-  metadata: { camera: string } | null;
+  metadata: QuickMetadata | null;
   cfaType: CfaType | null;
   status: FileStatus;
   error: string | null;
@@ -102,6 +103,9 @@ function fileToPersistedFile(f: QueuedFile): PersistedFile {
     fileSize: f.file?.size ?? 0,
     cfaType: f.cfaType,
     camera: f.metadata?.camera ?? null,
+    lensModel: f.metadata?.lensModel ?? null,
+    focalLength: f.metadata?.focalLength ?? null,
+    fNumber: f.metadata?.fNumber ?? null,
     status: f.status === 'processing' ? 'queued' : f.status,
     error: f.error,
     resultMethod: f.resultMethod,
@@ -269,8 +273,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({
       files: state.files.map((f) => {
         if (f.id !== id) return f;
+        // Merge lens/camera info from processing result into quick metadata
+        const rm = result.metadata;
+        const camera = f.metadata?.camera || [rm.make, rm.model].filter(Boolean).join(' ');
+        const metadata: QuickMetadata = {
+          camera,
+          lensModel: f.metadata?.lensModel || rm.lensModel,
+          focalLength: f.metadata?.focalLength || rm.focalLength,
+          fNumber: f.metadata?.fNumber || rm.fNumber,
+        };
         const updated = {
           ...f,
+          metadata,
           result,
           resultMethod: method,
           cachedResults: method === 'neural-net'

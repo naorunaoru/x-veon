@@ -15,6 +15,9 @@ export interface RawImage {
   crops: Uint16Array;
   drGain: number;
   exposureBias: number;
+  lensModel: string;
+  focalLength: number;
+  fNumber: number;
 }
 
 export interface CroppedImage {
@@ -95,6 +98,9 @@ export interface ProcessingResult {
     inferenceTime: number;
     backend: string;
     exposureBias: number;
+    lensModel: string;
+    focalLength: number;
+    fNumber: number;
     colorTemp: number;
     tint: number;
   };

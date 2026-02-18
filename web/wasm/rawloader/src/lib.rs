@@ -57,6 +57,9 @@ pub struct Image {
     cam_to_xyz: js_sys::Float32Array,
     dr_gain: f32,
     exposure_bias: f32,
+    lens_model: String,
+    focal_length: f32,
+    f_number: f32,
 }
 
 #[wasm_bindgen]
@@ -132,6 +135,18 @@ impl Image {
     pub fn get_exposure_bias(&self) -> f32 {
         self.exposure_bias
     }
+
+    pub fn get_lens_model(&self) -> String {
+        self.lens_model.clone()
+    }
+
+    pub fn get_focal_length(&self) -> f32 {
+        self.focal_length
+    }
+
+    pub fn get_f_number(&self) -> f32 {
+        self.f_number
+    }
 }
 
 #[wasm_bindgen]
@@ -160,7 +175,7 @@ pub fn decode_image(arr: js_sys::Uint8Array) -> Result<Image, JsValue> {
     };
 
     let dr_gain = exif_parse::extract_dr_gain(&vec);
-    let exposure_bias = exif_parse::extract_exposure_bias(&vec);
+    let exif_meta = exif_parse::extract_exif_meta(&vec);
 
     Ok(Image {
         make: image.make.clone(),
@@ -179,7 +194,10 @@ pub fn decode_image(arr: js_sys::Uint8Array) -> Result<Image, JsValue> {
         xyz_to_cam: flatten_matrix(&image.xyz_to_cam),
         cam_to_xyz: flatten_matrix(&cam_to_xyz),
         dr_gain,
-        exposure_bias,
+        exposure_bias: exif_meta.exposure_bias,
+        lens_model: exif_meta.lens_model,
+        focal_length: exif_meta.focal_length,
+        f_number: exif_meta.f_number,
         data: js_sys::Uint16Array::from(&vector[..]),
     })
 }

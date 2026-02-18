@@ -6,3 +6,6 @@ wasm/encoder/pkg/
 wasm/encoder/target/
 wasm/rawloader/pkg/
 wasm/rawloader/target/
+
+.lensfun-db
+public/lensfun

@@ -6,14 +6,32 @@ macro_rules! log {
     };
 }
 
-/// Extract EXIF ExposureBiasValue from raw file bytes.
-/// Returns the exposure compensation in EV (e.g. -0.33, +1.0).
-/// Defaults to 0.0 if tag not found.
-pub fn extract_exposure_bias(raw_bytes: &[u8]) -> f32 {
+/// EXIF metadata extracted in a single pass.
+pub struct ExifMeta {
+    pub exposure_bias: f32,
+    pub lens_model: String,
+    pub focal_length: f32,
+    pub f_number: f32,
+}
+
+impl Default for ExifMeta {
+    fn default() -> Self {
+        Self {
+            exposure_bias: 0.0,
+            lens_model: String::new(),
+            focal_length: 0.0,
+            f_number: 0.0,
+        }
+    }
+}
+
+/// Extract EXIF metadata (exposure bias, lens model, focal length, f-number)
+/// from raw file bytes in a single pass.
+pub fn extract_exif_meta(raw_bytes: &[u8]) -> ExifMeta {
     let data = if is_raf(raw_bytes) {
         let jpeg_offset = match u32::from_be_bytes(raw_bytes[84..88].try_into().unwrap_or([0;4])) as usize {
-            0 => return 0.0,
-            o if o >= raw_bytes.len() => return 0.0,
+            0 => return ExifMeta::default(),
+            o if o >= raw_bytes.len() => return ExifMeta::default(),
             o => o,
         };
         &raw_bytes[jpeg_offset..]
@@ -21,25 +39,55 @@ pub fn extract_exposure_bias(raw_bytes: &[u8]) -> f32 {
         raw_bytes
     };
 
-    let reader = std::io::BufReader::new(std::io::Cursor::new(data));
-    let exif_data = match exif::Reader::new().read_from_container(&mut std::io::BufReader::new(reader)) {
+    let reader = BufReader::new(Cursor::new(data));
+    let exif_data = match exif::Reader::new().read_from_container(&mut BufReader::new(reader)) {
         Ok(e) => e,
-        Err(_) => return 0.0,
+        Err(_) => return ExifMeta::default(),
     };
 
+    let mut meta = ExifMeta::default();
+
     for field in exif_data.fields() {
-        if field.tag == exif::Tag::ExposureBiasValue {
-            if let exif::Value::SRational(vals) = &field.value {
-                if let Some(r) = vals.first() {
-                    if r.denom != 0 {
-                        return r.num as f32 / r.denom as f32;
+        match field.tag {
+            exif::Tag::ExposureBiasValue => {
+                if let exif::Value::SRational(vals) = &field.value {
+                    if let Some(r) = vals.first() {
+                        if r.denom != 0 {
+                            meta.exposure_bias = r.num as f32 / r.denom as f32;
+                        }
                     }
                 }
             }
+            exif::Tag::LensModel => {
+                if let exif::Value::Ascii(ref vecs) = field.value {
+                    if let Some(bytes) = vecs.first() {
+                        meta.lens_model = String::from_utf8_lossy(bytes).trim_end_matches('\0').to_owned();
+                    }
+                }
+            }
+            exif::Tag::FocalLength => {
+                if let exif::Value::Rational(vals) = &field.value {
+                    if let Some(r) = vals.first() {
+                        if r.denom != 0 {
+                            meta.focal_length = r.num as f32 / r.denom as f32;
+                        }
+                    }
+                }
+            }
+            exif::Tag::FNumber => {
+                if let exif::Value::Rational(vals) = &field.value {
+                    if let Some(r) = vals.first() {
+                        if r.denom != 0 {
+                            meta.f_number = r.num as f32 / r.denom as f32;
+                        }
+                    }
+                }
+            }
+            _ => {}
         }
     }
 
-    0.0
+    meta
 }
 
 /// Extract Fuji Dynamic Range gain from raw file bytes.

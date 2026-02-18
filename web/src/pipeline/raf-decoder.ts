@@ -30,5 +30,8 @@ export function decodeRaw(arrayBuffer: ArrayBuffer): RawImage {
     drGain: img.get_dr_gain(),
     camToXyz: img.get_cam_to_xyz(),
     exposureBias: img.get_exposure_bias(),
+    lensModel: img.get_lens_model(),
+    focalLength: img.get_focal_length(),
+    fNumber: img.get_f_number(),
   };
 }

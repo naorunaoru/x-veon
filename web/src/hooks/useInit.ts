@@ -26,7 +26,12 @@ async function persistedToQueued(p: PersistedFile): Promise<QueuedFile> {
     name: p.name,
     originalName: p.originalName,
     thumbnailUrl: thumbBlob ? URL.createObjectURL(thumbBlob) : null,
-    metadata: p.camera ? { camera: p.camera } : null,
+    metadata: p.camera ? {
+      camera: p.camera,
+      lensModel: p.lensModel ?? '',
+      focalLength: p.focalLength ?? 0,
+      fNumber: p.fNumber ?? 0,
+    } : null,
     cfaType: p.cfaType,
     status: p.status === 'done' ? 'done' : 'queued',
     error: p.status === 'error' ? p.error : null,

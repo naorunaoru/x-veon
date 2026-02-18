@@ -53,6 +53,13 @@ export function FileListItem({ file, selected, onSelect, onRemove }: FileListIte
         <p className="text-xs text-muted-foreground truncate">
           {file.metadata?.camera ?? '\u2014'}
         </p>
+        {file.metadata?.lensModel && (
+          <p className="text-xs text-muted-foreground truncate">
+            {file.metadata.lensModel}
+            {file.metadata.focalLength > 0 && ` ${Math.round(file.metadata.focalLength)}mm`}
+            {file.metadata.fNumber > 0 && ` \u0192/${parseFloat(file.metadata.fNumber.toFixed(1))}`}
+          </p>
+        )}
         {file.error && (
           <p className="text-xs text-destructive truncate">{file.error}</p>
         )}

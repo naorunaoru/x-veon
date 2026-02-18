@@ -10,6 +10,9 @@ export interface PersistedFile {
   fileSize: number;
   cfaType: CfaType | null;
   camera: string | null;
+  lensModel: string | null;
+  focalLength: number | null;
+  fNumber: number | null;
   status: 'queued' | 'done' | 'error';
   error: string | null;
   resultMethod: DemosaicMethod | null;

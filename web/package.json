@@ -36,6 +36,7 @@
   },
   "devDependencies": {
     "@webgpu/types": "^0.1.69",
+    "fast-xml-parser": "^5.3.6",
     "vite": "^6.0.0",
     "vite-plugin-wasm": "^3.4.1",
     "wasm-pack": "^0.14.0"

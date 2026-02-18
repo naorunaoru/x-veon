@@ -163,6 +163,8 @@ def main():
     parser.add_argument("--chroma-weight", type=float, default=None)
     parser.add_argument("--color-bias-weight", type=float, default=None,
                         help="Weight for mean color bias penalty (penalizes DC color shift)")
+    parser.add_argument("--zipper-weight", type=float, default=None,
+                        help="Weight for zipper artifact penalty (Laplacian 2nd-order oscillation)")
     parser.add_argument("--huber", action="store_true",
                         help="Use Huber loss instead of L1")
     parser.add_argument("--huber-delta", type=float, default=1.0,
@@ -319,6 +321,11 @@ def main():
         if criterion.color_bias is None and args.color_bias_weight > 0:
             from losses import ColorBiasLoss
             criterion.color_bias = ColorBiasLoss()
+    if args.zipper_weight is not None:
+        criterion.zipper_weight = args.zipper_weight
+        if criterion.zipper is None and args.zipper_weight > 0:
+            from losses import ZipperLoss
+            criterion.zipper = ZipperLoss()
     if args.per_channel_norm:
         criterion.per_channel_norm = True
     if args.huber:
@@ -335,6 +342,8 @@ def main():
         loss_info += f", grad={criterion.gradient_weight}"
     if criterion.chroma_weight > 0:
         loss_info += f", chroma={criterion.chroma_weight}"
+    if criterion.zipper_weight > 0:
+        loss_info += f", zipper={criterion.zipper_weight}"
     if criterion.color_bias_weight > 0:
         loss_info += f", color_bias={criterion.color_bias_weight}"
     if criterion.per_channel_norm:
