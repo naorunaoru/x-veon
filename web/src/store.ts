@@ -51,6 +51,7 @@ interface AppState {
   // HDR display output (WebGL2 extended range)
   displayHdr: boolean;
   displayHdrHeadroom: number;
+  hdrPermissionNeeded: boolean;
 
   // Canvas ref for WebCodecs AVIF export
   canvasRef: HTMLCanvasElement | null;
@@ -78,6 +79,7 @@ interface AppState {
   resetFileOpenDrtOverrides: (fileId: string) => void;
 
   setDisplayHdr: (enabled: boolean, headroom: number) => void;
+  setHdrPermissionNeeded: (needed: boolean) => void;
   setCanvasRef: (ref: HTMLCanvasElement | null) => void;
   setRendererRef: (ref: HdrRenderer | null) => void;
 
@@ -137,6 +139,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   displayHdr: false,
   displayHdrHeadroom: 1.0,
+  hdrPermissionNeeded: false,
 
   canvasRef: null,
   rendererRef: null,
@@ -336,6 +339,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     })),
 
   setDisplayHdr: (enabled, headroom) => set({ displayHdr: enabled, displayHdrHeadroom: headroom }),
+  setHdrPermissionNeeded: (needed) => set({ hdrPermissionNeeded: needed }),
   setCanvasRef: (ref) => set({ canvasRef: ref }),
   setRendererRef: (ref) => set({ rendererRef: ref }),
 

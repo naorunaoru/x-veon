@@ -4,7 +4,7 @@ import type { QueuedFile } from '@/store';
 import { initWasm } from '@/pipeline/raf-decoder';
 import { initModels, getBackend, getModelMeta } from '@/pipeline/inference';
 import { initDemosaicGpuSafe } from '@/pipeline/demosaic';
-import { probeHdrDisplay } from '@/gl/hdr-display';
+import { probeHdrDisplay, hasWindowManagementApi } from '@/gl/hdr-display';
 import { getAllFiles, getSetting } from '@/lib/idb-storage';
 import type { PersistedFile } from '@/lib/idb-storage';
 import { hasHwc, hwcKey, listRawFileIds, listHwcFileIds, deleteAllForFile, readThumbnail } from '@/lib/opfs-storage';
@@ -98,6 +98,11 @@ export function useInit() {
         const hdrDisplayInfo = await probeHdrDisplay();
         if (hdrDisplayInfo.supported) {
           useAppStore.getState().setDisplayHdr(true, hdrDisplayInfo.headroom);
+          // If headroom is a conservative fallback and the Window Management API
+          // could provide an accurate value, prompt the user for permission
+          if (!hdrDisplayInfo.accurate && hasWindowManagementApi()) {
+            useAppStore.getState().setHdrPermissionNeeded(true);
+          }
         }
 
         setInitialized(backend, getModelMeta());

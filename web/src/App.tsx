@@ -1,6 +1,7 @@
 import { Sidebar } from './components/Sidebar';
 import { OutputPanel } from './components/OutputPanel';
 import { GradingPanel } from './components/GradingPanel';
+import { HdrPermissionDialog } from './components/HdrPermissionDialog';
 import { useInit } from './hooks/useInit';
 import { useAppStore } from './store';
 
@@ -14,6 +15,7 @@ export default function App() {
       <Sidebar />
       {selectedFileId && <OutputPanel />}
       {selectedFileId && <GradingPanel />}
+      <HdrPermissionDialog />
     </div>
   );
 }
