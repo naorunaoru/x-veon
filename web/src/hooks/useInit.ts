@@ -94,8 +94,8 @@ export function useInit() {
 
         const backend = getBackend() ?? 'unknown';
 
-        // Probe WebGL2 display HDR (float16 backbuffer + extended range)
-        const hdrDisplayInfo = probeHdrDisplay();
+        // Probe display HDR (headroom via Window Management API / screen API)
+        const hdrDisplayInfo = await probeHdrDisplay();
         if (hdrDisplayInfo.supported) {
           useAppStore.getState().setDisplayHdr(true, hdrDisplayInfo.headroom);
         }
