@@ -51,28 +51,10 @@ ENV/
 # Training logs
 logs/*.log
 
-# Output images
-output/
-test_output/
-*.avif
-*.heic
-*.tiff
-*.tif
-*.png
-*.jpg
-*.jpeg
-
-# Exception: Keep test RAFs
-!test_rafs/
-
 # Data
 data/fuji_jpgs/**/*.JPG
 data/fuji_jpgs/**/*.RAF
 data/jpeg_patches/
-
-# External datasets (on external drive)
-# /Volumes/External/xtrans_v4_dataset/
-# /Volumes/External/torture_dataset/
 
 # Temporary files
 *.tmp
