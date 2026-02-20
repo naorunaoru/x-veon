@@ -52,10 +52,10 @@ export function SettingsPanel() {
     if (!initialized || isProcessing) return;
     if (selectedFile?.status === 'queued') {
       processFile(selectedFile.id);
-    } else if (nextQueuedId) {
+    } else if (nextQueuedId && demosaicMethod === 'neural-net') {
       processFile(nextQueuedId);
     }
-  }, [selectedFile?.id, selectedFile?.status, nextQueuedId, initialized, isProcessing, processFile]);
+  }, [selectedFile?.id, selectedFile?.status, nextQueuedId, initialized, isProcessing, processFile, demosaicMethod]);
 
   // Auto-reprocess on method change (restore from cache if available)
   const restoreCachedResult = useAppStore((s) => s.restoreCachedResult);

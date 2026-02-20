@@ -21,6 +21,7 @@ import { PATCH_SIZE, OVERLAP } from '@/pipeline/constants';
 import type { DemosaicMethod, ProcessingResultMeta } from '@/pipeline/types';
 import { estimateColorTemperature } from '@/pipeline/color-temperature';
 import { writeHwc, hwcKey, readRaw } from '@/lib/opfs-storage';
+import { setHwc } from '@/lib/hwc-handoff';
 
 /** Flatten a 2D pattern array into a Uint32Array for GPU/demosaic use */
 function flattenPattern(pattern: readonly (readonly number[])[], period: number): Uint32Array {
@@ -179,8 +180,13 @@ export function useProcessFile() {
       // 13. Estimate illuminant color temperature and tint from WB + color matrix
       const { temp: colorTemp, tint } = estimateColorTemperature(wb, raw.camToXyz);
 
-      // Persist large hwc buffer to OPFS (off JS heap)
-      await writeHwc(hwcKey(fileId, method), hwc);
+      // Hand off for immediate display (avoids OPFS round-trip)
+      setHwc(hwcKey(fileId, method), hwc);
+
+      // Persist NN results to OPFS for session recovery / file revisit
+      if (method === 'neural-net') {
+        writeHwc(hwcKey(fileId, method), hwc);
+      }
 
       const resultMeta: ProcessingResultMeta = {
         exportData: {

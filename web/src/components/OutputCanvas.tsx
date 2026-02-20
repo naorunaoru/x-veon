@@ -3,6 +3,7 @@ import { Loader2 } from 'lucide-react';
 import { useAppStore } from '@/store';
 import { usePanZoom } from '@/hooks/usePanZoom';
 import { readHwc, hwcKey } from '@/lib/opfs-storage';
+import { takeHwc } from '@/lib/hwc-handoff';
 import { HdrRenderer } from '@/gl/renderer';
 import { configFromPreset, configWithOverrides, computeTonescaleParams } from '@/gl/opendrt-params';
 import type { OpenDrtConfig } from '@/gl/opendrt-params';
@@ -82,8 +83,15 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
       setLoadingHwc(true);
 
       const method = useAppStore.getState().files.find((f) => f.id === fileId)?.resultMethod ?? null;
-      const hwc = await readHwc(method ? hwcKey(fileId, method) : fileId);
-      if (cancelled || !hwc) return;
+      const key = method ? hwcKey(fileId, method) : fileId;
+      const hwc = takeHwc(key) ?? await readHwc(key);
+      if (cancelled || !hwc) {
+        // Non-NN revisit: no handoff, no OPFS → re-queue for processing
+        if (method && method !== 'neural-net') {
+          useAppStore.getState().updateFileStatus(fileId, 'queued');
+        }
+        return;
+      }
 
       renderer.uploadImage(hwc, hwcW, hwcH);
       const file = useAppStore.getState().files.find((f) => f.id === fileId);
