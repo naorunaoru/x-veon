@@ -242,7 +242,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   selectFile: (id) => {
-    set({ selectedFileId: id });
+    const file = id ? get().files.find((f) => f.id === id) : null;
+    const updates: Partial<AppState> = { selectedFileId: id };
+    if (file?.resultMethod) {
+      updates.demosaicMethod = file.resultMethod;
+      putSetting('demosaicMethod', file.resultMethod).catch(() => {});
+    }
+    set(updates);
     putSetting('selectedFileId', id).catch(() => {});
   },
 
@@ -357,12 +363,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   setCanvasRef: (ref) => set({ canvasRef: ref }),
   setRendererRef: (ref) => set({ rendererRef: ref }),
 
-  restoreFromDb: (files, settings) =>
+  restoreFromDb: (files, settings) => {
+    const selectedFileId = settings.selectedFileId ?? (files.length > 0 ? files[0].id : null);
+    const selectedFile = selectedFileId ? files.find((f) => f.id === selectedFileId) : null;
     set({
       files,
-      selectedFileId: settings.selectedFileId ?? (files.length > 0 ? files[0].id : null),
-      demosaicMethod: settings.demosaicMethod ?? 'neural-net',
+      selectedFileId,
+      demosaicMethod: selectedFile?.resultMethod ?? settings.demosaicMethod ?? 'neural-net',
       exportFormat: settings.exportFormat ?? 'jpeg-hdr',
       exportQuality: settings.exportQuality ?? 95,
-    }),
+    });
+  },
 }));
