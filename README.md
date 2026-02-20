@@ -2,6 +2,8 @@
 
 X-veon: neural network demosaicing for Bayer and X-Trans sensors. 
 
+Comparison images: https://naorunaoru.github.io/x-veon/comparison.html
+
 This project consists of two parts: first one is the neural net itself with a bunch of scripts for dataset building and training, the other is a web application with a full RAW development pipeline.
 
 ## Neural network
