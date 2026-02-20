@@ -25,128 +25,56 @@ async function getThumbDir(): Promise<FileSystemDirectoryHandle> {
   return thumbDir;
 }
 
-// ── Compression helpers ─────────────────────────────────────────────────────
-
-/** Magic bytes at the start of compressed HWC files ("HWC1" LE). */
-const HWC_MAGIC = 0x31435748;
-
-/**
- * Byte-shuffle: reorder [b0,b1,b2,b3, b0,b1,b2,b3, ...] into
- * [all b0s, all b1s, all b2s, all b3s]. Groups similar bytes together
- * (e.g. exponent bytes) for dramatically better gzip compression on float data.
- */
-function byteShuffle4(input: Uint8Array): Uint8Array {
-  const n = input.length;
-  const stride = n >>> 2;
-  const out = new Uint8Array(n);
-  for (let i = 0; i < stride; i++) {
-    const src = i * 4;
-    out[i] = input[src];
-    out[stride + i] = input[src + 1];
-    out[stride * 2 + i] = input[src + 2];
-    out[stride * 3 + i] = input[src + 3];
-  }
-  return out;
-}
-
-/** Reverse byte-shuffle: restore interleaved byte order. */
-function byteUnshuffle4(input: Uint8Array): Uint8Array {
-  const n = input.length;
-  const stride = n >>> 2;
-  const out = new Uint8Array(n);
-  for (let i = 0; i < stride; i++) {
-    const dst = i * 4;
-    out[dst] = input[i];
-    out[dst + 1] = input[stride + i];
-    out[dst + 2] = input[stride * 2 + i];
-    out[dst + 3] = input[stride * 3 + i];
-  }
-  return out;
-}
-
-async function gzipCompress(data: Uint8Array): Promise<ArrayBuffer> {
-  const stream = new Blob([data as BlobPart]).stream().pipeThrough(new CompressionStream('gzip'));
-  return new Response(stream).arrayBuffer();
-}
-
-async function gzipDecompress(data: ArrayBuffer): Promise<ArrayBuffer> {
-  const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream('gzip'));
-  return new Response(stream).arrayBuffer();
-}
-
 // ── HWC (demosaiced result) storage ─────────────────────────────────────────
-
-/**
- * Single-slot write-through handoff: holds the most recent writeHwc buffer
- * so the immediate readHwc (from OutputCanvas) skips the decompress round-trip.
- * Not consumed on read — React strict mode double-fires effects.
- * Overwritten on next writeHwc, so at most one buffer (~300 MB) in memory.
- */
-let hwcHandoff: { key: string; data: Float32Array } | null = null;
 
 /** Build the OPFS key for a file+method pair. */
 export function hwcKey(fileId: string, method: string): string {
   return `${fileId}::${method}`;
 }
 
-/** Write a Float32Array to OPFS (byte-shuffled + gzip). */
-export async function writeHwc(key: string, hwc: Float32Array): Promise<void> {
-  hwcHandoff = { key, data: hwc };
+// ── Off-thread HWC worker (compress/decompress + OPFS I/O) ──────────────────
 
-  const dir = await getHwcDir();
-  const fh = await dir.getFileHandle(key, { create: true });
+let hwcWorker: Worker | null = null;
+let nextId = 0;
+const pending = new Map<number, {
+  resolve: (v: Float32Array | null) => void;
+}>();
 
-  const raw = new Uint8Array(hwc.buffer, hwc.byteOffset, hwc.byteLength);
-  const t0 = performance.now();
-  const compressed = await gzipCompress(byteShuffle4(raw));
-  const dt = performance.now() - t0;
-
-  const origMB = (raw.byteLength / (1024 * 1024)).toFixed(1);
-  const compMB = (compressed.byteLength / (1024 * 1024)).toFixed(1);
-  const ratio = (raw.byteLength / compressed.byteLength).toFixed(1);
-  console.log(`[opfs] compress ${origMB} MB → ${compMB} MB (${ratio}x) in ${dt.toFixed(0)} ms`);
-
-  const out = new Uint8Array(4 + compressed.byteLength);
-  new DataView(out.buffer).setUint32(0, HWC_MAGIC, true);
-  out.set(new Uint8Array(compressed), 4);
-
-  const writable = await fh.createWritable();
-  await writable.write(out.buffer);
-  await writable.close();
+function getHwcWorker(): Worker {
+  if (hwcWorker) return hwcWorker;
+  hwcWorker = new Worker(new URL('./hwc-worker.ts', import.meta.url), { type: 'module' });
+  hwcWorker.onmessage = (e: MessageEvent) => {
+    const { id, buffer, error } = e.data;
+    const p = pending.get(id);
+    if (!p) return;
+    pending.delete(id);
+    if (error || !buffer) {
+      p.resolve(null);
+    } else {
+      p.resolve(new Float32Array(buffer));
+    }
+  };
+  return hwcWorker;
 }
 
-/** Read a Float32Array from OPFS. Returns null if missing. */
+/**
+ * Write a Float32Array to OPFS (byte-shuffled + gzip) on a background worker.
+ * Returns immediately — compression and I/O happen off the main thread.
+ */
+export function writeHwc(key: string, hwc: Float32Array): void {
+  const worker = getHwcWorker();
+  const copy = hwc.buffer.slice(hwc.byteOffset, hwc.byteOffset + hwc.byteLength);
+  worker.postMessage({ type: 'write', key, buffer: copy }, [copy]);
+}
+
+/** Read a Float32Array from OPFS on a background worker. Returns null if missing. */
 export async function readHwc(key: string): Promise<Float32Array | null> {
-  // Fast path: buffer still in memory from writeHwc (avoids decompress round-trip)
-  if (hwcHandoff?.key === key) {
-    console.log(`[opfs] handoff hit (skipped decompress)`);
-    return hwcHandoff.data;
-  }
-
-  try {
-    const dir = await getHwcDir();
-    const fh = await dir.getFileHandle(key);
-    const file = await fh.getFile();
-    const buffer = await file.arrayBuffer();
-
-    // Compressed format: 4-byte magic + gzip(shuffled)
-    if (buffer.byteLength > 4 && new DataView(buffer).getUint32(0, true) === HWC_MAGIC) {
-      const t0 = performance.now();
-      const decompressed = await gzipDecompress(buffer.slice(4));
-      const unshuffled = byteUnshuffle4(new Uint8Array(decompressed));
-      const dt = performance.now() - t0;
-      const compMB = ((buffer.byteLength - 4) / (1024 * 1024)).toFixed(1);
-      const origMB = (decompressed.byteLength / (1024 * 1024)).toFixed(1);
-      console.log(`[opfs] decompress ${compMB} MB → ${origMB} MB in ${dt.toFixed(0)} ms`);
-      return new Float32Array(unshuffled.buffer);
-    }
-
-    // Legacy: uncompressed Float32Array
-    return new Float32Array(buffer);
-  } catch (e) {
-    if (e instanceof DOMException && e.name === 'NotFoundError') return null;
-    throw e;
-  }
+  const worker = getHwcWorker();
+  const id = nextId++;
+  return new Promise((resolve) => {
+    pending.set(id, { resolve });
+    worker.postMessage({ type: 'read', id, key });
+  });
 }
 
 /** Delete all HWC entries for a given file ID (all method variants). */
