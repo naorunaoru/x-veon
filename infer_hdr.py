@@ -246,15 +246,15 @@ def process_raw(raw_path: str, model: torch.nn.Module, device: str,
     pad_top = (period - dy) % period
     pad_left = (period - dx) % period
 
-    # LCh highlight reconstruction at CFA level (before WB, clip = 1.0)
-    # cfa_norm = reconstruct_highlights_cfa(cfa_norm, raw_pattern)
-
     # Apply WB to CFA before model (each pixel multiplied by its channel's WB)
     if apply_wb_to_cfa:
         wb_map = np.ones_like(cfa_norm)
         for ch in range(3):
             wb_map[raw_pattern == ch] = wb[ch]
         cfa_norm = cfa_norm * wb_map
+
+    # LCh highlight reconstruction at CFA level
+    cfa_norm = reconstruct_highlights_cfa(cfa_norm, raw_pattern)
 
     if pad_top > 0 or pad_left > 0:
         cfa_norm = np.pad(cfa_norm, ((pad_top, 0), (pad_left, 0)), mode='reflect')

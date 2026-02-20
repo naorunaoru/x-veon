@@ -28,6 +28,22 @@ from infer_hdr import apply_exif_rotation, process_raw, save_hdr_avif
 _model = None
 _model_path = None
 _device = None
+_UI_STATE_FILE = Path(".ui_state.json")
+
+
+def load_ui_state() -> dict:
+    if _UI_STATE_FILE.exists():
+        try:
+            return json.loads(_UI_STATE_FILE.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+
+def save_ui_state(key: str, value):
+    state = load_ui_state()
+    state[key] = value
+    _UI_STATE_FILE.write_text(json.dumps(state))
 
 
 def get_device():
@@ -63,11 +79,14 @@ def load_history(checkpoint_dir: str) -> list[dict]:
     if not history_path.exists():
         return []
     with open(history_path) as f:
-        return json.load(f)
+        history = json.load(f)
+    import math
+    return [h for h in history if not math.isnan(h.get("val_loss", 0))]
 
 
 def plot_training_history(checkpoint_dir: str) -> tuple:
     """Generate training history plots."""
+    plt.close("all")
     history = load_history(checkpoint_dir)
     if not history:
         return None, "No history found"
@@ -122,18 +141,25 @@ def plot_training_history(checkpoint_dir: str) -> tuple:
                 arrowprops=dict(arrowstyle="->", color="green", alpha=0.7))
     
     # Helper to plot components
+    COMP_COLORS = {
+        "l1": "tab:blue",
+        "huber": "tab:blue",
+        "msssim": "tab:orange",
+        "gradient": "tab:green",
+        "chroma": "tab:red",
+        "zipper": "tab:purple",
+        "color_bias": "tab:brown",
+    }
     def plot_components(ax, history, key, title):
         if key not in history[0]:
             return
-        # Support both l1 and huber
-        components = ["l1", "huber", "msssim", "gradient", "chroma", "color_bias"]
-        for comp in components:
+        for comp, color in COMP_COLORS.items():
             values = [h[key].get(comp, 0) for h in history]
             if any(v > 0 for v in values):
                 # Convert MS-SSIM to loss (it's stored as similarity)
                 if comp == "msssim":
                     values = [1 - v for v in values]
-                ax.plot(epochs, values, label=comp, alpha=0.7)
+                ax.plot(epochs, values, label=comp, alpha=0.7, color=color)
         ax.set_xlabel("Epoch")
         ax.set_ylabel("Loss")
         ax.set_title(title)
@@ -147,8 +173,8 @@ def plot_training_history(checkpoint_dir: str) -> tuple:
     # Val components
     plot_components(ax3, history, "val_components", "Val Components")
     
-    plt.tight_layout()
-    
+    fig.tight_layout()
+
     # Current status
     latest = history[-1]
     status = f"Epoch {latest['epoch']}/{cfg.get('epochs', '?')} | Val PSNR: {latest['val_psnr']:.2f} dB | Best: {val_psnr[best_idx]:.2f} dB (ep {epochs[best_idx]})"
@@ -285,16 +311,19 @@ def create_ui():
     """Create the Gradio interface."""
     
     checkpoints = find_checkpoints()
-    default_ckpt = checkpoints[0] if checkpoints else None
+    ui_state = load_ui_state()
+    saved_ckpt = ui_state.get("checkpoint")
+    default_ckpt = saved_ckpt if saved_ckpt in checkpoints else (checkpoints[0] if checkpoints else None)
     checkpoint_dirs = find_checkpoint_dirs()
-    default_dir = checkpoint_dirs[0] if checkpoint_dirs else None
+    saved_dir = ui_state.get("history_dir")
+    default_dir = saved_dir if saved_dir in checkpoint_dirs else (checkpoint_dirs[0] if checkpoint_dirs else None)
     
     with gr.Blocks(title="X-Trans Demosaic") as demo:
         gr.Markdown("# X-Trans Demosaicing")
         
-        with gr.Tabs():
+        with gr.Tabs(selected="training"):
             # Inference tab
-            with gr.Tab("Inference"):
+            with gr.Tab("Inference", id="inference"):
                 gr.Markdown("Upload a raw file (RAF, CR2, NEF, ARW, DNG, ...). Output is HDR AVIF (HLG).")
                 
                 with gr.Row():
@@ -335,6 +364,11 @@ def create_ui():
                     return gr.Dropdown(choices=find_checkpoints())
                 
                 refresh_btn.click(refresh_checkpoints, outputs=checkpoint_dropdown)
+
+                checkpoint_dropdown.change(
+                    lambda v: save_ui_state("checkpoint", v),
+                    inputs=checkpoint_dropdown,
+                )
                 
                 process_btn.click(
                     run_inference,
@@ -343,7 +377,7 @@ def create_ui():
                 )
             
             # Training history tab
-            with gr.Tab("Training History"):
+            with gr.Tab("Training History", id="training"):
                 gr.Markdown("View training progress for checkpoint directories.")
                 
                 with gr.Row():
@@ -363,17 +397,44 @@ def create_ui():
                 
                 refresh_history_btn.click(refresh_history_dirs, outputs=history_dir_dropdown)
                 
+                def on_history_dir_change(d):
+                    save_ui_state("history_dir", d)
+                    return plot_training_history(d)
+
                 history_dir_dropdown.change(
+                    on_history_dir_change,
+                    inputs=history_dir_dropdown,
+                    outputs=[history_plot, history_status],
+                )
+
+                # Live auto-refresh every 30 seconds
+                timer = gr.Timer(30)
+                timer.tick(
                     plot_training_history,
                     inputs=history_dir_dropdown,
                     outputs=[history_plot, history_status],
                 )
-                
-                # Auto-load on tab open
+
+                # Restore saved state + plot on every page load
+                def on_load():
+                    state = load_ui_state()
+                    dirs = find_checkpoint_dirs()
+                    ckpts = find_checkpoints()
+                    saved_d = state.get("history_dir")
+                    saved_c = state.get("checkpoint")
+                    dir_val = saved_d if saved_d in dirs else (dirs[0] if dirs else None)
+                    ckpt_val = saved_c if saved_c in ckpts else (ckpts[0] if ckpts else None)
+                    fig, status = plot_training_history(dir_val) if dir_val else (None, "No history found")
+                    return (
+                        gr.Dropdown(choices=dirs, value=dir_val),
+                        fig,
+                        status,
+                        gr.Dropdown(choices=ckpts, value=ckpt_val),
+                    )
+
                 demo.load(
-                    plot_training_history,
-                    inputs=history_dir_dropdown,
-                    outputs=[history_plot, history_status],
+                    on_load,
+                    outputs=[history_dir_dropdown, history_plot, history_status, checkpoint_dropdown],
                 )
     
     return demo
