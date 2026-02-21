@@ -1,5 +1,6 @@
 import type { CfaType, DemosaicMethod, ExportFormat, LookPreset } from '@/pipeline/types';
 import type { SerializableResultMeta } from '@/pipeline/types';
+import type { LensProfile } from '@/lib/lensfun';
 
 // ── Schema ──────────────────────────────────────────────────────────────────
 
@@ -19,6 +20,7 @@ export interface PersistedFile {
   resultMeta: SerializableResultMeta | null;
   cachedMethods: DemosaicMethod[];
   lookPreset: LookPreset;
+  lensProfile: LensProfile | null;
   openDrtOverrides: Record<string, number | boolean>;
   addedAt: number;
 }

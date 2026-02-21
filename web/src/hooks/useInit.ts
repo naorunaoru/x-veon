@@ -11,6 +11,7 @@ import { hasHwc, hwcKey, listRawFileIds, listHwcFileIds, deleteAllForFile, readT
 import { deserializeResultMeta } from '@/pipeline/types';
 import type { DemosaicMethod, ExportFormat, ProcessingResultMeta } from '@/pipeline/types';
 import type { OpenDrtConfig } from '@/gl/opendrt-params';
+import { matchLens } from '@/lib/lensfun';
 
 async function persistedToQueued(p: PersistedFile): Promise<QueuedFile> {
   const result: ProcessingResultMeta | null = p.resultMeta
@@ -41,6 +42,7 @@ async function persistedToQueued(p: PersistedFile): Promise<QueuedFile> {
     cachedResults: result && p.resultMethod
       ? { [p.resultMethod]: result } as Partial<Record<DemosaicMethod, ProcessingResultMeta>>
       : {},
+    lensProfile: p.lensProfile ?? null,
     lookPreset: p.lookPreset,
     openDrtOverrides: p.openDrtOverrides as Partial<OpenDrtConfig>,
   };
@@ -111,6 +113,17 @@ export function useInit() {
         }
 
         setInitialized(backend, getModelMeta());
+
+        // Match lenses for restored files that have metadata but no profile yet
+        for (const qf of files) {
+          if (!qf.lensProfile && qf.metadata?.lensModel) {
+            matchLens(qf.metadata.camera, qf.metadata.lensModel)
+              .then((profile) => {
+                if (profile) useAppStore.getState().setFileLensProfile(qf.id, profile);
+              })
+              .catch((e) => console.warn('Lens match failed:', e));
+          }
+        }
 
         // Orphan cleanup: remove OPFS entries not in IDB (fire-and-forget)
         cleanupOrphans(new Set(files.map((f) => f.id)));

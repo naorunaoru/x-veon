@@ -10,6 +10,8 @@ import type { HdrRenderer } from './gl/renderer';
 import { extractRafThumbnail, extractRafQuickMetadata } from './pipeline/raf-thumbnail';
 import type { QuickMetadata } from './pipeline/raf-thumbnail';
 import { RAW_EXTENSIONS } from './pipeline/constants';
+import { matchLens } from './lib/lensfun';
+import type { LensProfile } from './lib/lensfun';
 
 export type FileStatus = 'queued' | 'processing' | 'done' | 'error';
 
@@ -27,6 +29,7 @@ export interface QueuedFile {
   result: ProcessingResultMeta | null;
   resultMethod: DemosaicMethod | null;
   cachedResults: Partial<Record<DemosaicMethod, ProcessingResultMeta>>;
+  lensProfile: LensProfile | null;
   lookPreset: LookPreset;
   openDrtOverrides: Partial<OpenDrtConfig>;
 }
@@ -74,6 +77,9 @@ interface AppState {
   setExportFormat: (format: ExportFormat) => void;
   setExportQuality: (quality: number) => void;
 
+  // Per-file lens profile
+  setFileLensProfile: (fileId: string, profile: LensProfile | null) => void;
+
   // Per-file grading
   setFileLookPreset: (fileId: string, preset: LookPreset) => void;
   setFileOpenDrtOverride: <K extends keyof OpenDrtConfig>(fileId: string, key: K, value: OpenDrtConfig[K]) => void;
@@ -111,6 +117,7 @@ function fileToPersistedFile(f: QueuedFile): PersistedFile {
     resultMethod: f.resultMethod,
     resultMeta: f.result ? serializeResultMeta(f.result) : null,
     cachedMethods: Object.keys(f.cachedResults) as DemosaicMethod[],
+    lensProfile: f.lensProfile,
     lookPreset: f.lookPreset,
     openDrtOverrides: f.openDrtOverrides as Record<string, number | boolean>,
     addedAt: Date.now(),
@@ -174,6 +181,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         result: null,
         resultMethod: null,
         cachedResults: {},
+        lensProfile: null,
         lookPreset: 'default' as const,
         openDrtOverrides: {},
       }));
@@ -220,6 +228,15 @@ export const useAppStore = create<AppState>((set, get) => ({
         const updated = get().files.find((f) => f.id === entry.id);
         if (updated) {
           putFile(fileToPersistedFile(updated)).catch((e) => console.warn('IDB persist failed:', e));
+        }
+
+        // Match lens against LensFun database
+        if (meta?.lensModel) {
+          matchLens(meta.camera, meta.lensModel)
+            .then((profile) => {
+              if (profile) get().setFileLensProfile(entry.id, profile);
+            })
+            .catch((e) => console.warn('Lens match failed:', e));
         }
       });
     }
@@ -300,6 +317,18 @@ export const useAppStore = create<AppState>((set, get) => ({
           progress: null,
         };
         persistFile(updated);
+
+        // Match lens if not already matched and lens info is now available
+        if (!f.lensProfile && metadata.lensModel) {
+          queueMicrotask(() => {
+            matchLens(metadata.camera, metadata.lensModel)
+              .then((profile) => {
+                if (profile) get().setFileLensProfile(id, profile);
+              })
+              .catch((e) => console.warn('Lens match failed:', e));
+          });
+        }
+
         return updated;
       }),
     })),
@@ -326,6 +355,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ exportQuality: quality });
     putSetting('exportQuality', quality).catch(() => {});
   },
+
+  // Per-file lens profile
+  setFileLensProfile: (fileId, profile) =>
+    set((state) => ({
+      files: state.files.map((f) => {
+        if (f.id !== fileId) return f;
+        const updated = { ...f, lensProfile: profile };
+        persistFile(updated);
+        return updated;
+      }),
+    })),
 
   // Per-file grading
   setFileLookPreset: (fileId, preset) =>

@@ -300,7 +300,11 @@ export function extractRafQuickMetadata(buffer: ArrayBuffer): QuickMetadata | nu
       // is a regular JPEG — parseTiff only handles TIFF containers.
       // For RAF, lens info will be filled by the full WASM decode later.
     }
-    return { camera: rafMeta.camera, lensModel: '', focalLength: 0, fNumber: 0 };
+    // RAF is Fujifilm's format — prefix make since the header only has the model
+    const camera = rafMeta.camera.toLowerCase().startsWith('fujifilm')
+      ? rafMeta.camera
+      : `Fujifilm ${rafMeta.camera}`;
+    return { camera, lensModel: '', focalLength: 0, fNumber: 0 };
   }
 
   // TIFF-based RAW (ARW, CR2, NEF, DNG, etc.)
