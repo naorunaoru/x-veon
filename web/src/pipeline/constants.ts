@@ -34,4 +34,5 @@ export const SRGB_TO_BT2020 = [
 ] as const;
 
 export const PATCH_SIZE = 288;
-export const OVERLAP = 48;
+export const OVERLAP = 24;
+export const TILE_BATCH = 32;

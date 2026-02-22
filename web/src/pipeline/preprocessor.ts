@@ -272,16 +272,11 @@ export function padToAlignment(
 }
 
 export function generateTiles(
-  cfa: Float32Array, width: number, height: number, patchSize: number, overlap: number,
+  width: number, height: number, patchSize: number, overlap: number,
 ): TileGrid {
   const stride = patchSize - overlap;
   const hPad = Math.ceil((height - overlap) / stride) * stride + patchSize;
   const wPad = Math.ceil((width - overlap) / stride) * stride + patchSize;
-
-  const paddedCfa = new Float32Array(hPad * wPad);
-  for (let y = 0; y < height; y++) {
-    paddedCfa.set(cfa.subarray(y * width, y * width + width), y * wPad);
-  }
 
   const tiles: Array<{ x: number; y: number }> = [];
   for (let y = 0; y <= hPad - patchSize; y += stride) {
@@ -290,7 +285,7 @@ export function generateTiles(
     }
   }
 
-  return { tiles, paddedCfa, hPad, wPad };
+  return { tiles, hPad, wPad };
 }
 
 export function makeChannelMasks(
@@ -316,22 +311,41 @@ export function makeChannelMasks(
   return { r, g, b };
 }
 
-export function buildTileInput(
-  paddedCfa: Float32Array, paddedWidth: number,
-  x: number, y: number, patchSize: number, masks: ChannelMasks,
-): Float32Array {
+/** Pre-fill mask channels (1-3) in a reusable batch buffer. Call once per buffer. */
+export function prefillBatchMasks(
+  buf: Float32Array, masks: ChannelMasks, tileCount: number, patchSize: number,
+): void {
   const n = patchSize * patchSize;
-  const input = new Float32Array(4 * n);
-
-  for (let py = 0; py < patchSize; py++) {
-    const srcOffset = (y + py) * paddedWidth + x;
-    const dstOffset = py * patchSize;
-    input.set(paddedCfa.subarray(srcOffset, srcOffset + patchSize), dstOffset);
+  const tileSize = 4 * n;
+  for (let t = 0; t < tileCount; t++) {
+    const base = t * tileSize;
+    buf.set(masks.r, base + n);
+    buf.set(masks.g, base + 2 * n);
+    buf.set(masks.b, base + 3 * n);
   }
+}
 
-  input.set(masks.r, n);
-  input.set(masks.g, 2 * n);
-  input.set(masks.b, 3 * n);
+/** Write CFA data into channel 0 of a pre-allocated batch buffer. */
+export function fillBatchCfa(
+  buf: Float32Array,
+  cfa: Float32Array, cfaWidth: number, cfaHeight: number,
+  tiles: Array<{ x: number; y: number }>, from: number, to: number,
+  patchSize: number,
+): void {
+  const n = patchSize * patchSize;
+  const tileSize = 4 * n;
 
-  return input;
+  for (let t = 0; t < to - from; t++) {
+    const base = t * tileSize;
+    const { x, y } = tiles[from + t];
+    const validH = Math.min(patchSize, cfaHeight - y);
+    const validW = Math.min(patchSize, cfaWidth - x);
+
+    for (let py = 0; py < validH; py++) {
+      const dstOffset = base + py * patchSize;
+      buf.set(cfa.subarray((y + py) * cfaWidth + x, (y + py) * cfaWidth + x + validW), dstOffset);
+      if (validW < patchSize) buf.fill(0, dstOffset + validW, dstOffset + patchSize);
+    }
+    if (validH < patchSize) buf.fill(0, base + validH * patchSize, base + n);
+  }
 }

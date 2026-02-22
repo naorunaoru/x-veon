@@ -11,13 +11,14 @@ import {
   padToAlignment,
   generateTiles,
   makeChannelMasks,
-  buildTileInput,
+  prefillBatchMasks,
+  fillBatchCfa,
 } from '@/pipeline/preprocessor';
 import { reconstructHighlightsSegmented } from '@/pipeline/highlight-segments';
-import { runTile, getBackend } from '@/pipeline/inference';
+import { runBatch, getBackend } from '@/pipeline/inference';
 import { runDemosaic, destroyDemosaicPool } from '@/pipeline/demosaic';
 import { createTileBlender, cropToHWC, buildColorMatrix, applyColorCorrection } from '@/pipeline/postprocessor';
-import { PATCH_SIZE, OVERLAP } from '@/pipeline/constants';
+import { PATCH_SIZE, OVERLAP, TILE_BATCH } from '@/pipeline/constants';
 import type { DemosaicMethod, ProcessingResultMeta } from '@/pipeline/types';
 import { estimateColorTemperature } from '@/pipeline/color-temperature';
 import { writeHwc, hwcKey, readRaw } from '@/lib/opfs-storage';
@@ -86,14 +87,10 @@ export function useProcessFile() {
       const { pattern, period, dy, dx, cfaType } = cfaInfo;
       console.log(`CFA: ${cfaType} (period=${period}, shift=dy${dy} dx${dx})`);
 
-      // 6. Apply white balance (before HL reconstruction so channels are balanced)
+      // 6. Apply white balance
       applyWhiteBalance(cfa, visWidth, visHeight, wb, pattern, period, dy, dx);
 
-      // 7. Highlight reconstruction: opposed inpainting then segmentation
-      // Per-channel clip in normalized space: (whiteLevel[c] - black) / range,
-      // then multiplied by WB. When all white levels are the same this equals
-      // wb[c]; when they differ (common on Sony/Canon) it gives the actual
-      // per-channel saturation.
+      // 7. Highlight reconstruction
       const black = raw.blackLevels[0];
       const range = raw.whiteLevels[0] - black;
       const clipNorm = channelClips(raw.cfaStr, raw.cfaWidth, raw.whiteLevels, black, range);
@@ -122,9 +119,10 @@ export function useProcessFile() {
 
       if (method === 'neural-net') {
         // NN path: tile → inference → incremental blend
-        const tileGrid = generateTiles(
-          padded.data, padded.width, padded.height, PATCH_SIZE, OVERLAP,
-        );
+        const cfaData = padded.data;
+        const cfaW = padded.width;
+        const cfaH = padded.height;
+        const tileGrid = generateTiles(cfaW, cfaH, PATCH_SIZE, OVERLAP);
         padded = null!; cfa = null;
         hPad = tileGrid.hPad;
         wPad = tileGrid.wPad;
@@ -132,13 +130,39 @@ export function useProcessFile() {
 
         const masks = makeChannelMasks(PATCH_SIZE, pattern, period);
         const blender = createTileBlender(hPad, wPad, PATCH_SIZE, OVERLAP);
+        const tiles = tileGrid.tiles;
+        const tileSize = 4 * PATCH_SIZE * PATCH_SIZE;
+        const outSize = 3 * PATCH_SIZE * PATCH_SIZE;
 
-        for (let i = 0; i < tileGrid.tiles.length; i++) {
-          const { x, y } = tileGrid.tiles[i];
-          const input = buildTileInput(tileGrid.paddedCfa, wPad, x, y, PATCH_SIZE, masks);
-          const output = await runTile(cfaType, input, PATCH_SIZE);
-          blender.accumulate(output, x, y);
-          useAppStore.getState().updateFileProgress(fileId, i + 1, tileGrid.tiles.length);
+        // Pre-allocate two batch buffers with masks baked in (double-buffer)
+        const bufs = [new Float32Array(TILE_BATCH * tileSize), new Float32Array(TILE_BATCH * tileSize)];
+        prefillBatchMasks(bufs[0], masks, TILE_BATCH, PATCH_SIZE);
+        prefillBatchMasks(bufs[1], masks, TILE_BATCH, PATCH_SIZE);
+
+        let slot = 0;
+        fillBatchCfa(bufs[0], cfaData, cfaW, cfaH, tiles, 0, Math.min(TILE_BATCH, tiles.length), PATCH_SIZE);
+
+        let b = 0;
+        while (b < tiles.length) {
+          const end = Math.min(b + TILE_BATCH, tiles.length);
+          const count = end - b;
+          const cur = bufs[slot];
+          const inferPromise = runBatch(cfaType, cur.subarray(0, count * tileSize), count, PATCH_SIZE);
+
+          // Fill next batch in alternate buffer while GPU is busy
+          const nextB = end;
+          const nextEnd = Math.min(nextB + TILE_BATCH, tiles.length);
+          if (nextB < tiles.length) {
+            slot ^= 1;
+            fillBatchCfa(bufs[slot], cfaData, cfaW, cfaH, tiles, nextB, nextEnd, PATCH_SIZE);
+          }
+
+          const batchOut = await inferPromise;
+          for (let i = 0; i < count; i++) {
+            blender.accumulate(batchOut.subarray(i * outSize, (i + 1) * outSize), tiles[b + i].x, tiles[b + i].y);
+          }
+          useAppStore.getState().updateFileProgress(fileId, end, tiles.length);
+          b = nextB;
         }
 
         blended = blender.finalize();

@@ -113,18 +113,24 @@ function normalizeMake(s: string): string {
 }
 
 function normalizeLensStr(s: string): string {
-  return s.toLowerCase().replace(/[()]/g, '').replace(/\s+/g, ' ').trim();
+  return s
+    .toLowerCase()
+    .replace(/[()]/g, '')
+    .replace(/\bf\/?\s*/g, '')       // strip "f/" or "f " prefix before aperture
+    .replace(/(\d)mm\b/g, '$1')      // strip "mm" suffix from focal lengths
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 // ── Third-party lens file prefixes ──────────────────────────────────
 
-const THIRD_PARTY_PREFIXES = [
-  'sigma', 'tamron', 'samyang', 'zeiss', 'tokina', 'voigtlander',
+const THIRD_PARTY_FILES = [
+  'sigma', 'tamron', 'samyang', 'zeiss', 'tokina', 'voigtlander', 'misc',
 ];
 
 function isThirdPartyFile(filename: string): boolean {
   const lower = filename.toLowerCase();
-  return THIRD_PARTY_PREFIXES.some((p) => lower.includes(p));
+  return THIRD_PARTY_FILES.some((p) => lower.includes(p));
 }
 
 // ── Find relevant DB files for a camera make ────────────────────────

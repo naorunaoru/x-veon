@@ -43,6 +43,7 @@ class LinearDataset(Dataset):
         patch_size: int = 96,
         augment: bool = True,
         noise_sigma: tuple[float, float] = (0.0, 0.005),
+        shot_noise: tuple[float, float] = (0.0, 0.0),
         patches_per_image: int = 16,
         max_images: int | None = None,
         filter_file: str | None = None,
@@ -56,6 +57,7 @@ class LinearDataset(Dataset):
         self.patch_size = patch_size
         self.augment = augment
         self.noise_sigma = noise_sigma
+        self.shot_noise = shot_noise
         self.olpf_sigma = olpf_sigma
         self.patches_per_image = patches_per_image
         self.apply_wb = apply_wb
@@ -160,12 +162,8 @@ class LinearDataset(Dataset):
 
         rgb = torch.from_numpy(patch.transpose(2, 0, 1).copy()).float()
 
-        # Exposure augmentation: push toward clipping in raw space (before WB)
-        if self.augment and self.exposure_aug_ev > 0:
-            ev_shift = rng.uniform(0, self.exposure_aug_ev)
-            rgb = (rgb * (2.0 ** ev_shift)).clamp(max=1.0)
-
         # Apply white balance before mosaicing (model learns WB'd data)
+        wb = torch.ones(3)
         if self.wb_multipliers is not None:
             wb = torch.from_numpy(self.wb_multipliers[img_idx]).float()
             # WB shift augmentation: perturb R and B gains in log space
@@ -175,12 +173,25 @@ class LinearDataset(Dataset):
                 wb = wb * torch.tensor([r_shift, 1.0, b_shift])
             rgb = rgb * wb.view(3, 1, 1)
 
-        # Augmentation (only flips - rotations break CFA)
+        # Exposure augmentation: simulate brighter scene. Ground truth keeps
+        # full HDR range; sensor saturation is applied per-photosite on the
+        # CFA input after mosaicing (where clipping physically occurs).
+        sensor_clip = False
+        if self.augment and self.exposure_aug_ev > 0:
+            ev_shift = rng.uniform(0, self.exposure_aug_ev)
+            rgb = rgb * (2.0 ** ev_shift)
+            sensor_clip = True
+
+        # Geometric augmentation: flips + 90° rotations (applied before
+        # mosaicing, so CFA is applied fresh to the transformed image)
         if self.augment:
             if rng.random() > 0.5:
                 rgb = rgb.flip(2)
             if rng.random() > 0.5:
                 rgb = rgb.flip(1)
+            k = rng.randint(0, 3)
+            if k > 0:
+                rgb = torch.rot90(rgb, k, [1, 2])
 
         # OLPF simulation: blur RGB before mosaicing (optical domain)
         ref = rgb
@@ -194,11 +205,20 @@ class LinearDataset(Dataset):
 
         cfa_img = mosaic(rgb, self.cfa)
 
-        # Add noise
-        if self.noise_sigma[1] > 0:
-            sigma = rng.uniform(*self.noise_sigma)
-            if sigma > 0:
-                cfa_img = cfa_img + torch.randn_like(cfa_img) * sigma
+        # Sensor saturation: raw photosites clip at white level (1.0 in
+        # normalized raw space). In WB'd space the clip level per channel
+        # is wb[ch], since raw_clip=1.0 × wb[ch]. Only applied with
+        # exposure aug to simulate realistic highlight clipping patterns.
+        if sensor_clip:
+            clip_levels = wb[self.cfa.long()].unsqueeze(0)  # (1, H, W)
+            cfa_img = cfa_img.clamp(max=clip_levels)
+
+        # Poisson-Gaussian noise: noise_std(x) = sqrt(shot * x + read^2)
+        read_sigma = rng.uniform(*self.noise_sigma)
+        shot_coeff = rng.uniform(*self.shot_noise)
+        if read_sigma > 0 or shot_coeff > 0:
+            noise_var = shot_coeff * cfa_img.clamp(min=0) + read_sigma ** 2
+            cfa_img = cfa_img + torch.randn_like(cfa_img) * noise_var.sqrt()
 
         input_tensor = torch.cat([cfa_img, self.masks], dim=0)
         return input_tensor, ref
@@ -228,6 +248,7 @@ def create_mixed_dataset(
     torture_patterns: int = 500,
     augment: bool = True,
     noise_sigma: tuple[float, float] = (0.0, 0.005),
+    shot_noise: tuple[float, float] = (0.0, 0.0),
     patches_per_image: int = 16,
     max_images: int | None = None,
     apply_wb: bool = False,
@@ -245,6 +266,7 @@ def create_mixed_dataset(
         patch_size=patch_size,
         augment=augment,
         noise_sigma=noise_sigma,
+        shot_noise=shot_noise,
         patches_per_image=patches_per_image,
         max_images=max_images,
         apply_wb=apply_wb,

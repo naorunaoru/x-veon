@@ -181,6 +181,9 @@ def main():
     # Augmentation
     parser.add_argument("--noise-min", type=float, default=0.0)
     parser.add_argument("--noise-max", type=float, default=0.005)
+    parser.add_argument("--shot-noise-max", type=float, default=0.0,
+                        help="Max shot noise coefficient for Poisson-Gaussian noise model (0 = disabled). "
+                             "Noise std at pixel value x: sqrt(shot*x + read^2)")
     parser.add_argument("--olpf-sigma-max", type=float, default=0.0,
                         help="Max Gaussian sigma for OLPF blur simulation (0 = disabled). Applied to RGB before mosaicing.")
     parser.add_argument("--wb-aug-range", type=float, default=0.0,
@@ -260,6 +263,7 @@ def main():
             torture_patterns=args.torture_patterns,
             augment=True,
             noise_sigma=(args.noise_min, args.noise_max),
+            shot_noise=(0.0, args.shot_noise_max),
             wb_aug_range=wb_aug,
             exposure_aug_ev=args.exposure_aug_ev,
             olpf_sigma=olpf_sigma,
@@ -270,6 +274,7 @@ def main():
             files=train_files,
             augment=True,
             noise_sigma=(args.noise_min, args.noise_max),
+            shot_noise=(0.0, args.shot_noise_max),
             wb_aug_range=wb_aug,
             exposure_aug_ev=args.exposure_aug_ev,
             olpf_sigma=olpf_sigma,
@@ -396,7 +401,7 @@ def main():
     print(f"\nTraining for {args.epochs} epochs...")
     print(f"  CFA: {args.cfa_type}")
     print(f"  Batch: {args.batch_size}, Patch: {args.patch_size}px")
-    print(f"  Noise: [{args.noise_min}, {args.noise_max}]")
+    print(f"  Noise: read=[{args.noise_min}, {args.noise_max}], shot=[0, {args.shot_noise_max}]")
     if args.torture_fraction > 0:
         print(f"  Torture mixing: {args.torture_fraction*100:.1f}%")
     if wb_aug > 0:

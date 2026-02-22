@@ -64,6 +64,7 @@ def export(checkpoint_path: str, output_path: str, patch_size: int = 288, opset:
         opset_version=opset,
         input_names=["input"],
         output_names=["output"],
+        dynamic_axes={"input": {0: "batch"}, "output": {0: "batch"}},
     )
 
     # Convert external data to a single self-contained file

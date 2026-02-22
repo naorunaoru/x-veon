@@ -8,32 +8,70 @@ export interface TileBlender {
 export function createTileBlender(
   hPad: number, wPad: number, patchSize: number, overlap: number,
 ): TileBlender {
+  // HWC layout: all 3 channels adjacent per pixel → cache-friendly writes
   const planeSize = hPad * wPad;
   const output = new Float32Array(3 * planeSize);
   const weights = new Float32Array(planeSize);
-  const patchPixels = patchSize * patchSize;
+  const pp = patchSize * patchSize;
 
+  // Pre-compute 2D weight grid
+  const w2d = new Float32Array(pp);
   const w1d = new Float32Array(patchSize);
   w1d.fill(1);
   for (let i = 0; i < overlap; i++) {
     w1d[i] = i / overlap;
     w1d[patchSize - 1 - i] = i / overlap;
   }
+  for (let py = 0; py < patchSize; py++) {
+    const wy = w1d[py];
+    const row = py * patchSize;
+    for (let px = 0; px < patchSize; px++) {
+      w2d[row + px] = wy * w1d[px];
+    }
+  }
+
+  const lo = overlap;
+  const hi = patchSize - overlap;
 
   return {
     accumulate(tile: Float32Array, tx: number, ty: number): void {
       for (let py = 0; py < patchSize; py++) {
-        const wy = w1d[py];
-        const imgY = ty + py;
-        for (let px = 0; px < patchSize; px++) {
-          const w = wy * w1d[px];
-          const imgIdx = imgY * wPad + (tx + px);
-          const tileIdx = py * patchSize + px;
+        const rowBase = (ty + py) * wPad + tx;
+        const tileRow = py * patchSize;
+        const isInterior = py >= lo && py < hi;
 
-          for (let c = 0; c < 3; c++) {
-            output[c * planeSize + imgIdx] += tile[c * patchPixels + tileIdx] * w;
+        // Weighted left edge (all rows) or full row (border rows)
+        const wEnd = isInterior ? lo : patchSize;
+        for (let px = 0; px < wEnd; px++) {
+          const w = w2d[tileRow + px];
+          const ti = tileRow + px;
+          const oi = (rowBase + px) * 3;
+          output[oi] += tile[ti] * w;
+          output[oi + 1] += tile[pp + ti] * w;
+          output[oi + 2] += tile[2 * pp + ti] * w;
+          weights[rowBase + px] += w;
+        }
+
+        if (isInterior) {
+          // Unweighted core
+          for (let px = lo; px < hi; px++) {
+            const ti = tileRow + px;
+            const oi = (rowBase + px) * 3;
+            output[oi] += tile[ti];
+            output[oi + 1] += tile[pp + ti];
+            output[oi + 2] += tile[2 * pp + ti];
+            weights[rowBase + px] += 1;
           }
-          weights[imgIdx] += w;
+          // Weighted right edge
+          for (let px = hi; px < patchSize; px++) {
+            const w = w2d[tileRow + px];
+            const ti = tileRow + px;
+            const oi = (rowBase + px) * 3;
+            output[oi] += tile[ti] * w;
+            output[oi + 1] += tile[pp + ti] * w;
+            output[oi + 2] += tile[2 * pp + ti] * w;
+            weights[rowBase + px] += w;
+          }
         }
       }
     },
@@ -42,9 +80,10 @@ export function createTileBlender(
       for (let i = 0; i < planeSize; i++) {
         if (weights[i] > 1e-8) {
           const invW = 1 / weights[i];
-          for (let c = 0; c < 3; c++) {
-            output[c * planeSize + i] *= invW;
-          }
+          const i3 = i * 3;
+          output[i3] *= invW;
+          output[i3 + 1] *= invW;
+          output[i3 + 2] *= invW;
         }
       }
       return output;
@@ -53,23 +92,15 @@ export function createTileBlender(
 }
 
 export function cropToHWC(
-  output: Float32Array, hPad: number, wPad: number,
+  output: Float32Array, _hPad: number, wPad: number,
   padTop: number, padLeft: number, hOrig: number, wOrig: number,
 ): Float32Array {
-  const planeSize = hPad * wPad;
-  const n = hOrig * wOrig;
-  const hwc = new Float32Array(n * 3);
+  const hwc = new Float32Array(hOrig * wOrig * 3);
+  const rowBytes = wOrig * 3;
 
   for (let y = 0; y < hOrig; y++) {
-    const srcRow = (y + padTop) * wPad + padLeft;
-    const dstRow = y * wOrig;
-    for (let x = 0; x < wOrig; x++) {
-      const srcIdx = srcRow + x;
-      const dstIdx = (dstRow + x) * 3;
-      hwc[dstIdx]     = output[srcIdx];
-      hwc[dstIdx + 1] = output[planeSize + srcIdx];
-      hwc[dstIdx + 2] = output[2 * planeSize + srcIdx];
-    }
+    const src = ((y + padTop) * wPad + padLeft) * 3;
+    hwc.set(output.subarray(src, src + rowBytes), y * rowBytes);
   }
 
   return hwc;

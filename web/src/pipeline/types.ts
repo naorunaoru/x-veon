@@ -51,7 +51,6 @@ export interface PatternShift {
 
 export interface TileGrid {
   tiles: Array<{ x: number; y: number }>;
-  paddedCfa: Float32Array;
   hPad: number;
   wPad: number;
 }
