@@ -311,41 +311,69 @@ export function makeChannelMasks(
   return { r, g, b };
 }
 
-/** Pre-fill mask channels (1-3) in a reusable batch buffer. Call once per buffer. */
+/** Pre-fill mask channels (1-3) in a reusable batch buffer. Call once per buffer.
+ *  Channel layout: [CFA, R_mask, G_mask, B_mask, clip_mask] per tile.
+ *  Channel 4 (clip mask) is filled per-tile in fillBatchCfa. */
 export function prefillBatchMasks(
   buf: Float32Array, masks: ChannelMasks, tileCount: number, patchSize: number,
 ): void {
   const n = patchSize * patchSize;
-  const tileSize = 4 * n;
+  const tileSize = 5 * n;
   for (let t = 0; t < tileCount; t++) {
     const base = t * tileSize;
     buf.set(masks.r, base + n);
     buf.set(masks.g, base + 2 * n);
     buf.set(masks.b, base + 3 * n);
+    // Channel 4 (clip mask) left for fillBatchCfa
   }
 }
 
-/** Write CFA data into channel 0 of a pre-allocated batch buffer. */
+/** Write CFA data into channel 0 and soft clip mask into channel 4 of a batch buffer.
+ *  Clip mask ramps linearly from 0 at 90% of clip to 1 at clip level. */
 export function fillBatchCfa(
   buf: Float32Array,
   cfa: Float32Array, cfaWidth: number, cfaHeight: number,
   tiles: Array<{ x: number; y: number }>, from: number, to: number,
   patchSize: number,
+  clips?: readonly [number, number, number],
+  getCh?: (y: number, x: number) => number,
 ): void {
   const n = patchSize * patchSize;
-  const tileSize = 4 * n;
+  const tileSize = 5 * n;
+  const hasClips = clips !== undefined && getCh !== undefined;
 
   for (let t = 0; t < to - from; t++) {
     const base = t * tileSize;
+    const clipBase = base + 4 * n;
     const { x, y } = tiles[from + t];
     const validH = Math.min(patchSize, cfaHeight - y);
     const validW = Math.min(patchSize, cfaWidth - x);
 
     for (let py = 0; py < validH; py++) {
-      const dstOffset = base + py * patchSize;
-      buf.set(cfa.subarray((y + py) * cfaWidth + x, (y + py) * cfaWidth + x + validW), dstOffset);
-      if (validW < patchSize) buf.fill(0, dstOffset + validW, dstOffset + patchSize);
+      const srcRow = (y + py) * cfaWidth;
+      const dstRow = py * patchSize;
+      for (let px = 0; px < validW; px++) {
+        const val = cfa[srcRow + x + px];
+        buf[base + dstRow + px] = val;
+        if (hasClips) {
+          const cl = clips![getCh!(y + py, x + px)];
+          const lo = cl * 0.9;
+          buf[clipBase + dstRow + px] = Math.min(Math.max((val - lo) / (cl - lo), 0), 1);
+        } else {
+          buf[clipBase + dstRow + px] = 0;
+        }
+      }
+      // Zero-fill remainder of row
+      for (let px = validW; px < patchSize; px++) {
+        buf[base + dstRow + px] = 0;
+        buf[clipBase + dstRow + px] = 0;
+      }
     }
-    if (validH < patchSize) buf.fill(0, base + validH * patchSize, base + n);
+    // Zero-fill remainder of tile
+    if (validH < patchSize) {
+      const off = validH * patchSize;
+      buf.fill(0, base + off, base + n);
+      buf.fill(0, clipBase + off, clipBase + n);
+    }
   }
 }

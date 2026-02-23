@@ -53,6 +53,8 @@ class LinearDataset(Dataset):
         files: list[str] | None = None,
         cfa_type: str = "xtrans",
         olpf_sigma: tuple[float, float] = (0.0, 0.0),
+        highlight_clip_prob: float = 0.0,
+        highlight_clip_ev: float = 0.0,
     ):
         self.patch_size = patch_size
         self.augment = augment
@@ -63,6 +65,8 @@ class LinearDataset(Dataset):
         self.apply_wb = apply_wb
         self.wb_aug_range = wb_aug_range
         self.exposure_aug_ev = exposure_aug_ev
+        self.highlight_clip_prob = highlight_clip_prob
+        self.highlight_clip_ev = highlight_clip_ev
         self.data_dir = data_dir
 
         self.pattern = CFA_REGISTRY[cfa_type]
@@ -207,11 +211,24 @@ class LinearDataset(Dataset):
 
         # Sensor saturation: raw photosites clip at white level (1.0 in
         # normalized raw space). In WB'd space the clip level per channel
-        # is wb[ch], since raw_clip=1.0 × wb[ch]. Only applied with
-        # exposure aug to simulate realistic highlight clipping patterns.
-        if sensor_clip:
-            clip_levels = wb[self.cfa.long()].unsqueeze(0)  # (1, H, W)
+        # is wb[ch], since raw_clip=1.0 × wb[ch].
+        # Two clipping mechanisms compose:
+        # - sensor_clip: from exposure augmentation (clips at natural level)
+        # - highlight_clip: synthetic reduction of clip level for HL training
+        do_hl_clip = (self.augment and self.highlight_clip_prob > 0
+                      and rng.random() < self.highlight_clip_prob)
+
+        if sensor_clip or do_hl_clip:
+            clip_scale = 1.0
+            if do_hl_clip:
+                clip_scale = 2.0 ** (-rng.uniform(0, self.highlight_clip_ev))
+            clip_levels = wb[self.cfa.long()].unsqueeze(0) * clip_scale  # (1, H, W)
+            # Soft clip mask: linear ramp from 90% of clip to clip level
+            low = clip_levels * 0.9
+            clip_mask = ((cfa_img - low) / (clip_levels - low + 1e-8)).clamp(0, 1)
             cfa_img = cfa_img.clamp(max=clip_levels)
+        else:
+            clip_mask = torch.zeros_like(cfa_img)  # (1, H, W)
 
         # Poisson-Gaussian noise: noise_std(x) = sqrt(shot * x + read^2)
         read_sigma = rng.uniform(*self.noise_sigma)
@@ -220,7 +237,7 @@ class LinearDataset(Dataset):
             noise_var = shot_coeff * cfa_img.clamp(min=0) + read_sigma ** 2
             cfa_img = cfa_img + torch.randn_like(cfa_img) * noise_var.sqrt()
 
-        input_tensor = torch.cat([cfa_img, self.masks], dim=0)
+        input_tensor = torch.cat([cfa_img, self.masks, clip_mask], dim=0)  # (5, H, W)
         return input_tensor, ref
 
 
@@ -257,6 +274,8 @@ def create_mixed_dataset(
     files: list[str] | None = None,
     cfa_type: str = "xtrans",
     olpf_sigma: tuple[float, float] = (0.0, 0.0),
+    highlight_clip_prob: float = 0.0,
+    highlight_clip_ev: float = 0.0,
 ) -> Dataset:
     """
     Create a dataset mixing real images with synthetic torture patterns.
@@ -275,6 +294,8 @@ def create_mixed_dataset(
         files=files,
         cfa_type=cfa_type,
         olpf_sigma=olpf_sigma,
+        highlight_clip_prob=highlight_clip_prob,
+        highlight_clip_ev=highlight_clip_ev,
     )
 
     if torture_fraction <= 0:

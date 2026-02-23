@@ -94,7 +94,7 @@ export async function runBatch(
 ): Promise<Float32Array> {
   const entry = models.get(cfaType);
   if (!entry) throw new Error(`ONNX session not loaded for ${cfaType}`);
-  const tensor = new ort.Tensor('float32', batchInput, [batchSize, 4, patchSize, patchSize]);
+  const tensor = new ort.Tensor('float32', batchInput, [batchSize, 5, patchSize, patchSize]);
   const results = await entry.session.run({ input: tensor });
   return results.output.data as Float32Array;
 }

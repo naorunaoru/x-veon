@@ -6,7 +6,6 @@ import {
   findPatternShift,
   normalizeRawCfa,
   channelClips,
-  reconstructHighlightsCfa,
   applyWhiteBalance,
   padToAlignment,
   generateTiles,
@@ -14,7 +13,6 @@ import {
   prefillBatchMasks,
   fillBatchCfa,
 } from '@/pipeline/preprocessor';
-import { reconstructHighlightsSegmented } from '@/pipeline/highlight-segments';
 import { runBatch, getBackend } from '@/pipeline/inference';
 import { runDemosaic, destroyDemosaicPool } from '@/pipeline/demosaic';
 import { createTileBlender, cropToHWC, buildColorMatrix, applyColorCorrection } from '@/pipeline/postprocessor';
@@ -90,16 +88,13 @@ export function useProcessFile() {
       // 6. Apply white balance
       applyWhiteBalance(cfa, visWidth, visHeight, wb, pattern, period, dy, dx);
 
-      // 7. Highlight reconstruction
+      // 7. Per-channel clip thresholds (for clip mask input to model)
       const black = raw.blackLevels[0];
       const range = raw.whiteLevels[0] - black;
       const clipNorm = channelClips(raw.cfaStr, raw.cfaWidth, raw.whiteLevels, black, range);
       const clips: [number, number, number] = [
         clipNorm[0] * wb[0], clipNorm[1] * wb[1], clipNorm[2] * wb[2],
       ];
-      const originalCfa = new Float32Array(cfa);
-      reconstructHighlightsCfa(cfa, visWidth, visHeight, pattern, period, dy, dx, clips);
-      reconstructHighlightsSegmented(cfa, visWidth, visHeight, pattern, period, dy, dx, 2, 0.5, originalCfa, clips);
 
       // 8. Pad for alignment
       let padded = padToAlignment(cfa, visWidth, visHeight, dy, dx);
@@ -131,8 +126,11 @@ export function useProcessFile() {
         const masks = makeChannelMasks(PATCH_SIZE, pattern, period);
         const blender = createTileBlender(hPad, wPad, PATCH_SIZE, OVERLAP);
         const tiles = tileGrid.tiles;
-        const tileSize = 4 * PATCH_SIZE * PATCH_SIZE;
+        const tileSize = 5 * PATCH_SIZE * PATCH_SIZE;
         const outSize = 3 * PATCH_SIZE * PATCH_SIZE;
+
+        // getCh for padded CFA (shifts are 0,0 after padToAlignment)
+        const getCh = (y: number, x: number) => pattern[y % period][x % period];
 
         // Pre-allocate two batch buffers with masks baked in (double-buffer)
         const bufs = [new Float32Array(TILE_BATCH * tileSize), new Float32Array(TILE_BATCH * tileSize)];
@@ -140,7 +138,7 @@ export function useProcessFile() {
         prefillBatchMasks(bufs[1], masks, TILE_BATCH, PATCH_SIZE);
 
         let slot = 0;
-        fillBatchCfa(bufs[0], cfaData, cfaW, cfaH, tiles, 0, Math.min(TILE_BATCH, tiles.length), PATCH_SIZE);
+        fillBatchCfa(bufs[0], cfaData, cfaW, cfaH, tiles, 0, Math.min(TILE_BATCH, tiles.length), PATCH_SIZE, clips, getCh);
 
         let b = 0;
         while (b < tiles.length) {
@@ -154,7 +152,7 @@ export function useProcessFile() {
           const nextEnd = Math.min(nextB + TILE_BATCH, tiles.length);
           if (nextB < tiles.length) {
             slot ^= 1;
-            fillBatchCfa(bufs[slot], cfaData, cfaW, cfaH, tiles, nextB, nextEnd, PATCH_SIZE);
+            fillBatchCfa(bufs[slot], cfaData, cfaW, cfaH, tiles, nextB, nextEnd, PATCH_SIZE, clips, getCh);
           }
 
           const batchOut = await inferPromise;

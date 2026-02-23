@@ -89,10 +89,13 @@ def train_epoch(model, loader, optimizer, criterion, device, scaler=None):
 
         if use_amp:
             scaler.scale(loss).backward()
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             scaler.step(optimizer)
             scaler.update()
         else:
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
 
         total_loss += loss.item()
@@ -190,6 +193,12 @@ def main():
                         help="WB shift augmentation range in log space (e.g. 0.25 = ~±28%%). Only with --apply-wb")
     parser.add_argument("--exposure-aug-ev", type=float, default=0.0,
                         help="Max upward exposure shift in EV (e.g. 1.5). Clips in raw space before WB.")
+    parser.add_argument("--highlight-clip-prob", type=float, default=0.0,
+                        help="Probability of synthetic highlight clipping per sample (0-1). "
+                             "Clips CFA below natural white level to train highlight reconstruction.")
+    parser.add_argument("--highlight-clip-ev", type=float, default=0.0,
+                        help="Max EV below natural white level for synthetic clipping (e.g. 2.0). "
+                             "Only used when --highlight-clip-prob > 0.")
     parser.add_argument("--torture-fraction", type=float, default=0.0,
                         help="Fraction of training data from synthetic torture patterns")
     parser.add_argument("--torture-patterns", type=int, default=500,
@@ -255,6 +264,11 @@ def main():
 
     olpf_sigma = (0.0, args.olpf_sigma_max)
 
+    hl_kwargs = dict(
+        highlight_clip_prob=args.highlight_clip_prob,
+        highlight_clip_ev=args.highlight_clip_ev,
+    )
+
     if args.torture_fraction > 0:
         train_dataset = create_mixed_dataset(
             data_dir=None,
@@ -267,6 +281,7 @@ def main():
             wb_aug_range=wb_aug,
             exposure_aug_ev=args.exposure_aug_ev,
             olpf_sigma=olpf_sigma,
+            **hl_kwargs,
             **shared_kwargs,
         )
     else:
@@ -278,6 +293,7 @@ def main():
             wb_aug_range=wb_aug,
             exposure_aug_ev=args.exposure_aug_ev,
             olpf_sigma=olpf_sigma,
+            **hl_kwargs,
             **shared_kwargs,
         )
 
@@ -288,7 +304,20 @@ def main():
         **shared_kwargs,
     )
 
-    print(f"  Patches: {len(train_dataset)} train, {len(val_dataset)} val")
+    # Separate validation set with clipping to track HL reconstruction quality
+    val_hl_dataset = None
+    if args.highlight_clip_prob > 0:
+        val_hl_dataset = LinearDataset(
+            files=val_files,
+            augment=True,  # need augment=True for clipping to activate
+            noise_sigma=(0.0, 0.0),
+            highlight_clip_prob=1.0,  # always clip
+            highlight_clip_ev=args.highlight_clip_ev,
+            **shared_kwargs,
+        )
+
+    print(f"  Patches: {len(train_dataset)} train, {len(val_dataset)} val"
+          + (f", {len(val_hl_dataset)} val_hl" if val_hl_dataset else ""))
 
     train_loader = DataLoader(
         train_dataset, batch_size=args.batch_size, shuffle=True,
@@ -298,6 +327,12 @@ def main():
         val_dataset, batch_size=args.batch_size, shuffle=False,
         num_workers=args.workers,
     )
+    val_hl_loader = None
+    if val_hl_dataset is not None:
+        val_hl_loader = DataLoader(
+            val_hl_dataset, batch_size=args.batch_size, shuffle=False,
+            num_workers=args.workers,
+        )
 
     # Model
     model = XTransUNet(base_width=args.base_width).to(device)
@@ -408,6 +443,8 @@ def main():
         print(f"  WB augmentation: ±{(math.exp(wb_aug)-1)*100:.0f}% (log range {wb_aug:.2f})")
     if args.exposure_aug_ev > 0:
         print(f"  Exposure augmentation: 0 to +{args.exposure_aug_ev:.1f} EV (raw-space clipping)")
+    if args.highlight_clip_prob > 0:
+        print(f"  Highlight clipping: {args.highlight_clip_prob*100:.0f}% prob, 0 to -{args.highlight_clip_ev:.1f} EV")
     print()
 
     for epoch in range(start_epoch, args.epochs):
@@ -419,6 +456,11 @@ def main():
         val_loss, val_psnr, val_comp = evaluate(
             model, val_loader, criterion, device, use_amp=args.amp
         )
+        val_hl_psnr = None
+        if val_hl_loader is not None:
+            _, val_hl_psnr, _ = evaluate(
+                model, val_hl_loader, criterion, device, use_amp=args.amp
+            )
         scheduler.step()
 
         elapsed = time.time() - t0
@@ -426,10 +468,11 @@ def main():
 
         # Format components for display
         comp_str = " ".join(f"{k}:{v:.4f}" for k, v in train_comp.items() if k != 'total')
+        hl_str = f" | HL: {val_hl_psnr:.1f}dB" if val_hl_psnr is not None else ""
 
         print(
             f"Ep {epoch + 1:3d}/{args.epochs} | "
-            f"Train: {train_psnr:.1f}dB | Val: {val_psnr:.1f}dB | "
+            f"Train: {train_psnr:.1f}dB | Val: {val_psnr:.1f}dB{hl_str} | "
             f"{comp_str} | LR:{lr:.1e} | {elapsed:.0f}s"
         )
 
@@ -441,6 +484,7 @@ def main():
             "val_loss": val_loss,
             "val_psnr": val_psnr,
             "val_components": val_comp,
+            "val_hl_psnr": val_hl_psnr,
             "lr": lr,
             "time": elapsed,
         }

@@ -2,7 +2,7 @@
 U-Net for X-Trans demosaicing.
 
 Architecture: encoder-decoder with skip connections.
-- Input: 4 channels (CFA + position masks)
+- Input: 5 channels (CFA + position masks + clip mask)
 - Output: 3 channels (RGB)
 - 4 levels: 64 -> 128 -> 256 -> 512
 - 3x3 convolutions throughout
@@ -63,7 +63,7 @@ class XTransUNet(nn.Module):
     Channel widths: base_width * [1, 2, 4, 8, 16] (default 64 → 64..1024).
     """
 
-    def __init__(self, in_channels: int = 4, out_channels: int = 3, base_width: int = 64):
+    def __init__(self, in_channels: int = 5, out_channels: int = 3, base_width: int = 64):
         super().__init__()
         w = base_width
 
@@ -88,8 +88,11 @@ class XTransUNet(nn.Module):
     def forward(self, x):
         # Global residual: CFA broadcast as baseline for all 3 channels.
         # Model learns color deltas, not absolute values → exposure-agnostic.
+        # For clipped pixels (channel 4 = 1), the CFA value is wrong so we
+        # zero the baseline — the model predicts absolute RGB instead.
         cfa = x[:, 0:1]  # (B, 1, H, W)
-        baseline = cfa.expand(-1, 3, -1, -1)  # (B, 3, H, W)
+        clip_mask = x[:, 4:5]  # (B, 1, H, W)
+        baseline = (cfa * (1.0 - clip_mask)).expand(-1, 3, -1, -1)  # (B, 3, H, W)
 
         # Encoder
         e1 = self.enc1(x)   # 64, H, W
@@ -121,7 +124,7 @@ if __name__ == "__main__":
     print(f"base_width={base_width}, Parameters: {count_parameters(model):,}")
 
     # Test forward pass
-    x = torch.randn(1, 4, 256, 256)
+    x = torch.randn(1, 5, 256, 256)
     y = model(x)
     print(f"Input:  {x.shape}")
     print(f"Output: {y.shape}")
