@@ -71,6 +71,17 @@ export function SettingsPanel() {
       }
     }
   }, [demosaicMethod, initialized, selectedFile, isProcessing, processFile, restoreCachedResult]);
+
+  // Auto-reprocess when clip mask inference toggle changes (NN only)
+  const useClipMaskInference = useAppStore((s) => s.useClipMaskInference);
+  const prevClipRef = useRef(useClipMaskInference);
+  useEffect(() => {
+    if (prevClipRef.current === useClipMaskInference) return;
+    prevClipRef.current = useClipMaskInference;
+    if (initialized && selectedFile && (selectedFile.status === 'done' || selectedFile.status === 'error') && !isProcessing && demosaicMethod === 'neural-net') {
+      processFile(selectedFile.id);
+    }
+  }, [useClipMaskInference, initialized, selectedFile, isProcessing, processFile, demosaicMethod]);
   const { exportFile, isExporting } = useExport();
 
   const [exportOpen, setExportOpen] = useState(false);

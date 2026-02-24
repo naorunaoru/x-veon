@@ -387,10 +387,13 @@ fn opendrt(rgb_in: vec3f) -> vec3f {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
-  var linear = textureSample(t_image, s_image, in.uv).rgb;
+  let sample = textureSample(t_image, s_image, in.uv);
+  var linear = sample.rgb;
+  let clip_ratio = sample.a;  // clip ratio (cfa/clip_level) packed in alpha
 
   let sharpen_amount = u.preprocess.w;
   let texel_size = u.texel_size_pad.xy;
+  let show_clip_overlay = u.texel_size_pad.z;
 
   // Unsharp mask sharpening
   if (sharpen_amount > 0.0) {
@@ -420,6 +423,16 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     // Export: output display-linear (no OETF, no clamp)
     return vec4f(display, 1.0);
   }
+
   // Display: apply sRGB OETF
-  return vec4f(srgb_oetf(display.r), srgb_oetf(display.g), srgb_oetf(display.b), 1.0);
+  var out = vec3f(srgb_oetf(display.r), srgb_oetf(display.g), srgb_oetf(display.b));
+
+  // Clip overlay: show pixels near/at clipping (ratio >= 0.9)
+  if (show_clip_overlay > 0.5 && clip_ratio > 0.9) {
+    let intensity = clamp((clip_ratio - 0.9) / 0.1, 0.0, 1.0);
+    let overlay = vec3f(1.0, 0.0, 0.4);
+    out = mix(out, overlay, intensity * 0.7);
+  }
+
+  return vec4f(out, 1.0);
 }

@@ -113,9 +113,9 @@ export function channelClips(
   }
   return [
     // HACK!
-    (wl[0] - black) / range * 0.93,
-    (wl[1] - black) / range * 0.93,
-    (wl[2] - black) / range * 0.93,
+    (wl[0] - black) / range * 0.9,
+    (wl[1] - black) / range * 0.9,
+    (wl[2] - black) / range * 0.9,
   ];
 }
 
@@ -328,8 +328,8 @@ export function prefillBatchMasks(
   }
 }
 
-/** Write CFA data into channel 0 and soft clip mask into channel 4 of a batch buffer.
- *  Clip mask ramps linearly from 0 at 90% of clip to 1 at clip level. */
+/** Write CFA data into channel 0 and clip ratio into channel 4 of a batch buffer.
+ *  Clip ratio = 0 below 50% of clip level, ramps 0→1 from 50% to 100%. */
 export function fillBatchCfa(
   buf: Float32Array,
   cfa: Float32Array, cfaWidth: number, cfaHeight: number,
@@ -357,8 +357,7 @@ export function fillBatchCfa(
         buf[base + dstRow + px] = val;
         if (hasClips) {
           const cl = clips![getCh!(y + py, x + px)];
-          const lo = cl * 0.9;
-          buf[clipBase + dstRow + px] = Math.min(Math.max((val - lo) / (cl - lo), 0), 1);
+          buf[clipBase + dstRow + px] = Math.max(Math.min(val / cl, 1) * 2 - 1, 0);
         } else {
           buf[clipBase + dstRow + px] = 0;
         }

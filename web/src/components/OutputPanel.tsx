@@ -1,4 +1,4 @@
-import { Loader2 } from 'lucide-react';
+import { Loader2, Sun, ShieldOff } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { OutputCanvas } from './OutputCanvas';
 import { useAppStore } from '@/store';
@@ -7,6 +7,12 @@ export function OutputPanel() {
   const selectedFile = useAppStore((s) =>
     s.files.find((f) => f.id === s.selectedFileId),
   );
+  const showClipMask = useAppStore((s) => s.showClipMask);
+  const setShowClipMask = useAppStore((s) => s.setShowClipMask);
+  const useClipMaskInference = useAppStore((s) => s.useClipMaskInference);
+  const setUseClipMaskInference = useAppStore((s) => s.setUseClipMaskInference);
+  const demosaicMethod = useAppStore((s) => s.demosaicMethod);
+
   if (!selectedFile) {
     return (
       <main className="flex-1 flex items-center justify-center bg-background">
@@ -22,6 +28,32 @@ export function OutputPanel() {
       {selectedFile.result ? (
         <>
           <OutputCanvas key={selectedFile.id} fileId={selectedFile.id} result={selectedFile.result} />
+          <div className="absolute top-2 right-2 z-10 flex gap-1">
+            {demosaicMethod === 'neural-net' && (
+              <button
+                className={`p-1.5 rounded-md transition-colors ${
+                  !useClipMaskInference
+                    ? 'bg-orange-600 text-white'
+                    : 'bg-background/70 text-muted-foreground hover:text-foreground hover:bg-background/90'
+                }`}
+                onClick={() => setUseClipMaskInference(!useClipMaskInference)}
+                title="Toggle clip mask input to model (reprocesses)"
+              >
+                <ShieldOff className="h-4 w-4" />
+              </button>
+            )}
+            <button
+              className={`p-1.5 rounded-md transition-colors ${
+                showClipMask
+                  ? 'bg-pink-600 text-white'
+                  : 'bg-background/70 text-muted-foreground hover:text-foreground hover:bg-background/90'
+              }`}
+              onClick={() => setShowClipMask(!showClipMask)}
+              title="Toggle highlight clipping overlay"
+            >
+              <Sun className="h-4 w-4" />
+            </button>
+          </div>
           {isReprocessing && (
             <div className="absolute inset-0 flex items-center justify-center bg-background/50 pointer-events-none">
               <div className="flex flex-col items-center gap-4 w-64">

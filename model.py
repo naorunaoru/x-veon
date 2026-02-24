@@ -2,8 +2,9 @@
 U-Net for X-Trans demosaicing.
 
 Architecture: encoder-decoder with skip connections.
-- Input: 5 channels (CFA + position masks + clip mask)
+- Input: 5 channels (CFA + position masks + clip ratio)
 - Output: 3 channels (RGB)
+- Additive residual: output = CFA_broadcast + learned_delta
 - 4 levels: 64 -> 128 -> 256 -> 512
 - 3x3 convolutions throughout
 - Receptive field easily covers 2-3 X-Trans repeats (12-18 pixels)
@@ -86,13 +87,13 @@ class XTransUNet(nn.Module):
         self.out_conv = nn.Conv2d(w, out_channels, 1)
 
     def forward(self, x):
-        # Global residual: CFA broadcast as baseline for all 3 channels.
-        # Model learns color deltas, not absolute values → exposure-agnostic.
-        # For clipped pixels (channel 4 = 1), the CFA value is wrong so we
-        # zero the baseline — the model predicts absolute RGB instead.
+        # Additive residual: output = baseline + delta.
+        # Baseline = CFA value broadcast to all 3 channels.
+        # Network predicts color corrections (small for demosaic, large for
+        # highlight reconstruction). Loss weighting handles the magnitude
+        # difference between the two tasks.
         cfa = x[:, 0:1]  # (B, 1, H, W)
-        clip_mask = x[:, 4:5]  # (B, 1, H, W)
-        baseline = (cfa * (1.0 - clip_mask)).expand(-1, 3, -1, -1)  # (B, 3, H, W)
+        baseline = cfa.expand(-1, 3, -1, -1)  # (B, 3, H, W)
 
         # Encoder
         e1 = self.enc1(x)   # 64, H, W

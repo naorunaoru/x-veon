@@ -126,10 +126,15 @@ def plot_training_history(checkpoint_dir: str) -> tuple:
     ax1.plot(epochs, val_psnr, label="Val", alpha=0.3, linewidth=1)
     val_smoothed = ema(val_psnr, alpha=0.1)
     ax1.plot(epochs, val_smoothed, label="Val (smoothed)", linewidth=2, color="tab:orange")
+    if "val_hl_psnr" in history[0]:
+        val_hl_psnr = [h["val_hl_psnr"] for h in history]
+        ax1.plot(epochs, val_hl_psnr, label="Val HL", alpha=0.3, linewidth=1, color="tab:red")
+        val_hl_smoothed = ema(val_hl_psnr, alpha=0.1)
+        ax1.plot(epochs, val_hl_smoothed, label="Val HL (smoothed)", linewidth=2, color="tab:red")
     ax1.set_xlabel("Epoch")
     ax1.set_ylabel("PSNR (dB)")
     ax1.set_title(f"{checkpoint_dir}\n{config_str}" if config_str else checkpoint_dir)
-    ax1.legend()
+    ax1.legend(fontsize=8)
     ax1.grid(True, alpha=0.3)
     
     # Best PSNR annotation
@@ -149,6 +154,7 @@ def plot_training_history(checkpoint_dir: str) -> tuple:
         "chroma": "tab:red",
         "zipper": "tab:purple",
         "color_bias": "tab:brown",
+        "hl_bias": "tab:pink",
     }
     def plot_components(ax, history, key, title):
         if key not in history[0]:

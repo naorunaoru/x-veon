@@ -20,7 +20,7 @@ import { PATCH_SIZE, OVERLAP, TILE_BATCH } from '@/pipeline/constants';
 import type { DemosaicMethod, ProcessingResultMeta } from '@/pipeline/types';
 import { estimateColorTemperature } from '@/pipeline/color-temperature';
 import { writeHwc, hwcKey, readRaw } from '@/lib/opfs-storage';
-import { setHwc } from '@/lib/hwc-handoff';
+import { setHwc, setClipMask } from '@/lib/hwc-handoff';
 
 /** Flatten a 2D pattern array into a Uint32Array for GPU/demosaic use */
 function flattenPattern(pattern: readonly (readonly number[])[], period: number): Uint32Array {
@@ -96,6 +96,20 @@ export function useProcessFile() {
         clipNorm[0] * wb[0], clipNorm[1] * wb[1], clipNorm[2] * wb[2],
       ];
 
+      // 7b. Compute full-image clip ratio (for overlay visualization)
+      // Ratio = cfa / clip_level, smooth 0→1. At 1.0 the pixel is clipped.
+      const clipMask = new Float32Array(visWidth * visHeight);
+      for (let y = 0; y < visHeight; y++) {
+        const patY = ((y + dy) % period + period) % period;
+        const row = y * visWidth;
+        for (let x = 0; x < visWidth; x++) {
+          const ch = pattern[patY][((x + dx) % period + period) % period];
+          const val = cfa[row + x];
+          const cl = clips[ch];
+          clipMask[row + x] = Math.min(val / cl, 1);
+        }
+      }
+
       // 8. Pad for alignment
       let padded = padToAlignment(cfa, visWidth, visHeight, dy, dx);
       const padTop = padded.padTop;
@@ -132,13 +146,18 @@ export function useProcessFile() {
         // getCh for padded CFA (shifts are 0,0 after padToAlignment)
         const getCh = (y: number, x: number) => pattern[y % period][x % period];
 
+        // When disabled, fillBatchCfa fills channel 4 with zeros
+        const useClip = useAppStore.getState().useClipMaskInference;
+        const inferClips = useClip ? clips : undefined;
+        const inferGetCh = useClip ? getCh : undefined;
+
         // Pre-allocate two batch buffers with masks baked in (double-buffer)
         const bufs = [new Float32Array(TILE_BATCH * tileSize), new Float32Array(TILE_BATCH * tileSize)];
         prefillBatchMasks(bufs[0], masks, TILE_BATCH, PATCH_SIZE);
         prefillBatchMasks(bufs[1], masks, TILE_BATCH, PATCH_SIZE);
 
         let slot = 0;
-        fillBatchCfa(bufs[0], cfaData, cfaW, cfaH, tiles, 0, Math.min(TILE_BATCH, tiles.length), PATCH_SIZE, clips, getCh);
+        fillBatchCfa(bufs[0], cfaData, cfaW, cfaH, tiles, 0, Math.min(TILE_BATCH, tiles.length), PATCH_SIZE, inferClips, inferGetCh);
 
         let b = 0;
         while (b < tiles.length) {
@@ -152,7 +171,7 @@ export function useProcessFile() {
           const nextEnd = Math.min(nextB + TILE_BATCH, tiles.length);
           if (nextB < tiles.length) {
             slot ^= 1;
-            fillBatchCfa(bufs[slot], cfaData, cfaW, cfaH, tiles, nextB, nextEnd, PATCH_SIZE, clips, getCh);
+            fillBatchCfa(bufs[slot], cfaData, cfaW, cfaH, tiles, nextB, nextEnd, PATCH_SIZE, inferClips, inferGetCh);
           }
 
           const batchOut = await inferPromise;
@@ -203,7 +222,9 @@ export function useProcessFile() {
       const { temp: colorTemp, tint } = estimateColorTemperature(wb, raw.camToXyz);
 
       // Hand off for immediate display (avoids OPFS round-trip)
-      setHwc(hwcKey(fileId, method), hwc);
+      const key = hwcKey(fileId, method);
+      setHwc(key, hwc);
+      setClipMask(key, clipMask);
 
       // Persist NN results to OPFS for session recovery / file revisit
       if (method === 'neural-net') {

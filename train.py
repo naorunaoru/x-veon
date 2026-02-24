@@ -78,14 +78,15 @@ def train_epoch(model, loader, optimizer, criterion, device, scaler=None):
     use_amp = scaler is not None
 
     for batch in loader:
-        inputs, targets = batch
+        inputs, targets, clip_levels = batch
         inputs = inputs.to(device)
         targets = targets.to(device)
+        clip_levels = clip_levels.to(device)
 
         optimizer.zero_grad()
         with torch.autocast(device.type, enabled=use_amp):
             outputs = model(inputs)
-            loss, components = criterion(outputs, targets)
+            loss, components = criterion(outputs, targets, clip_levels=clip_levels)
 
         if use_amp:
             scaler.scale(loss).backward()
@@ -118,13 +119,14 @@ def evaluate(model, loader, criterion, device, use_amp=False):
     n_batches = 0
 
     for batch in loader:
-        inputs, targets = batch
+        inputs, targets, clip_levels = batch
         inputs = inputs.to(device)
         targets = targets.to(device)
+        clip_levels = clip_levels.to(device)
 
         with torch.autocast(device.type, enabled=use_amp):
             outputs = model(inputs)
-            loss, components = criterion(outputs, targets)
+            loss, components = criterion(outputs, targets, clip_levels=clip_levels)
 
         total_loss += loss.item()
         for k, v in components.items():
@@ -168,6 +170,18 @@ def main():
                         help="Weight for mean color bias penalty (penalizes DC color shift)")
     parser.add_argument("--zipper-weight", type=float, default=None,
                         help="Weight for zipper artifact penalty (Laplacian 2nd-order oscillation)")
+    parser.add_argument("--hl-bias-weight", type=float, default=None,
+                        help="Weight for highlight DC bias penalty (penalizes color tint in bright regions)")
+    parser.add_argument("--hl-rel-weight", type=float, default=None,
+                        help="Weight for highlight relative L1 loss (normalizes error by brightness)")
+    parser.add_argument("--hl-grad-weight", type=float, default=None,
+                        help="Weight for highlight gradient loss (Sobel edge preservation in bright regions)")
+    parser.add_argument("--hl-threshold", type=float, default=0.5,
+                        help="Brightness threshold for all highlight losses (fraction of clip level). "
+                             "Soft ramp from threshold to clip level.")
+    parser.add_argument("--hl-fade", type=float, default=0.0,
+                        help="Fade out main pixel loss (Huber/L1) in highlight regions (0-1). "
+                             "1.0 = fully suppress pixel loss in highlights, letting hl-* losses take over.")
     parser.add_argument("--huber", action="store_true",
                         help="Use Huber loss instead of L1")
     parser.add_argument("--huber-delta", type=float, default=1.0,
@@ -191,14 +205,12 @@ def main():
                         help="Max Gaussian sigma for OLPF blur simulation (0 = disabled). Applied to RGB before mosaicing.")
     parser.add_argument("--wb-aug-range", type=float, default=0.0,
                         help="WB shift augmentation range in log space (e.g. 0.25 = ~±28%%). Only with --apply-wb")
-    parser.add_argument("--exposure-aug-ev", type=float, default=0.0,
-                        help="Max upward exposure shift in EV (e.g. 1.5). Clips in raw space before WB.")
-    parser.add_argument("--highlight-clip-prob", type=float, default=0.0,
-                        help="Probability of synthetic highlight clipping per sample (0-1). "
-                             "Clips CFA below natural white level to train highlight reconstruction.")
-    parser.add_argument("--highlight-clip-ev", type=float, default=0.0,
-                        help="Max EV below natural white level for synthetic clipping (e.g. 2.0). "
-                             "Only used when --highlight-clip-prob > 0.")
+    parser.add_argument("--highlight-aug-prob", type=float, default=0.0,
+                        help="Probability of highlight augmentation per sample (0-1). "
+                             "When triggered, jointly boosts exposure and lowers clip ceiling.")
+    parser.add_argument("--highlight-aug-ev", type=float, default=0.0,
+                        help="Max EV for highlight augmentation (e.g. 1.5). "
+                             "Boosts exposure by +ev, clips at pre-boost ceiling.")
     parser.add_argument("--torture-fraction", type=float, default=0.0,
                         help="Fraction of training data from synthetic torture patterns")
     parser.add_argument("--torture-patterns", type=int, default=500,
@@ -265,8 +277,8 @@ def main():
     olpf_sigma = (0.0, args.olpf_sigma_max)
 
     hl_kwargs = dict(
-        highlight_clip_prob=args.highlight_clip_prob,
-        highlight_clip_ev=args.highlight_clip_ev,
+        highlight_aug_prob=args.highlight_aug_prob,
+        highlight_aug_ev=args.highlight_aug_ev,
     )
 
     if args.torture_fraction > 0:
@@ -279,7 +291,6 @@ def main():
             noise_sigma=(args.noise_min, args.noise_max),
             shot_noise=(0.0, args.shot_noise_max),
             wb_aug_range=wb_aug,
-            exposure_aug_ev=args.exposure_aug_ev,
             olpf_sigma=olpf_sigma,
             **hl_kwargs,
             **shared_kwargs,
@@ -291,7 +302,6 @@ def main():
             noise_sigma=(args.noise_min, args.noise_max),
             shot_noise=(0.0, args.shot_noise_max),
             wb_aug_range=wb_aug,
-            exposure_aug_ev=args.exposure_aug_ev,
             olpf_sigma=olpf_sigma,
             **hl_kwargs,
             **shared_kwargs,
@@ -306,13 +316,13 @@ def main():
 
     # Separate validation set with clipping to track HL reconstruction quality
     val_hl_dataset = None
-    if args.highlight_clip_prob > 0:
+    if args.highlight_aug_prob > 0:
         val_hl_dataset = LinearDataset(
             files=val_files,
-            augment=True,  # need augment=True for clipping to activate
+            augment=False,
             noise_sigma=(0.0, 0.0),
-            highlight_clip_prob=1.0,  # always clip
-            highlight_clip_ev=args.highlight_clip_ev,
+            highlight_aug_prob=1.0,  # always apply highlight aug
+            highlight_aug_ev=args.highlight_aug_ev,
             **shared_kwargs,
         )
 
@@ -366,6 +376,25 @@ def main():
         if criterion.zipper is None and args.zipper_weight > 0:
             from losses import ZipperLoss
             criterion.zipper = ZipperLoss()
+    # Highlight losses: shared threshold and fade
+    hl_t = args.hl_threshold
+    criterion.hl_threshold = hl_t
+    criterion.hl_fade = args.hl_fade
+    if args.hl_bias_weight is not None:
+        criterion.hl_bias_weight = args.hl_bias_weight
+        if criterion.hl_bias is None and args.hl_bias_weight > 0:
+            from losses import HighlightBiasLoss
+            criterion.hl_bias = HighlightBiasLoss(threshold=hl_t)
+    if args.hl_rel_weight is not None:
+        criterion.hl_rel_weight = args.hl_rel_weight
+        if criterion.hl_rel is None and args.hl_rel_weight > 0:
+            from losses import HighlightRelativeLoss
+            criterion.hl_rel = HighlightRelativeLoss(threshold=hl_t)
+    if args.hl_grad_weight is not None:
+        criterion.hl_grad_weight = args.hl_grad_weight
+        if criterion.hl_grad is None and args.hl_grad_weight > 0:
+            from losses import HighlightGradientLoss
+            criterion.hl_grad = HighlightGradientLoss(threshold=hl_t)
     if args.per_channel_norm:
         criterion.per_channel_norm = True
     if args.huber:
@@ -386,6 +415,18 @@ def main():
         loss_info += f", zipper={criterion.zipper_weight}"
     if criterion.color_bias_weight > 0:
         loss_info += f", color_bias={criterion.color_bias_weight}"
+    has_hl = criterion.hl_bias_weight > 0 or criterion.hl_rel_weight > 0 or criterion.hl_grad_weight > 0 or criterion.hl_fade > 0
+    if has_hl:
+        hl_parts = []
+        if criterion.hl_bias_weight > 0:
+            hl_parts.append(f"bias={criterion.hl_bias_weight}")
+        if criterion.hl_rel_weight > 0:
+            hl_parts.append(f"rel={criterion.hl_rel_weight}")
+        if criterion.hl_grad_weight > 0:
+            hl_parts.append(f"grad={criterion.hl_grad_weight}")
+        if criterion.hl_fade > 0:
+            hl_parts.append(f"fade={criterion.hl_fade}")
+        loss_info += f", hl[t={criterion.hl_threshold}]({', '.join(hl_parts)})"
     if criterion.per_channel_norm:
         loss_info += " [per-channel norm]"
     if args.apply_wb:
@@ -441,10 +482,9 @@ def main():
         print(f"  Torture mixing: {args.torture_fraction*100:.1f}%")
     if wb_aug > 0:
         print(f"  WB augmentation: ±{(math.exp(wb_aug)-1)*100:.0f}% (log range {wb_aug:.2f})")
-    if args.exposure_aug_ev > 0:
-        print(f"  Exposure augmentation: 0 to +{args.exposure_aug_ev:.1f} EV (raw-space clipping)")
-    if args.highlight_clip_prob > 0:
-        print(f"  Highlight clipping: {args.highlight_clip_prob*100:.0f}% prob, 0 to -{args.highlight_clip_ev:.1f} EV")
+    if args.highlight_aug_prob > 0:
+        print(f"  Highlight augmentation: {args.highlight_aug_prob*100:.0f}% prob, "
+              f"0 to {args.highlight_aug_ev:.1f} EV")
     print()
 
     for epoch in range(start_epoch, args.epochs):

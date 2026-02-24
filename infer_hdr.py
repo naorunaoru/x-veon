@@ -12,7 +12,7 @@ import rawpy
 import torch
 
 from model import XTransUNet
-from cfa import make_channel_masks, detect_cfa_from_raw, find_pattern_shift, cfa_period, CFA_REGISTRY
+from cfa import make_cfa_mask, make_channel_masks, detect_cfa_from_raw, find_pattern_shift, cfa_period, CFA_REGISTRY
 
 
 # Standard color space conversion matrices
@@ -266,9 +266,8 @@ def process_raw(raw_path: str, model: torch.nn.Module, device: str,
 
     # Per-pixel clip level map for one tile (CFA-aligned after padding, so periodic)
     tile_cfa = make_cfa_mask(patch_size, patch_size, ref_pattern).numpy()
-    tile_clip_hi = np.array([clip_levels[int(c)] for c in tile_cfa.flat],
-                            dtype=np.float32).reshape(patch_size, patch_size)
-    tile_clip_lo = tile_clip_hi * 0.9  # soft ramp starts at 90% of clip
+    tile_clip_level = np.array([clip_levels[int(c)] for c in tile_cfa.flat],
+                               dtype=np.float32).reshape(patch_size, patch_size)
 
     confidence_map = None
     variance = None
@@ -286,8 +285,9 @@ def process_raw(raw_path: str, model: torch.nn.Module, device: str,
                 for x in range(0, w_pad, patch_size):
                     crop = cfa_padded[y:y+patch_size, x:x+patch_size]
                     cfa_t = torch.from_numpy(crop).unsqueeze(0).unsqueeze(0).float().to(device)
-                    clip_mask = torch.from_numpy(np.clip((crop - tile_clip_lo) / (tile_clip_hi - tile_clip_lo + 1e-8), 0, 1).astype(np.float32)).unsqueeze(0).unsqueeze(0).to(device)
-                    inp = torch.cat([cfa_t, masks.unsqueeze(0), clip_mask], dim=1)
+                    raw_ratio = np.clip(crop / (tile_clip_level + 1e-8), 0, 1)
+                    clip_ratio = torch.from_numpy(np.clip((raw_ratio - 0.5) * 2.0, 0, 1).astype(np.float32)).unsqueeze(0).unsqueeze(0).to(device)
+                    inp = torch.cat([cfa_t, masks.unsqueeze(0), clip_ratio], dim=1)
                     out = model(inp)[0].cpu().numpy()
                     output[:, y:y+patch_size, x:x+patch_size] = out
     else:
@@ -312,10 +312,11 @@ def process_raw(raw_path: str, model: torch.nn.Module, device: str,
                 for x in range(0, w_pad - patch_size + 1, stride):
                     crop = cfa_padded[y:y+patch_size, x:x+patch_size]
                     cfa_t = torch.from_numpy(crop).unsqueeze(0).unsqueeze(0).float().to(device)
-                    clip_mask = torch.from_numpy(np.clip((crop - tile_clip_lo) / (tile_clip_hi - tile_clip_lo + 1e-8), 0, 1).astype(np.float32)).unsqueeze(0).unsqueeze(0).to(device)
-                    inp = torch.cat([cfa_t, masks.unsqueeze(0), clip_mask], dim=1)
+                    raw_ratio = np.clip(crop / (tile_clip_level + 1e-8), 0, 1)
+                    clip_ratio = torch.from_numpy(np.clip((raw_ratio - 0.5) * 2.0, 0, 1).astype(np.float32)).unsqueeze(0).unsqueeze(0).to(device)
+                    inp = torch.cat([cfa_t, masks.unsqueeze(0), clip_ratio], dim=1)
                     out = model(inp)[0].cpu().numpy()
-                    
+
                     for c in range(3):
                         output[c, y:y+patch_size, x:x+patch_size] += out[c] * blend_weight
                         output_sq[c, y:y+patch_size, x:x+patch_size] += out[c]**2 * blend_weight

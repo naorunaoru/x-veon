@@ -49,12 +49,11 @@ class LinearDataset(Dataset):
         filter_file: str | None = None,
         apply_wb: bool = False,
         wb_aug_range: float = 0.0,
-        exposure_aug_ev: float = 0.0,
         files: list[str] | None = None,
         cfa_type: str = "xtrans",
         olpf_sigma: tuple[float, float] = (0.0, 0.0),
-        highlight_clip_prob: float = 0.0,
-        highlight_clip_ev: float = 0.0,
+        highlight_aug_prob: float = 0.0,
+        highlight_aug_ev: float = 0.0,
     ):
         self.patch_size = patch_size
         self.augment = augment
@@ -64,9 +63,8 @@ class LinearDataset(Dataset):
         self.patches_per_image = patches_per_image
         self.apply_wb = apply_wb
         self.wb_aug_range = wb_aug_range
-        self.exposure_aug_ev = exposure_aug_ev
-        self.highlight_clip_prob = highlight_clip_prob
-        self.highlight_clip_ev = highlight_clip_ev
+        self.highlight_aug_prob = highlight_aug_prob
+        self.highlight_aug_ev = highlight_aug_ev
         self.data_dir = data_dir
 
         self.pattern = CFA_REGISTRY[cfa_type]
@@ -177,14 +175,18 @@ class LinearDataset(Dataset):
                 wb = wb * torch.tensor([r_shift, 1.0, b_shift])
             rgb = rgb * wb.view(3, 1, 1)
 
-        # Exposure augmentation: simulate brighter scene. Ground truth keeps
-        # full HDR range; sensor saturation is applied per-photosite on the
-        # CFA input after mosaicing (where clipping physically occurs).
-        sensor_clip = False
-        if self.augment and self.exposure_aug_ev > 0:
-            ev_shift = rng.uniform(0, self.exposure_aug_ev)
-            rgb = rgb * (2.0 ** ev_shift)
-            sensor_clip = True
+        # Highlight augmentation: boost exposure by +ev EV, then clip the
+        # CFA at the original (pre-boost) ceiling.  The model must recover
+        # the ev stops of headroom that were clipped away.
+        # Decoupled from self.augment so val_hl can use augment=False.
+        do_highlight = (self.highlight_aug_prob > 0
+                        and rng.random() < self.highlight_aug_prob)
+        clip_scale = 1.0
+        if do_highlight and self.highlight_aug_ev > 0:
+            ev = rng.uniform(0, self.highlight_aug_ev)
+            rgb = rgb * (2.0 ** ev)
+            # Clip at pre-boost level: undo the exposure gain for the ceiling
+            clip_scale = 2.0 ** (-ev)
 
         # Geometric augmentation: flips + 90° rotations (applied before
         # mosaicing, so CFA is applied fresh to the transformed image)
@@ -212,23 +214,16 @@ class LinearDataset(Dataset):
         # Sensor saturation: raw photosites clip at white level (1.0 in
         # normalized raw space). In WB'd space the clip level per channel
         # is wb[ch], since raw_clip=1.0 × wb[ch].
-        # Two clipping mechanisms compose:
-        # - sensor_clip: from exposure augmentation (clips at natural level)
-        # - highlight_clip: synthetic reduction of clip level for HL training
-        do_hl_clip = (self.augment and self.highlight_clip_prob > 0
-                      and rng.random() < self.highlight_clip_prob)
+        # clip_scale < 1 from highlight augmentation lowers the ceiling.
+        clip_levels = wb[self.cfa.long()].unsqueeze(0) * clip_scale  # (1, H, W)
 
-        if sensor_clip or do_hl_clip:
-            clip_scale = 1.0
-            if do_hl_clip:
-                clip_scale = 2.0 ** (-rng.uniform(0, self.highlight_clip_ev))
-            clip_levels = wb[self.cfa.long()].unsqueeze(0) * clip_scale  # (1, H, W)
-            # Soft clip mask: linear ramp from 90% of clip to clip level
-            low = clip_levels * 0.9
-            clip_mask = ((cfa_img - low) / (clip_levels - low + 1e-8)).clamp(0, 1)
+        if do_highlight:
             cfa_img = cfa_img.clamp(max=clip_levels)
-        else:
-            clip_mask = torch.zeros_like(cfa_img)  # (1, H, W)
+
+        # Clip proximity: 0 below 50% of clip level, ramps 0→1 from 50% to 100%.
+        # Only encodes proximity to clipping, not scene luminance.
+        raw_ratio = (cfa_img / (clip_levels + 1e-8)).clamp(0, 1)
+        clip_ratio = ((raw_ratio - 0.5) * 2.0).clamp(0, 1)  # (1, H, W)
 
         # Poisson-Gaussian noise: noise_std(x) = sqrt(shot * x + read^2)
         read_sigma = rng.uniform(*self.noise_sigma)
@@ -237,8 +232,9 @@ class LinearDataset(Dataset):
             noise_var = shot_coeff * cfa_img.clamp(min=0) + read_sigma ** 2
             cfa_img = cfa_img + torch.randn_like(cfa_img) * noise_var.sqrt()
 
-        input_tensor = torch.cat([cfa_img, self.masks, clip_mask], dim=0)  # (5, H, W)
-        return input_tensor, ref
+        input_tensor = torch.cat([cfa_img, self.masks, clip_ratio], dim=0)  # (5, H, W)
+        clip_ch = wb * clip_scale  # (3,) per-channel clip levels for loss
+        return input_tensor, ref, clip_ch
 
 
 class TortureDataset(Dataset):
@@ -270,12 +266,11 @@ def create_mixed_dataset(
     max_images: int | None = None,
     apply_wb: bool = False,
     wb_aug_range: float = 0.0,
-    exposure_aug_ev: float = 0.0,
     files: list[str] | None = None,
     cfa_type: str = "xtrans",
     olpf_sigma: tuple[float, float] = (0.0, 0.0),
-    highlight_clip_prob: float = 0.0,
-    highlight_clip_ev: float = 0.0,
+    highlight_aug_prob: float = 0.0,
+    highlight_aug_ev: float = 0.0,
 ) -> Dataset:
     """
     Create a dataset mixing real images with synthetic torture patterns.
@@ -290,12 +285,11 @@ def create_mixed_dataset(
         max_images=max_images,
         apply_wb=apply_wb,
         wb_aug_range=wb_aug_range,
-        exposure_aug_ev=exposure_aug_ev,
         files=files,
         cfa_type=cfa_type,
         olpf_sigma=olpf_sigma,
-        highlight_clip_prob=highlight_clip_prob,
-        highlight_clip_ev=highlight_clip_ev,
+        highlight_aug_prob=highlight_aug_prob,
+        highlight_aug_ev=highlight_aug_ev,
     )
 
     if torture_fraction <= 0:

@@ -57,6 +57,12 @@ interface AppState {
   displayHdrHeadroom: number;
   hdrPermissionNeeded: boolean;
 
+  // Clip mask overlay
+  showClipMask: boolean;
+
+  // Whether to feed clip mask (channel 4) to the model during inference
+  useClipMaskInference: boolean;
+
   // Canvas ref for WebCodecs AVIF export
   canvasRef: HTMLCanvasElement | null;
 
@@ -87,6 +93,8 @@ interface AppState {
 
   setDisplayHdr: (enabled: boolean, headroom: number) => void;
   setHdrPermissionNeeded: (needed: boolean) => void;
+  setShowClipMask: (show: boolean) => void;
+  setUseClipMaskInference: (use: boolean) => void;
   setCanvasRef: (ref: HTMLCanvasElement | null) => void;
   setRendererRef: (ref: HdrRenderer | null) => void;
 
@@ -151,6 +159,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   displayHdr: false,
   displayHdrHeadroom: 1.0,
   hdrPermissionNeeded: false,
+
+  showClipMask: false,
+  useClipMaskInference: true,
 
   canvasRef: null,
   rendererRef: null,
@@ -400,6 +411,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setDisplayHdr: (enabled, headroom) => set({ displayHdr: enabled, displayHdrHeadroom: headroom }),
   setHdrPermissionNeeded: (needed) => set({ hdrPermissionNeeded: needed }),
+  setShowClipMask: (show) => set({ showClipMask: show }),
+  setUseClipMaskInference: (use) => set({ useClipMaskInference: use }),
   setCanvasRef: (ref) => set({ canvasRef: ref }),
   setRendererRef: (ref) => set({ rendererRef: ref }),
 

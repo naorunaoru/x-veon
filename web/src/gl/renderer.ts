@@ -350,19 +350,20 @@ export class HdrRenderer {
     return 'gpu' in navigator;
   }
 
-  uploadImage(hwc: Float32Array, width: number, height: number): void {
+  uploadImage(hwc: Float32Array, width: number, height: number, clipMask?: Float32Array): void {
     if (this.imageTex) this.imageTex.destroy();
     this.imgW = width;
     this.imgH = height;
 
     // Pad RGB→RGBA (WebGPU has no RGB-only texture formats)
+    // Alpha channel carries the clip mask for overlay visualization
     const pixelCount = width * height;
     const rgba = new Float32Array(pixelCount * 4);
     for (let i = 0; i < pixelCount; i++) {
       rgba[i * 4]     = hwc[i * 3];
       rgba[i * 4 + 1] = hwc[i * 3 + 1];
       rgba[i * 4 + 2] = hwc[i * 3 + 2];
-      rgba[i * 4 + 3] = 1.0;
+      rgba[i * 4 + 3] = clipMask ? clipMask[i] : 0.0;
     }
 
     this.imageTex = this.device.createTexture({
@@ -407,6 +408,10 @@ export class HdrRenderer {
     this.displayTs = ts;
     this.displayCfg = cfg;
     this.applyOpenDrtUniforms(ts, cfg);
+  }
+
+  setClipMaskOverlay(enabled: boolean): void {
+    this.uniformData[U_TEXEL + 2] = enabled ? 1.0 : 0.0;
   }
 
   render(): void {
