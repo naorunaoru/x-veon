@@ -118,7 +118,10 @@ def plot_training_history(checkpoint_dir: str) -> tuple:
     def ema(data, alpha=0.1):
         smoothed = [data[0]]
         for v in data[1:]:
-            smoothed.append(alpha * v + (1 - alpha) * smoothed[-1])
+            if v is None or smoothed[-1] is None:
+                smoothed.append(v)
+            else:
+                smoothed.append(alpha * v + (1 - alpha) * smoothed[-1])
         return smoothed
     
     # PSNR plot
@@ -144,6 +147,18 @@ def plot_training_history(checkpoint_dir: str) -> tuple:
                 xytext=(10, -20), textcoords="offset points",
                 fontsize=9, color="green",
                 arrowprops=dict(arrowstyle="->", color="green", alpha=0.7))
+
+    # Best HL PSNR annotation
+    if "val_hl_psnr" in history[0]:
+        val_hl_vals = [h["val_hl_psnr"] for h in history]
+        valid_hl = [(i, v) for i, v in enumerate(val_hl_vals) if v is not None]
+        if valid_hl:
+            best_hl_idx, best_hl_val = max(valid_hl, key=lambda x: x[1])
+            ax1.annotate(f"Best HL: {best_hl_val:.2f} dB\n(epoch {epochs[best_hl_idx]})",
+                        xy=(epochs[best_hl_idx], best_hl_val),
+                        xytext=(10, 15), textcoords="offset points",
+                        fontsize=9, color="tab:red",
+                        arrowprops=dict(arrowstyle="->", color="tab:red", alpha=0.7))
     
     # Helper to plot components
     COMP_COLORS = {
@@ -197,7 +212,8 @@ def load_model(checkpoint_path: str):
     
     _device = get_device()
     ckpt = torch.load(checkpoint_path, map_location=_device, weights_only=True)
-    _model = XTransUNet(base_width=ckpt.get("base_width", 64)).to(_device)
+    _model = XTransUNet(base_width=ckpt.get("base_width", 64),
+                        hl_head=ckpt.get("hl_head", False)).to(_device)
     _model.load_state_dict(ckpt["model"])
     _model.eval()
     _model_path = checkpoint_path

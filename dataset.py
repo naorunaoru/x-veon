@@ -151,9 +151,12 @@ class LinearDataset(Dataset):
 
     def __getitem__(self, idx):
         img_idx = idx // self.patches_per_image
-        rng = random.Random()
+        # Seed RNG deterministically for validation (augment=False) so that
+        # the same crops and highlight EV boosts are used every epoch,
+        # giving comparable metrics.  Training uses unseeded RNG for variety.
+        rng = random.Random(idx) if not self.augment else random.Random()
 
-        img = np.load(self.data_files[img_idx])
+        img = np.load(self.data_files[img_idx], mmap_mode='r')
         h, w, _ = img.shape
 
         # Random crop aligned to CFA grid
@@ -162,7 +165,7 @@ class LinearDataset(Dataset):
         left = (rng.randint(0, max(0, max_x)) // self.period) * self.period
         patch = img[top:top+self.patch_size, left:left+self.patch_size]
 
-        rgb = torch.from_numpy(patch.transpose(2, 0, 1).copy()).float()
+        rgb = torch.from_numpy(np.array(patch.transpose(2, 0, 1))).float()
 
         # Apply white balance before mosaicing (model learns WB'd data)
         wb = torch.ones(3)

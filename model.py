@@ -56,6 +56,49 @@ class UpBlock(nn.Module):
         return self.conv(x)
 
 
+class HighlightHead(nn.Module):
+    """Highlight reconstruction head using multi-scale decoder features.
+
+    Instead of dilated convolutions (which cause gridding/ringing artifacts),
+    this head fuses features from multiple decoder scales to get large
+    receptive field naturally through the U-Net's spatial hierarchy.
+    Each scale is projected to a narrow width, upsampled to full resolution,
+    and concatenated before fusion convolutions produce the RGB correction.
+    """
+
+    def __init__(self, base_width: int = 64, head_width: int | None = None):
+        super().__init__()
+        w = base_width
+        hw = head_width if head_width is not None else base_width
+        # 1x1 projections for each decoder scale (+1 on d1 for clip_ratio)
+        self.proj1 = nn.Conv2d(w + 1, hw, 1)      # d1 (H) + clip_ratio
+        self.proj2 = nn.Conv2d(w * 2, hw, 1)       # d2 (H/2)
+        self.proj3 = nn.Conv2d(w * 4, hw, 1)       # d3 (H/4)
+        self.proj4 = nn.Conv2d(w * 8, hw, 1)       # d4 (H/8)
+
+        # Fuse all scales at full resolution
+        self.fuse = nn.Sequential(
+            nn.Conv2d(hw * 4, hw, 3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(hw, hw, 3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(hw, 3, 1),
+        )
+
+    def forward(self, d1: torch.Tensor, d2: torch.Tensor,
+                d3: torch.Tensor, d4: torch.Tensor,
+                clip_ratio: torch.Tensor) -> torch.Tensor:
+        h, w = d1.shape[2:]
+        f1 = torch.relu(self.proj1(torch.cat([d1, clip_ratio], dim=1)))
+        f2 = nn.functional.interpolate(
+            torch.relu(self.proj2(d2)), size=(h, w), mode='bilinear', align_corners=False)
+        f3 = nn.functional.interpolate(
+            torch.relu(self.proj3(d3)), size=(h, w), mode='bilinear', align_corners=False)
+        f4 = nn.functional.interpolate(
+            torch.relu(self.proj4(d4)), size=(h, w), mode='bilinear', align_corners=False)
+        return self.fuse(torch.cat([f1, f2, f3, f4], dim=1))
+
+
 class XTransUNet(nn.Module):
     """
     U-Net for X-Trans demosaicing.
@@ -64,7 +107,8 @@ class XTransUNet(nn.Module):
     Channel widths: base_width * [1, 2, 4, 8, 16] (default 64 → 64..1024).
     """
 
-    def __init__(self, in_channels: int = 5, out_channels: int = 3, base_width: int = 64):
+    def __init__(self, in_channels: int = 5, out_channels: int = 3,
+                 base_width: int = 64, hl_head: bool = False):
         super().__init__()
         w = base_width
 
@@ -86,12 +130,10 @@ class XTransUNet(nn.Module):
         # Output
         self.out_conv = nn.Conv2d(w, out_channels, 1)
 
+        # Optional highlight reconstruction head
+        self.highlight_head = HighlightHead(base_width=w) if hl_head else None
+
     def forward(self, x):
-        # Additive residual: output = baseline + delta.
-        # Baseline = CFA value broadcast to all 3 channels.
-        # Network predicts color corrections (small for demosaic, large for
-        # highlight reconstruction). Loss weighting handles the magnitude
-        # difference between the two tasks.
         cfa = x[:, 0:1]  # (B, 1, H, W)
         baseline = cfa.expand(-1, 3, -1, -1)  # (B, 3, H, W)
 
@@ -110,7 +152,13 @@ class XTransUNet(nn.Module):
         d2 = self.dec2(d3, e2)  # 128, H/2, W/2
         d1 = self.dec1(d2, e1)  # 64, H, W
 
-        return baseline + self.out_conv(d1)  # 3, H, W
+        main_rgb = baseline + self.out_conv(d1)  # 3, H, W
+
+        if self.highlight_head is not None:
+            clip_ratio = x[:, 4:5]  # (B, 1, H, W)
+            main_rgb = main_rgb + self.highlight_head(d1, d2, d3, d4, clip_ratio)
+
+        return main_rgb
 
 
 def count_parameters(model: nn.Module) -> int:
@@ -121,8 +169,12 @@ if __name__ == "__main__":
     import sys
 
     base_width = int(sys.argv[1]) if len(sys.argv) > 1 else 64
-    model = XTransUNet(base_width=base_width)
-    print(f"base_width={base_width}, Parameters: {count_parameters(model):,}")
+    hl_head = "--hl-head" in sys.argv
+    model = XTransUNet(base_width=base_width, hl_head=hl_head)
+    print(f"base_width={base_width}, hl_head={hl_head}, Parameters: {count_parameters(model):,}")
+    if hl_head:
+        hl_params = sum(p.numel() for p in model.highlight_head.parameters())
+        print(f"  HighlightHead: {hl_params:,} params")
 
     # Test forward pass
     x = torch.randn(1, 5, 256, 256)

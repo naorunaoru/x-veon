@@ -2,10 +2,21 @@ import * as ort from 'onnxruntime-web';
 import type { CfaType } from './types';
 
 export interface ModelMeta {
-  epoch?: string;
-  best_val_psnr?: string;
-  [key: string]: string | undefined;
+  epoch?: number;
+  base_width?: number;
+  hl_head?: boolean;
+  param_count?: number;
+  size_mb?: number;
+  dtype?: string;
+  file?: string;
+  train_psnr?: number;
+  val_psnr?: number;
+  val_hl_psnr?: number;
+  train_loss?: number;
+  val_loss?: number;
 }
+
+type Manifest = Record<string, ModelMeta>;
 
 interface ModelEntry {
   session: ort.InferenceSession;
@@ -16,10 +27,9 @@ const models = new Map<CfaType, ModelEntry>();
 let backend: string | null = null;
 let initPromise: Promise<void> | null = null;
 
-async function fetchMeta(modelUrl: string): Promise<ModelMeta> {
-  const metaUrl = modelUrl.replace(/\.onnx$/, '.meta.json');
+async function fetchManifest(manifestUrl: string): Promise<Manifest> {
   try {
-    const res = await fetch(metaUrl);
+    const res = await fetch(manifestUrl);
     if (!res.ok) return {};
     return await res.json();
   } catch {
@@ -66,14 +76,11 @@ async function createSession(modelUrl: string): Promise<ort.InferenceSession> {
   }
 }
 
-async function loadModel(cfaType: CfaType, modelUrl: string): Promise<void> {
-  const [session, meta] = await Promise.all([
-    createSession(modelUrl),
-    fetchMeta(modelUrl),
-  ]);
-  models.set(cfaType, { session, meta });
-  console.log(`Loaded ${cfaType} model: epoch ${meta.epoch ?? '?'}, PSNR ${meta.best_val_psnr ?? '?'} dB`);
-}
+const CHECKPOINTS_DIR = './checkpoints';
+const MODEL_KEYS: Record<CfaType, string> = {
+  xtrans: 'xtrans_w16_base',
+  bayer: 'bayer_w32_hl',
+};
 
 export async function initModels(): Promise<void> {
   if (initPromise) return initPromise;
@@ -81,9 +88,15 @@ export async function initModels(): Promise<void> {
   initPromise = (async () => {
     ort.env.wasm.numThreads = navigator.hardwareConcurrency || 4;
 
-    // Load both models (first model determines backend)
-    await loadModel('xtrans', './xtrans.onnx');
-    await loadModel('bayer', './bayer.onnx');
+    const manifest = await fetchManifest(`${CHECKPOINTS_DIR}/models.json`);
+
+    for (const [cfaType, key] of Object.entries(MODEL_KEYS) as [CfaType, string][]) {
+      const meta = manifest[key] ?? {};
+      const modelUrl = `${CHECKPOINTS_DIR}/${meta.file ?? `${key}.onnx`}`;
+      const session = await createSession(modelUrl);
+      models.set(cfaType, { session, meta });
+      console.log(`Loaded ${cfaType} model: epoch ${meta.epoch ?? '?'}, PSNR ${meta.val_psnr ?? '?'} dB`);
+    }
   })();
 
   return initPromise;

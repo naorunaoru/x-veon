@@ -418,7 +418,8 @@ def main():
     print(f"Device: {device}")
     
     ckpt = torch.load(args.checkpoint, map_location=device, weights_only=False)
-    model = XTransUNet(base_width=ckpt.get("base_width", 64))
+    model = XTransUNet(base_width=ckpt.get("base_width", 64),
+                       hl_head=ckpt.get("hl_head", False))
     model.load_state_dict(ckpt["model"])
     model.to(device)
     model.eval()

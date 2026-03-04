@@ -5,7 +5,6 @@ import type { OpenDrtConfig } from './gl/opendrt-params';
 import { deleteAllForFile, writeRaw, writeThumbnail } from './lib/opfs-storage';
 import { putFile, deleteFile as idbDeleteFile, debouncedPutFile, putSetting } from './lib/idb-storage';
 import type { PersistedFile } from './lib/idb-storage';
-import type { ModelMeta } from './pipeline/inference';
 import type { HdrRenderer } from './gl/renderer';
 import { extractRafThumbnail, extractRafQuickMetadata } from './pipeline/raf-thumbnail';
 import type { QuickMetadata } from './pipeline/raf-thumbnail';
@@ -39,7 +38,6 @@ interface AppState {
   initialized: boolean;
   initError: string | null;
   backend: string | null;
-  modelMeta: ModelMeta;
 
   // File management
   files: QueuedFile[];
@@ -70,7 +68,7 @@ interface AppState {
   rendererRef: HdrRenderer | null;
 
   // Actions
-  setInitialized: (backend: string, modelMeta: ModelMeta) => void;
+  setInitialized: (backend: string) => void;
   setInitError: (error: string) => void;
   addFiles: (files: File[]) => void;
   removeFile: (id: string) => void;
@@ -146,7 +144,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   initialized: false,
   initError: null,
   backend: null,
-  modelMeta: {},
 
   files: [],
   selectedFileId: null,
@@ -166,8 +163,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   canvasRef: null,
   rendererRef: null,
 
-  setInitialized: (backend, modelMeta) =>
-    set({ initialized: true, backend, modelMeta }),
+  setInitialized: (backend) =>
+    set({ initialized: true, backend }),
 
   setInitError: (error) =>
     set({ initError: error }),

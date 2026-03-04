@@ -44,10 +44,6 @@ ENV/
 *.ckpt
 *.safetensors
 
-# Exception: Keep small config/metadata files in checkpoints
-!checkpoints/**/config.json
-!checkpoints/**/history.json
-
 # Training logs
 logs/*.log
 
@@ -61,9 +57,6 @@ test_output/
 *.png
 *.jpg
 *.jpeg
-
-# Exception: Keep test RAFs
-!test_rafs/
 
 # Data
 data/fuji_jpgs/**/*.JPG
@@ -95,15 +88,15 @@ Thumbs.db
 *~
 
 *.log
-checkpoints*
-checkpoints_*
+/checkpoints*
+/checkpoints_*
 .claude
 logs
-test_rafs
 data/*
 
 web/node_modules
 web/**/target/
 web/**/pkg/
 
-.ui_state.json
+/checkpoint_registry.json
+/.ui_state.json

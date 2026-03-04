@@ -10,9 +10,12 @@ Examples:
     # Initial training
     python train.py --data-dir /path/to/npy --epochs 200
 
-    # Fine-tune
-    python train.py --data-dir /path/to/npy --resume checkpoints/best.pt \
-        --mode finetune --epochs 50 --lr 1e-4
+    # Continue training from checkpoint (inherits all config, resumes optimizer/epoch)
+    python train.py --from-checkpoint checkpoints_xtrans_hl_v1h/
+
+    # Fine-tune from checkpoint with tweaked params
+    python train.py --from-checkpoint checkpoints_xtrans_hl_v1h/ \
+        --mode finetune --lr 1e-4 --epochs 50 --output-dir checkpoints_v2
 
     # Fine-tune with torture pattern mixing
     python train.py --data-dir /path/to/npy --resume checkpoints/best.pt \
@@ -20,6 +23,7 @@ Examples:
 """
 
 import argparse
+import gc
 import json
 import math
 import random
@@ -32,6 +36,7 @@ from torch.utils.data import DataLoader
 from model import XTransUNet, count_parameters
 from dataset import LinearDataset, create_mixed_dataset
 from losses import DemosaicLoss
+from checkpoint_registry import update_registry, promote_to_stable, REGISTRY_FILENAME
 
 
 def psnr(pred: torch.Tensor, target: torch.Tensor) -> float:
@@ -115,6 +120,8 @@ def evaluate(model, loader, criterion, device, use_amp=False):
     model.eval()
     total_loss = 0.0
     total_psnr = 0.0
+    total_hl_psnr = 0.0
+    n_hl_batches = 0
     component_sums = {}
     n_batches = 0
 
@@ -132,17 +139,28 @@ def evaluate(model, loader, criterion, device, use_amp=False):
         for k, v in components.items():
             component_sums[k] = component_sums.get(k, 0.0) + v
         total_psnr += psnr(outputs, targets)
+
+        # Highlight-only PSNR: MSE only where clip_ratio > 0
+        clip_ratio = inputs[:, 4:5]  # (B, 1, H, W)
+        hl_mask = (clip_ratio > 0).expand_as(outputs)
+        n_hl_pixels = hl_mask.sum().item()
+        if n_hl_pixels > 0:
+            hl_mse = ((outputs - targets) ** 2 * hl_mask).sum().item() / n_hl_pixels
+            total_hl_psnr += -10 * math.log10(max(hl_mse, 1e-10))
+            n_hl_batches += 1
+
         n_batches += 1
 
     avg_components = {k: v / n_batches for k, v in component_sums.items()}
-    return total_loss / n_batches, total_psnr / n_batches, avg_components
+    avg_hl_psnr = total_hl_psnr / n_hl_batches if n_hl_batches > 0 else None
+    return total_loss / n_batches, total_psnr / n_batches, avg_components, avg_hl_psnr
 
 
 def main():
     parser = argparse.ArgumentParser(description="CFA demosaicing training")
 
     # Data
-    parser.add_argument("--data-dir", type=str, required=True,
+    parser.add_argument("--data-dir", type=str, default=None,
                         help="Directory with .npy files")
     parser.add_argument("--cfa-type", type=str, default="xtrans",
                         choices=["xtrans", "bayer"],
@@ -220,10 +238,20 @@ def main():
     parser.add_argument("--output-dir", type=str, default="./checkpoints")
     parser.add_argument("--resume", type=str, default=None,
                         help="Resume from checkpoint")
+    parser.add_argument("--from-checkpoint", type=str, default=None,
+                        help="Load training config from checkpoint dir (auto-resumes from best.pt). "
+                             "All params are inherited; override any with explicit CLI args.")
     
     # Model
     parser.add_argument("--base-width", type=int, default=64,
                         help="Base channel width (default 64 → 64/128/256/512/1024, use 32 for half-width)")
+    parser.add_argument("--hl-head", action="store_true",
+                        help="Enable highlight reconstruction head (dual decoder)")
+    parser.add_argument("--hl-lr", type=float, default=None,
+                        help="Separate LR for highlight head (enables differential LR). "
+                             "Base model uses --lr, HL head uses --hl-lr.")
+    parser.add_argument("--freeze-base", action="store_true",
+                        help="Freeze encoder + main decoder, train only highlight head")
 
     # Performance
     parser.add_argument("--workers", type=int, default=0,
@@ -233,7 +261,40 @@ def main():
     parser.add_argument("--amp", action="store_true",
                         help="Enable automatic mixed precision (float16)")
     
+    # Two-pass parse: if --from-checkpoint is given, load its config as defaults
+    # so that explicit CLI args override, and everything else is inherited.
+    _NO_INHERIT = {'device', 'data_range', 'resume'}
+    pre_args, _ = parser.parse_known_args()
+
+    if pre_args.from_checkpoint:
+        ckpt_dir = Path(pre_args.from_checkpoint)
+        if ckpt_dir.is_file():
+            ckpt_dir = ckpt_dir.parent
+        config_path = ckpt_dir / "config.json"
+        if not config_path.exists():
+            parser.error(f"No config.json found in {ckpt_dir}")
+        with open(config_path) as f:
+            ckpt_config = json.load(f)
+        for key in _NO_INHERIT:
+            ckpt_config.pop(key, None)
+        parser.set_defaults(**ckpt_config)
+        print(f"Loaded config from {config_path}")
+
     args = parser.parse_args()
+
+    # Auto-set resume from checkpoint dir
+    if args.from_checkpoint and args.resume is None:
+        ckpt_dir = Path(args.from_checkpoint)
+        if ckpt_dir.is_file():
+            ckpt_dir = ckpt_dir.parent
+        for name in ("best.pt", "latest.pt"):
+            pt = ckpt_dir / name
+            if pt.exists():
+                args.resume = str(pt)
+                break
+
+    if args.data_dir is None:
+        parser.error("--data-dir is required (either explicitly or via --from-checkpoint config)")
 
     device = get_device()
     print(f"Device: {device}")
@@ -345,8 +406,56 @@ def main():
         )
 
     # Model
-    model = XTransUNet(base_width=args.base_width).to(device)
+    model = XTransUNet(base_width=args.base_width, hl_head=args.hl_head).to(device)
     print(f"\nModel parameters: {count_parameters(model):,}")
+    if args.hl_head:
+        hl_params = sum(p.numel() for p in model.highlight_head.parameters())
+        print(f"  HighlightHead: {hl_params:,} params")
+
+    # Resume (before freeze/optimizer so we load weights first)
+    start_epoch = 0
+    best_val_psnr = 0.0
+    same_run = False
+    ckpt = None
+    if args.resume:
+        print(f"\nLoading checkpoint: {args.resume}")
+        ckpt = torch.load(args.resume, map_location=device, weights_only=True)
+        # strict=False allows loading base checkpoint into hl_head model
+        # (hl_head params will be randomly initialized)
+        missing, unexpected = model.load_state_dict(ckpt["model"], strict=False)
+        if missing:
+            print(f"  New params (randomly initialized): {len(missing)}")
+        if unexpected:
+            print(f"  Unexpected keys (ignored): {len(unexpected)}")
+        if not missing and not unexpected:
+            print(f"  All weights loaded")
+
+        # Only restore optimizer/scheduler if continuing same training
+        if args.mode == "train":
+            start_epoch = ckpt.get("epoch", 0) + 1
+            # Only carry over best_val_psnr and scheduler when resuming into
+            # the same output dir (truly continuing a run). When --from-checkpoint
+            # writes to a new dir, start fresh tracking and a fresh LR schedule.
+            ckpt_dir = Path(args.resume).parent
+            same_run = ckpt_dir.resolve() == Path(args.output_dir).resolve()
+            if same_run:
+                best_val_psnr = ckpt.get("best_val_psnr", 0.0)
+            print(f"  Resuming from epoch {start_epoch}"
+                  + (f", best PSNR: {best_val_psnr:.1f}" if same_run else " (fresh best PSNR tracking)"))
+        else:
+            print(f"  Loaded model weights (fresh optimizer for fine-tuning)")
+
+    # Freeze base model if requested (only hl_head params will be trainable)
+    if args.freeze_base:
+        if not args.hl_head:
+            print("WARNING: --freeze-base without --hl-head freezes everything!")
+        n_frozen = 0
+        for name, param in model.named_parameters():
+            if not name.startswith("highlight_head."):
+                param.requires_grad = False
+                n_frozen += 1
+        trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        print(f"  Frozen {n_frozen} params, trainable: {trainable:,}")
 
     # Loss
     if args.mode == "finetune":
@@ -433,37 +542,45 @@ def main():
         loss_info += " [WB training]"
     print(loss_info)
 
-    # Optimizer
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
+    # Optimizer (only trainable params — respects --freeze-base)
+    if args.hl_lr is not None and args.hl_head and not args.freeze_base:
+        # Differential LR: base model at --lr, HL head at --hl-lr
+        base_params = [p for n, p in model.named_parameters()
+                       if not n.startswith("highlight_head.") and p.requires_grad]
+        hl_params = [p for n, p in model.named_parameters()
+                     if n.startswith("highlight_head.") and p.requires_grad]
+        param_groups = [
+            {"params": base_params, "lr": args.lr},
+            {"params": hl_params, "lr": args.hl_lr},
+        ]
+        optimizer = torch.optim.AdamW(param_groups, weight_decay=1e-4)
+        print(f"  Differential LR: base={args.lr:.1e}, hl_head={args.hl_lr:.1e}")
+    else:
+        train_params = [p for p in model.parameters() if p.requires_grad]
+        optimizer = torch.optim.AdamW(train_params, lr=args.lr, weight_decay=1e-4)
+    # For a new run from checkpoint, cosine schedule spans the remaining epochs.
+    # For same-run resume, use original T_max and restore scheduler state.
+    remaining = args.epochs - start_epoch
+    t_max = args.epochs if same_run else max(remaining, 1)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=t_max)
 
-    # Resume
-    start_epoch = 0
-    best_val_psnr = 0.0
-    if args.resume:
-        print(f"\nLoading checkpoint: {args.resume}")
-        ckpt = torch.load(args.resume, map_location=device, weights_only=True)
-        model.load_state_dict(ckpt["model"])
-        
-        # Only restore optimizer/scheduler if continuing same training
-        if args.mode == "train" and "optimizer" in ckpt:
-            optimizer.load_state_dict(ckpt["optimizer"])
+    # Restore optimizer/scheduler state if continuing same training
+    if ckpt is not None and args.mode == "train" and "optimizer" in ckpt and not args.freeze_base:
+        optimizer.load_state_dict(ckpt["optimizer"])
+        if same_run:
             scheduler.load_state_dict(ckpt["scheduler"])
-            start_epoch = ckpt.get("epoch", 0) + 1
-            best_val_psnr = ckpt.get("best_val_psnr", 0.0)
-            print(f"  Resuming from epoch {start_epoch}, best PSNR: {best_val_psnr:.1f}")
-        else:
-            print(f"  Loaded model weights (fresh optimizer for fine-tuning)")
 
     # AMP scaler (no-op on CPU, works on CUDA and MPS)
     scaler = torch.amp.GradScaler(device.type, enabled=args.amp) if args.amp else None
     if args.amp:
-        if args.resume and "scaler" in ckpt:
+        if ckpt is not None and "scaler" in ckpt:
             scaler.load_state_dict(ckpt["scaler"])
         print(f"  AMP enabled (float16 mixed precision)")
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    registry_path = Path(__file__).parent / REGISTRY_FILENAME
+    history_rel = str(output_dir / "history.json")
 
     # Save config
     config = vars(args)
@@ -472,8 +589,16 @@ def main():
     with open(output_dir / "config.json", "w") as f:
         json.dump(config, f, indent=2)
 
-    # Training loop
+    # Training loop — restore history if continuing a run
     history = []
+    if same_run:
+        history_path = output_dir / "history.json"
+        if history_path.exists():
+            with open(history_path) as f:
+                history = json.load(f)
+            # Trim entries from epochs we're about to re-run (e.g. crash mid-epoch)
+            history = [h for h in history if h["epoch"] < start_epoch]
+            print(f"  Restored {len(history)} history entries")
     print(f"\nTraining for {args.epochs} epochs...")
     print(f"  CFA: {args.cfa_type}")
     print(f"  Batch: {args.batch_size}, Patch: {args.patch_size}px")
@@ -493,27 +618,41 @@ def main():
         train_loss, train_psnr, train_comp = train_epoch(
             model, train_loader, optimizer, criterion, device, scaler=scaler
         )
-        val_loss, val_psnr, val_comp = evaluate(
+        val_loss, val_psnr, val_comp, _ = evaluate(
             model, val_loader, criterion, device, use_amp=args.amp
         )
         val_hl_psnr = None
+        val_hl_only_psnr = None
         if val_hl_loader is not None:
-            _, val_hl_psnr, _ = evaluate(
+            _, val_hl_psnr, _, val_hl_only_psnr = evaluate(
                 model, val_hl_loader, criterion, device, use_amp=args.amp
             )
         scheduler.step()
 
+        gc.collect()
+        if device.type == "mps":
+            torch.mps.synchronize()
+            torch.mps.empty_cache()
+
         elapsed = time.time() - t0
-        lr = optimizer.param_groups[0]["lr"]
+        lr_base = optimizer.param_groups[0]["lr"]
+        lr_str = f"LR:{lr_base:.1e}"
+        if len(optimizer.param_groups) > 1:
+            lr_hl = optimizer.param_groups[1]["lr"]
+            lr_str = f"LR:{lr_base:.1e}/{lr_hl:.1e}"
 
         # Format components for display
         comp_str = " ".join(f"{k}:{v:.4f}" for k, v in train_comp.items() if k != 'total')
-        hl_str = f" | HL: {val_hl_psnr:.1f}dB" if val_hl_psnr is not None else ""
+        hl_str = ""
+        if val_hl_psnr is not None:
+            hl_str = f" | HL: {val_hl_psnr:.1f}dB"
+            if val_hl_only_psnr is not None:
+                hl_str += f" (px:{val_hl_only_psnr:.1f})"
 
         print(
             f"Ep {epoch + 1:3d}/{args.epochs} | "
             f"Train: {train_psnr:.1f}dB | Val: {val_psnr:.1f}dB{hl_str} | "
-            f"{comp_str} | LR:{lr:.1e} | {elapsed:.0f}s"
+            f"{comp_str} | {lr_str} | {elapsed:.0f}s"
         )
 
         entry = {
@@ -525,7 +664,8 @@ def main():
             "val_psnr": val_psnr,
             "val_components": val_comp,
             "val_hl_psnr": val_hl_psnr,
-            "lr": lr,
+            "val_hl_only_psnr": val_hl_only_psnr,
+            "lr": lr_base,
             "time": elapsed,
         }
         history.append(entry)
@@ -541,11 +681,20 @@ def main():
                 "best_val_psnr": best_val_psnr,
                 "base_width": args.base_width,
                 "cfa_type": args.cfa_type,
+                "hl_head": args.hl_head,
             }
             if scaler is not None:
                 ckpt_data["scaler"] = scaler.state_dict()
             torch.save(ckpt_data, output_dir / "best.pt")
             print(f"  -> New best ({best_val_psnr:.2f} dB)")
+            update_registry(
+                registry_path, cfa_type=args.cfa_type, base_width=args.base_width,
+                hl_head=args.hl_head, status="beta", slot="best",
+                path=str(output_dir / "best.pt"), epoch=epoch + 1,
+                train_psnr=train_psnr, val_psnr=val_psnr,
+                val_hl_psnr=val_hl_psnr, train_loss=train_loss,
+                val_loss=val_loss, history=history_rel,
+            )
 
         # Save periodic checkpoint
         if (epoch + 1) % 10 == 0:
@@ -557,15 +706,29 @@ def main():
                 "best_val_psnr": best_val_psnr,
                 "base_width": args.base_width,
                 "cfa_type": args.cfa_type,
+                "hl_head": args.hl_head,
             }
             if scaler is not None:
                 ckpt_data["scaler"] = scaler.state_dict()
             torch.save(ckpt_data, output_dir / "latest.pt")
+            update_registry(
+                registry_path, cfa_type=args.cfa_type, base_width=args.base_width,
+                hl_head=args.hl_head, status="beta", slot="latest",
+                path=str(output_dir / "latest.pt"), epoch=epoch + 1,
+                train_psnr=train_psnr, val_psnr=val_psnr,
+                val_hl_psnr=val_hl_psnr, train_loss=train_loss,
+                val_loss=val_loss, history=history_rel,
+            )
 
         # Save history
         with open(output_dir / "history.json", "w") as f:
             json.dump(history, f, indent=2)
 
+    # Mark as stable if all epochs completed
+    promote_to_stable(
+        registry_path, cfa_type=args.cfa_type,
+        base_width=args.base_width, hl_head=args.hl_head,
+    )
     print(f"\nDone. Best val PSNR: {best_val_psnr:.2f} dB")
 
 

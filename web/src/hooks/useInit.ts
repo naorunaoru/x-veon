@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useAppStore } from '@/store';
 import type { QueuedFile } from '@/store';
 import { initWasm } from '@/pipeline/raf-decoder';
-import { initModels, getBackend, getModelMeta } from '@/pipeline/inference';
+import { initModels, getBackend } from '@/pipeline/inference';
 import { initDemosaicGpuSafe } from '@/pipeline/demosaic';
 import { probeHdrDisplay, hasWindowManagementApi } from '@/gl/hdr-display';
 import { getAllFiles, getSetting } from '@/lib/idb-storage';
@@ -112,7 +112,7 @@ export function useInit() {
           }
         }
 
-        setInitialized(backend, getModelMeta());
+        setInitialized(backend);
 
         // Match lenses for restored files that have metadata but no profile yet
         for (const qf of files) {
