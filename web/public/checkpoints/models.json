@@ -1,0 +1,32 @@
+{
+  "bayer_w16_base": {
+    "epoch": 63,
+    "base_width": 16,
+    "hl_head": false,
+    "param_count": 1941427,
+    "size_mb": 7.5,
+    "dtype": "float32",
+    "file": "bayer_w16_base.onnx",
+    "source_sha256": "5afc0871bc4e86afd7ee778bbfc9a21fbb517b7cb77cf71017539f69a3fe08f5",
+    "train_psnr": 37.5154,
+    "val_psnr": 39.3748,
+    "val_hl_psnr": null,
+    "train_loss": 0.006043,
+    "val_loss": 0.004669
+  },
+  "xtrans_w16_base": {
+    "epoch": 375,
+    "base_width": 16,
+    "hl_head": false,
+    "param_count": 1941427,
+    "size_mb": 7.5,
+    "dtype": "float32",
+    "file": "xtrans_w16_base.onnx",
+    "source_sha256": "45ded32608837bc6f032832ad61ca6719abe7c6a9a765b92d6ccb5418eda757a",
+    "train_psnr": 38.3198,
+    "val_psnr": 40.05,
+    "val_hl_psnr": null,
+    "train_loss": 0.005583,
+    "val_loss": 0.004267
+  }
+}
