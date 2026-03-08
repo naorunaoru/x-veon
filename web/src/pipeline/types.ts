@@ -73,9 +73,11 @@ export type DemosaicMethod =
   | 'ppg'
   | 'mhc';
 
+export type ModelSize = 'S' | 'M' | 'L';
+
 export type ExportFormat = 'jpeg-hdr' | 'avif' | 'tiff';
 
-export type LookPreset = 'default' | 'base' | 'flat';
+export type LookPreset = 'default' | 'colorful' | 'umbra' | 'base' | 'flat';
 
 export interface ExportData {
   hwc: Float32Array;
@@ -102,6 +104,8 @@ export interface ProcessingResult {
     fNumber: number;
     colorTemp: number;
     tint: number;
+    modelSize?: ModelSize;
+    mlHighlightReconstruction?: boolean;
   };
 }
 

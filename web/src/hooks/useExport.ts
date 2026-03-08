@@ -36,7 +36,7 @@ export function useExport() {
 
     // Compute merged OpenDRT config (per-file preset + overrides)
     const baseConfig = configFromPreset(file.lookPreset);
-    const sdrConfig = configWithOverrides(baseConfig, file.openDrtOverrides);
+    const sdrConfig = configWithOverrides(baseConfig, file.openDrtOverrides, file.preProcessOverrides);
     const sdrTs = computeTonescaleParams(sdrConfig);
 
     setIsExporting(true);

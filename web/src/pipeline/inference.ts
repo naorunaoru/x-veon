@@ -1,5 +1,5 @@
 import * as ort from 'onnxruntime-web';
-import type { CfaType } from './types';
+import type { CfaType, ModelSize } from './types';
 
 export interface ModelMeta {
   epoch?: number;
@@ -23,9 +23,19 @@ interface ModelEntry {
   meta: ModelMeta;
 }
 
-const models = new Map<CfaType, ModelEntry>();
+// Sessions keyed by manifest key (e.g. "xtrans_w16_base")
+const sessions = new Map<string, ModelEntry>();
+// Currently active model per CFA type
+const active = new Map<CfaType, string>();
+
+let manifest: Manifest = {};
 let backend: string | null = null;
 let initPromise: Promise<void> | null = null;
+let currentSize: ModelSize = 'S';
+
+const CHECKPOINTS_DIR = './checkpoints';
+
+const SIZE_TO_WIDTH: Record<ModelSize, number> = { S: 16, M: 32, L: 64 };
 
 async function fetchManifest(manifestUrl: string): Promise<Manifest> {
   try {
@@ -76,37 +86,85 @@ async function createSession(modelUrl: string): Promise<ort.InferenceSession> {
   }
 }
 
-const CHECKPOINTS_DIR = './checkpoints';
-const MODEL_KEYS: Record<CfaType, string> = {
-  xtrans: 'xtrans_w16_base',
-  bayer: 'bayer_w32_hl',
-};
+/** Find the best manifest key for a given CFA type and base width.
+ *  Prefers _hl variant, falls back to _base. */
+function resolveModelKey(cfaType: CfaType, width: number): string | null {
+  const prefix = cfaType === 'xtrans' ? 'xtrans' : 'bayer';
+  // Prefer hl, then base
+  for (const suffix of ['hl', 'base']) {
+    const key = `${prefix}_w${width}_${suffix}`;
+    if (manifest[key]) return key;
+  }
+  return null;
+}
 
-export async function initModels(): Promise<void> {
+/** Get or load a session for a manifest key. */
+async function getOrLoadSession(key: string): Promise<ModelEntry> {
+  const existing = sessions.get(key);
+  if (existing) return existing;
+
+  const meta = manifest[key] ?? {};
+  const modelUrl = `${CHECKPOINTS_DIR}/${meta.file ?? `${key}.onnx`}`;
+  const session = await createSession(modelUrl);
+  const entry = { session, meta };
+  sessions.set(key, entry);
+  console.log(`Loaded model ${key}: epoch ${meta.epoch ?? '?'}, PSNR ${meta.val_psnr ?? '?'} dB`);
+  return entry;
+}
+
+/** Check which model sizes are available in the manifest for a CFA type. */
+export function getAvailableSizes(cfaType: CfaType): Set<ModelSize> {
+  const sizes = new Set<ModelSize>();
+  for (const [size, width] of Object.entries(SIZE_TO_WIDTH) as [ModelSize, number][]) {
+    if (resolveModelKey(cfaType, width)) sizes.add(size);
+  }
+  return sizes;
+}
+
+export async function initModels(size: ModelSize = 'S'): Promise<void> {
   if (initPromise) return initPromise;
 
+  currentSize = size;
   initPromise = (async () => {
     ort.env.wasm.numThreads = navigator.hardwareConcurrency || 4;
+    manifest = await fetchManifest(`${CHECKPOINTS_DIR}/models.json`);
 
-    const manifest = await fetchManifest(`${CHECKPOINTS_DIR}/models.json`);
-
-    for (const [cfaType, key] of Object.entries(MODEL_KEYS) as [CfaType, string][]) {
-      const meta = manifest[key] ?? {};
-      const modelUrl = `${CHECKPOINTS_DIR}/${meta.file ?? `${key}.onnx`}`;
-      const session = await createSession(modelUrl);
-      models.set(cfaType, { session, meta });
-      console.log(`Loaded ${cfaType} model: epoch ${meta.epoch ?? '?'}, PSNR ${meta.val_psnr ?? '?'} dB`);
+    const width = SIZE_TO_WIDTH[size];
+    for (const cfaType of ['xtrans', 'bayer'] as CfaType[]) {
+      const key = resolveModelKey(cfaType, width);
+      if (!key) {
+        console.warn(`No ${size} model for ${cfaType}`);
+        continue;
+      }
+      await getOrLoadSession(key);
+      active.set(cfaType, key);
     }
   })();
 
   return initPromise;
 }
 
+/** Switch to a different model size. Returns once the new models are loaded. */
+export async function switchModelSize(size: ModelSize): Promise<void> {
+  if (size === currentSize) return;
+  currentSize = size;
+  const width = SIZE_TO_WIDTH[size];
+
+  for (const cfaType of ['xtrans', 'bayer'] as CfaType[]) {
+    const key = resolveModelKey(cfaType, width);
+    if (!key) continue;
+    await getOrLoadSession(key);
+    active.set(cfaType, key);
+  }
+}
+
 export async function runBatch(
   cfaType: CfaType, batchInput: Float32Array, batchSize: number, patchSize: number,
 ): Promise<Float32Array> {
-  const entry = models.get(cfaType);
-  if (!entry) throw new Error(`ONNX session not loaded for ${cfaType}`);
+  const key = active.get(cfaType);
+  if (!key) throw new Error(`No active model for ${cfaType}`);
+  const entry = sessions.get(key);
+  if (!entry) throw new Error(`ONNX session not loaded for ${key}`);
   const tensor = new ort.Tensor('float32', batchInput, [batchSize, 5, patchSize, patchSize]);
   const results = await entry.session.run({ input: tensor });
   return results.output.data as Float32Array;
@@ -118,8 +176,12 @@ export function getBackend(): string | null {
 
 export function getModelMeta(cfaType?: CfaType): ModelMeta {
   if (cfaType) {
-    return models.get(cfaType)?.meta ?? {};
+    const key = active.get(cfaType);
+    if (key) return sessions.get(key)?.meta ?? {};
   }
-  // Default: return xtrans meta for backward compat
-  return models.get('xtrans')?.meta ?? {};
+  return sessions.get(active.get('xtrans') ?? '')?.meta ?? {};
+}
+
+export function getCurrentModelSize(): ModelSize {
+  return currentSize;
 }

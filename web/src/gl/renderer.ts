@@ -1,7 +1,7 @@
 // WebGPU HDR preview renderer with OpenDRT tone mapping in a fragment shader.
 
-import type { OpenDrtConfig, TonescaleParams } from './opendrt-params';
-import { SRGB_TO_P3D65, P3D65_TO_REC709, P3D65_TO_REC2020, IDENTITY_3X3 } from './color-matrices';
+import type { GradingConfig, TonescaleParams } from './opendrt-params';
+import { SRGB_TO_P3D65, P3D65_TO_REC709, P3D65_TO_REC2020, IDENTITY_3X3, computeCwpAdaptMatrix } from './color-matrices';
 import WGSL_SRC from './shaders/opendrt.wgsl?raw';
 import HDR_HISTOGRAM_WGSL from './shaders/histogram-hdr.wgsl?raw';
 
@@ -19,7 +19,7 @@ const HIST_BINS = 1024;  // 4 channels × 256 bins
 const HIST_BYTES = HIST_BINS * 4;  // 4096 bytes
 const DISP_HIST_SIZE = 320;  // downsampled display histogram render target
 
-// ── Uniform buffer layout (19 × vec4f = 304 bytes = 76 floats) ──────────
+// ── Uniform buffer layout (25 × vec4f = 400 bytes = 100 floats) ──────────
 
 // Float offsets into the uniform buffer shadow array.
 const U_TS           = 0;   // vec4: ts_s, ts_s1, ts_m2, ts_dsc
@@ -37,8 +37,12 @@ const U_PREPROCESS   = 44;  // vec4: exposure, wb_temp, wb_tint, sharpen_amount
 const U_TEXEL        = 48;  // vec4: texel_w, texel_h, 0, 0
 const U_SRGB_P3_C0   = 52;  // 3 × vec4: columns 0–2 (offsets 52, 56, 60)
 const U_P3_DSP_C0    = 64;  // 3 × vec4: columns 0–2 (offsets 64, 68, 72)
-const UNIFORM_FLOATS  = 76;
-const UNIFORM_BYTES   = UNIFORM_FLOATS * 4; // 304
+const U_ODRT_HS_RGB  = 76;  // vec4: enable, hs_r, hs_g, hs_b
+const U_ODRT_HS_ETC  = 80;  // vec4: hs_rgb_rng, hs_cmy_enable, hc_enable, hc_r
+const U_ODRT_HS_CMY  = 84;  // vec4: hs_c, hs_m, hs_y, cwp_rng
+const U_CWP_C0       = 88;  // 3 × vec4: cwp adaptation matrix columns (offsets 88, 92, 96)
+const UNIFORM_FLOATS  = 100;
+const UNIFORM_BYTES   = UNIFORM_FLOATS * 4; // 400
 
 // ── Module-level device cache ────────────────────────────────────────────
 
@@ -124,7 +128,7 @@ export class HdrRenderer {
 
   // Saved display state for restore after export render
   private displayTs: TonescaleParams | null = null;
-  private displayCfg: OpenDrtConfig | null = null;
+  private displayCfg: GradingConfig | null = null;
 
   private constructor(
     device: GPUDevice,
@@ -404,7 +408,7 @@ export class HdrRenderer {
     this.uniformData[U_TEXEL + 1] = 1 / height;
   }
 
-  setOpenDrtMode(ts: TonescaleParams, cfg: OpenDrtConfig): void {
+  setOpenDrtMode(ts: TonescaleParams, cfg: GradingConfig): void {
     this.displayTs = ts;
     this.displayCfg = cfg;
     this.applyOpenDrtUniforms(ts, cfg);
@@ -504,7 +508,7 @@ export class HdrRenderer {
    * @param gamut Output gamut: 'rec709' for JPEG/TIFF, 'rec2020' for AVIF/HDR
    * @returns Float32Array in HWC layout (width * height * 3), at original (unrotated) dimensions
    */
-  async renderForExport(cfg: OpenDrtConfig, ts: TonescaleParams, gamut: DisplayGamut): Promise<Float32Array> {
+  async renderForExport(cfg: GradingConfig, ts: TonescaleParams, gamut: DisplayGamut): Promise<Float32Array> {
     if (!this.imageTex || !this.bindGroup) throw new Error('No image uploaded');
 
     const w = this.imgW;
@@ -624,7 +628,7 @@ export class HdrRenderer {
     d[offset + 8] = m[2]; d[offset + 9] = m[5]; d[offset + 10] = m[8]; d[offset + 11] = 0;
   }
 
-  private applyOpenDrtUniforms(ts: TonescaleParams, cfg: OpenDrtConfig): void {
+  private applyOpenDrtUniforms(ts: TonescaleParams, cfg: GradingConfig): void {
     const d = this.uniformData;
 
     // Tonescale params
@@ -682,6 +686,30 @@ export class HdrRenderer {
     d[U_ODRT_PTM + 1] = cfg.ptm_low;
     d[U_ODRT_PTM + 2] = cfg.ptm_low_st;
     d[U_ODRT_PTM + 3] = cfg.ptm_high;
+
+    // Hue shift / hue contrast / creative white
+    d[U_ODRT_HS_RGB]     = cfg.hs_rgb_enable ? 1.0 : 0.0;
+    d[U_ODRT_HS_RGB + 1] = cfg.hs_r;
+    d[U_ODRT_HS_RGB + 2] = cfg.hs_g;
+    d[U_ODRT_HS_RGB + 3] = cfg.hs_b;
+
+    d[U_ODRT_HS_ETC]     = cfg.hs_rgb_rng;
+    d[U_ODRT_HS_ETC + 1] = cfg.hs_cmy_enable ? 1.0 : 0.0;
+    d[U_ODRT_HS_ETC + 2] = cfg.hc_enable ? 1.0 : 0.0;
+    d[U_ODRT_HS_ETC + 3] = cfg.hc_r;
+
+    d[U_ODRT_HS_CMY]     = cfg.hs_c;
+    d[U_ODRT_HS_CMY + 1] = cfg.hs_m;
+    d[U_ODRT_HS_CMY + 2] = cfg.hs_y;
+    d[U_ODRT_HS_CMY + 3] = cfg.cwp_rng;
+
+    // Creative white adaptation matrix (identity when cwp=0)
+    if (cfg.cwp > 0) {
+      const cwpAdapt = computeCwpAdaptMatrix(this._isHdrDisplay);
+      this.setMat3(U_CWP_C0, cwpAdapt);
+    } else {
+      this.setMat3(U_CWP_C0, IDENTITY_3X3);
+    }
 
     // Pre-processing
     d[U_PREPROCESS]     = cfg.exposure;

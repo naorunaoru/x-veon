@@ -1,7 +1,7 @@
 import { create } from 'zustand';
-import type { CfaType, DemosaicMethod, ExportFormat, LookPreset, ProcessingResultMeta } from './pipeline/types';
+import type { CfaType, DemosaicMethod, ExportFormat, LookPreset, ModelSize, ProcessingResultMeta } from './pipeline/types';
 import { serializeResultMeta } from './pipeline/types';
-import type { OpenDrtConfig } from './gl/opendrt-params';
+import type { OpenDrtConfig, PreProcessConfig } from './gl/opendrt-params';
 import { deleteAllForFile, writeRaw, writeThumbnail } from './lib/opfs-storage';
 import { putFile, deleteFile as idbDeleteFile, debouncedPutFile, putSetting } from './lib/idb-storage';
 import type { PersistedFile } from './lib/idb-storage';
@@ -31,6 +31,7 @@ export interface QueuedFile {
   lensProfile: LensProfile | null;
   lookPreset: LookPreset;
   openDrtOverrides: Partial<OpenDrtConfig>;
+  preProcessOverrides: Partial<PreProcessConfig>;
 }
 
 interface AppState {
@@ -44,6 +45,7 @@ interface AppState {
   selectedFileId: string | null;
 
   // Processing settings
+  modelSize: ModelSize;
   demosaicMethod: DemosaicMethod;
 
   // Export settings
@@ -58,8 +60,9 @@ interface AppState {
   // Clip mask overlay
   showClipMask: boolean;
 
-  // Whether to feed clip mask (channel 4) to the model during inference
-  useClipMaskInference: boolean;
+  // ML highlight reconstruction: feed clip mask (channel 5) to model's HL head.
+  // When false, numeric reconstruction runs instead and channel 5 is zeroed.
+  mlHighlightReconstruction: boolean;
 
   // Canvas ref for WebCodecs AVIF export
   canvasRef: HTMLCanvasElement | null;
@@ -77,6 +80,7 @@ interface AppState {
   updateFileProgress: (id: string, current: number, total: number) => void;
   setFileResult: (id: string, result: ProcessingResultMeta, method: DemosaicMethod) => void;
   restoreCachedResult: (id: string, method: DemosaicMethod) => void;
+  setModelSize: (size: ModelSize) => void;
   setDemosaicMethod: (method: DemosaicMethod) => void;
   setExportFormat: (format: ExportFormat) => void;
   setExportQuality: (quality: number) => void;
@@ -88,11 +92,13 @@ interface AppState {
   setFileLookPreset: (fileId: string, preset: LookPreset) => void;
   setFileOpenDrtOverride: <K extends keyof OpenDrtConfig>(fileId: string, key: K, value: OpenDrtConfig[K]) => void;
   resetFileOpenDrtOverrides: (fileId: string) => void;
+  setFilePreProcessOverride: <K extends keyof PreProcessConfig>(fileId: string, key: K, value: PreProcessConfig[K]) => void;
+  resetFilePreProcessOverrides: (fileId: string) => void;
 
   setDisplayHdr: (enabled: boolean, headroom: number) => void;
   setHdrPermissionNeeded: (needed: boolean) => void;
   setShowClipMask: (show: boolean) => void;
-  setUseClipMaskInference: (use: boolean) => void;
+  setMlHighlightReconstruction: (use: boolean) => void;
   setCanvasRef: (ref: HTMLCanvasElement | null) => void;
   setRendererRef: (ref: HdrRenderer | null) => void;
 
@@ -126,6 +132,7 @@ function fileToPersistedFile(f: QueuedFile): PersistedFile {
     lensProfile: f.lensProfile,
     lookPreset: f.lookPreset,
     openDrtOverrides: f.openDrtOverrides as Record<string, number | boolean>,
+    preProcessOverrides: f.preProcessOverrides as Record<string, number>,
     addedAt: Date.now(),
   };
 }
@@ -148,6 +155,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   files: [],
   selectedFileId: null,
 
+  modelSize: 'S' as ModelSize,
   demosaicMethod: 'neural-net',
 
   exportFormat: 'jpeg-hdr',
@@ -158,7 +166,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   hdrPermissionNeeded: false,
 
   showClipMask: false,
-  useClipMaskInference: true,
+  mlHighlightReconstruction: true,
 
   canvasRef: null,
   rendererRef: null,
@@ -192,6 +200,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         lensProfile: null,
         lookPreset: 'default' as const,
         openDrtOverrides: {},
+        preProcessOverrides: {},
       }));
 
     if (entries.length === 0) return;
@@ -273,6 +282,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       updates.demosaicMethod = file.resultMethod;
       putSetting('demosaicMethod', file.resultMethod).catch(() => {});
     }
+    // Restore model size and ML HL toggle from the result that produced this file
+    const meta = file?.result?.metadata;
+    if (meta?.modelSize) {
+      updates.modelSize = meta.modelSize;
+      putSetting('modelSize', meta.modelSize).catch(() => {});
+    }
+    if (meta?.mlHighlightReconstruction !== undefined) {
+      updates.mlHighlightReconstruction = meta.mlHighlightReconstruction;
+    }
     set(updates);
     putSetting('selectedFileId', id).catch(() => {});
   },
@@ -351,6 +369,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       }),
     })),
 
+  setModelSize: (size) => {
+    set({ modelSize: size });
+    putSetting('modelSize', size).catch(() => {});
+  },
   setDemosaicMethod: (method) => {
     set({ demosaicMethod: method });
     putSetting('demosaicMethod', method).catch(() => {});
@@ -380,7 +402,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({
       files: state.files.map((f) => {
         if (f.id !== fileId) return f;
-        const updated = { ...f, lookPreset: preset, openDrtOverrides: {} as Partial<OpenDrtConfig> };
+        const updated = { ...f, lookPreset: preset, openDrtOverrides: {} as Partial<OpenDrtConfig> }; // preProcessOverrides preserved
         persistFileDebounced(updated);
         return updated;
       }),
@@ -406,22 +428,45 @@ export const useAppStore = create<AppState>((set, get) => ({
       }),
     })),
 
+  setFilePreProcessOverride: (fileId, key, value) =>
+    set((state) => ({
+      files: state.files.map((f) => {
+        if (f.id !== fileId) return f;
+        const updated = { ...f, preProcessOverrides: { ...f.preProcessOverrides, [key]: value } };
+        persistFileDebounced(updated);
+        return updated;
+      }),
+    })),
+
+  resetFilePreProcessOverrides: (fileId) =>
+    set((state) => ({
+      files: state.files.map((f) => {
+        if (f.id !== fileId) return f;
+        const updated = { ...f, preProcessOverrides: {} as Partial<PreProcessConfig> };
+        persistFile(updated);
+        return updated;
+      }),
+    })),
+
   setDisplayHdr: (enabled, headroom) => set({ displayHdr: enabled, displayHdrHeadroom: headroom }),
   setHdrPermissionNeeded: (needed) => set({ hdrPermissionNeeded: needed }),
   setShowClipMask: (show) => set({ showClipMask: show }),
-  setUseClipMaskInference: (use) => set({ useClipMaskInference: use }),
+  setMlHighlightReconstruction: (use) => set({ mlHighlightReconstruction: use }),
   setCanvasRef: (ref) => set({ canvasRef: ref }),
   setRendererRef: (ref) => set({ rendererRef: ref }),
 
   restoreFromDb: (files, settings) => {
     const selectedFileId = settings.selectedFileId ?? (files.length > 0 ? files[0].id : null);
     const selectedFile = selectedFileId ? files.find((f) => f.id === selectedFileId) : null;
+    const meta = selectedFile?.result?.metadata;
     set({
       files,
       selectedFileId,
       demosaicMethod: selectedFile?.resultMethod ?? settings.demosaicMethod ?? 'neural-net',
       exportFormat: settings.exportFormat ?? 'jpeg-hdr',
       exportQuality: settings.exportQuality ?? 95,
+      ...(meta?.modelSize ? { modelSize: meta.modelSize } : {}),
+      ...(meta?.mlHighlightReconstruction !== undefined ? { mlHighlightReconstruction: meta.mlHighlightReconstruction } : {}),
     });
   },
 }));

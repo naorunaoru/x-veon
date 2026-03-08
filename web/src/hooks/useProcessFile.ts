@@ -6,6 +6,7 @@ import {
   findPatternShift,
   normalizeRawCfa,
   channelClips,
+  reconstructHighlightsCfa,
   applyWhiteBalance,
   padToAlignment,
   generateTiles,
@@ -13,6 +14,7 @@ import {
   prefillBatchMasks,
   fillBatchCfa,
 } from '@/pipeline/preprocessor';
+import { reconstructHighlightsSegmented } from '@/pipeline/highlight-segments';
 import { runBatch, getBackend } from '@/pipeline/inference';
 import { runDemosaic, destroyDemosaicPool } from '@/pipeline/demosaic';
 import { createTileBlender, cropToHWC, buildColorMatrix, applyColorCorrection } from '@/pipeline/postprocessor';
@@ -96,6 +98,16 @@ export function useProcessFile() {
         clipNorm[0] * wb[0], clipNorm[1] * wb[1], clipNorm[2] * wb[2],
       ];
 
+      // 7a. Numeric highlight reconstruction (when ML HL is off, or non-NN method)
+      const method: DemosaicMethod = useAppStore.getState().demosaicMethod;
+      const mlHl = useAppStore.getState().mlHighlightReconstruction;
+      const useNumericHl = method !== 'neural-net' || !mlHl;
+      if (useNumericHl) {
+        const originalCfa = new Float32Array(cfa);
+        reconstructHighlightsCfa(cfa, visWidth, visHeight, pattern, period, dy, dx, clips);
+        reconstructHighlightsSegmented(cfa, visWidth, visHeight, pattern, period, dy, dx, 2, 0.5, originalCfa, clips);
+      }
+
       // 7b. Compute full-image clip ratio (for overlay visualization)
       // Ratio = cfa / clip_level, smooth 0→1. At 1.0 the pixel is clipped.
       const clipMask = new Float32Array(visWidth * visHeight);
@@ -117,7 +129,6 @@ export function useProcessFile() {
       if (padded.data !== cfa) cfa = null;
 
       // 9. Demosaic
-      const method: DemosaicMethod = useAppStore.getState().demosaicMethod;
       const startTime = Date.now();
       let blended: Float32Array | null;
       let hPad: number;
@@ -146,10 +157,9 @@ export function useProcessFile() {
         // getCh for padded CFA (shifts are 0,0 after padToAlignment)
         const getCh = (y: number, x: number) => pattern[y % period][x % period];
 
-        // When disabled, fillBatchCfa fills channel 4 with zeros
-        const useClip = useAppStore.getState().useClipMaskInference;
-        const inferClips = useClip ? clips : undefined;
-        const inferGetCh = useClip ? getCh : undefined;
+        // When ML HL is on, feed clip mask to model; otherwise zeros
+        const inferClips = mlHl ? clips : undefined;
+        const inferGetCh = mlHl ? getCh : undefined;
 
         // Pre-allocate two batch buffers with masks baked in (double-buffer)
         const bufs = [new Float32Array(TILE_BATCH * tileSize), new Float32Array(TILE_BATCH * tileSize)];
@@ -254,6 +264,8 @@ export function useProcessFile() {
           fNumber: raw.fNumber,
           colorTemp,
           tint,
+          modelSize: method === 'neural-net' ? useAppStore.getState().modelSize : undefined,
+          mlHighlightReconstruction: method === 'neural-net' ? mlHl : undefined,
         },
       };
 

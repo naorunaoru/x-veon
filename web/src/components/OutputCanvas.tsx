@@ -6,10 +6,11 @@ import { readHwc, hwcKey } from '@/lib/opfs-storage';
 import { takeHwc, takeClipMask } from '@/lib/hwc-handoff';
 import { HdrRenderer } from '@/gl/renderer';
 import { configFromPreset, configWithOverrides, computeTonescaleParams } from '@/gl/opendrt-params';
-import type { OpenDrtConfig } from '@/gl/opendrt-params';
+import type { OpenDrtConfig, PreProcessConfig } from '@/gl/opendrt-params';
 import type { ProcessingResultMeta } from '@/pipeline/types';
 
 const EMPTY_OVERRIDES: Partial<OpenDrtConfig> = {};
+const EMPTY_PREPROCESS: Partial<PreProcessConfig> = {};
 
 interface OutputCanvasProps {
   fileId: string;
@@ -28,6 +29,7 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
   // Per-file grading — targeted primitive selectors to avoid re-renders from unrelated file changes
   const lookPreset = useAppStore((s) => s.files.find((f) => f.id === fileId)?.lookPreset ?? 'default');
   const openDrtOverrides = useAppStore((s) => s.files.find((f) => f.id === fileId)?.openDrtOverrides ?? EMPTY_OVERRIDES);
+  const preProcessOverrides = useAppStore((s) => s.files.find((f) => f.id === fileId)?.preProcessOverrides ?? EMPTY_PREPROCESS);
 
   const displayHdr = useAppStore((s) => s.displayHdr);
   const displayHdrHeadroom = useAppStore((s) => s.displayHdrHeadroom);
@@ -101,7 +103,8 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
       const file = useAppStore.getState().files.find((f) => f.id === fileId);
       const preset = file?.lookPreset ?? 'default';
       const overrides = file?.openDrtOverrides ?? {};
-      applyOpenDrt(renderer, preset, overrides, renderer.isHdrDisplay ? renderer.hdrHeadroom : undefined);
+      const preProcess = file?.preProcessOverrides ?? {};
+      applyOpenDrt(renderer, preset, overrides, preProcess, renderer.isHdrDisplay ? renderer.hdrHeadroom : undefined);
       renderer.render();
       setCanvasRef(canvas);
       setRendererRef(renderer);
@@ -124,9 +127,9 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
   useEffect(() => {
     const renderer = rendererRef.current;
     if (!renderer) return;
-    applyOpenDrt(renderer, lookPreset, openDrtOverrides, renderer.isHdrDisplay ? renderer.hdrHeadroom : undefined);
+    applyOpenDrt(renderer, lookPreset, openDrtOverrides, preProcessOverrides, renderer.isHdrDisplay ? renderer.hdrHeadroom : undefined);
     renderer.render();
-  }, [lookPreset, openDrtOverrides]);
+  }, [lookPreset, openDrtOverrides, preProcessOverrides]);
 
   // Re-render when clip mask overlay is toggled (uniform update + draw)
   useEffect(() => {
@@ -164,10 +167,11 @@ function applyOpenDrt(
   renderer: HdrRenderer,
   lookPreset: string,
   overrides: Partial<OpenDrtConfig>,
+  preProcess: Partial<PreProcessConfig>,
   hdrHeadroom?: number,
 ): void {
   const base = configFromPreset(lookPreset as 'base' | 'default', hdrHeadroom);
-  const cfg = configWithOverrides(base, overrides);
+  const cfg = configWithOverrides(base, overrides, preProcess);
   const ts = computeTonescaleParams(cfg);
   if (hdrHeadroom != null && hdrHeadroom > 1.0) {
     ts.ts_dsc = 1.0;

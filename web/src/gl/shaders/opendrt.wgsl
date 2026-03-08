@@ -23,6 +23,12 @@ struct Uniforms {
   p3_to_display_col0: vec4f,
   p3_to_display_col1: vec4f,
   p3_to_display_col2: vec4f,
+  odrt_hs_rgb: vec4f,         // (enable, hs_r, hs_g, hs_b)
+  odrt_hs_etc: vec4f,         // (hs_rgb_rng, hs_cmy_enable, hc_enable, hc_r)
+  odrt_hs_cmy: vec4f,         // (hs_c, hs_m, hs_y, cwp_rng)
+  cwp_adapt_col0: vec4f,
+  cwp_adapt_col1: vec4f,
+  cwp_adapt_col2: vec4f,
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -328,6 +334,51 @@ fn opendrt(rgb_in: vec3f) -> vec3f {
     ptm_sc = max(ptm_sc, 0.0);
   }
 
+  // Premult hue angles for hue contrast and hue shift
+  let ha_rgb_p = vec3f(ha_r, ha_g, ha_b) * ach_d;
+  let ha_cmy_p = vec3f(ha_c, ha_m, ha_y) * 1.5 * compress_toe_quadratic(ach_d, 0.5);
+
+  // Hue Contrast R
+  if (u.odrt_hs_etc.z > 0.5) {
+    let hc_r_val = u.odrt_hs_etc.w;
+    let hc_ts = 1.0 - ts_pt;
+    let hc_c = (1.0 - ach_d) * hc_ts + ach_d * (1.0 - hc_ts);
+    let hc_c2 = hc_c * ha_rgb_p.x;
+    let hc_ts2 = hc_ts * hc_ts;
+    let hc_f = hc_r_val * (hc_c2 - 2.0 * hc_c2 * hc_ts2) + 1.0;
+    g *= hc_f;
+    b *= hc_f;
+  }
+
+  // Hue Shift RGB — shifts more as intensity increases
+  if (u.odrt_hs_rgb.x > 0.5) {
+    let hs_rgb_rng = u.odrt_hs_etc.x;
+    let hs_mod = ha_rgb_p * pow(ts_pt, 1.0 / hs_rgb_rng);
+    let hsf = vec3f(
+      hs_mod.x * u.odrt_hs_rgb.y,
+      hs_mod.y * -u.odrt_hs_rgb.z,
+      hs_mod.z * -u.odrt_hs_rgb.w,
+    );
+    let hsf2 = vec3f(hsf.z - hsf.y, hsf.x - hsf.z, hsf.y - hsf.x);
+    r += hsf2.x;
+    g += hsf2.y;
+    b += hsf2.z;
+  }
+
+  // Hue Shift CMY — shifts less as intensity increases
+  if (u.odrt_hs_etc.y > 0.5) {
+    let hs_mod = ha_cmy_p * (1.0 - ts_pt);
+    let hsf = vec3f(
+      hs_mod.x * -u.odrt_hs_cmy.x,
+      hs_mod.y * u.odrt_hs_cmy.y,
+      hs_mod.z * u.odrt_hs_cmy.z,
+    );
+    let hsf2 = vec3f(hsf.z - hsf.y, hsf.x - hsf.z, hsf.y - hsf.x);
+    r += hsf2.x;
+    g += hsf2.y;
+    b += hsf2.z;
+  }
+
   // Apply brilliance
   r *= brl_f;
   g *= brl_f;
@@ -351,6 +402,21 @@ fn opendrt(rgb_in: vec3f) -> vec3f {
   r = disp.x;
   g = disp.y;
   b = disp.z;
+
+  // Creative White — blend towards warm (D50) adaptation in highlights
+  let cwp_rng = u.odrt_hs_cmy.w;
+  if (cwp_rng > 0.0) {
+    let cwp_adapt = mat3x3f(
+      u.cwp_adapt_col0.xyz,
+      u.cwp_adapt_col1.xyz,
+      u.cwp_adapt_col2.xyz,
+    );
+    let cwp_rgb = cwp_adapt * vec3f(r, g, b);
+    let cwp_f = pow(max(tsn, 0.0), 1.0 - cwp_rng);
+    r = cwp_rgb.x * cwp_f + r * (1.0 - cwp_f);
+    g = cwp_rgb.y * cwp_f + g * (1.0 - cwp_f);
+    b = cwp_rgb.z * cwp_f + b * (1.0 - cwp_f);
+  }
 
   // Purity compress low
   if (u.ts_x0_and_flags.w > 0.5) {

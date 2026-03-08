@@ -7,6 +7,7 @@ Supports:
 - Optional mixing of synthetic torture patterns
 """
 
+import colorsys
 import json
 import math
 import os
@@ -19,6 +20,19 @@ from torch.utils.data import Dataset, ConcatDataset
 
 from cfa import make_cfa_mask, make_channel_masks, CFA_REGISTRY, cfa_period, patch_alignment
 from losses import _gaussian_kernel_2d
+
+
+# Bright spot color palette: (h_center, h_range, s_min, s_max, weight)
+_SPOT_PALETTE = [
+    (0.08, 0.04, 0.10, 0.25, 2),  # warm white (tungsten/sodium)
+    (0.55, 0.05, 0.08, 0.20, 2),  # cool white (LED/fluorescent)
+    (0.00, 0.03, 0.85, 1.00, 1),  # red (brake lights)
+    (0.11, 0.02, 0.80, 1.00, 1),  # amber (turn signals, sodium vapor)
+    (0.63, 0.04, 0.75, 1.00, 1),  # blue (LEDs, neon)
+    (0.50, 0.03, 0.75, 1.00, 1),  # cyan/green (neon)
+    (0.85, 0.05, 0.75, 1.00, 1),  # magenta (neon pink)
+]
+_SPOT_WEIGHTS = [e[4] for e in _SPOT_PALETTE]
 
 
 def mosaic(rgb: torch.Tensor, cfa_mask: torch.Tensor) -> torch.Tensor:
@@ -54,6 +68,10 @@ class LinearDataset(Dataset):
         olpf_sigma: tuple[float, float] = (0.0, 0.0),
         highlight_aug_prob: float = 0.0,
         highlight_aug_ev: float = 0.0,
+        bright_spot_prob: float = 0.0,
+        bright_spot_intensity: tuple[float, float] = (1.5, 5.0),
+        bright_spot_sigma: tuple[float, float] = (2.0, 20.0),
+        bright_spot_count: tuple[int, int] = (1, 5),
     ):
         self.patch_size = patch_size
         self.augment = augment
@@ -65,6 +83,10 @@ class LinearDataset(Dataset):
         self.wb_aug_range = wb_aug_range
         self.highlight_aug_prob = highlight_aug_prob
         self.highlight_aug_ev = highlight_aug_ev
+        self.bright_spot_prob = bright_spot_prob
+        self.bright_spot_intensity = bright_spot_intensity
+        self.bright_spot_sigma = bright_spot_sigma
+        self.bright_spot_count = bright_spot_count
         self.data_dir = data_dir
 
         self.pattern = CFA_REGISTRY[cfa_type]
@@ -149,6 +171,54 @@ class LinearDataset(Dataset):
     def __len__(self):
         return len(self.data_files) * self.patches_per_image
 
+    def _add_bright_spots(
+        self,
+        rgb: torch.Tensor,
+        wb: torch.Tensor,
+        clip_scale: float,
+        rng: random.Random,
+    ) -> torch.Tensor:
+        """Add synthetic bright spots simulating point light sources."""
+        _, H, W = rgb.shape
+        n_spots = rng.randint(*self.bright_spot_count)
+
+        ys = torch.arange(H, dtype=torch.float32)
+        xs = torch.arange(W, dtype=torch.float32)
+        yy, xx = torch.meshgrid(ys, xs, indexing='ij')
+
+        result = rgb
+        for _ in range(n_spots):
+            # Position (allow slightly off-patch for edge feathering)
+            cx = rng.uniform(-0.1 * W, 1.1 * W)
+            cy = rng.uniform(-0.1 * H, 1.1 * H)
+
+            # Anisotropic gaussian: independent sigma per axis + rotation
+            su = rng.uniform(*self.bright_spot_sigma)
+            sv = rng.uniform(*self.bright_spot_sigma)
+            theta = rng.uniform(0, math.pi)
+            cos_t, sin_t = math.cos(theta), math.sin(theta)
+
+            dx = (xx - cx) * cos_t + (yy - cy) * sin_t
+            dy = -(xx - cx) * sin_t + (yy - cy) * cos_t
+            blob = torch.exp(-0.5 * ((dx / su) ** 2 + (dy / sv) ** 2))
+
+            # Sample color from palette
+            entry = rng.choices(_SPOT_PALETTE, weights=_SPOT_WEIGHTS, k=1)[0]
+            h_c, h_r, s_lo, s_hi, _ = entry
+            h = (h_c + rng.uniform(-h_r, h_r)) % 1.0
+            s = rng.uniform(s_lo, s_hi)
+            r, g, b = colorsys.hsv_to_rgb(h, s, 1.0)
+            color = torch.tensor([r ** 2.2, g ** 2.2, b ** 2.2])
+
+            # Normalize so peak channel = 1, scale to clip_level * intensity
+            color = color / (color.max() + 1e-8)
+            intensity = rng.uniform(*self.bright_spot_intensity)
+            amplitude = color * wb * clip_scale * intensity
+
+            result = result + amplitude.view(3, 1, 1) * blob.unsqueeze(0)
+
+        return result
+
     def __getitem__(self, idx):
         img_idx = idx // self.patches_per_image
         # Seed RNG deterministically for validation (augment=False) so that
@@ -191,6 +261,12 @@ class LinearDataset(Dataset):
             # Clip at pre-boost level: undo the exposure gain for the ceiling
             clip_scale = 2.0 ** (-ev)
 
+        # Bright spot augmentation: add synthetic point light sources
+        do_bright_spots = (self.bright_spot_prob > 0
+                           and rng.random() < self.bright_spot_prob)
+        if do_bright_spots:
+            rgb = self._add_bright_spots(rgb, wb, clip_scale, rng)
+
         # Geometric augmentation: flips + 90° rotations (applied before
         # mosaicing, so CFA is applied fresh to the transformed image)
         if self.augment:
@@ -203,7 +279,11 @@ class LinearDataset(Dataset):
                 rgb = torch.rot90(rgb, k, [1, 2])
 
         # OLPF simulation: blur RGB before mosaicing (optical domain)
+        # Clip ref at per-channel ceiling: model shouldn't be penalized for
+        # not recovering values above sensor saturation (unrecoverable).
         ref = rgb
+        if do_bright_spots:
+            ref = ref.clamp(max=(wb * clip_scale).view(3, 1, 1))
         if self.augment and self.olpf_sigma[1] > 0:
             sigma = rng.uniform(*self.olpf_sigma)
             if sigma > 0:
@@ -220,7 +300,7 @@ class LinearDataset(Dataset):
         # clip_scale < 1 from highlight augmentation lowers the ceiling.
         clip_levels = wb[self.cfa.long()].unsqueeze(0) * clip_scale  # (1, H, W)
 
-        if do_highlight:
+        if do_highlight or do_bright_spots:
             cfa_img = cfa_img.clamp(max=clip_levels)
 
         # Clip proximity: 0 below 50% of clip level, ramps 0→1 from 50% to 100%.
@@ -274,6 +354,10 @@ def create_mixed_dataset(
     olpf_sigma: tuple[float, float] = (0.0, 0.0),
     highlight_aug_prob: float = 0.0,
     highlight_aug_ev: float = 0.0,
+    bright_spot_prob: float = 0.0,
+    bright_spot_intensity: tuple[float, float] = (1.5, 5.0),
+    bright_spot_sigma: tuple[float, float] = (2.0, 20.0),
+    bright_spot_count: tuple[int, int] = (1, 5),
 ) -> Dataset:
     """
     Create a dataset mixing real images with synthetic torture patterns.
@@ -293,6 +377,10 @@ def create_mixed_dataset(
         olpf_sigma=olpf_sigma,
         highlight_aug_prob=highlight_aug_prob,
         highlight_aug_ev=highlight_aug_ev,
+        bright_spot_prob=bright_spot_prob,
+        bright_spot_intensity=bright_spot_intensity,
+        bright_spot_sigma=bright_spot_sigma,
+        bright_spot_count=bright_spot_count,
     )
 
     if torture_fraction <= 0:

@@ -229,6 +229,12 @@ def main():
     parser.add_argument("--highlight-aug-ev", type=float, default=0.0,
                         help="Max EV for highlight augmentation (e.g. 1.5). "
                              "Boosts exposure by +ev, clips at pre-boost ceiling.")
+    parser.add_argument("--bright-spot-prob", type=float, default=0.0,
+                        help="Probability of adding synthetic bright spots per sample (0-1).")
+    parser.add_argument("--bright-spot-intensity-max", type=float, default=5.0,
+                        help="Max intensity factor for bright spots relative to clip level (min is 1.5).")
+    parser.add_argument("--bright-spot-sigma-max", type=float, default=20.0,
+                        help="Max Gaussian sigma (pixels) for bright spots (min is 2.0).")
     parser.add_argument("--torture-fraction", type=float, default=0.0,
                         help="Fraction of training data from synthetic torture patterns")
     parser.add_argument("--torture-patterns", type=int, default=500,
@@ -342,6 +348,12 @@ def main():
         highlight_aug_ev=args.highlight_aug_ev,
     )
 
+    spot_kwargs = dict(
+        bright_spot_prob=args.bright_spot_prob,
+        bright_spot_intensity=(1.5, args.bright_spot_intensity_max),
+        bright_spot_sigma=(2.0, args.bright_spot_sigma_max),
+    )
+
     if args.torture_fraction > 0:
         train_dataset = create_mixed_dataset(
             data_dir=None,
@@ -354,6 +366,7 @@ def main():
             wb_aug_range=wb_aug,
             olpf_sigma=olpf_sigma,
             **hl_kwargs,
+            **spot_kwargs,
             **shared_kwargs,
         )
     else:
@@ -365,6 +378,7 @@ def main():
             wb_aug_range=wb_aug,
             olpf_sigma=olpf_sigma,
             **hl_kwargs,
+            **spot_kwargs,
             **shared_kwargs,
         )
 
@@ -610,6 +624,10 @@ def main():
     if args.highlight_aug_prob > 0:
         print(f"  Highlight augmentation: {args.highlight_aug_prob*100:.0f}% prob, "
               f"0 to {args.highlight_aug_ev:.1f} EV")
+    if args.bright_spot_prob > 0:
+        print(f"  Bright spot augmentation: {args.bright_spot_prob*100:.0f}% prob, "
+              f"intensity 1.5-{args.bright_spot_intensity_max:.1f}x, "
+              f"sigma 2-{args.bright_spot_sigma_max:.0f}px")
     print()
 
     for epoch in range(start_epoch, args.epochs):

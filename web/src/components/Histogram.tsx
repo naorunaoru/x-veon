@@ -238,6 +238,7 @@ export function Histogram() {
   const selectedFile = useAppStore((s) => s.files.find((f) => f.id === s.selectedFileId));
   const lookPreset = selectedFile?.lookPreset ?? 'default';
   const overrides = selectedFile?.openDrtOverrides ?? {};
+  const preProcess = selectedFile?.preProcessOverrides ?? {};
 
   useEffect(() => {
     if (!renderer || !canvasRef.current) return;
@@ -254,7 +255,7 @@ export function Histogram() {
     });
 
     return () => { cancelled = true; };
-  }, [renderer, lookPreset, overrides, channel, source]);
+  }, [renderer, lookPreset, overrides, preProcess, channel, source]);
 
   return (
     <div className="space-y-1.5">

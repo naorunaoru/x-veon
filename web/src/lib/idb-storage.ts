@@ -22,6 +22,7 @@ export interface PersistedFile {
   lookPreset: LookPreset;
   lensProfile: LensProfile | null;
   openDrtOverrides: Record<string, number | boolean>;
+  preProcessOverrides: Record<string, number>;
   addedAt: number;
 }
 

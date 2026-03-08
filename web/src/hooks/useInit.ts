@@ -10,7 +10,7 @@ import type { PersistedFile } from '@/lib/idb-storage';
 import { hasHwc, hwcKey, listRawFileIds, listHwcFileIds, deleteAllForFile, readThumbnail } from '@/lib/opfs-storage';
 import { deserializeResultMeta } from '@/pipeline/types';
 import type { DemosaicMethod, ExportFormat, ProcessingResultMeta } from '@/pipeline/types';
-import type { OpenDrtConfig } from '@/gl/opendrt-params';
+import type { OpenDrtConfig, PreProcessConfig } from '@/gl/opendrt-params';
 import { matchLens } from '@/lib/lensfun';
 
 async function persistedToQueued(p: PersistedFile): Promise<QueuedFile> {
@@ -45,6 +45,7 @@ async function persistedToQueued(p: PersistedFile): Promise<QueuedFile> {
     lensProfile: p.lensProfile ?? null,
     lookPreset: p.lookPreset,
     openDrtOverrides: p.openDrtOverrides as Partial<OpenDrtConfig>,
+    preProcessOverrides: (p.preProcessOverrides ?? {}) as Partial<PreProcessConfig>,
   };
 }
 
