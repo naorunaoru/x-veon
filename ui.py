@@ -21,12 +21,15 @@ import numpy as np
 import torch
 
 from model import XTransUNet
+from hl_model import HighlightUNet
 from infer_hdr import apply_exif_rotation, process_raw, save_hdr_avif
 
 
 # Global state
 _model = None
 _model_path = None
+_hl_model = None
+_hl_model_path = None
 _device = None
 _UI_STATE_FILE = Path(".ui_state.json")
 
@@ -203,13 +206,25 @@ def plot_training_history(checkpoint_dir: str) -> tuple:
     return fig, status
 
 
+def find_hl_checkpoints():
+    """Find highlight model checkpoints."""
+    patterns = [
+        "checkpoints_hl*/best.pt",
+        "checkpoints_hl*/latest.pt",
+    ]
+    checkpoints = ["(none)"]
+    for pattern in patterns:
+        checkpoints.extend(glob(pattern))
+    return sorted(set(checkpoints))
+
+
 def load_model(checkpoint_path: str):
     """Load model from checkpoint (with caching)."""
     global _model, _model_path, _device
-    
+
     if _model_path == checkpoint_path and _model is not None:
         return _model, _device
-    
+
     _device = get_device()
     ckpt = torch.load(checkpoint_path, map_location=_device, weights_only=True)
     _model = XTransUNet(base_width=ckpt.get("base_width", 64),
@@ -217,12 +232,38 @@ def load_model(checkpoint_path: str):
     _model.load_state_dict(ckpt["model"])
     _model.eval()
     _model_path = checkpoint_path
-    
+
     epoch = ckpt.get("epoch", "?")
     psnr = ckpt.get("best_val_psnr", 0)
     print(f"Loaded {checkpoint_path}: epoch {epoch}, PSNR {psnr:.1f} dB")
-    
+
     return _model, _device
+
+
+def load_hl_model(checkpoint_path: str | None):
+    """Load highlight model (with caching). Returns None if disabled."""
+    global _hl_model, _hl_model_path, _device
+
+    if not checkpoint_path or checkpoint_path == "(none)":
+        _hl_model = None
+        _hl_model_path = None
+        return None
+
+    if _hl_model_path == checkpoint_path and _hl_model is not None:
+        return _hl_model
+
+    _device = get_device()
+    ckpt = torch.load(checkpoint_path, map_location=_device, weights_only=True)
+    _hl_model = HighlightUNet(base_width=ckpt.get("base_width", 32)).to(_device)
+    _hl_model.load_state_dict(ckpt["model"])
+    _hl_model.eval()
+    _hl_model_path = checkpoint_path
+
+    epoch = ckpt.get("epoch", "?")
+    psnr = ckpt.get("best_val_psnr", 0)
+    print(f"Loaded HL model {checkpoint_path}: epoch {epoch}, PSNR {psnr:.1f} dB")
+
+    return _hl_model
 
 
 def make_confidence_heatmap(confidence_map: np.ndarray, exif_flip: int = 0) -> tuple[np.ndarray, str]:
@@ -248,6 +289,7 @@ def run_inference(
     raf_file,
     checkpoint: str,
     overlap: int = 48,
+    hl_checkpoint: str = "(none)",
     progress=gr.Progress(track_tqdm=True),
 ) -> tuple[str, str, str, np.ndarray | None, str]:
     """Process RAF file and return HDR AVIF."""
@@ -260,14 +302,19 @@ def run_inference(
 
     progress(0.1, desc="Loading model...")
     model, device = load_model(checkpoint)
+    hl_model = load_hl_model(hl_checkpoint)
 
     patch_size = 288
     stride = patch_size - overlap
-    progress(0.2, desc=f"Demosaicing (overlap={overlap}, stride={stride})...")
+    desc = f"Demosaicing (overlap={overlap}, stride={stride})"
+    if hl_model is not None:
+        desc += " + highlight pass"
+    progress(0.2, desc=f"{desc}...")
     raf_path = raf_file.name if hasattr(raf_file, 'name') else raf_file
     raf_name = Path(raf_path).stem
 
-    rgb_linear, meta = process_raw(raf_path, model, str(device), patch_size=patch_size, overlap=overlap)
+    rgb_linear, meta = process_raw(raf_path, model, str(device), patch_size=patch_size, overlap=overlap,
+                                   hl_model=hl_model)
 
     progress(0.9, desc="Encoding HDR AVIF...")
 
@@ -364,6 +411,16 @@ def create_ui():
                             allow_custom_value=True,
                         )
                         
+                        hl_checkpoints = find_hl_checkpoints()
+                        saved_hl = ui_state.get("hl_checkpoint")
+                        default_hl = saved_hl if saved_hl in hl_checkpoints else "(none)"
+                        hl_checkpoint_dropdown = gr.Dropdown(
+                            choices=hl_checkpoints,
+                            value=default_hl,
+                            label="Highlight Model (Pass 2)",
+                            allow_custom_value=True,
+                        )
+
                         overlap_slider = gr.Slider(
                             minimum=0, maximum=264, step=24, value=48,
                             label="Tile Overlap",
@@ -383,18 +440,24 @@ def create_ui():
                             confidence_stats = gr.Textbox(label="Stats", interactive=False)
                 
                 def refresh_checkpoints():
-                    return gr.Dropdown(choices=find_checkpoints())
-                
-                refresh_btn.click(refresh_checkpoints, outputs=checkpoint_dropdown)
+                    return (gr.Dropdown(choices=find_checkpoints()),
+                            gr.Dropdown(choices=find_hl_checkpoints()))
+
+                refresh_btn.click(refresh_checkpoints,
+                                  outputs=[checkpoint_dropdown, hl_checkpoint_dropdown])
 
                 checkpoint_dropdown.change(
                     lambda v: save_ui_state("checkpoint", v),
                     inputs=checkpoint_dropdown,
                 )
-                
+                hl_checkpoint_dropdown.change(
+                    lambda v: save_ui_state("hl_checkpoint", v),
+                    inputs=hl_checkpoint_dropdown,
+                )
+
                 process_btn.click(
                     run_inference,
-                    inputs=[raf_input, checkpoint_dropdown, overlap_slider],
+                    inputs=[raf_input, checkpoint_dropdown, overlap_slider, hl_checkpoint_dropdown],
                     outputs=[output_html, status_text, output_file, confidence_img, confidence_stats],
                 )
             
@@ -442,21 +505,26 @@ def create_ui():
                     state = load_ui_state()
                     dirs = find_checkpoint_dirs()
                     ckpts = find_checkpoints()
+                    hl_ckpts = find_hl_checkpoints()
                     saved_d = state.get("history_dir")
                     saved_c = state.get("checkpoint")
+                    saved_hl = state.get("hl_checkpoint")
                     dir_val = saved_d if saved_d in dirs else (dirs[0] if dirs else None)
                     ckpt_val = saved_c if saved_c in ckpts else (ckpts[0] if ckpts else None)
+                    hl_val = saved_hl if saved_hl in hl_ckpts else "(none)"
                     fig, status = plot_training_history(dir_val) if dir_val else (None, "No history found")
                     return (
                         gr.Dropdown(choices=dirs, value=dir_val),
                         fig,
                         status,
                         gr.Dropdown(choices=ckpts, value=ckpt_val),
+                        gr.Dropdown(choices=hl_ckpts, value=hl_val),
                     )
 
                 demo.load(
                     on_load,
-                    outputs=[history_dir_dropdown, history_plot, history_status, checkpoint_dropdown],
+                    outputs=[history_dir_dropdown, history_plot, history_status,
+                             checkpoint_dropdown, hl_checkpoint_dropdown],
                 )
     
     return demo

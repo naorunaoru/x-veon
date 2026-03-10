@@ -352,6 +352,7 @@ def main():
         bright_spot_prob=args.bright_spot_prob,
         bright_spot_intensity=(1.5, args.bright_spot_intensity_max),
         bright_spot_sigma=(2.0, args.bright_spot_sigma_max),
+        bright_spot_unclipped=args.hl_head,
     )
 
     if args.torture_fraction > 0:
@@ -463,6 +464,8 @@ def main():
     if args.freeze_base:
         if not args.hl_head:
             print("WARNING: --freeze-base without --hl-head freezes everything!")
+        if args.highlight_aug_prob <= 0:
+            print("WARNING: --freeze-base without --highlight-aug-prob means no HL validation metrics!")
         n_frozen = 0
         for name, param in model.named_parameters():
             if not name.startswith("highlight_head."):
@@ -628,6 +631,8 @@ def main():
         print(f"  Bright spot augmentation: {args.bright_spot_prob*100:.0f}% prob, "
               f"intensity 1.5-{args.bright_spot_intensity_max:.1f}x, "
               f"sigma 2-{args.bright_spot_sigma_max:.0f}px")
+    if args.freeze_base and args.highlight_aug_prob > 0:
+        print(f"  Best-model tracking: HL PSNR (--freeze-base)")
     print()
 
     for epoch in range(start_epoch, args.epochs):
@@ -688,9 +693,10 @@ def main():
         }
         history.append(entry)
 
-        # Save best
-        if val_psnr > best_val_psnr:
-            best_val_psnr = val_psnr
+        # Save best — use HL PSNR when training only the highlight head
+        tracking_psnr = val_hl_psnr if (args.freeze_base and val_hl_psnr is not None) else val_psnr
+        if tracking_psnr > best_val_psnr:
+            best_val_psnr = tracking_psnr
             ckpt_data = {
                 "epoch": epoch,
                 "model": model.state_dict(),
@@ -704,7 +710,8 @@ def main():
             if scaler is not None:
                 ckpt_data["scaler"] = scaler.state_dict()
             torch.save(ckpt_data, output_dir / "best.pt")
-            print(f"  -> New best ({best_val_psnr:.2f} dB)")
+            best_metric = "HL" if (args.freeze_base and val_hl_psnr is not None) else "val"
+            print(f"  -> New best {best_metric} ({best_val_psnr:.2f} dB)")
             update_registry(
                 registry_path, cfa_type=args.cfa_type, base_width=args.base_width,
                 hl_head=args.hl_head, status="beta", slot="best",

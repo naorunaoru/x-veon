@@ -72,6 +72,7 @@ class LinearDataset(Dataset):
         bright_spot_intensity: tuple[float, float] = (1.5, 5.0),
         bright_spot_sigma: tuple[float, float] = (2.0, 20.0),
         bright_spot_count: tuple[int, int] = (1, 5),
+        bright_spot_unclipped: bool = False,
     ):
         self.patch_size = patch_size
         self.augment = augment
@@ -87,6 +88,7 @@ class LinearDataset(Dataset):
         self.bright_spot_intensity = bright_spot_intensity
         self.bright_spot_sigma = bright_spot_sigma
         self.bright_spot_count = bright_spot_count
+        self.bright_spot_unclipped = bright_spot_unclipped
         self.data_dir = data_dir
 
         self.pattern = CFA_REGISTRY[cfa_type]
@@ -210,10 +212,12 @@ class LinearDataset(Dataset):
             r, g, b = colorsys.hsv_to_rgb(h, s, 1.0)
             color = torch.tensor([r ** 2.2, g ** 2.2, b ** 2.2])
 
-            # Normalize so peak channel = 1, scale to clip_level * intensity
+            # Normalize so peak channel = 1, scale to clip_level * intensity.
+            # Use wb only (not clip_scale) so highlight aug EV boost doesn't
+            # shrink bright spots — they represent real light sources.
             color = color / (color.max() + 1e-8)
             intensity = rng.uniform(*self.bright_spot_intensity)
-            amplitude = color * wb * clip_scale * intensity
+            amplitude = color * wb * intensity
 
             result = result + amplitude.view(3, 1, 1) * blob.unsqueeze(0)
 
@@ -282,7 +286,7 @@ class LinearDataset(Dataset):
         # Clip ref at per-channel ceiling: model shouldn't be penalized for
         # not recovering values above sensor saturation (unrecoverable).
         ref = rgb
-        if do_bright_spots:
+        if do_bright_spots and not self.bright_spot_unclipped:
             ref = ref.clamp(max=(wb * clip_scale).view(3, 1, 1))
         if self.augment and self.olpf_sigma[1] > 0:
             sigma = rng.uniform(*self.olpf_sigma)
@@ -358,6 +362,7 @@ def create_mixed_dataset(
     bright_spot_intensity: tuple[float, float] = (1.5, 5.0),
     bright_spot_sigma: tuple[float, float] = (2.0, 20.0),
     bright_spot_count: tuple[int, int] = (1, 5),
+    bright_spot_unclipped: bool = False,
 ) -> Dataset:
     """
     Create a dataset mixing real images with synthetic torture patterns.
@@ -381,6 +386,7 @@ def create_mixed_dataset(
         bright_spot_intensity=bright_spot_intensity,
         bright_spot_sigma=bright_spot_sigma,
         bright_spot_count=bright_spot_count,
+        bright_spot_unclipped=bright_spot_unclipped,
     )
 
     if torture_fraction <= 0:
@@ -411,6 +417,209 @@ def create_mixed_dataset(
     print(f"  Torture dataset: {torture_size} samples ({torture_fraction*100:.1f}% of total)")
 
     return ConcatDataset([main_dataset, repeated_torture])
+
+
+class HighlightDataset(Dataset):
+    """
+    Dataset for highlight reconstruction (second pass).
+
+    Loads the same .npy linear RGB files as LinearDataset, but skips CFA
+    mosaicing.  Instead it simulates clipped highlights in RGB space:
+
+    1. Load linear RGB patch
+    2. Apply white balance
+    3. Boost exposure by random EV (highlight augmentation)
+    4. Clip per-channel at WB ceilings → clipped RGB (model input)
+    5. Compute soft clip mask from clipped values
+    6. Original (pre-clip) RGB is the target
+
+    Returns: (input_4ch, target_rgb, clip_levels)
+        input_4ch: (4, H, W) — clipped RGB (3ch) + clip mask (1ch)
+        target_rgb: (3, H, W) — unclipped reference
+        clip_levels: (3,) — per-channel clip ceilings
+    """
+
+    def __init__(
+        self,
+        data_dir: str | None = None,
+        patch_size: int = 128,
+        augment: bool = True,
+        patches_per_image: int = 16,
+        max_images: int | None = None,
+        filter_file: str | None = None,
+        apply_wb: bool = False,
+        wb_aug_range: float = 0.0,
+        files: list[str] | None = None,
+        highlight_ev_range: tuple[float, float] = (0.5, 3.0),
+        highlight_prob: float = 1.0,
+        bright_spot_prob: float = 0.0,
+        bright_spot_intensity: tuple[float, float] = (1.5, 5.0),
+        bright_spot_sigma: tuple[float, float] = (2.0, 20.0),
+        bright_spot_count: tuple[int, int] = (1, 5),
+        min_clip_frac: float = 0.05,
+        max_clip_frac: float = 0.80,
+        max_retries: int = 5,
+    ):
+        self.patch_size = patch_size
+        self.augment = augment
+        self.patches_per_image = patches_per_image
+        self.apply_wb = apply_wb
+        self.wb_aug_range = wb_aug_range
+        self.highlight_ev_range = highlight_ev_range
+        self.highlight_prob = highlight_prob
+        self.bright_spot_prob = bright_spot_prob
+        self.bright_spot_intensity = bright_spot_intensity
+        self.bright_spot_sigma = bright_spot_sigma
+        self.bright_spot_count = bright_spot_count
+        self.min_clip_frac = min_clip_frac
+        self.max_clip_frac = max_clip_frac
+        self.max_retries = max_retries
+
+        if files is not None:
+            self.data_files = list(files)
+        else:
+            if data_dir is None:
+                raise ValueError("Either data_dir or files must be provided")
+            self.data_files = sorted([
+                os.path.join(data_dir, f) for f in os.listdir(data_dir)
+                if f.endswith('.npy') and not f.endswith('_meta.npy') and not f.endswith('_lum.npy')
+            ])
+            if filter_file is not None:
+                with open(filter_file) as f:
+                    allowed = set(json.load(f))
+                self.data_files = [
+                    p for p in self.data_files
+                    if os.path.splitext(os.path.basename(p))[0] in allowed
+                ]
+            if max_images:
+                self.data_files = self.data_files[:max_images]
+
+        if not self.data_files:
+            raise ValueError("No .npy files found")
+
+        # Load per-image WB multipliers
+        self.wb_multipliers = None
+        if apply_wb:
+            self.wb_multipliers = []
+            for npy_path in self.data_files:
+                stem = os.path.splitext(npy_path)[0]
+                meta_path = stem + "_meta.json"
+                try:
+                    with open(meta_path) as f:
+                        meta = json.load(f)
+                    wb = np.array(meta["camera_wb"][:3], dtype=np.float32)
+                    wb = wb / wb[1]
+                    self.wb_multipliers.append(wb)
+                except (FileNotFoundError, json.JSONDecodeError, KeyError):
+                    self.wb_multipliers.append(np.array([1.0, 1.0, 1.0], dtype=np.float32))
+
+    def __len__(self):
+        return len(self.data_files) * self.patches_per_image
+
+    def _generate_patch(self, img_idx, rng):
+        """Generate a single highlight training patch. Returns (input, target, clip_levels, clip_frac)."""
+        img = np.load(self.data_files[img_idx], mmap_mode='r')
+        h, w, _ = img.shape
+
+        # Random crop (no CFA alignment needed)
+        max_y, max_x = h - self.patch_size, w - self.patch_size
+        top = rng.randint(0, max(0, max_y))
+        left = rng.randint(0, max(0, max_x))
+        patch = img[top:top+self.patch_size, left:left+self.patch_size]
+
+        rgb = torch.from_numpy(np.array(patch.transpose(2, 0, 1))).float()
+
+        # White balance
+        wb = torch.ones(3)
+        if self.wb_multipliers is not None:
+            wb = torch.from_numpy(self.wb_multipliers[img_idx]).float()
+            if self.augment and self.wb_aug_range > 0:
+                r_shift = math.exp(rng.uniform(-self.wb_aug_range, self.wb_aug_range))
+                b_shift = math.exp(rng.uniform(-self.wb_aug_range, self.wb_aug_range))
+                wb = wb * torch.tensor([r_shift, 1.0, b_shift])
+            rgb = rgb * wb.view(3, 1, 1)
+
+        # Geometric augmentation
+        if self.augment:
+            if rng.random() > 0.5:
+                rgb = rgb.flip(2)
+            if rng.random() > 0.5:
+                rgb = rgb.flip(1)
+            k = rng.randint(0, 3)
+            if k > 0:
+                rgb = torch.rot90(rgb, k, [1, 2])
+
+        # Highlight augmentation: boost + clip
+        clip_levels = wb.clone()  # per-channel ceiling in WB'd space
+        do_highlight = rng.random() < self.highlight_prob
+        if do_highlight:
+            ev = rng.uniform(*self.highlight_ev_range)
+            boosted = rgb * (2.0 ** ev)
+            clip_scale = 2.0 ** (-ev)
+            clip_levels = wb * clip_scale
+        else:
+            boosted = rgb
+
+        # Bright spot augmentation
+        if self.bright_spot_prob > 0 and rng.random() < self.bright_spot_prob:
+            _, H, W = boosted.shape
+            n_spots = rng.randint(*self.bright_spot_count)
+            ys = torch.arange(H, dtype=torch.float32)
+            xs = torch.arange(W, dtype=torch.float32)
+            yy, xx = torch.meshgrid(ys, xs, indexing='ij')
+            for _ in range(n_spots):
+                cx = rng.uniform(-0.1 * W, 1.1 * W)
+                cy = rng.uniform(-0.1 * H, 1.1 * H)
+                su = rng.uniform(*self.bright_spot_sigma)
+                sv = rng.uniform(*self.bright_spot_sigma)
+                theta = rng.uniform(0, math.pi)
+                cos_t, sin_t = math.cos(theta), math.sin(theta)
+                dx = (xx - cx) * cos_t + (yy - cy) * sin_t
+                dy = -(xx - cx) * sin_t + (yy - cy) * cos_t
+                blob = torch.exp(-0.5 * ((dx / su) ** 2 + (dy / sv) ** 2))
+                entry = rng.choices(_SPOT_PALETTE, weights=_SPOT_WEIGHTS, k=1)[0]
+                h_c, h_r, s_lo, s_hi, _ = entry
+                hue = (h_c + rng.uniform(-h_r, h_r)) % 1.0
+                s = rng.uniform(s_lo, s_hi)
+                r, g, b = colorsys.hsv_to_rgb(hue, s, 1.0)
+                color = torch.tensor([r ** 2.2, g ** 2.2, b ** 2.2])
+                color = color / (color.max() + 1e-8)
+                intensity = rng.uniform(*self.bright_spot_intensity)
+                amplitude = color * wb * intensity
+                boosted = boosted + amplitude.view(3, 1, 1) * blob.unsqueeze(0)
+
+        # Target: unclipped (but clamped to WB ceiling — values above
+        # sensor saturation are unrecoverable regardless)
+        target = boosted.clamp(max=wb.view(3, 1, 1))
+
+        # Clipped input
+        clipped = boosted.clamp(max=clip_levels.view(3, 1, 1))
+
+        # Soft clip mask: 0 below 50% of clip ceiling, ramps to 1 at ceiling
+        max_ratio = (clipped / (clip_levels.view(3, 1, 1) + 1e-8)).max(dim=0, keepdim=True).values
+        clip_mask = ((max_ratio - 0.5) * 2.0).clamp(0, 1)  # (1, H, W)
+
+        # Fraction of pixels that are clipped (for patch rejection)
+        clip_frac = (clip_mask > 0.5).float().mean().item()
+
+        input_tensor = torch.cat([clipped, clip_mask], dim=0)  # (4, H, W)
+        return input_tensor, target, clip_levels, clip_frac
+
+    def __getitem__(self, idx):
+        img_idx = idx // self.patches_per_image
+        rng = random.Random(idx) if not self.augment else random.Random()
+
+        # Generate patch with rejection: retry if clip fraction is outside
+        # useful range (too little clipping = identity, too much = no cues)
+        for attempt in range(self.max_retries):
+            input_tensor, target, clip_levels, clip_frac = self._generate_patch(img_idx, rng)
+            if self.min_clip_frac <= clip_frac <= self.max_clip_frac:
+                break
+            # On retry, pick a different image to increase diversity
+            if attempt < self.max_retries - 1:
+                img_idx = rng.randint(0, len(self.data_files) - 1)
+
+        return input_tensor, target, clip_levels
 
 
 # Backwards compatibility

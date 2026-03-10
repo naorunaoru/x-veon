@@ -25,6 +25,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: naorunaoru/rawloader
+          ref: develop
           path: rawloader-wasm
 
       - name: Symlink rawloader for Cargo path dep
