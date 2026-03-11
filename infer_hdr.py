@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2024-present X-Veon contributors
 """HDR inference for CFA demosaicing with tile blending and white balance."""
 
 import argparse
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -12,8 +15,8 @@ import rawpy
 import torch
 
 from model import XTransUNet
-from hl_model import HighlightUNet
 from cfa import make_cfa_mask, make_channel_masks, detect_cfa_from_raw, find_pattern_shift, cfa_period, CFA_REGISTRY
+from highlight_recovery import reconstruct_highlights
 
 
 # Standard color space conversion matrices
@@ -198,102 +201,6 @@ def reconstruct_highlights_cfa(cfa_norm: np.ndarray, raw_pattern: np.ndarray) ->
     return out
 
 
-def run_highlight_pass(rgb: np.ndarray, clip_levels: np.ndarray,
-                       hl_model: torch.nn.Module, device: str,
-                       patch_size: int = 256, overlap: int = 32) -> np.ndarray:
-    """Run highlight reconstruction (pass 2) on demosaiced RGB.
-
-    Only processes tiles that contain clipped/near-clipped pixels.
-    Blends result using soft clip mask so unclipped regions are untouched.
-
-    Args:
-        rgb: (H, W, 3) demosaiced linear RGB (WB'd camera space)
-        clip_levels: (3,) per-channel clip ceilings in WB'd space
-        hl_model: loaded HighlightUNet
-        device: torch device string
-        patch_size: tile size for pass 2
-        overlap: tile overlap for blending
-
-    Returns:
-        (H, W, 3) highlight-corrected RGB
-    """
-    h, w, _ = rgb.shape
-
-    # Full-image clip mask from demosaiced RGB
-    ratio = rgb / (clip_levels[np.newaxis, np.newaxis, :] + 1e-8)  # (H, W, 3)
-    max_ratio = ratio.max(axis=2)  # (H, W)
-    clip_mask_full = np.clip((max_ratio - 0.5) * 2.0, 0, 1).astype(np.float32)
-
-    if clip_mask_full.max() < 0.01:
-        print("  Highlight pass: no clipped pixels, skipping")
-        return rgb
-
-    # CHW for tiling
-    rgb_chw = rgb.transpose(2, 0, 1).astype(np.float32)  # (3, H, W)
-
-    stride = patch_size - overlap
-    h_pad = ((h - overlap + stride - 1) // stride) * stride + patch_size
-    w_pad = ((w - overlap + stride - 1) // stride) * stride + patch_size
-
-    # Pad image and mask
-    rgb_padded = np.zeros((3, h_pad, w_pad), dtype=np.float32)
-    rgb_padded[:, :h, :w] = rgb_chw
-    mask_padded = np.zeros((h_pad, w_pad), dtype=np.float32)
-    mask_padded[:h, :w] = clip_mask_full
-
-    # Blend weights
-    weight_1d = np.ones(patch_size, dtype=np.float32)
-    if overlap > 0:
-        weight_1d[:overlap] = np.linspace(0, 1, overlap)
-        weight_1d[-overlap:] = np.linspace(1, 0, overlap)
-    blend_weight = np.outer(weight_1d, weight_1d)
-
-    output = np.zeros((3, h_pad, w_pad), dtype=np.float32)
-    weights = np.zeros((h_pad, w_pad), dtype=np.float32)
-
-    n_tiles = 0
-    n_hl_tiles = 0
-
-    with torch.no_grad():
-        for y in range(0, h_pad - patch_size + 1, stride):
-            for x in range(0, w_pad - patch_size + 1, stride):
-                n_tiles += 1
-
-                # Skip tiles with no clipped pixels
-                tile_mask = mask_padded[y:y+patch_size, x:x+patch_size]
-                if tile_mask.max() < 0.01:
-                    # Copy original RGB directly
-                    tile_rgb = rgb_padded[:, y:y+patch_size, x:x+patch_size]
-                    for c in range(3):
-                        output[c, y:y+patch_size, x:x+patch_size] += tile_rgb[c] * blend_weight
-                    weights[y:y+patch_size, x:x+patch_size] += blend_weight
-                    continue
-
-                n_hl_tiles += 1
-
-                # Build 4-channel input: clipped RGB + clip mask
-                tile_rgb = rgb_padded[:, y:y+patch_size, x:x+patch_size]
-                tile_mask_ch = tile_mask[np.newaxis, :, :]  # (1, H, W)
-
-                inp = np.concatenate([tile_rgb, tile_mask_ch], axis=0)  # (4, H, W)
-                inp_t = torch.from_numpy(inp).unsqueeze(0).to(device)
-
-                out = hl_model(inp_t)[0].cpu().numpy()  # (3, H, W)
-
-                for c in range(3):
-                    output[c, y:y+patch_size, x:x+patch_size] += out[c] * blend_weight
-                weights[y:y+patch_size, x:x+patch_size] += blend_weight
-
-    weights = np.maximum(weights, 1e-8)
-    output = output / weights[np.newaxis, :, :]
-
-    # Crop to original size
-    result = output[:, :h, :w].transpose(1, 2, 0)
-
-    print(f"  Highlight pass: {n_hl_tiles}/{n_tiles} tiles processed")
-    return result
-
-
 def extract_dr_gain(raw_path: str) -> float:
     """Extract Fuji DevelopmentDynamicRange from EXIF.
     Returns 1.0 (DR100), 2.0 (DR200), or 4.0 (DR400)."""
@@ -312,9 +219,7 @@ def extract_dr_gain(raw_path: str) -> float:
 def process_raw(raw_path: str, model: torch.nn.Module, device: str,
                 patch_size: int = 288, overlap: int = 48,
                 apply_wb_to_cfa: bool = True,
-                cfa_type: str | None = None,
-                hl_model: torch.nn.Module | None = None,
-                hl_patch_size: int = 256, hl_overlap: int = 32) -> tuple[np.ndarray, dict]:
+                cfa_type: str | None = None) -> tuple[np.ndarray, dict]:
     raw = rawpy.imread(raw_path)
 
     cfa = raw.raw_image_visible.astype(np.float32)
@@ -354,6 +259,9 @@ def process_raw(raw_path: str, model: torch.nn.Module, device: str,
 
     # Per-channel clip levels in WB'd space (raw clip = 1.0, WB'd clip = wb[ch])
     clip_levels = wb if apply_wb_to_cfa else np.ones(3, dtype=np.float32)
+
+    # Highlight reconstruction on CFA (after WB, before demosaic)
+    cfa_norm = reconstruct_highlights(cfa_norm, raw_pattern, clip_levels)
 
     if pad_top > 0 or pad_left > 0:
         cfa_norm = np.pad(cfa_norm, ((pad_top, 0), (pad_left, 0)), mode='reflect')
@@ -439,11 +347,6 @@ def process_raw(raw_path: str, model: torch.nn.Module, device: str,
     if not apply_wb_to_cfa:
         rgb = rgb * wb
 
-    # Pass 2: highlight reconstruction
-    if hl_model is not None:
-        rgb = run_highlight_pass(rgb, clip_levels, hl_model, device,
-                                 patch_size=hl_patch_size, overlap=hl_overlap)
-
     raw.close()
 
     dr_gain = extract_dr_gain(raw_path)
@@ -493,11 +396,13 @@ def save_hdr_avif(rgb: np.ndarray, output_path: str, quality: int = 90,
     temp_png = output_path + ".tmp.png"
     cv2.imwrite(temp_png, bgr_u16)
     
-    # Use full path for homebrew avifenc (needed when running without shell PATH)
     # CICP: 9 = BT.2020 primaries, 18 = HLG transfer, 9 = BT.2020 NCL
-    avifenc = "/opt/homebrew/bin/avifenc"
-    cmd = [avifenc, "--min", "0", "--max", "63", "-q", str(quality),
-           "--cicp", "9/18/9", "-d", "10", temp_png, output_path]
+    avifenc = shutil.which("avifenc")
+    if avifenc is None:
+        raise FileNotFoundError("avifenc not found on PATH. Install libavif-bin (apt) or libavif (brew).")
+    cmd = [avifenc, "-c", "aom", "-j", "all", "-s", "6",
+            "-q", str(quality), "--cicp", "9/18/9", "-d", "10",
+            "-y", "420", temp_png, output_path]
     subprocess.run(cmd, check=True, capture_output=True)
     os.remove(temp_png)
     
@@ -517,12 +422,6 @@ def main():
     parser.add_argument("--no-color", action="store_true", help="Skip color correction")
     parser.add_argument("--no-wb-cfa", action="store_true",
                         help="Don't apply WB to CFA (for legacy checkpoints trained without --apply-wb)")
-    parser.add_argument("--hl-checkpoint", type=str, default=None,
-                        help="Highlight reconstruction model checkpoint (enables pass 2)")
-    parser.add_argument("--hl-patch-size", type=int, default=256,
-                        help="Patch size for highlight pass (default 256)")
-    parser.add_argument("--hl-overlap", type=int, default=32,
-                        help="Overlap for highlight pass tiles (default 32)")
     args = parser.parse_args()
     
     device = "mps" if torch.backends.mps.is_available() else "cpu"
@@ -536,16 +435,6 @@ def main():
     model.eval()
     ckpt_cfa = ckpt.get("cfa_type")
     print(f"Checkpoint: {args.checkpoint}" + (f" (cfa_type={ckpt_cfa})" if ckpt_cfa else ""))
-
-    # Load highlight model (optional pass 2)
-    hl_model = None
-    if args.hl_checkpoint:
-        hl_ckpt = torch.load(args.hl_checkpoint, map_location=device, weights_only=False)
-        hl_model = HighlightUNet(base_width=hl_ckpt.get("base_width", 32))
-        hl_model.load_state_dict(hl_ckpt["model"])
-        hl_model.to(device)
-        hl_model.eval()
-        print(f"Highlight model: {args.hl_checkpoint}")
 
     raw_globs = ["*.RAF", "*.raf", "*.CR2", "*.cr2", "*.CR3", "*.cr3",
                  "*.NEF", "*.nef", "*.ARW", "*.arw", "*.DNG", "*.dng"]
@@ -562,9 +451,7 @@ def main():
             print(f"Processing {raw_file.name}...")
             wb_cfa = not args.no_wb_cfa
             rgb, meta = process_raw(str(raw_file), model, device, args.patch_size, args.overlap,
-                                    apply_wb_to_cfa=wb_cfa,
-                                    hl_model=hl_model, hl_patch_size=args.hl_patch_size,
-                                    hl_overlap=args.hl_overlap)
+                                    apply_wb_to_cfa=wb_cfa)
             exif_flip = meta.get("exif_flip", 0)
             xyz_to_cam = meta.get("xyz_to_cam")
             save_hdr_avif(rgb, str(out_path), args.quality, xyz_to_cam, exif_flip,
@@ -577,9 +464,7 @@ def main():
         print(f"Processing {input_path.name}...")
         wb_cfa = not args.no_wb_cfa
         rgb, meta = process_raw(str(input_path), model, device, args.patch_size, args.overlap,
-                                apply_wb_to_cfa=wb_cfa,
-                                hl_model=hl_model, hl_patch_size=args.hl_patch_size,
-                                hl_overlap=args.hl_overlap)
+                                apply_wb_to_cfa=wb_cfa)
         exif_flip = meta.get("exif_flip", 0)
         xyz_to_cam = meta.get("xyz_to_cam")
         save_hdr_avif(rgb, str(output_path), args.quality, xyz_to_cam, exif_flip,

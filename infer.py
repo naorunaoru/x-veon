@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2024-present X-Veon contributors
 """
 Inference script for v4 (linear sensor space) X-Trans demosaicing model.
 

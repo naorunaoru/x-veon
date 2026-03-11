@@ -50,8 +50,20 @@ What it can't do yet:
 - passthrough full EXIF metadata
 - do batch operations
 
-## Something about giants and their shoulders. Mom, I'm on TV
+## License
 
-Parts of the code were adapted piecemeal from various open-source projects, to name a few: 
+This project uses a multi-license structure:
+
+| Component | License | SPDX Identifier |
+|---|---|---|
+| Neural network code (model, training, losses, dataset) | MIT | `MIT` |
+| Trained model weights (`checkpoints_*/`) | Creative Commons Attribution 4.0 | `CC-BY-4.0` |
+| Processing pipeline, web app, and everything else | GNU GPL v3 or later | `GPL-3.0-or-later` |
+
+See [LICENSE](LICENSE) for details and [LICENSES/](LICENSES/) for full license texts.
+
+## Acknowledgments
+
+Parts of the code were adapted from various open-source projects:
 - darktable (segmentation-based highlight reconstruction, reference image pipeline)
 - Jed Smith's OpenDRT and ART CTL by agriggio (tone mapping)

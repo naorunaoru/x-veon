@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2024-present X-Veon contributors
 """Export XTransUNet to ONNX for browser inference via ONNX Runtime Web."""
 
 import argparse

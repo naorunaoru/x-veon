@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (c) 2024-present X-Veon contributors
 // OpenDRT tone mapping shader — WGSL port of frag.glsl + vert.glsl.
 // Combined vertex + fragment in a single module.
 

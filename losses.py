@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2024-present X-Veon contributors
 """
 Loss functions for X-Trans demosaicing.
 

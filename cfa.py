@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2024-present X-Veon contributors
 """
 CFA (Color Filter Array) pattern definitions and utilities.
 

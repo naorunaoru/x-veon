@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (c) 2024-present X-Veon contributors
 /**
  * Segmentation-based highlight reconstruction, adapted from darktable.
  *

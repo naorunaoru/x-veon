@@ -1,0 +1,19 @@
+name: x-veon
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - python>=3.10
+  - numpy
+  - scipy
+  - pillow
+  - matplotlib
+  - pip
+  - pip:
+      - torch>=2.0
+      - rawpy
+      - opencv-python
+      - gradio
+      - onnx
+      - onnxconverter-common

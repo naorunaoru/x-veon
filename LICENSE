@@ -1,0 +1,45 @@
+This project is distributed under multiple licenses depending on the component.
+See the LICENSES/ directory for full license texts.
+
+1. Neural Network (MIT License)
+   SPDX-License-Identifier: MIT
+
+   The following files are licensed under the MIT License:
+
+   - model.py          — network architecture
+   - train.py          — training loop
+   - losses.py         — loss functions
+   - dataset.py        — data loading and augmentation
+   - build_dataset.py  — dataset preparation
+   - export_onnx.py    — ONNX model export
+   - cfa.py            — CFA pattern utilities
+   - preview_dataset.py
+   - backfill_metadata.py
+   - checkpoint_registry.py
+   - torture_v2.py
+
+   Copyright (c) 2024-present X-Veon contributors
+
+2. Trained Model Weights (CC-BY-4.0)
+   SPDX-License-Identifier: CC-BY-4.0
+
+   All trained model weights and ONNX checkpoint files (web/public/checkpoints/)
+   are licensed under the Creative Commons Attribution 4.0 International License.
+
+   Copyright (c) 2024-present X-Veon contributors
+
+3. Processing Pipeline and Web Application (GPL-3.0-or-later)
+   SPDX-License-Identifier: GPL-3.0-or-later
+
+   All remaining code — including but not limited to the highlight recovery
+   pipeline, OpenDRT tone mapping, the web application, inference scripts,
+   and test suites — is licensed under the GNU General Public License v3.0
+   or later.
+
+   This includes code adapted from:
+   - darktable (segmentation-based highlight reconstruction)
+     Copyright darktable contributors
+   - OpenDRT / ART CTL by agriggio (tone mapping)
+     Copyright Jed Smith, Alberto Griggio
+
+   Copyright (c) 2024-present X-Veon contributors
