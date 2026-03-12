@@ -15,13 +15,11 @@ DR-aware push (--dr-push):
   Reads Fuji DevelopmentDynamicRange from EXIF makernotes.
   DR400 images are underexposed by 2 stops → pushed +2 EV (×4).
   DR200 images are underexposed by 1 stop → pushed +1 EV (×2).
-  Use --max-pushed-range to exclude images that still clip after push.
-
 For each raw file:
 1. Demosaic (DHT for X-Trans, AHD for Bayer)
 2. Black-subtract, normalize by (white - black), NO CLIP
 3. Apply DR push if enabled
-4. Downscale 4x via area averaging
+4. Area-average 2x downscale
 5. Save as float32 .npy
 """
 import argparse
@@ -30,15 +28,11 @@ import sys
 import subprocess
 import time
 import json
-import gc
-from pathlib import Path
 from multiprocessing import Pool, cpu_count
 
 import numpy as np
 import rawpy
 
-
-DOWNSAMPLE = 4
 
 RAW_EXTENSIONS = {'.RAF', '.CR2', '.CR3', '.NEF', '.NRW', '.ARW', '.SRW',
                   '.RW2', '.ORF', '.PEF', '.IIQ'}
@@ -114,7 +108,7 @@ def load_raw_map(json_path: str, raw_base: str | None = None, top_n: int | None 
 
 def process_raw(args):
     """Process a single raw file: demosaic, downsample, save."""
-    raw_path, output_dir, stem, index, total, dr_gain, max_pushed_range = args
+    raw_path, output_dir, stem, index, total, dr_gain = args
 
     output_path = os.path.join(output_dir, f"{stem}.npy")
 
@@ -151,39 +145,31 @@ def process_raw(args):
             use_camera_wb=False,
             use_auto_wb=False,
             user_wb=[1, 1, 1, 1],  # Unity WB
+            highlight_mode=rawpy.HighlightMode.Ignore,  # Leave highlights unclipped (no reconstruction)
+            half_size=False,  # Full resolution demosaic
             user_flip=0,  # No EXIF rotation - keep raw sensor orientation
         )
 
-        h, w = rgb_16.shape[:2]
+        # Area-average 2x downscale
+        ds = 2
+        h_crop = rgb_16.shape[0] // ds * ds
+        w_crop = rgb_16.shape[1] // ds * ds
+        rgb_f = (rgb_16[:h_crop, :w_crop]
+                 .reshape(h_crop // ds, ds, w_crop // ds, ds, 3)
+                 .mean(axis=(1, 3), dtype=np.float32))
+        del rgb_16
+
+        h, w = rgb_f.shape[:2]
 
         # Normalize: subtract black, divide by (white - black), NO CLIP
-        rgb_f = (rgb_16.astype(np.float32) - black) / (white - black)
-        del rgb_16
+        rgb_f = (rgb_f - black) / (white - black)
 
         # DR push: compensate for deliberate underexposure in DR200/400
         if dr_gain > 1.0:
             rgb_f *= dr_gain
 
-        # Downscale 4x via area averaging
-        new_h, new_w = h // DOWNSAMPLE, w // DOWNSAMPLE
-        h_crop = new_h * DOWNSAMPLE
-        w_crop = new_w * DOWNSAMPLE
-
-        downscaled = np.zeros((new_h, new_w, 3), dtype=np.float32)
-        for c in range(3):
-            ch = rgb_f[:h_crop, :w_crop, c].reshape(new_h, DOWNSAMPLE, new_w, DOWNSAMPLE)
-            downscaled[:, :, c] = ch.mean(axis=(1, 3))
-
-        del rgb_f
-        gc.collect()
-
-        # Skip if pushed range exceeds threshold (highlights still clipped)
-        if max_pushed_range is not None and downscaled.max() > max_pushed_range:
-            dr_label = f" DR×{dr_gain:.0f}" if dr_gain > 1.0 else ""
-            return f"  [{index}/{total}] {stem} ({sensor_type}{dr_label}): SKIPPED max_range={downscaled.max():.3f} > {max_pushed_range}"
-
         # Save
-        np.save(output_path, downscaled)
+        np.save(output_path, rgb_f)
 
         # Save metadata
         meta = {
@@ -192,11 +178,11 @@ def process_raw(args):
             'black_level': black,
             'white_level': white,
             'camera_wb': list(raw.camera_whitebalance[:3]),
-            'original_size': [w, h],
-            'downscaled_size': [new_w, new_h],
+            'original_size': [w * 2, h * 2],
+            'downscaled_size': [w, h],
             'pattern': [[int(v) for v in row] for row in raw.raw_pattern],
-            'range_min': float(downscaled.min()),
-            'range_max': float(downscaled.max()),
+            'range_min': float(rgb_f.min()),
+            'range_max': float(rgb_f.max()),
             'dr_gain': dr_gain,
         }
 
@@ -207,7 +193,7 @@ def process_raw(args):
         raw.close()
 
         dr_label = f" DR×{dr_gain:.0f}" if dr_gain > 1.0 else ""
-        return f"  [{index}/{total}] {stem} ({sensor_type}{dr_label}): {new_w}x{new_h} range=[{downscaled.min():.3f}, {downscaled.max():.3f}]"
+        return f"  [{index}/{total}] {stem} ({sensor_type}{dr_label}): {w}x{h} range=[{rgb_f.min():.3f}, {rgb_f.max():.3f}]"
 
     except Exception as e:
         return f"  [{index}/{total}] {stem}: ERROR - {e}"
@@ -227,9 +213,6 @@ def main():
                         help="Apply DR-aware exposure push (DR400→×4, DR200→×2). Reads Fuji EXIF makernotes.")
     parser.add_argument("--dr-min", type=int, default=0,
                         help="Only include files with DR >= this value (e.g. 200 or 400). Requires --dr-push.")
-    parser.add_argument("--max-pushed-range", type=float, default=None,
-                        help="Exclude files whose pushed max_range would exceed this (e.g. 1.5). "
-                             "Estimated as raw max_range × dr_gain. Requires --dr-push.")
     args = parser.parse_args()
 
     if not args.json_file and not args.scan_dir:
@@ -296,7 +279,7 @@ def main():
     # Prepare work items
     work_args = [
         (path, output_dir, stem, i+1, len(remaining),
-         dr_per_file.get(stem, 1.0), args.max_pushed_range)
+         dr_per_file.get(stem, 1.0))
         for i, (stem, path) in enumerate(remaining.items())
     ]
 

@@ -31,7 +31,6 @@ def _extract_metadata(ckpt: dict) -> dict:
     return {
         "epoch": ckpt.get("epoch", 0),
         "base_width": ckpt.get("base_width", 64),
-        "hl_head": ckpt.get("hl_head", False),
         "param_count": sum(v.numel() for v in state.values()),
     }
 
@@ -39,9 +38,8 @@ def _extract_metadata(ckpt: dict) -> dict:
 def export(checkpoint_path: str, output_path: str, patch_size: int = 288, opset: int = 18, fp16: bool = False, base_width: int | None = None):
     ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     bw = base_width or ckpt.get("base_width", 64)
-    hl_head = ckpt.get("hl_head", False)
-    model = XTransUNet(base_width=bw, hl_head=hl_head)
-    model.load_state_dict(ckpt["model"])
+    model = XTransUNet(base_width=bw)
+    model.load_state_dict(ckpt["model"], strict=False)
     model.eval()
 
     dummy = torch.randn(1, 5, patch_size, patch_size)
@@ -92,9 +90,8 @@ def verify(checkpoint_path: str, onnx_path: str, patch_size: int = 288, base_wid
     # PyTorch
     ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     bw = base_width or ckpt.get("base_width", 64)
-    hl_head = ckpt.get("hl_head", False)
-    model = XTransUNet(base_width=bw, hl_head=hl_head)
-    model.load_state_dict(ckpt["model"])
+    model = XTransUNet(base_width=bw)
+    model.load_state_dict(ckpt["model"], strict=False)
     model.eval()
 
     test_input = torch.randn(1, 5, patch_size, patch_size)
@@ -161,7 +158,7 @@ def main():
     # Registry-based batch export (default)
     parser.add_argument("--cfa-type", default=None, help="Filter by sensor type (xtrans, bayer)")
     parser.add_argument("--base-width", type=int, default=None, help="Filter by base width (16, 32, 64)")
-    parser.add_argument("--variant", default=None, choices=["hl", "base"], help="Filter by variant")
+    parser.add_argument("--variant", default=None, help="Filter by variant")
     parser.add_argument("--status", default=None, choices=["stable", "beta"], help="Filter by status (default: prefer stable)")
     parser.add_argument("--slot", default="best", choices=["best", "latest"], help="Which checkpoint slot to export")
     parser.add_argument("--output-dir", default="web/public/checkpoints", help="Output directory for batch export")
@@ -256,7 +253,6 @@ def main():
             "source_sha256": sha,
             "train_psnr": reg_entry.get("train_psnr"),
             "val_psnr": reg_entry.get("val_psnr"),
-            "val_hl_psnr": reg_entry.get("val_hl_psnr"),
             "train_loss": reg_entry.get("train_loss"),
             "val_loss": reg_entry.get("val_loss"),
         }

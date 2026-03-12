@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (c) 2024-present X-Veon contributors
-"""HDR inference for CFA demosaicing with tile blending and white balance."""
+"""HDR inference for CFA demosaicing with tile blending and post-demosaic white balance."""
 
 import argparse
 import os
@@ -218,7 +218,7 @@ def extract_dr_gain(raw_path: str) -> float:
 
 def process_raw(raw_path: str, model: torch.nn.Module, device: str,
                 patch_size: int = 288, overlap: int = 48,
-                apply_wb_to_cfa: bool = True,
+                apply_wb_to_cfa: bool = False,
                 cfa_type: str | None = None) -> tuple[np.ndarray, dict]:
     raw = rawpy.imread(raw_path)
 
@@ -343,10 +343,6 @@ def process_raw(raw_path: str, model: torch.nn.Module, device: str,
 
     rgb = rgb.transpose(1, 2, 0)
 
-    # If WB not applied to CFA, apply it after demosaic (legacy checkpoints)
-    if not apply_wb_to_cfa:
-        rgb = rgb * wb
-
     raw.close()
 
     dr_gain = extract_dr_gain(raw_path)
@@ -420,17 +416,16 @@ def main():
     parser.add_argument("--overlap", type=int, default=48)
     parser.add_argument("--quality", type=int, default=90)
     parser.add_argument("--no-color", action="store_true", help="Skip color correction")
-    parser.add_argument("--no-wb-cfa", action="store_true",
-                        help="Don't apply WB to CFA (for legacy checkpoints trained without --apply-wb)")
+    parser.add_argument("--wb-cfa", action="store_true",
+                        help="Apply WB to CFA before demosaic (for legacy checkpoints trained with --apply-wb)")
     args = parser.parse_args()
     
     device = "mps" if torch.backends.mps.is_available() else "cpu"
     print(f"Device: {device}")
     
     ckpt = torch.load(args.checkpoint, map_location=device, weights_only=False)
-    model = XTransUNet(base_width=ckpt.get("base_width", 64),
-                       hl_head=ckpt.get("hl_head", False))
-    model.load_state_dict(ckpt["model"])
+    model = XTransUNet(base_width=ckpt.get("base_width", 64))
+    model.load_state_dict(ckpt["model"], strict=False)
     model.to(device)
     model.eval()
     ckpt_cfa = ckpt.get("cfa_type")
@@ -449,26 +444,26 @@ def main():
         for raw_file in raw_files:
             out_path = output_dir / f"{raw_file.stem}_hdr.avif"
             print(f"Processing {raw_file.name}...")
-            wb_cfa = not args.no_wb_cfa
             rgb, meta = process_raw(str(raw_file), model, device, args.patch_size, args.overlap,
-                                    apply_wb_to_cfa=wb_cfa)
+                                    apply_wb_to_cfa=args.wb_cfa)
             exif_flip = meta.get("exif_flip", 0)
             xyz_to_cam = meta.get("xyz_to_cam")
+            post_wb = None if args.wb_cfa else meta["wb"]
             save_hdr_avif(rgb, str(out_path), args.quality, xyz_to_cam, exif_flip,
-                         wb=None, wb_for_blend=meta["wb"],
+                         wb=post_wb, wb_for_blend=meta["wb"],
                          apply_color=not args.no_color,
                          dr_gain=meta.get("dr_gain", 1.0))
     else:
         input_path = Path(args.input)
         output_path = Path(args.output) if args.output else input_path.with_suffix(".avif")
         print(f"Processing {input_path.name}...")
-        wb_cfa = not args.no_wb_cfa
         rgb, meta = process_raw(str(input_path), model, device, args.patch_size, args.overlap,
-                                apply_wb_to_cfa=wb_cfa)
+                                apply_wb_to_cfa=args.wb_cfa)
         exif_flip = meta.get("exif_flip", 0)
         xyz_to_cam = meta.get("xyz_to_cam")
+        post_wb = None if args.wb_cfa else meta["wb"]
         save_hdr_avif(rgb, str(output_path), args.quality, xyz_to_cam, exif_flip,
-                     wb=None, wb_for_blend=meta["wb"],
+                     wb=post_wb, wb_for_blend=meta["wb"],
                      apply_color=not args.no_color,
                      dr_gain=meta.get("dr_gain", 1.0))
         print(f"Saved: {output_path}")

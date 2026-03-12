@@ -57,20 +57,19 @@ def get_device():
 def find_checkpoints():
     """Find all available checkpoints."""
     patterns = [
-        "checkpoints*/best.pt",
-        "checkpoints*/latest.pt", 
-        "checkpoints_archive/*.pt",
+        "checkpoints/**/best.pt",
+        "checkpoints/**/latest.pt",
     ]
     checkpoints = []
     for pattern in patterns:
-        checkpoints.extend(glob(pattern))
+        checkpoints.extend(glob(pattern, recursive=True))
     return sorted(set(checkpoints), reverse=True)
 
 
 def find_checkpoint_dirs():
     """Find all checkpoint directories with history.json."""
-    dirs = sorted(glob("checkpoints*"))
-    return [d for d in dirs if Path(d, "history.json").exists()]
+    dirs = sorted(glob("checkpoints/**/", recursive=True))
+    return [d.rstrip("/") for d in dirs if Path(d, "history.json").exists()]
 
 
 def load_history(checkpoint_dir: str) -> list[dict]:
@@ -129,11 +128,6 @@ def plot_training_history(checkpoint_dir: str) -> tuple:
     ax1.plot(epochs, val_psnr, label="Val", alpha=0.3, linewidth=1)
     val_smoothed = ema(val_psnr, alpha=0.1)
     ax1.plot(epochs, val_smoothed, label="Val (smoothed)", linewidth=2, color="tab:orange")
-    if "val_hl_psnr" in history[0]:
-        val_hl_psnr = [h["val_hl_psnr"] for h in history]
-        ax1.plot(epochs, val_hl_psnr, label="Val HL", alpha=0.3, linewidth=1, color="tab:red")
-        val_hl_smoothed = ema(val_hl_psnr, alpha=0.1)
-        ax1.plot(epochs, val_hl_smoothed, label="Val HL (smoothed)", linewidth=2, color="tab:red")
     ax1.set_xlabel("Epoch")
     ax1.set_ylabel("PSNR (dB)")
     ax1.set_title(f"{checkpoint_dir}\n{config_str}" if config_str else checkpoint_dir)
@@ -148,18 +142,6 @@ def plot_training_history(checkpoint_dir: str) -> tuple:
                 fontsize=9, color="green",
                 arrowprops=dict(arrowstyle="->", color="green", alpha=0.7))
 
-    # Best HL PSNR annotation
-    if "val_hl_psnr" in history[0]:
-        val_hl_vals = [h["val_hl_psnr"] for h in history]
-        valid_hl = [(i, v) for i, v in enumerate(val_hl_vals) if v is not None]
-        if valid_hl:
-            best_hl_idx, best_hl_val = max(valid_hl, key=lambda x: x[1])
-            ax1.annotate(f"Best HL: {best_hl_val:.2f} dB\n(epoch {epochs[best_hl_idx]})",
-                        xy=(epochs[best_hl_idx], best_hl_val),
-                        xytext=(10, 15), textcoords="offset points",
-                        fontsize=9, color="tab:red",
-                        arrowprops=dict(arrowstyle="->", color="tab:red", alpha=0.7))
-    
     # Helper to plot components
     COMP_COLORS = {
         "l1": "tab:blue",
@@ -169,7 +151,6 @@ def plot_training_history(checkpoint_dir: str) -> tuple:
         "chroma": "tab:red",
         "zipper": "tab:purple",
         "color_bias": "tab:brown",
-        "hl_bias": "tab:pink",
     }
     def plot_components(ax, history, key, title):
         if key not in history[0]:
@@ -212,9 +193,8 @@ def load_model(checkpoint_path: str):
 
     _device = get_device()
     ckpt = torch.load(checkpoint_path, map_location=_device, weights_only=True)
-    _model = XTransUNet(base_width=ckpt.get("base_width", 64),
-                        hl_head=ckpt.get("hl_head", False)).to(_device)
-    _model.load_state_dict(ckpt["model"])
+    _model = XTransUNet(base_width=ckpt.get("base_width", 64)).to(_device)
+    _model.load_state_dict(ckpt["model"], strict=False)
     _model.eval()
     _model_path = checkpoint_path
 
@@ -273,7 +253,7 @@ def run_inference(
 
     output_path = tempfile.mktemp(suffix=".avif", prefix=f"{raf_name}_hdr_")
     save_hdr_avif(rgb_linear, output_path, 90, meta.get("xyz_to_cam"), meta.get("exif_flip", 0),
-                  wb=None, wb_for_blend=meta["wb"], apply_color=True)
+                  wb=meta["wb"], wb_for_blend=meta["wb"], apply_color=True)
 
     # Read and base64 encode for HTML display
     with open(output_path, "rb") as f:

@@ -2,9 +2,9 @@
 """Centralized checkpoint registry.
 
 Maintains checkpoint_registry.json with structure:
-  sensor_type → base_width → variant (hl/base) → status (stable/beta) → slot (best/latest)
+  sensor_type → base_width → variant → status (stable/beta) → slot (best/latest)
 
-Each slot contains: path, epoch, train_psnr, val_psnr, val_hl_psnr, train_loss, val_loss, history
+Each slot contains: path, epoch, train_psnr, val_psnr, train_loss, val_loss, history
 """
 
 import json
@@ -41,14 +41,12 @@ def update_registry(
     *,
     cfa_type: str,
     base_width: int,
-    hl_head: bool,
     status: str,  # "stable" or "beta"
     slot: str,    # "best" or "latest"
     path: str,
     epoch: int,
     train_psnr: float,
     val_psnr: float,
-    val_hl_psnr: float | None,
     train_loss: float,
     val_loss: float,
     history: str,
@@ -56,7 +54,7 @@ def update_registry(
     """Update a single slot in the registry."""
     reg = _load_registry(registry_path)
 
-    variant = "hl" if hl_head else "base"
+    variant = "base"
     width_key = str(base_width)
 
     # Navigate/create nesting
@@ -71,7 +69,6 @@ def update_registry(
         "epoch": epoch,
         "train_psnr": round(train_psnr, 4),
         "val_psnr": round(val_psnr, 4),
-        "val_hl_psnr": round(val_hl_psnr, 4) if val_hl_psnr is not None else None,
         "train_loss": round(train_loss, 6),
         "val_loss": round(val_loss, 6),
         "history": history,
@@ -85,11 +82,10 @@ def promote_to_stable(
     *,
     cfa_type: str,
     base_width: int,
-    hl_head: bool,
 ):
     """Flip a beta entry to stable (called when training completes all epochs)."""
     reg = _load_registry(registry_path)
-    variant = "hl" if hl_head else "base"
+    variant = "base"
     width_key = str(base_width)
 
     try:
@@ -123,12 +119,11 @@ def build_registry(project_root: Path) -> dict:
 
         cfa_type = config.get("cfa_type", "xtrans")
         base_width = config.get("base_width", 64)
-        hl_head = config.get("hl_head", False)
         total_epochs = config.get("epochs", 200)
         last_epoch = history[-1]["epoch"]
 
         status = "stable" if last_epoch >= total_epochs else "beta"
-        variant = "hl" if hl_head else "base"
+        variant = "base"
         width_key = str(base_width)
 
         # Find best epoch by val_psnr
@@ -144,7 +139,6 @@ def build_registry(project_root: Path) -> dict:
                 "epoch": entry["epoch"],
                 "train_psnr": round(entry.get("train_psnr", 0), 4),
                 "val_psnr": round(entry.get("val_psnr", 0), 4),
-                "val_hl_psnr": round(entry["val_hl_psnr"], 4) if entry.get("val_hl_psnr") is not None else None,
                 "train_loss": round(entry.get("train_loss", 0), 6),
                 "val_loss": round(entry.get("val_loss", 0), 6),
                 "history": history_rel,

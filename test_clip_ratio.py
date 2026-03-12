@@ -80,11 +80,9 @@ def test_live_dataset():
     configs = [
         ("no augmentation",      dict(augment=False, apply_wb=False,
                                        noise_sigma=(0.0, 0.0), shot_noise=(0.0, 0.0))),
-        ("wb + highlight aug",    dict(augment=False, apply_wb=True,
-                                       highlight_aug_prob=1.0, highlight_aug_ev=2.0,
+        ("wb only",              dict(augment=False, apply_wb=True,
                                        noise_sigma=(0.0, 0.0), shot_noise=(0.0, 0.0))),
-        ("wb + hl aug + geom",    dict(augment=True, apply_wb=True,
-                                       highlight_aug_prob=1.0, highlight_aug_ev=2.0,
+        ("wb + geom",            dict(augment=True, apply_wb=True,
                                        noise_sigma=(0.0, 0.0), shot_noise=(0.0, 0.0))),
         ("noise only",           dict(augment=True, apply_wb=False,
                                        noise_sigma=(0.001, 0.01), shot_noise=(0.0, 0.005))),

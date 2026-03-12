@@ -14,6 +14,7 @@ Works for both Bayer and X-Trans CFA patterns.
 """
 
 import numpy as np
+import cv2
 
 # ---------------------------------------------------------------------------
 # Constants (from darktable)
@@ -28,51 +29,51 @@ MAX_SLOTS = SEG_ID_MASK - 2
 
 
 # ---------------------------------------------------------------------------
-# CFA pattern helpers
+# Vectorized helpers
 # ---------------------------------------------------------------------------
 
-def _make_get_ch(raw_pattern: np.ndarray):
-    """Return a function getCh(y, x) -> channel index (0=R, 1=G, 2=B)."""
+def _make_full_pattern(raw_pattern: np.ndarray, h: int, w: int) -> np.ndarray:
+    """Tile CFA pattern to full image size, mapping G2 -> G."""
     pat = raw_pattern.copy()
-    pat[pat == 3] = 1  # G2 -> G
-    h, w = pat.shape
-
-    def get_ch(y: int, x: int) -> int:
-        return int(pat[y % h, x % w])
-
-    return get_ch
+    pat[pat == 3] = 1
+    ph, pw = pat.shape
+    return np.tile(pat, ((h + ph - 1) // ph, (w + pw - 1) // pw))[:h, :w]
 
 
-# ---------------------------------------------------------------------------
-# Pass 1: Inpaint-opposed
-# ---------------------------------------------------------------------------
+_KERNEL_3X3 = np.ones((3, 3), dtype=np.float32)
 
-def _calc_refavg_linear(
-    cfa: np.ndarray, h: int, w: int,
-    y: int, x: int, ch: int, get_ch,
-) -> float:
-    """Opposed-channel reference average in cube-root space, returned as linear."""
-    mean = [0.0, 0.0, 0.0]
-    cnt = [0, 0, 0]
-    y0, y1 = max(0, y - 1), min(h - 1, y + 1)
-    x0, x1 = max(0, x - 1), min(w - 1, x + 1)
-    for ny in range(y0, y1 + 1):
-        for nx in range(x0, x1 + 1):
-            val = max(0.0, float(cfa[ny, nx]))
-            c = get_ch(ny, nx)
-            mean[c] += val
-            cnt[c] += 1
-    cr = [0.0, 0.0, 0.0]
+
+def _compute_refavg_cr(cfa: np.ndarray, full_pat: np.ndarray) -> np.ndarray:
+    """Vectorized opposed-channel reference average in cube-root space.
+
+    For each pixel, computes the mean of each color channel in the 3x3
+    neighborhood, takes the cube root, then averages the two opposed channels.
+    Returns the cube-root-space result (not cubed).
+    """
+    cfa_pos = np.maximum(cfa, 0).astype(np.float32)
+
+    # Per-channel 3x3 sums and counts via convolution
+    cr = []
     for c in range(3):
-        cr[c] = np.cbrt(mean[c] / cnt[c]) if cnt[c] > 0 else 0.0
-    if ch == 0:
-        opp = 0.5 * (cr[1] + cr[2])
-    elif ch == 1:
-        opp = 0.5 * (cr[0] + cr[2])
-    else:
-        opp = 0.5 * (cr[0] + cr[1])
-    return opp ** HL_POWERF
+        mask_c = (full_pat == c).astype(np.float32)
+        sum_c = cv2.filter2D(cfa_pos * mask_c, cv2.CV_32F, _KERNEL_3X3,
+                             borderType=cv2.BORDER_REPLICATE)
+        cnt_c = cv2.filter2D(mask_c, cv2.CV_32F, _KERNEL_3X3,
+                             borderType=cv2.BORDER_REPLICATE)
+        cr.append(np.cbrt(np.divide(sum_c, cnt_c, out=np.zeros_like(sum_c),
+                                    where=cnt_c > 0)))
 
+    # Opposed average: for each pixel's channel, average the other two
+    opp_r = 0.5 * (cr[1] + cr[2])  # for red pixels
+    opp_g = 0.5 * (cr[0] + cr[2])  # for green pixels
+    opp_b = 0.5 * (cr[0] + cr[1])  # for blue pixels
+    return np.where(full_pat == 0, opp_r,
+                    np.where(full_pat == 1, opp_g, opp_b))
+
+
+# ---------------------------------------------------------------------------
+# Pass 1: Inpaint-opposed (vectorized)
+# ---------------------------------------------------------------------------
 
 def reconstruct_opposed(
     cfa: np.ndarray,
@@ -97,82 +98,76 @@ def reconstruct_opposed(
         (H, W) float32, CFA with clipped pixels extended
     """
     h, w = cfa.shape
-    get_ch = _make_get_ch(raw_pattern)
+    full_pat = _make_full_pattern(raw_pattern, h, w)
 
     clips = clip_levels * clip_threshold
     lo_clips = 0.2 * clips
 
-    out = cfa.copy()
+    # Per-pixel clip levels
+    clip_pp = clips[full_pat]
+    lo_clip_pp = lo_clips[full_pat]
 
-    # Step 1: Build per-channel clip mask at 1/3 resolution (superpixel level)
-    mwidth = w // 3
-    mheight = h // 3
-    # 3 planes: per-channel clip mask
+    clipped = cfa >= clip_pp
+    if not np.any(clipped):
+        return cfa.copy()
+
+    # Step 1: Build per-channel clip mask at 1/3 resolution
+    mheight, mwidth = h // 3, w // 3
     mask = np.zeros((3, mheight, mwidth), dtype=np.uint8)
-
-    any_clipped = False
-    for mrow in range(1, mheight - 1):
-        for mcol in range(1, mwidth - 1):
-            # Check 3x3 raw pixels centered on this superpixel
-            cy, cx = 3 * mrow, 3 * mcol
-            mbuff = [0, 0, 0]
-            for dy in range(-1, 2):
-                for dx in range(-1, 2):
-                    ry, rx = cy + dy, cx + dx
-                    if 0 <= ry < h and 0 <= rx < w:
-                        color = get_ch(ry, rx)
-                        if cfa[ry, rx] >= clips[color]:
-                            mbuff[color] += 1
-            for c in range(3):
-                if mbuff[c] > 0:
-                    mask[c, mrow, mcol] = 1
-                    any_clipped = True
-
-    if not any_clipped:
-        return out
-
-    # Step 2: Dilate mask ~3 superpixels to find nearby unclipped pixels
-    import cv2
-    dil_kern = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
-    dilated = np.zeros_like(mask)
     for c in range(3):
-        dilated[c] = cv2.dilate(mask[c], dil_kern)
+        ch_clipped = ((full_pat == c) & clipped).astype(np.float32)
+        summed = cv2.filter2D(ch_clipped, cv2.CV_32F, _KERNEL_3X3,
+                              borderType=cv2.BORDER_CONSTANT)
+        mask[c] = (summed[::3, ::3][:mheight, :mwidth] > 0).astype(np.uint8)
+    # Zero borders (original starts at mrow=1, mcol=1)
+    mask[:, 0, :] = 0; mask[:, -1, :] = 0
+    mask[:, :, 0] = 0; mask[:, :, -1] = 0
+
+    if not np.any(mask):
+        return cfa.copy()
+
+    # Step 2: Dilate mask ~3 superpixels
+    dil_kern = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+    dilated = np.stack([cv2.dilate(mask[c], dil_kern) for c in range(3)])
 
     # Step 3: Chrominance from unclipped pixels within dilated mask
-    chrom_sum = [0.0, 0.0, 0.0]
-    chrom_cnt = [0, 0, 0]
-    for y in range(3, h - 3):
-        for x in range(3, w - 3):
-            color = get_ch(y, x)
-            inval = float(cfa[y, x])
-            if inval >= clips[color] or inval <= lo_clips[color]:
-                continue
-            # Check if this pixel is within dilated mask for its channel
-            my, mx = y // 3, x // 3
-            if my >= mheight or mx >= mwidth:
-                continue
-            if not dilated[color, my, mx]:
-                continue
-            ref = _calc_refavg_linear(cfa, h, w, y, x, color, get_ch)
-            chrom_sum[color] += inval - ref
-            chrom_cnt[color] += 1
+    refavg_linear = _compute_refavg_cr(cfa, full_pat) ** HL_POWERF
+    not_clipped = ~clipped
+    not_too_dim = cfa > lo_clip_pp
 
-    chrom = [0.0, 0.0, 0.0]
+    chrom = np.zeros(3, dtype=np.float64)
+    chrom_cnt = np.zeros(3, dtype=np.int64)
     for c in range(3):
-        if chrom_cnt[c] > 100:
-            chrom[c] = chrom_sum[c] / chrom_cnt[c]
+        # Upsample dilated mask to full resolution via index mapping
+        my = np.minimum(np.arange(h) // 3, mheight - 1)
+        mx = np.minimum(np.arange(w) // 3, mwidth - 1)
+        dilated_up = dilated[c][my[:, None], mx[None, :]]
+
+        valid = ((full_pat == c) & not_clipped & not_too_dim
+                 & (dilated_up > 0))
+        # Exclude 3-pixel border (matching original)
+        valid[:3, :] = False; valid[-3:, :] = False
+        valid[:, :3] = False; valid[:, -3:] = False
+
+        n = int(np.sum(valid))
+        if n > 100:
+            diff = cfa[valid].astype(np.float64) - refavg_linear[valid].astype(np.float64)
+            chrom[c] = diff.mean()
+            chrom_cnt[c] = n
 
     # Step 4: Extend clipped pixels
+    out = cfa.copy()
     n_fixed = 0
-    for y in range(0, h):
-        for x in range(0, w):
-            color = get_ch(y, x)
-            inval = max(0.0, float(cfa[y, x]))
-            if inval < clips[color]:
-                continue
-            ref = _calc_refavg_linear(cfa, h, w, y, x, color, get_ch)
-            out[y, x] = max(inval, ref + chrom[color])
-            n_fixed += 1
+    for c in range(3):
+        ch_clipped = (full_pat == c) & clipped
+        n = int(np.sum(ch_clipped))
+        if n == 0:
+            continue
+        out[ch_clipped] = np.maximum(
+            cfa[ch_clipped],
+            (refavg_linear + chrom[c])[ch_clipped],
+        )
+        n_fixed += n
 
     if n_fixed > 0:
         print(f"  Highlights (opposed): {n_fixed:,} pixels extended, "
@@ -322,60 +317,37 @@ def _segmentize_plane(seg: _Segmentation):
 
 
 def _morphological_close(seg: _Segmentation, radius: int):
-    """Morphological closing (dilate then erode) on the segmentation mask."""
+    """Morphological closing (dilate then erode) using cv2."""
     if radius <= 0:
         return
 
     w, h, border = seg.width, seg.height, seg.border
-    d, tmp = seg.data, seg.tmp
+    d = seg.data.reshape(h, w)
 
-    # Fill borders with 0
-    for row in range(h):
-        base = row * w
-        if row < border or row >= h - border:
-            d[base:base + w] = 0
-        else:
-            d[base:base + border] = 0
-            d[base + w - border:base + w] = 0
+    # Zero borders
+    d[:border, :] = 0
+    d[h - border:, :] = 0
+    d[:, :border] = 0
+    d[:, w - border:] = 0
 
-    # Dilate: any neighbor within radius has value -> set to 1
-    tmp[:] = 0
-    for row in range(border, h - border):
-        for col in range(border, w - border):
-            i = row * w + col
-            if d[i]:
-                tmp[i] = 1
-                continue
-            # Check neighborhood
-            found = False
-            for dy in range(-min(radius, row - border), min(radius, h - border - 1 - row) + 1):
-                if found:
-                    break
-                for dx in range(-min(radius, col - border), min(radius, w - border - 1 - col) + 1):
-                    if dy * dy + dx * dx <= radius * radius:
-                        if d[(row + dy) * w + col + dx]:
-                            found = True
-                            break
-            tmp[i] = 1 if found else 0
+    binary = (d > 0).astype(np.uint8)
 
-    # Erode: all neighbors within (radius-1) must be set
+    # Dilate with radius, erode with max(radius-1, 1) — matches original
+    dil_kernel = cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE, (2 * radius + 1, 2 * radius + 1))
     erode_r = max(radius - 1, 1)
-    for row in range(border, h - border):
-        for col in range(border, w - border):
-            i = row * w + col
-            if not tmp[i]:
-                d[i] = 0
-                continue
-            all_set = True
-            for dy in range(-min(erode_r, row - border), min(erode_r, h - border - 1 - row) + 1):
-                if not all_set:
-                    break
-                for dx in range(-min(erode_r, col - border), min(erode_r, w - border - 1 - col) + 1):
-                    if dy * dy + dx * dx <= erode_r * erode_r:
-                        if not tmp[(row + dy) * w + col + dx]:
-                            all_set = False
-                            break
-            d[i] = 1 if all_set else 0
+    ero_kernel = cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE, (2 * erode_r + 1, 2 * erode_r + 1))
+
+    closed = cv2.erode(cv2.dilate(binary, dil_kernel), ero_kernel)
+
+    d[:] = closed.astype(np.uint32)
+
+    # Re-zero borders
+    d[:border, :] = 0
+    d[h - border:, :] = 0
+    d[:, :border] = 0
+    d[:, w - border:] = 0
 
 
 def _local_std_dev(plane: np.ndarray, idx: int, w: int) -> float:
@@ -465,52 +437,23 @@ def _calc_plane_candidates(
                 seg.val2[sid] = refavg[test_ref]
 
 
-def _raw_to_plane(pwidth: int, row: int, col: int) -> int:
-    return (HL_BORDER + row // 3) * pwidth + col // 3 + HL_BORDER
-
-
 def _extend_border(arr: np.ndarray, width: int, height: int, border: int):
-    """Extend plane data to fill border region."""
+    """Extend plane data to fill border region (vectorized)."""
     if border <= 0:
         return
-    for row in range(border, height - border):
-        base = row * width
-        for i in range(border):
-            arr[base + i] = arr[base + border]
-            arr[base + width - 1 - i] = arr[base + width - border - 1]
-    for col in range(width):
-        clamped = min(width - border - 1, max(col, border))
-        top_val = arr[border * width + clamped]
-        bot_val = arr[(height - border - 1) * width + clamped]
-        for i in range(border):
-            arr[i * width + col] = top_val
-            arr[(height - 1 - i) * width + col] = bot_val
+    a = arr.reshape(height, width)
 
+    # Left/right: replicate border columns
+    a[border:height - border, :border] = a[border:height - border, border:border + 1]
+    a[border:height - border, width - border:] = a[border:height - border, width - border - 1:width - border]
 
-def _calc_refavg_at(
-    cfa: np.ndarray, width: int, height: int,
-    row: int, col: int, ch: int, get_ch,
-) -> float:
-    """Cube-root opposed channel average for a single CFA pixel."""
-    mean = [0.0, 0.0, 0.0]
-    cnt = [0, 0, 0]
-    y0, y1 = max(0, row - 1), min(height - 1, row + 1)
-    x0, x1 = max(0, col - 1), min(width - 1, col + 1)
-    for ny in range(y0, y1 + 1):
-        for nx in range(x0, x1 + 1):
-            val = max(0.0, float(cfa[ny * width + nx]))
-            c = get_ch(ny, nx)
-            mean[c] += val
-            cnt[c] += 1
-    cr = [0.0, 0.0, 0.0]
-    for c in range(3):
-        cr[c] = np.cbrt(mean[c] / cnt[c]) if cnt[c] > 0 else 0.0
-    if ch == 0:
-        return 0.5 * (cr[1] + cr[2])
-    elif ch == 1:
-        return 0.5 * (cr[0] + cr[2])
-    else:
-        return 0.5 * (cr[0] + cr[1])
+    # Top/bottom: replicate border rows with column clamping
+    cols = np.arange(width)
+    clamped = np.clip(cols, border, width - border - 1)
+    top_row = a[border, clamped]
+    bot_row = a[height - border - 1, clamped]
+    a[:border, :] = top_row[np.newaxis, :]
+    a[height - border:, :] = bot_row[np.newaxis, :]
 
 
 def reconstruct_segmented(
@@ -543,17 +486,16 @@ def reconstruct_segmented(
     """
     h, w = cfa.shape
     original = original_cfa if original_cfa is not None else cfa
-    get_ch = _make_get_ch(raw_pattern)
-    pat = raw_pattern.copy()
-    pat[pat == 3] = 1
+    full_pat = _make_full_pattern(raw_pattern, h, w)
 
     clips = clip_levels * clip_threshold
 
     # Determine superpixel alignment
-    # For Bayer with green at (0,0), center on col%3==1; otherwise col%3==2
+    pat = raw_pattern.copy()
+    pat[pat == 3] = 1
     period_h, period_w = pat.shape
     is_bayer = (period_h <= 2 and period_w <= 2)
-    is_green_00 = is_bayer and get_ch(0, 0) == 1
+    is_green_00 = is_bayer and (int(pat[0, 0]) == 1)
     xshifter = 1 if is_green_00 else 2
 
     # Plane dimensions (1/3 resolution + border)
@@ -571,43 +513,56 @@ def reconstruct_segmented(
     max_segments = max(256, (w * h) // 4000)
     segs = [_Segmentation(pwidth, pheight, HL_BORDER + 1, max_segments) for _ in range(3)]
 
-    # Step 1: Build downsampled color planes from 3x3 superpixels
+    # Step 1: Build downsampled color planes from 3x3 superpixels (vectorized)
+    cfa_f = cfa.astype(np.float32)
+    channel_cbrt = []
+    for c in range(3):
+        mask_c = (full_pat == c).astype(np.float32)
+        sum_c = cv2.filter2D(cfa_f * mask_c, cv2.CV_32F, _KERNEL_3X3,
+                             borderType=cv2.BORDER_REPLICATE)
+        cnt_c = cv2.filter2D(mask_c, cv2.CV_32F, _KERNEL_3X3,
+                             borderType=cv2.BORDER_REPLICATE)
+        mean_c = np.divide(sum_c, cnt_c, out=np.zeros_like(sum_c),
+                           where=cnt_c > 0)
+        channel_cbrt.append(np.cbrt(mean_c).astype(np.float32))
+
+    # Sample at superpixel centers: row%3==1, col%3==xshifter
+    n_sp_rows = len(range(1, h - 1, 3))
+    n_sp_cols = len(range(xshifter, w - 1, 3))
+
+    # Compute refavg at superpixel centers
+    m0 = channel_cbrt[0][1::3, xshifter::3][:n_sp_rows, :n_sp_cols]
+    m1 = channel_cbrt[1][1::3, xshifter::3][:n_sp_rows, :n_sp_cols]
+    m2 = channel_cbrt[2][1::3, xshifter::3][:n_sp_rows, :n_sp_cols]
+
+    refavg_sp = [
+        0.5 * (m1 + m2),  # for R
+        0.5 * (m0 + m2),  # for G
+        0.5 * (m0 + m1),  # for B
+    ]
+
     any_clipped = 0
-    for row in range(1, h - 1):
-        for col in range(1, w - 1):
-            if col % 3 != xshifter or row % 3 != 1:
-                continue
+    for c in range(3):
+        centers = channel_cbrt[c][1::3, xshifter::3][:n_sp_rows, :n_sp_cols]
+        plane_2d = planes[c].reshape(pheight, pwidth)
+        plane_2d[HL_BORDER:HL_BORDER + n_sp_rows,
+                 HL_BORDER:HL_BORDER + n_sp_cols] = centers
 
-            mean = [0.0, 0.0, 0.0]
-            cnt = [0, 0, 0]
-            for sdy in range(row - 1, row + 2):
-                for sdx in range(col - 1, col + 2):
-                    val = float(cfa[sdy, sdx])
-                    c = get_ch(sdy, sdx)
-                    mean[c] += val
-                    cnt[c] += 1
+        ref_2d = refavgs[c].reshape(pheight, pwidth)
+        ref_2d[HL_BORDER:HL_BORDER + n_sp_rows,
+               HL_BORDER:HL_BORDER + n_sp_cols] = refavg_sp[c]
 
-            for c in range(3):
-                mean[c] = np.cbrt(mean[c] / cnt[c]) if cnt[c] > 0 else 0.0
-
-            cube_refavg = [
-                0.5 * (mean[1] + mean[2]),
-                0.5 * (mean[0] + mean[2]),
-                0.5 * (mean[0] + mean[1]),
-            ]
-
-            o = _raw_to_plane(pwidth, row, col)
-            for c in range(3):
-                planes[c][o] = mean[c]
-                refavgs[c][o] = cube_refavg[c]
-                if mean[c] >= cube_clips[c]:
-                    segs[c].data[o] = 1
-                    any_clipped += 1
+        # Mark clipped superpixels
+        clip_mask = centers >= cube_clips[c]
+        seg_2d = segs[c].data.reshape(pheight, pwidth)
+        seg_2d[HL_BORDER:HL_BORDER + n_sp_rows,
+               HL_BORDER:HL_BORDER + n_sp_cols] |= clip_mask.astype(np.uint32)
+        any_clipped += int(np.sum(clip_mask))
 
     if any_clipped < 20:
         return cfa.copy()
 
-    # Step 2: Extend border data
+    # Step 2: Extend border data (vectorized)
     for c in range(3):
         _extend_border(planes[c], pwidth, pheight, HL_BORDER)
 
@@ -618,34 +573,74 @@ def reconstruct_segmented(
 
     # Step 4: Find best candidates per segment
     for c in range(3):
-        _calc_plane_candidates(planes[c], refavgs[c], segs[c], cube_clips[c], candidating)
+        _calc_plane_candidates(planes[c], refavgs[c], segs[c],
+                               cube_clips[c], candidating)
 
-    # Step 5: Reconstruct clipped raw pixels
+    # Step 5: Reconstruct clipped raw pixels (vectorized)
     out = cfa.copy()
+    clip_pp = clips[full_pat]
+    original_f = np.maximum(original.astype(np.float32), 0)
+    clipped = original_f >= clip_pp
+
+    # Precompute cube-root refavg map for original image
+    refavg_cr_map = _compute_refavg_cr(original, full_pat)
+
     n_fixed = 0
-    original_flat = original.ravel()
+    for c in range(3):
+        ch_clipped = (full_pat == c) & clipped
+        # Exclude 1-pixel border
+        ch_clipped[0, :] = False; ch_clipped[-1, :] = False
+        ch_clipped[:, 0] = False; ch_clipped[:, -1] = False
 
-    for row in range(1, h - 1):
-        for col in range(1, w - 1):
-            idx = row * w + col
-            inval = max(0.0, float(original_flat[idx]))
-            color = get_ch(row, col)
-            if inval < clips[color]:
-                continue
+        if not np.any(ch_clipped):
+            continue
 
-            o = _raw_to_plane(pwidth, row, col)
-            pid = _get_seg_id(segs[color], o)
+        rows, cols = np.where(ch_clipped)
 
-            if 1 < pid < segs[color].nr:
-                candidate = float(segs[color].val1[pid])
-                if candidate != 0:
-                    cand_ref = float(segs[color].val2[pid])
-                    refavg_here = _calc_refavg_at(
-                        original_flat, w, h, row, col, color, get_ch,
-                    )
-                    oval = (refavg_here + candidate - cand_ref) ** HL_POWERF
-                    out[row, col] = max(inval, oval)
-                    n_fixed += 1
+        # Map to plane coordinates
+        p_rows = HL_BORDER + rows // 3
+        p_cols = cols // 3 + HL_BORDER
+
+        # Clip to plane bounds
+        valid_plane = ((p_rows >= 0) & (p_rows < pheight) &
+                       (p_cols >= 0) & (p_cols < pwidth))
+        rows = rows[valid_plane]
+        cols = cols[valid_plane]
+        p_rows = p_rows[valid_plane]
+        p_cols = p_cols[valid_plane]
+
+        seg = segs[c]
+        seg_2d = seg.data.reshape(pheight, pwidth)
+
+        # Get segment IDs
+        sids = seg_2d[p_rows, p_cols].astype(np.int64) & (SEG_ID_MASK - 1)
+        # Bounds check for border
+        plane_locs = p_rows * pwidth + p_cols
+        in_bounds = plane_locs < (pwidth * (pheight - seg.border))
+        valid_sid = in_bounds & (sids > 1) & (sids < seg.nr)
+
+        if not np.any(valid_sid):
+            continue
+
+        # Index candidates (clip sids to valid range for safe indexing)
+        sids_safe = np.clip(sids, 0, seg.slots - 1)
+        candidates = seg.val1[sids_safe]
+        cand_refs = seg.val2[sids_safe]
+
+        has_candidate = valid_sid & (candidates != 0)
+        if not np.any(has_candidate):
+            continue
+
+        hc_rows = rows[has_candidate]
+        hc_cols = cols[has_candidate]
+        hc_cand = candidates[has_candidate]
+        hc_cref = cand_refs[has_candidate]
+
+        refavg_here = refavg_cr_map[hc_rows, hc_cols]
+        oval = (refavg_here + hc_cand - hc_cref) ** HL_POWERF
+        invals = original_f[hc_rows, hc_cols]
+        out[hc_rows, hc_cols] = np.maximum(invals, oval)
+        n_fixed += len(hc_rows)
 
     if n_fixed > 0:
         print(f"  Highlights (segmented): {n_fixed:,} pixels reconstructed")

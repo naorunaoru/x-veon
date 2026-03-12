@@ -4,7 +4,6 @@ Preview dataset samples with augmentations applied.
 
 Usage:
     python preview_dataset.py --data-dir /path/to/npy --n 8 --bright-spot-prob 1.0 -o preview.png
-    python preview_dataset.py --data-dir /path/to/npy --highlight-aug-prob 0.5 --highlight-aug-ev 1.5 -o hl.png
 """
 
 import argparse
@@ -91,8 +90,6 @@ def main():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--apply-wb", action="store_true")
     # Augmentation params
-    parser.add_argument("--highlight-aug-prob", type=float, default=0.0)
-    parser.add_argument("--highlight-aug-ev", type=float, default=1.5)
     parser.add_argument("--bright-spot-prob", type=float, default=0.0)
     parser.add_argument("--bright-spot-intensity-max", type=float, default=5.0)
     parser.add_argument("--bright-spot-sigma-max", type=float, default=20.0)
@@ -107,8 +104,6 @@ def main():
         noise_sigma=(args.noise_min, args.noise_max),
         apply_wb=args.apply_wb,
         cfa_type=args.cfa_type,
-        highlight_aug_prob=args.highlight_aug_prob,
-        highlight_aug_ev=args.highlight_aug_ev,
         bright_spot_prob=args.bright_spot_prob,
         bright_spot_intensity=(1.5, args.bright_spot_intensity_max),
         bright_spot_sigma=(2.0, args.bright_spot_sigma_max),
