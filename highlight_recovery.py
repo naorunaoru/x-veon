@@ -126,9 +126,17 @@ def reconstruct_opposed(
     if not np.any(mask):
         return cfa.copy()
 
-    # Step 2: Dilate mask ~3 superpixels
-    dil_kern = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
-    dilated = np.stack([cv2.dilate(mask[c], dil_kern) for c in range(3)])
+    # Step 2: Dilate mask — adaptive per channel.
+    # Channels that clip first (lower clip_level) need wider dilation to find
+    # enough unclipped chrominance samples nearby.
+    max_clip = clips.max()
+    dilated = np.zeros_like(mask)
+    for c in range(3):
+        ratio = max_clip / max(clips[c], 1e-6)
+        dil_size = int(np.clip(7 * ratio, 7, 21)) | 1  # odd, 7-21
+        dil_kern = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,
+                                             (dil_size, dil_size))
+        dilated[c] = cv2.dilate(mask[c], dil_kern)
 
     # Step 3: Chrominance from unclipped pixels within dilated mask
     refavg_linear = _compute_refavg_cr(cfa, full_pat) ** HL_POWERF
