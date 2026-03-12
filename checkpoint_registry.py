@@ -103,7 +103,7 @@ def build_registry(project_root: Path) -> dict:
     reg = {}
     registry_path = project_root / REGISTRY_FILENAME
 
-    for config_path in sorted(project_root.glob("checkpoints_*/config.json")):
+    for config_path in sorted(project_root.glob("checkpoints/_nowb/**/config.json")):
         ckpt_dir = config_path.parent
         history_path = ckpt_dir / "history.json"
         if not history_path.exists():

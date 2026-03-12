@@ -60,10 +60,6 @@ interface AppState {
   // Clip mask overlay
   showClipMask: boolean;
 
-  // ML highlight reconstruction: feed clip mask (channel 5) to model's HL head.
-  // When false, numeric reconstruction runs instead and channel 5 is zeroed.
-  mlHighlightReconstruction: boolean;
-
   // Canvas ref for WebCodecs AVIF export
   canvasRef: HTMLCanvasElement | null;
 
@@ -98,7 +94,6 @@ interface AppState {
   setDisplayHdr: (enabled: boolean, headroom: number) => void;
   setHdrPermissionNeeded: (needed: boolean) => void;
   setShowClipMask: (show: boolean) => void;
-  setMlHighlightReconstruction: (use: boolean) => void;
   setCanvasRef: (ref: HTMLCanvasElement | null) => void;
   setRendererRef: (ref: HdrRenderer | null) => void;
 
@@ -166,7 +161,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   hdrPermissionNeeded: false,
 
   showClipMask: false,
-  mlHighlightReconstruction: true,
 
   canvasRef: null,
   rendererRef: null,
@@ -287,9 +281,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (meta?.modelSize) {
       updates.modelSize = meta.modelSize;
       putSetting('modelSize', meta.modelSize).catch(() => {});
-    }
-    if (meta?.mlHighlightReconstruction !== undefined) {
-      updates.mlHighlightReconstruction = meta.mlHighlightReconstruction;
     }
     set(updates);
     putSetting('selectedFileId', id).catch(() => {});
@@ -451,7 +442,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   setDisplayHdr: (enabled, headroom) => set({ displayHdr: enabled, displayHdrHeadroom: headroom }),
   setHdrPermissionNeeded: (needed) => set({ hdrPermissionNeeded: needed }),
   setShowClipMask: (show) => set({ showClipMask: show }),
-  setMlHighlightReconstruction: (use) => set({ mlHighlightReconstruction: use }),
   setCanvasRef: (ref) => set({ canvasRef: ref }),
   setRendererRef: (ref) => set({ rendererRef: ref }),
 
@@ -466,7 +456,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       exportFormat: settings.exportFormat ?? 'jpeg-hdr',
       exportQuality: settings.exportQuality ?? 95,
       ...(meta?.modelSize ? { modelSize: meta.modelSize } : {}),
-      ...(meta?.mlHighlightReconstruction !== undefined ? { mlHighlightReconstruction: meta.mlHighlightReconstruction } : {}),
     });
   },
 }));

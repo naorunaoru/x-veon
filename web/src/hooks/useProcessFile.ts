@@ -98,11 +98,9 @@ export function useProcessFile() {
         clipNorm[0] * wb[0], clipNorm[1] * wb[1], clipNorm[2] * wb[2],
       ];
 
-      // 7a. Numeric highlight reconstruction (when ML HL is off, or non-NN method)
+      // 7a. Numeric highlight reconstruction
       const method: DemosaicMethod = useAppStore.getState().demosaicMethod;
-      const mlHl = useAppStore.getState().mlHighlightReconstruction;
-      const useNumericHl = method !== 'neural-net' || !mlHl;
-      if (useNumericHl) {
+      {
         const originalCfa = new Float32Array(cfa);
         reconstructHighlightsCfa(cfa, visWidth, visHeight, pattern, period, dy, dx, clips);
         reconstructHighlightsSegmented(cfa, visWidth, visHeight, pattern, period, dy, dx, 2, 0.5, originalCfa, clips);
@@ -154,20 +152,13 @@ export function useProcessFile() {
         const tileSize = 5 * PATCH_SIZE * PATCH_SIZE;
         const outSize = 3 * PATCH_SIZE * PATCH_SIZE;
 
-        // getCh for padded CFA (shifts are 0,0 after padToAlignment)
-        const getCh = (y: number, x: number) => pattern[y % period][x % period];
-
-        // When ML HL is on, feed clip mask to model; otherwise zeros
-        const inferClips = mlHl ? clips : undefined;
-        const inferGetCh = mlHl ? getCh : undefined;
-
         // Pre-allocate two batch buffers with masks baked in (double-buffer)
         const bufs = [new Float32Array(TILE_BATCH * tileSize), new Float32Array(TILE_BATCH * tileSize)];
         prefillBatchMasks(bufs[0], masks, TILE_BATCH, PATCH_SIZE);
         prefillBatchMasks(bufs[1], masks, TILE_BATCH, PATCH_SIZE);
 
         let slot = 0;
-        fillBatchCfa(bufs[0], cfaData, cfaW, cfaH, tiles, 0, Math.min(TILE_BATCH, tiles.length), PATCH_SIZE, inferClips, inferGetCh);
+        fillBatchCfa(bufs[0], cfaData, cfaW, cfaH, tiles, 0, Math.min(TILE_BATCH, tiles.length), PATCH_SIZE);
 
         let b = 0;
         while (b < tiles.length) {
@@ -181,7 +172,7 @@ export function useProcessFile() {
           const nextEnd = Math.min(nextB + TILE_BATCH, tiles.length);
           if (nextB < tiles.length) {
             slot ^= 1;
-            fillBatchCfa(bufs[slot], cfaData, cfaW, cfaH, tiles, nextB, nextEnd, PATCH_SIZE, inferClips, inferGetCh);
+            fillBatchCfa(bufs[slot], cfaData, cfaW, cfaH, tiles, nextB, nextEnd, PATCH_SIZE);
           }
 
           const batchOut = await inferPromise;
@@ -265,7 +256,6 @@ export function useProcessFile() {
           colorTemp,
           tint,
           modelSize: method === 'neural-net' ? useAppStore.getState().modelSize : undefined,
-          mlHighlightReconstruction: method === 'neural-net' ? mlHl : undefined,
         },
       };
 

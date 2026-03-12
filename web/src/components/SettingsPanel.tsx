@@ -9,9 +9,8 @@ import { useAppStore } from '@/store';
 import { useProcessFile } from '@/hooks/useProcessFile';
 import { useExport } from '@/hooks/useExport';
 import { ExportDialog } from '@/components/ExportDialog';
-import { Switch } from '@/components/ui/switch';
 import type { CfaType, DemosaicMethod, ModelSize } from '@/pipeline/types';
-import { getModelMeta, getAvailableSizes, switchModelSize } from '@/pipeline/inference';
+import { getAvailableSizes, switchModelSize } from '@/pipeline/inference';
 
 const DEMOSAIC_OPTIONS: { value: DemosaicMethod; label: string; cfa?: CfaType }[] = [
   { value: 'neural-net', label: 'X-veon' },
@@ -84,17 +83,6 @@ export function SettingsPanel() {
     }
   }, [demosaicMethod, initialized, selectedFile, isProcessing, processFile, restoreCachedResult]);
 
-  // Auto-reprocess when ML highlight reconstruction toggle changes (NN only)
-  const mlHighlightReconstruction = useAppStore((s) => s.mlHighlightReconstruction);
-  const setMlHighlightReconstruction = useAppStore((s) => s.setMlHighlightReconstruction);
-  const prevMlHlRef = useRef(mlHighlightReconstruction);
-  useEffect(() => {
-    if (prevMlHlRef.current === mlHighlightReconstruction) return;
-    prevMlHlRef.current = mlHighlightReconstruction;
-    if (initialized && selectedFile && (selectedFile.status === 'done' || selectedFile.status === 'error') && !isProcessing && demosaicMethod === 'neural-net') {
-      processFile(selectedFile.id);
-    }
-  }, [mlHighlightReconstruction, initialized, selectedFile, isProcessing, processFile, demosaicMethod]);
   const { exportFile, isExporting } = useExport();
 
   const [exportOpen, setExportOpen] = useState(false);
@@ -159,31 +147,6 @@ export function SettingsPanel() {
           })}
         </div>
       </section>
-
-      {/* ML highlight reconstruction toggle */}
-      {(() => {
-        const modelHasHlHead = cfaType ? getModelMeta(cfaType).hl_head === true : false;
-        const canToggle = demosaicMethod === 'neural-net' && modelHasHlHead;
-        return (
-          <div
-            className="flex items-center justify-between"
-            title={!canToggle
-              ? demosaicMethod !== 'neural-net'
-                ? 'Only available with neural network demosaic'
-                : 'Current model does not have a highlight reconstruction head'
-              : 'Use ML model for highlight reconstruction instead of numeric'}
-          >
-            <span className={`text-xs ${canToggle ? 'text-muted-foreground' : 'text-muted-foreground/40'}`}>
-              ML highlight reconstruction
-            </span>
-            <Switch
-              checked={canToggle && mlHighlightReconstruction}
-              disabled={!canToggle}
-              onCheckedChange={setMlHighlightReconstruction}
-            />
-          </div>
-        );
-      })()}
 
       {/* Actions */}
       <div className="flex gap-2">

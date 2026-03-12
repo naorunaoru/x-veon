@@ -26,10 +26,10 @@ jobs:
         with:
           repository: naorunaoru/rawloader
           ref: develop
-          path: rawloader-wasm
+          path: rawloader
 
       - name: Symlink rawloader for Cargo path dep
-        run: ln -s $GITHUB_WORKSPACE/rawloader-wasm $GITHUB_WORKSPACE/../rawloader-wasm
+        run: ln -s $GITHUB_WORKSPACE/rawloader $GITHUB_WORKSPACE/../rawloader
 
       - uses: dtolnay/rust-toolchain@stable
         with:

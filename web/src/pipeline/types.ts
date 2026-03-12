@@ -105,7 +105,6 @@ export interface ProcessingResult {
     colorTemp: number;
     tint: number;
     modelSize?: ModelSize;
-    mlHighlightReconstruction?: boolean;
   };
 }
 
