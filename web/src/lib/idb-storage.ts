@@ -18,7 +18,7 @@ export interface PersistedFile {
   error: string | null;
   resultMethod: DemosaicMethod | null;
   resultMeta: SerializableResultMeta | null;
-  cachedMethods: DemosaicMethod[];
+  cachedMethods: DemosaicMethod[];  // deprecated — kept for schema compat
   lookPreset: LookPreset;
   lensProfile: LensProfile | null;
   openDrtOverrides: Record<string, number | boolean>;

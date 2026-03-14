@@ -27,7 +27,6 @@ export interface QueuedFile {
   progress: { current: number; total: number } | null;
   result: ProcessingResultMeta | null;
   resultMethod: DemosaicMethod | null;
-  cachedResults: Partial<Record<DemosaicMethod, ProcessingResultMeta>>;
   lensProfile: LensProfile | null;
   lookPreset: LookPreset;
   openDrtOverrides: Partial<OpenDrtConfig>;
@@ -75,7 +74,6 @@ interface AppState {
   updateFileStatus: (id: string, status: FileStatus, error?: string) => void;
   updateFileProgress: (id: string, current: number, total: number) => void;
   setFileResult: (id: string, result: ProcessingResultMeta, method: DemosaicMethod) => void;
-  restoreCachedResult: (id: string, method: DemosaicMethod) => void;
   setModelSize: (size: ModelSize) => void;
   setDemosaicMethod: (method: DemosaicMethod) => void;
   setExportFormat: (format: ExportFormat) => void;
@@ -123,7 +121,7 @@ function fileToPersistedFile(f: QueuedFile): PersistedFile {
     error: f.error,
     resultMethod: f.resultMethod,
     resultMeta: f.result ? serializeResultMeta(f.result) : null,
-    cachedMethods: Object.keys(f.cachedResults) as DemosaicMethod[],
+    cachedMethods: [],
     lensProfile: f.lensProfile,
     lookPreset: f.lookPreset,
     openDrtOverrides: f.openDrtOverrides as Record<string, number | boolean>,
@@ -190,7 +188,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         progress: null,
         result: null,
         resultMethod: null,
-        cachedResults: {},
         lensProfile: null,
         lookPreset: 'default' as const,
         openDrtOverrides: {},
@@ -327,9 +324,6 @@ export const useAppStore = create<AppState>((set, get) => ({
           metadata,
           result,
           resultMethod: method,
-          cachedResults: method === 'neural-net'
-            ? { ...f.cachedResults, [method]: result }
-            : f.cachedResults,
           status: 'done' as const,
           progress: null,
         };
@@ -347,16 +341,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
 
         return updated;
-      }),
-    })),
-
-  restoreCachedResult: (id, method) =>
-    set((state) => ({
-      files: state.files.map((f) => {
-        if (f.id !== id) return f;
-        const cached = f.cachedResults[method];
-        if (!cached) return f;
-        return { ...f, result: cached, resultMethod: method, status: 'done' as const, progress: null };
       }),
     })),
 

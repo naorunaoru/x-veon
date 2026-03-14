@@ -2,7 +2,6 @@ import { useEffect, useRef, useMemo, useState, memo } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useAppStore } from '@/store';
 import { usePanZoom } from '@/hooks/usePanZoom';
-import { readHwc, hwcKey } from '@/lib/opfs-storage';
 import { takeHwc, takeClipMask } from '@/lib/hwc-handoff';
 import { HdrRenderer } from '@/gl/renderer';
 import { configFromPreset, configWithOverrides, computeTonescaleParams } from '@/gl/opendrt-params';
@@ -85,19 +84,14 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
       setRendererRef(null);
       setLoadingHwc(true);
 
-      const method = useAppStore.getState().files.find((f) => f.id === fileId)?.resultMethod ?? null;
-      const key = method ? hwcKey(fileId, method) : fileId;
-      const hwc = takeHwc(key) ?? await readHwc(key);
+      const hwc = takeHwc(fileId);
       if (cancelled || !hwc) {
-        // Non-NN revisit: no handoff, no OPFS → re-queue for processing
-        if (method && method !== 'neural-net') {
-          useAppStore.getState().updateFileStatus(fileId, 'queued');
-        }
+        // Handoff missed (e.g. restored session) → re-queue for processing
+        useAppStore.getState().updateFileStatus(fileId, 'queued');
         return;
       }
 
-      // Clip mask is only available from the transient handoff (not persisted)
-      const clipMask = takeClipMask(key) ?? undefined;
+      const clipMask = takeClipMask(fileId) ?? undefined;
       renderer.uploadImage(hwc, hwcW, hwcH, clipMask);
       renderer.setClipMaskOverlay(useAppStore.getState().showClipMask);
       const file = useAppStore.getState().files.find((f) => f.id === fileId);

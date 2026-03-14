@@ -7,17 +7,12 @@ import { initDemosaicGpuSafe } from '@/pipeline/demosaic';
 import { probeHdrDisplay, hasWindowManagementApi } from '@/gl/hdr-display';
 import { getAllFiles, getSetting } from '@/lib/idb-storage';
 import type { PersistedFile } from '@/lib/idb-storage';
-import { hasHwc, hwcKey, listRawFileIds, listHwcFileIds, deleteAllForFile, readThumbnail } from '@/lib/opfs-storage';
-import { deserializeResultMeta } from '@/pipeline/types';
-import type { DemosaicMethod, ExportFormat, ProcessingResultMeta } from '@/pipeline/types';
+import { listRawFileIds, deleteAllForFile, readThumbnail } from '@/lib/opfs-storage';
+import type { DemosaicMethod, ExportFormat } from '@/pipeline/types';
 import type { OpenDrtConfig, PreProcessConfig } from '@/gl/opendrt-params';
 import { matchLens } from '@/lib/lensfun';
 
 async function persistedToQueued(p: PersistedFile): Promise<QueuedFile> {
-  const result: ProcessingResultMeta | null = p.resultMeta
-    ? deserializeResultMeta(p.resultMeta)
-    : null;
-
   // Load thumbnail from OPFS
   const thumbBlob = await readThumbnail(p.id).catch(() => null);
 
@@ -34,14 +29,11 @@ async function persistedToQueued(p: PersistedFile): Promise<QueuedFile> {
       fNumber: p.fNumber ?? 0,
     } : null,
     cfaType: p.cfaType,
-    status: p.status === 'done' ? 'done' : 'queued',
-    error: p.status === 'error' ? p.error : null,
+    status: 'queued',
+    error: null,
     progress: null,
-    result,
+    result: null,
     resultMethod: p.resultMethod,
-    cachedResults: result && p.resultMethod
-      ? { [p.resultMethod]: result } as Partial<Record<DemosaicMethod, ProcessingResultMeta>>
-      : {},
     lensProfile: p.lensProfile ?? null,
     lookPreset: p.lookPreset,
     openDrtOverrides: p.openDrtOverrides as Partial<OpenDrtConfig>,
@@ -74,20 +66,9 @@ export function useInit() {
 
         if (cancelled) return;
 
-        // Validate restored 'done' files — check HWC exists in OPFS
         const files: QueuedFile[] = [];
         for (const p of persistedFiles) {
-          const qf = await persistedToQueued(p);
-          if (qf.status === 'done' && qf.resultMethod) {
-            const exists = await hasHwc(hwcKey(qf.id, qf.resultMethod));
-            if (!exists) {
-              qf.status = 'queued';
-              qf.result = null;
-              qf.resultMethod = null;
-              qf.cachedResults = {};
-            }
-          }
-          files.push(qf);
+          files.push(await persistedToQueued(p));
         }
 
         // Restore state into Zustand
@@ -145,9 +126,8 @@ export function useInit() {
 
 async function cleanupOrphans(knownIds: Set<string>): Promise<void> {
   try {
-    const [rawIds, hwcIds] = await Promise.all([listRawFileIds(), listHwcFileIds()]);
-    const allOpfsIds = new Set([...rawIds, ...hwcIds]);
-    for (const id of allOpfsIds) {
+    const rawIds = await listRawFileIds();
+    for (const id of rawIds) {
       if (!knownIds.has(id)) {
         deleteAllForFile(id).catch(() => {});
       }

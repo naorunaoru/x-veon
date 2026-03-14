@@ -68,20 +68,15 @@ export function SettingsPanel() {
     }
   }, [selectedFile?.id, selectedFile?.status, nextQueuedId, initialized, isProcessing, processFile, demosaicMethod]);
 
-  // Auto-reprocess on method change (restore from cache if available)
-  const restoreCachedResult = useAppStore((s) => s.restoreCachedResult);
+  // Auto-reprocess on method change
   const prevMethodRef = useRef(demosaicMethod);
   useEffect(() => {
     if (prevMethodRef.current === demosaicMethod) return;
     prevMethodRef.current = demosaicMethod;
     if (initialized && selectedFile && (selectedFile.status === 'done' || selectedFile.status === 'error') && !isProcessing) {
-      if (selectedFile.cachedResults[demosaicMethod]) {
-        restoreCachedResult(selectedFile.id, demosaicMethod);
-      } else {
-        processFile(selectedFile.id);
-      }
+      processFile(selectedFile.id);
     }
-  }, [demosaicMethod, initialized, selectedFile, isProcessing, processFile, restoreCachedResult]);
+  }, [demosaicMethod, initialized, selectedFile, isProcessing, processFile]);
 
   const { exportFile, isExporting } = useExport();
 
