@@ -9,13 +9,11 @@ import {
   padToAlignment,
   generateTiles,
   makeChannelMasks,
-  prefillBatchMasks,
-  fillBatchCfa,
 } from '@/pipeline/preprocessor';
-import { runBatch, getBackend } from '@/pipeline/inference';
+import { runBatchGpu, getBackend, getInferenceDevice } from '@/pipeline/inference';
 import { runDemosaic, destroyDemosaicPool } from '@/pipeline/demosaic';
 import { cropToHWC, buildColorMatrix } from '@/pipeline/postprocessor';
-import { createGpuTileBlender } from '@/pipeline/tile-blend-gpu';
+import { createGpuNNPipeline } from '@/pipeline/tile-blend-gpu';
 import { gpuPostprocess } from '@/pipeline/postprocess-gpu';
 import { getDevice } from '@/gl/renderer';
 import { PATCH_SIZE, OVERLAP, TILE_BATCH } from '@/pipeline/constants';
@@ -114,59 +112,50 @@ export function useProcessFile() {
       const flatCfa = flattenPattern(pattern, period);
 
       if (method === 'neural-net') {
-        // NN path: tile → inference → GPU blend (no CPU round-trip)
+        // Fully GPU-resident NN path: extract → infer → blend, all on GPU
         const cfaData = padded.data;
         const cfaW = padded.width;
         const cfaH = padded.height;
         const tileGrid = generateTiles(cfaW, cfaH, PATCH_SIZE, OVERLAP);
-        padded = null!; cfa = null;
         hPad = tileGrid.hPad;
         wPad = tileGrid.wPad;
         tileCount = tileGrid.tiles.length;
+        const tiles = tileGrid.tiles;
 
         const masks = makeChannelMasks(PATCH_SIZE, pattern, period);
-        const device = await getDevice();
-        const gpuBlender = createGpuTileBlender(
-          device, hPad, wPad, PATCH_SIZE, OVERLAP,
+        const device = getInferenceDevice() ?? await getDevice();
+        const gpu = createGpuNNPipeline(
+          device, cfaData, cfaW, cfaH,
+          masks, clipNorm as [number, number, number], tiles,
+          hPad, wPad, PATCH_SIZE, OVERLAP,
           padTop, padLeft, visHeight, visWidth, TILE_BATCH,
         );
-        const tiles = tileGrid.tiles;
-        const tileSize = 5 * PATCH_SIZE * PATCH_SIZE;
+        padded = null!; cfa = null;
 
-        // Pre-allocate two batch buffers with masks baked in (double-buffer)
-        const bufs = [new Float32Array(TILE_BATCH * tileSize), new Float32Array(TILE_BATCH * tileSize)];
-        prefillBatchMasks(bufs[0], masks, TILE_BATCH, PATCH_SIZE);
-        prefillBatchMasks(bufs[1], masks, TILE_BATCH, PATCH_SIZE);
-
-        let slot = 0;
-        fillBatchCfa(bufs[0], cfaData, cfaW, cfaH, tiles, 0, Math.min(TILE_BATCH, tiles.length), PATCH_SIZE);
-
-        let b = 0;
-        while (b < tiles.length) {
+        // Process batches — everything stays on GPU
+        for (let b = 0; b < tiles.length; ) {
           const end = Math.min(b + TILE_BATCH, tiles.length);
           const count = end - b;
-          const cur = bufs[slot];
-          const inferPromise = runBatch(cfaType, cur.subarray(0, count * tileSize), count, PATCH_SIZE);
 
-          // Fill next batch in alternate buffer while GPU is busy
-          const nextB = end;
-          const nextEnd = Math.min(nextB + TILE_BATCH, tiles.length);
-          if (nextB < tiles.length) {
-            slot ^= 1;
-            fillBatchCfa(bufs[slot], cfaData, cfaW, cfaH, tiles, nextB, nextEnd, PATCH_SIZE);
-          }
+          // GPU: extract tiles from CFA → 5ch NCHW buffer
+          const inputBuf = gpu.extractBatch(b, count);
 
-          const batchOut = await inferPromise;
-          gpuBlender.accumulateBatch(batchOut, tiles, b, count);
+          // GPU: inference (GPU buffer in → GPU buffer out)
+          const { buffer: inferBuf, dispose } = await runBatchGpu(
+            cfaType, inputBuf, count, PATCH_SIZE,
+          );
+
+          // GPU: accumulate inference output into blend buffer
+          gpu.accumulateBatch(inferBuf, b, count);
+          dispose();
+
           useAppStore.getState().updateFileProgress(fileId, end, tiles.length);
-          b = nextB;
+          b = end;
         }
 
         // Finalize+crop on GPU → GPUBuffer passed directly to postprocess
-        const hwcBuf = await gpuBlender.finalize();
-        gpuBlender.destroy();
+        const hwcBuf = await gpu.finalize();
 
-        // Skip CPU cropToHWC — already cropped on GPU
         const ccMatrix = raw.xyzToCam ? buildColorMatrix(raw.xyzToCam) : null;
         const { hwc, clipMask } = await gpuPostprocess(
           device, hwcBuf, visWidth, visHeight,

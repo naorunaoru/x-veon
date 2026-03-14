@@ -32,6 +32,7 @@ let manifest: Manifest = {};
 let backend: string | null = null;
 let initPromise: Promise<void> | null = null;
 let currentSize: ModelSize = 'S';
+let gpuDevice: GPUDevice | null = null;
 
 const CHECKPOINTS_DIR = './checkpoints';
 
@@ -52,10 +53,16 @@ async function createSession(modelUrl: string): Promise<ort.InferenceSession> {
   try {
     const session = await ort.InferenceSession.create(modelUrl, {
       executionProviders: ['webgpu'],
+      preferredOutputLocation: 'gpu-buffer',
     });
     if (!backend) {
       backend = 'webgpu';
       console.log('ONNX Runtime: using WebGPU backend');
+    }
+    // Capture ORT's GPU device so our compute shaders can share buffers with it
+    if (!gpuDevice) {
+      gpuDevice = await ort.env.webgpu.device as GPUDevice;
+      console.log('ORT WebGPU device captured for buffer interop');
     }
     return session;
   } catch (e) {
@@ -168,6 +175,37 @@ export async function runBatch(
   const tensor = new ort.Tensor('float32', batchInput, [batchSize, 5, patchSize, patchSize]);
   const results = await entry.session.run({ input: tensor });
   return results.output.data as Float32Array;
+}
+
+/**
+ * GPU-resident batch inference: GPUBuffer in → GPUBuffer out.
+ * The input buffer must be created on the same device shared via ort.env.webgpu.device
+ * with usage STORAGE | COPY_SRC. The returned GPUBuffer is owned by the caller
+ * (dispose the tensor to release it when done with accumulation).
+ */
+export async function runBatchGpu(
+  cfaType: CfaType, inputBuffer: GPUBuffer, batchSize: number, patchSize: number,
+): Promise<{ buffer: GPUBuffer; dispose: () => void }> {
+  const key = active.get(cfaType);
+  if (!key) throw new Error(`No active model for ${cfaType}`);
+  const entry = sessions.get(key);
+  if (!entry) throw new Error(`ONNX session not loaded for ${key}`);
+
+  const inputTensor = ort.Tensor.fromGpuBuffer(inputBuffer, {
+    dataType: 'float32' as const,
+    dims: [batchSize, 5, patchSize, patchSize],
+  });
+  const results = await entry.session.run({ input: inputTensor });
+  const outTensor = results.output;
+  return {
+    buffer: outTensor.gpuBuffer as GPUBuffer,
+    dispose: () => outTensor.dispose(),
+  };
+}
+
+/** Get ORT's GPUDevice for compute shader interop (null if WASM backend). */
+export function getInferenceDevice(): GPUDevice | null {
+  return gpuDevice;
 }
 
 export function getBackend(): string | null {
