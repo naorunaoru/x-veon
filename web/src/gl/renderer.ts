@@ -48,7 +48,7 @@ const UNIFORM_BYTES   = UNIFORM_FLOATS * 4; // 400
 
 let devicePromise: Promise<GPUDevice> | null = null;
 
-function getDevice(): Promise<GPUDevice> {
+export function getDevice(): Promise<GPUDevice> {
   if (!devicePromise) {
     devicePromise = (async () => {
       const adapter = await navigator.gpu.requestAdapter({
@@ -68,6 +68,7 @@ function getDevice(): Promise<GPUDevice> {
         requiredFeatures: features.length > 0 ? features : undefined,
         requiredLimits: {
           maxBufferSize: adapter.limits.maxBufferSize,
+          maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
         },
       });
 

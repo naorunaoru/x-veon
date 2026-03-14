@@ -6,18 +6,18 @@ import {
   findPatternShift,
   normalizeRawCfa,
   channelClips,
-  reconstructHighlightsCfa,
-  applyWhiteBalance,
   padToAlignment,
   generateTiles,
   makeChannelMasks,
   prefillBatchMasks,
   fillBatchCfa,
 } from '@/pipeline/preprocessor';
-import { reconstructHighlightsSegmented } from '@/pipeline/highlight-segments';
 import { runBatch, getBackend } from '@/pipeline/inference';
 import { runDemosaic, destroyDemosaicPool } from '@/pipeline/demosaic';
-import { createTileBlender, cropToHWC, buildColorMatrix, applyColorCorrection } from '@/pipeline/postprocessor';
+import { cropToHWC, buildColorMatrix } from '@/pipeline/postprocessor';
+import { createGpuTileBlender } from '@/pipeline/tile-blend-gpu';
+import { gpuPostprocess } from '@/pipeline/postprocess-gpu';
+import { getDevice } from '@/gl/renderer';
 import { PATCH_SIZE, OVERLAP, TILE_BATCH } from '@/pipeline/constants';
 import type { DemosaicMethod, ProcessingResultMeta } from '@/pipeline/types';
 import { estimateColorTemperature } from '@/pipeline/color-temperature';
@@ -69,13 +69,13 @@ export function useProcessFile() {
       const visWidth = visible.width;
       const visHeight = visible.height;
 
-      // 3. Normalize
+      // 3. Normalize (no WB — model trained on raw CFA data)
       let cfa: Float32Array | null = normalizeRawCfa(
         visible.data, visWidth, visHeight, raw.blackLevels, raw.whiteLevels,
       );
       visible = null!;
 
-      // 4. WB coefficients (normalize to G=1)
+      // 4. WB coefficients (normalize to G=1, applied post-demosaic on GPU)
       const wb = new Float32Array([
         raw.wbCoeffs[0] / raw.wbCoeffs[1],
         1.0,
@@ -87,48 +87,26 @@ export function useProcessFile() {
       const { pattern, period, dy, dx, cfaType } = cfaInfo;
       console.log(`CFA: ${cfaType} (period=${period}, shift=dy${dy} dx${dx})`);
 
-      // 6. Apply white balance
-      applyWhiteBalance(cfa, visWidth, visHeight, wb, pattern, period, dy, dx);
-
-      // 7. Per-channel clip thresholds (for clip mask input to model)
+      // 6. Per-channel clip thresholds
       const black = raw.blackLevels[0];
       const range = raw.whiteLevels[0] - black;
       const clipNorm = channelClips(raw.cfaStr, raw.cfaWidth, raw.whiteLevels, black, range);
-      const clips: [number, number, number] = [
+      // WB-scaled clips for GPU postprocessor (HL recovery operates on WB'd data)
+      const clipsWb: [number, number, number] = [
         clipNorm[0] * wb[0], clipNorm[1] * wb[1], clipNorm[2] * wb[2],
       ];
 
-      // 7a. Numeric highlight reconstruction
+      // 7. Pad for alignment
       const method: DemosaicMethod = useAppStore.getState().demosaicMethod;
-      {
-        const originalCfa = new Float32Array(cfa);
-        reconstructHighlightsCfa(cfa, visWidth, visHeight, pattern, period, dy, dx, clips);
-        reconstructHighlightsSegmented(cfa, visWidth, visHeight, pattern, period, dy, dx, 2, 0.5, originalCfa, clips);
-      }
-
-      // 7b. Compute full-image clip ratio (for overlay visualization)
-      // Ratio = cfa / clip_level, smooth 0→1. At 1.0 the pixel is clipped.
-      const clipMask = new Float32Array(visWidth * visHeight);
-      for (let y = 0; y < visHeight; y++) {
-        const patY = ((y + dy) % period + period) % period;
-        const row = y * visWidth;
-        for (let x = 0; x < visWidth; x++) {
-          const ch = pattern[patY][((x + dx) % period + period) % period];
-          const val = cfa[row + x];
-          const cl = clips[ch];
-          clipMask[row + x] = Math.min(val / cl, 1);
-        }
-      }
-
-      // 8. Pad for alignment
       let padded = padToAlignment(cfa, visWidth, visHeight, dy, dx);
       const padTop = padded.padTop;
       const padLeft = padded.padLeft;
       if (padded.data !== cfa) cfa = null;
 
-      // 9. Demosaic
+      // 8. Demosaic
       const startTime = Date.now();
-      let blended: Float32Array | null;
+      let hwcResult: Float32Array;
+      let clipMaskResult: Float32Array;
       let hPad: number;
       let wPad: number;
       let tileCount: number;
@@ -136,7 +114,7 @@ export function useProcessFile() {
       const flatCfa = flattenPattern(pattern, period);
 
       if (method === 'neural-net') {
-        // NN path: tile → inference → incremental blend
+        // NN path: tile → inference → GPU blend (no CPU round-trip)
         const cfaData = padded.data;
         const cfaW = padded.width;
         const cfaH = padded.height;
@@ -147,10 +125,13 @@ export function useProcessFile() {
         tileCount = tileGrid.tiles.length;
 
         const masks = makeChannelMasks(PATCH_SIZE, pattern, period);
-        const blender = createTileBlender(hPad, wPad, PATCH_SIZE, OVERLAP);
+        const device = await getDevice();
+        const gpuBlender = createGpuTileBlender(
+          device, hPad, wPad, PATCH_SIZE, OVERLAP,
+          padTop, padLeft, visHeight, visWidth, TILE_BATCH,
+        );
         const tiles = tileGrid.tiles;
         const tileSize = 5 * PATCH_SIZE * PATCH_SIZE;
-        const outSize = 3 * PATCH_SIZE * PATCH_SIZE;
 
         // Pre-allocate two batch buffers with masks baked in (double-buffer)
         const bufs = [new Float32Array(TILE_BATCH * tileSize), new Float32Array(TILE_BATCH * tileSize)];
@@ -176,14 +157,24 @@ export function useProcessFile() {
           }
 
           const batchOut = await inferPromise;
-          for (let i = 0; i < count; i++) {
-            blender.accumulate(batchOut.subarray(i * outSize, (i + 1) * outSize), tiles[b + i].x, tiles[b + i].y);
-          }
+          gpuBlender.accumulateBatch(batchOut, tiles, b, count);
           useAppStore.getState().updateFileProgress(fileId, end, tiles.length);
           b = nextB;
         }
 
-        blended = blender.finalize();
+        // Finalize+crop on GPU → GPUBuffer passed directly to postprocess
+        const hwcBuf = await gpuBlender.finalize();
+        gpuBlender.destroy();
+
+        // Skip CPU cropToHWC — already cropped on GPU
+        const ccMatrix = raw.xyzToCam ? buildColorMatrix(raw.xyzToCam) : null;
+        const { hwc, clipMask } = await gpuPostprocess(
+          device, hwcBuf, visWidth, visHeight,
+          wb, clipsWb, ccMatrix, raw.drGain,
+        );
+
+        hwcResult = hwc;
+        clipMaskResult = clipMask;
       } else {
         // Traditional demosaic: process full image at once (no tile progress)
         const algorithm = method;
@@ -192,34 +183,34 @@ export function useProcessFile() {
         tileCount = 1;
 
         // After padToAlignment, the CFA is shifted to canonical (0,0) alignment
-        blended = await runDemosaic(padded.data, padded.width, padded.height, 0, 0, algorithm, flatCfa, period);
+        const blended = await runDemosaic(padded.data, padded.width, padded.height, 0, 0, algorithm, flatCfa, period);
         padded = null!; cfa = null;
+
+        // Crop to original size (HWC, raw demosaic output, no WB)
+        const rawHwc = cropToHWC(blended, hPad, wPad, padTop, padLeft, visHeight, visWidth);
+
+        // GPU postprocess: WB → highlight recovery → CC → DR → clip mask
+        const ccMatrix = raw.xyzToCam ? buildColorMatrix(raw.xyzToCam) : null;
+        const device = await getDevice();
+        const { hwc, clipMask } = await gpuPostprocess(
+          device, rawHwc, visWidth, visHeight,
+          wb, clipsWb, ccMatrix, raw.drGain,
+        );
+        hwcResult = hwc;
+        clipMaskResult = clipMask;
       }
 
       const inferenceTime = (Date.now() - startTime) / 1000;
+      const hwc = hwcResult;
+      const clipMask = clipMaskResult;
 
-      // 10. Crop to original size (CHW -> HWC)
-      const hwc = cropToHWC(blended, hPad, wPad, padTop, padLeft, visHeight, visWidth);
-      blended = null;
-
-      // 11. Apply camera → sRGB color correction
-      if (raw.xyzToCam) {
-        const ccMatrix = buildColorMatrix(raw.xyzToCam);
-        applyColorCorrection(hwc, visWidth * visHeight, ccMatrix);
-      }
-
-      // 11b. Fuji DR compensation — undo deliberate underexposure
-      if (raw.drGain > 1.0) {
-        for (let i = 0; i < hwc.length; i++) hwc[i] *= raw.drGain;
-      }
-
-      // 12. Compute final display dimensions (after orientation)
+      // 11. Compute final display dimensions (after orientation)
       const orientation = raw.orientation;
       const swap = orientation === 'Rotate90' || orientation === 'Rotate270';
       const finalWidth = swap ? visHeight : visWidth;
       const finalHeight = swap ? visWidth : visHeight;
 
-      // 13. Estimate illuminant color temperature and tint from WB + color matrix
+      // 12. Estimate illuminant color temperature and tint from WB + color matrix
       const { temp: colorTemp, tint } = estimateColorTemperature(wb, raw.camToXyz);
 
       // Hand off for immediate display (avoids OPFS round-trip)
@@ -236,7 +227,7 @@ export function useProcessFile() {
         exportData: {
           width: visWidth,
           height: visHeight,
-          xyzToCam: null,  // CC already applied
+          xyzToCam: null,  // CC already applied on GPU
           wbCoeffs: wb,
           camToXyz: raw.camToXyz,
           orientation,
