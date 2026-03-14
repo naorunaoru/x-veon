@@ -1,6 +1,9 @@
 import { XTRANS_PATTERN, BAYER_PATTERN } from './constants';
 import type { CfaInfo, CroppedImage, PaddedImage, TileGrid, ChannelMasks } from './types';
 
+/** darktable's clip threshold factor (0.987 × white level). */
+export const CLIP_MAGIC = 0.987;
+
 export function cropToVisible(
   rawData: Uint16Array, fullWidth: number, fullHeight: number, crops: Uint16Array,
 ): CroppedImage {
@@ -112,10 +115,9 @@ export function channelClips(
     }
   }
   return [
-    // HACK!
-    (wl[0] - black) / range * 0.9,
-    (wl[1] - black) / range * 0.9,
-    (wl[2] - black) / range * 0.9,
+    (wl[0] - black) / range * CLIP_MAGIC,
+    (wl[1] - black) / range * CLIP_MAGIC,
+    (wl[2] - black) / range * CLIP_MAGIC,
   ];
 }
 
@@ -135,13 +137,41 @@ export function normalizeRawCfa(
 }
 
 /**
- * Inpaint-opposed highlight reconstruction (adapted from darktable).
- * For clipped CFA pixels, estimates the true value from the opposed-channel
- * reference average. Per-channel means are computed in linear space, converted
- * to cube-root space, then the two opposing channel means are averaged.
- * Chrominance correction is computed and applied in linear space.
- * Operates before WB so clipped channels can be extended above the clip
- * point, preventing channel imbalance after WB multiplication.
+ * Dilate a binary mask using an elliptical structuring element.
+ * For each set pixel, marks all pixels within the ellipse radius.
+ */
+function dilateEllipse(
+  mask: Uint8Array, width: number, height: number, dilSize: number,
+): Uint8Array {
+  const r = (dilSize - 1) >> 1;
+  const r2 = r * r;
+  const out = new Uint8Array(width * height);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (!mask[y * width + x]) continue;
+      const yMin = Math.max(0, y - r);
+      const yMax = Math.min(height - 1, y + r);
+      for (let ny = yMin; ny <= yMax; ny++) {
+        const dyv = ny - y;
+        const xRange = Math.floor(Math.sqrt(r2 - dyv * dyv));
+        const xMin = Math.max(0, x - xRange);
+        const xMax = Math.min(width - 1, x + xRange);
+        for (let nx = xMin; nx <= xMax; nx++) {
+          out[ny * width + nx] = 1;
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Inpaint-opposed highlight reconstruction with dilated mask chrominance
+ * (adapted from darktable, matching Python highlight_recovery.py).
+ *
+ * Uses adaptive per-channel dilation: channels that clip first (lower clip
+ * level) get wider dilation (7–21 px at 1/3 resolution) to find enough
+ * unclipped chrominance samples nearby.
  */
 export function reconstructHighlightsCfa(
   cfa: Float32Array, width: number, height: number,
@@ -149,61 +179,131 @@ export function reconstructHighlightsCfa(
   dy: number, dx: number,
   clips: readonly [number, number, number] = [1, 1, 1],
 ): void {
-  const chromLo = 0.2;
-
-  function getCh(y: number, x: number): number {
-    return pattern[((y + dy) % period + period) % period][((x + dx) % period + period) % period];
+  // Precompute channel map for fast lookups
+  const n = width * height;
+  const chMap = new Uint8Array(n);
+  for (let y = 0; y < height; y++) {
+    const patY = ((y + dy) % period + period) % period;
+    const row = y * width;
+    for (let x = 0; x < width; x++) {
+      chMap[row + x] = pattern[patY][((x + dx) % period + period) % period];
+    }
   }
 
-  // Compute opposed-channel reference average for pixel (y, x) with channel ch.
-  // Accumulates per-channel means in linear space within a 3x3 neighborhood,
-  // converts to cube-root space, averages the two opposing channels, returns linear.
-  function calcRefavg(y: number, x: number, ch: number): number {
-    const mean = [0, 0, 0];
-    const cnt = [0, 0, 0];
+  const loClips: [number, number, number] = [
+    0.2 * clips[0], 0.2 * clips[1], 0.2 * clips[2],
+  ];
 
-    const y0 = Math.max(0, y - 1);
-    const y1 = Math.min(height - 1, y + 1);
-    const x0 = Math.max(0, x - 1);
-    const x1 = Math.min(width - 1, x + 1);
+  // Check if anything is clipped
+  let anyClipped = false;
+  for (let i = 0; i < n; i++) {
+    if (cfa[i] >= clips[chMap[i]]) { anyClipped = true; break; }
+  }
+  if (!anyClipped) return;
 
-    for (let ny = y0; ny <= y1; ny++) {
-      for (let nx = x0; nx <= x1; nx++) {
-        const val = Math.max(0, cfa[ny * width + nx]);
-        const c = getCh(ny, nx);
-        mean[c] += val;
-        cnt[c] += 1;
+  // Step 1: Build per-channel clip mask at 1/3 resolution
+  const mwidth = Math.floor(width / 3);
+  const mheight = Math.floor(height / 3);
+  const masks: Uint8Array[] = [
+    new Uint8Array(mheight * mwidth),
+    new Uint8Array(mheight * mwidth),
+    new Uint8Array(mheight * mwidth),
+  ];
+
+  for (let y = 0; y < height; y++) {
+    const my = Math.floor(y / 3);
+    if (my >= mheight) continue;
+    const row = y * width;
+    for (let x = 0; x < width; x++) {
+      const mx = Math.floor(x / 3);
+      if (mx >= mwidth) continue;
+      const idx = row + x;
+      const ch = chMap[idx];
+      if (cfa[idx] >= clips[ch]) {
+        masks[ch][my * mwidth + mx] = 1;
       }
     }
-
-    // Per-channel mean in linear space, then convert to cube-root
-    const cr = [0, 0, 0];
-    for (let c = 0; c < 3; c++) {
-      cr[c] = cnt[c] > 0 ? Math.cbrt(mean[c] / cnt[c]) : 0;
-    }
-
-    // Opposed = average of the other two channels in cube-root space
-    let oppCr: number;
-    if (ch === 0) oppCr = 0.5 * (cr[1] + cr[2]);
-    else if (ch === 1) oppCr = 0.5 * (cr[0] + cr[2]);
-    else oppCr = 0.5 * (cr[0] + cr[1]);
-
-    return oppCr * oppCr * oppCr;
   }
 
-  // Pass 1: global chrominance correction from near-clip unclipped pixels.
-  // Chrominance = average of (linear_value - refavg) in linear space.
+  // Zero mask borders
+  for (let c = 0; c < 3; c++) {
+    const m = masks[c];
+    for (let mx = 0; mx < mwidth; mx++) {
+      m[mx] = 0;
+      m[(mheight - 1) * mwidth + mx] = 0;
+    }
+    for (let my = 0; my < mheight; my++) {
+      m[my * mwidth] = 0;
+      m[my * mwidth + mwidth - 1] = 0;
+    }
+  }
+
+  let anyMask = false;
+  for (let c = 0; c < 3 && !anyMask; c++) {
+    for (let i = 0; i < mheight * mwidth; i++) {
+      if (masks[c][i]) { anyMask = true; break; }
+    }
+  }
+  if (!anyMask) return;
+
+  // Step 2: Adaptive per-channel dilation.
+  // Channels that clip first (lower clip level) get wider dilation to find
+  // enough unclipped chrominance samples nearby.
+  const maxClip = Math.max(clips[0], clips[1], clips[2]);
+  const dilated: Uint8Array[] = [];
+  for (let c = 0; c < 3; c++) {
+    const ratio = maxClip / Math.max(clips[c], 1e-6);
+    const dilSize = Math.min(21, Math.max(7, Math.floor(7 * ratio))) | 1; // odd, 7-21
+    dilated.push(dilateEllipse(masks[c], mwidth, mheight, dilSize));
+  }
+
+  // Step 3: Precompute opposed-channel reference average in linear space
+  const refavgLinear = new Float32Array(n);
+  for (let y = 0; y < height; y++) {
+    const y0 = Math.max(0, y - 1);
+    const y1 = Math.min(height - 1, y + 1);
+    const row = y * width;
+    for (let x = 0; x < width; x++) {
+      const idx = row + x;
+      const ch = chMap[idx];
+      const mean = [0, 0, 0];
+      const cnt = [0, 0, 0];
+      const x0 = Math.max(0, x - 1);
+      const x1 = Math.min(width - 1, x + 1);
+      for (let ny = y0; ny <= y1; ny++) {
+        const nRow = ny * width;
+        for (let nx = x0; nx <= x1; nx++) {
+          const val = Math.max(0, cfa[nRow + nx]);
+          const c = chMap[nRow + nx];
+          mean[c] += val;
+          cnt[c]++;
+        }
+      }
+      const cr0 = cnt[0] > 0 ? Math.cbrt(mean[0] / cnt[0]) : 0;
+      const cr1 = cnt[1] > 0 ? Math.cbrt(mean[1] / cnt[1]) : 0;
+      const cr2 = cnt[2] > 0 ? Math.cbrt(mean[2] / cnt[2]) : 0;
+      let oppCr: number;
+      if (ch === 0) oppCr = 0.5 * (cr1 + cr2);
+      else if (ch === 1) oppCr = 0.5 * (cr0 + cr2);
+      else oppCr = 0.5 * (cr0 + cr1);
+      refavgLinear[idx] = oppCr * oppCr * oppCr;
+    }
+  }
+
+  // Step 4: Chrominance from unclipped pixels within dilated mask only
   const chromSum = [0, 0, 0];
   const chromCnt = [0, 0, 0];
-
-  for (let y = 1; y < height - 1; y++) {
-    for (let x = 1; x < width - 1; x++) {
-      const ch = getCh(y, x);
-      const val = cfa[y * width + x];
-      if (val < chromLo || val >= clips[ch]) continue;
-
-      const ref = calcRefavg(y, x, ch);
-      chromSum[ch] += val - ref;
+  for (let y = 3; y < height - 3; y++) {
+    const my = Math.min(Math.floor(y / 3), mheight - 1);
+    const row = y * width;
+    for (let x = 3; x < width - 3; x++) {
+      const idx = row + x;
+      const ch = chMap[idx];
+      const val = cfa[idx];
+      if (val >= clips[ch] || val <= loClips[ch]) continue;
+      const mx = Math.min(Math.floor(x / 3), mwidth - 1);
+      if (!dilated[ch][my * mwidth + mx]) continue;
+      chromSum[ch] += val - refavgLinear[idx];
       chromCnt[ch]++;
     }
   }
@@ -213,18 +313,12 @@ export function reconstructHighlightsCfa(
     if (chromCnt[c] > 100) chrom[c] = chromSum[c] / chromCnt[c];
   }
 
-  // Pass 2: for clipped pixels, estimate from opposed-channel reference average.
-  // Reconstruction in linear space: max(clipped_value, refavg + chrominance).
-  for (let y = 1; y < height - 1; y++) {
-    for (let x = 1; x < width - 1; x++) {
-      const idx = y * width + x;
-      const ch = getCh(y, x);
-      if (cfa[idx] < clips[ch]) continue;
-
-      const ref = calcRefavg(y, x, ch);
-      const estimate = ref + chrom[ch];
-      cfa[idx] = Math.max(cfa[idx], estimate);
-    }
+  // Step 5: Extend clipped pixels
+  for (let i = 0; i < n; i++) {
+    const ch = chMap[i];
+    if (cfa[i] < clips[ch]) continue;
+    const estimate = refavgLinear[i] + chrom[ch];
+    cfa[i] = Math.max(cfa[i], estimate);
   }
 }
 

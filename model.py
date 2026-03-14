@@ -6,7 +6,7 @@ U-Net for X-Trans demosaicing.
 Architecture: encoder-decoder with skip connections.
 - Input: 5 channels (CFA + position masks + clip ratio)
 - Output: 3 channels (RGB)
-- Additive residual: output = CFA_broadcast + learned_delta
+- Additive residual: output = CFA_per_channel + learned_delta
 - 4 levels: 64 -> 128 -> 256 -> 512
 - 3x3 convolutions throughout
 - Receptive field easily covers 2-3 X-Trans repeats (12-18 pixels)
@@ -90,8 +90,9 @@ class XTransUNet(nn.Module):
         self.out_conv = nn.Conv2d(w, out_channels, 1)
 
     def forward(self, x):
-        cfa = x[:, 0:1]  # (B, 1, H, W)
-        baseline = cfa.expand(-1, 3, -1, -1)  # (B, 3, H, W)
+        cfa = x[:, 0:1]    # (B, 1, H, W)
+        masks = x[:, 1:4]  # (B, 3, H, W) — R, G, B position masks
+        baseline = cfa * masks  # (B, 3, H, W) — value only in its true channel
 
         # Encoder
         e1 = self.enc1(x)   # 64, H, W

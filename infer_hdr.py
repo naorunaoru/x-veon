@@ -17,6 +17,7 @@ import torch
 from model import XTransUNet
 from cfa import make_cfa_mask, make_channel_masks, detect_cfa_from_raw, find_pattern_shift, cfa_period, CFA_REGISTRY
 from highlight_recovery import reconstruct_highlights
+from highlight_recovery_rgb import reconstruct_highlights as reconstruct_highlights_rgb
 
 
 # Standard color space conversion matrices
@@ -140,12 +141,17 @@ def extract_dr_gain(raw_path: str) -> float:
 def process_raw(raw_path: str, model: torch.nn.Module, device: str,
                 patch_size: int = 288, overlap: int = 48,
                 apply_wb_to_cfa: bool = False,
-                cfa_type: str | None = None) -> tuple[np.ndarray, dict]:
+                cfa_type: str | None = None,
+                hlrecon: str = "cfa") -> tuple[np.ndarray, dict]:
     raw = rawpy.imread(raw_path)
 
     cfa = raw.raw_image_visible.astype(np.float32)
-    black = raw.black_level_per_channel[0]
-    white = raw.white_level
+    black_per_ch = np.array(raw.black_level_per_channel, dtype=np.float32)
+    white = float(raw.white_level)
+    raw_pattern = raw.raw_colors_visible
+    black = np.empty_like(cfa)
+    for ch in range(4):
+        black[raw_pattern == ch] = black_per_ch[ch]
     cfa_norm = (cfa - black) / (white - black)
     h_raw, w_raw = cfa_norm.shape
 
@@ -160,7 +166,6 @@ def process_raw(raw_path: str, model: torch.nn.Module, device: str,
     exif_flip = raw.sizes.flip
 
     # Pattern alignment — auto-detect or use specified CFA type
-    raw_pattern = raw.raw_colors_visible
     if cfa_type is not None:
         ref_pattern = CFA_REGISTRY[cfa_type]
     else:
@@ -171,15 +176,18 @@ def process_raw(raw_path: str, model: torch.nn.Module, device: str,
     pad_top = (period - dy) % period
     pad_left = (period - dx) % period
 
-    # Always apply WB to CFA before HL recovery + demosaic
-    # (darktable pipeline: temperature → highlights → demosaic)
-    wb_map = np.ones_like(cfa_norm)
-    for ch in range(3):
-        wb_map[raw_pattern == ch] = wb[ch]
-    cfa_norm = cfa_norm * wb_map
+    if hlrecon == "cfa":
+        # darktable pipeline: WB → highlights → demosaic
+        wb_map = np.ones_like(cfa_norm)
+        for ch in range(3):
+            wb_map[raw_pattern == ch] = wb[ch]
+        cfa_norm = cfa_norm * wb_map
 
-    clip_levels = wb
-    cfa_norm = reconstruct_highlights(cfa_norm, raw_pattern, clip_levels)
+        clip_levels = wb
+        cfa_norm = reconstruct_highlights(cfa_norm, raw_pattern, clip_levels)
+    else:
+        # No WB on CFA — clip at 1.0 (sensor max)
+        clip_levels = np.ones(3, dtype=np.float32)
 
     if pad_top > 0 or pad_left > 0:
         cfa_norm = np.pad(cfa_norm, ((pad_top, 0), (pad_left, 0)), mode='reflect')
@@ -261,7 +269,12 @@ def process_raw(raw_path: str, model: torch.nn.Module, device: str,
 
     rgb = rgb.transpose(1, 2, 0)
 
-    # Apply white balance after demosaic (unless already baked into CFA)
+    if hlrecon == "rgb":
+        # Post-demosaic path: apply WB to RGB, then highlight recovery
+        rgb = rgb * wb[np.newaxis, np.newaxis, :]
+        clip_levels_rgb = np.array([1.0, 1.0, 1.0], dtype=np.float32) * wb
+        rgb = reconstruct_highlights_rgb(rgb, clip_levels_rgb)
+
     # Color correction: camera RGB -> BT.2020
     rgb = apply_color_correction(rgb, xyz_to_cam=xyz_to_cam, to_bt2020=True)
     rgb = np.maximum(rgb, 0)
@@ -321,6 +334,8 @@ def main():
     parser.add_argument("--quality", type=int, default=90)
     parser.add_argument("--wb-cfa", action="store_true",
                         help="Apply WB to CFA before demosaic (for legacy checkpoints trained with --apply-wb)")
+    parser.add_argument("--hlrecon", choices=["cfa", "rgb"], default="cfa",
+                        help="Highlight reconstruction mode: cfa (pre-demosaic) or rgb (post-demosaic)")
     args = parser.parse_args()
     
     device = "mps" if torch.backends.mps.is_available() else "cpu"
@@ -348,7 +363,7 @@ def main():
             out_path = output_dir / f"{raw_file.stem}_hdr.avif"
             print(f"Processing {raw_file.name}...")
             rgb, meta = process_raw(str(raw_file), model, device, args.patch_size, args.overlap,
-                                    apply_wb_to_cfa=args.wb_cfa)
+                                    apply_wb_to_cfa=args.wb_cfa, hlrecon=args.hlrecon)
             save_hdr_avif(rgb, str(out_path), args.quality,
                          exif_flip=meta.get("exif_flip", 0),
                          dr_gain=meta.get("dr_gain", 1.0))
@@ -357,7 +372,7 @@ def main():
         output_path = Path(args.output) if args.output else input_path.with_suffix(".avif")
         print(f"Processing {input_path.name}...")
         rgb, meta = process_raw(str(input_path), model, device, args.patch_size, args.overlap,
-                                apply_wb_to_cfa=args.wb_cfa)
+                                apply_wb_to_cfa=args.wb_cfa, hlrecon=args.hlrecon)
         save_hdr_avif(rgb, str(output_path), args.quality,
                      exif_flip=meta.get("exif_flip", 0),
                      dr_gain=meta.get("dr_gain", 1.0))

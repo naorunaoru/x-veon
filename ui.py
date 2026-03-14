@@ -228,6 +228,7 @@ def run_inference(
     raf_file,
     checkpoint: str,
     overlap: int = 48,
+    hlrecon: str = "cfa",
     progress=gr.Progress(track_tqdm=True),
 ) -> tuple[str, str, str, np.ndarray | None, str]:
     """Process RAF file and return HDR AVIF."""
@@ -247,7 +248,8 @@ def run_inference(
     raf_path = raf_file.name if hasattr(raf_file, 'name') else raf_file
     raf_name = Path(raf_path).stem
 
-    rgb_linear, meta = process_raw(raf_path, model, str(device), patch_size=patch_size, overlap=overlap)
+    rgb_linear, meta = process_raw(raf_path, model, str(device), patch_size=patch_size, overlap=overlap,
+                                    hlrecon=hlrecon)
 
     progress(0.9, desc="Encoding HDR AVIF...")
 
@@ -351,6 +353,13 @@ def create_ui():
                             info="Higher = more tiles per pixel, slower but better confidence map",
                         )
 
+                        hlrecon_radio = gr.Radio(
+                            choices=["cfa", "rgb"],
+                            value="cfa",
+                            label="Highlight Reconstruction",
+                            info="cfa = pre-demosaic (darktable), rgb = post-demosaic",
+                        )
+
                         refresh_btn = gr.Button("🔄 Refresh Checkpoints", size="sm")
                         process_btn = gr.Button("Process", variant="primary")
                         
@@ -376,7 +385,7 @@ def create_ui():
 
                 process_btn.click(
                     run_inference,
-                    inputs=[raf_input, checkpoint_dropdown, overlap_slider],
+                    inputs=[raf_input, checkpoint_dropdown, overlap_slider, hlrecon_radio],
                     outputs=[output_html, status_text, output_file, confidence_img, confidence_stats],
                 )
             

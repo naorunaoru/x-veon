@@ -22,9 +22,9 @@
 // Constants
 // ---------------------------------------------------------------------------
 
-const HL_BORDER = 8;
-const HL_POWERF = 3.0;
-const SEG_ID_MASK = 0x40000;
+export const HL_BORDER = 8;
+export const HL_POWERF = 3.0;
+export const SEG_ID_MASK = 0x40000;
 const MIN_SEGMENT_SIZE = 4;
 const MAX_SLOTS = SEG_ID_MASK - 2; // 262142
 
@@ -32,7 +32,7 @@ const MAX_SLOTS = SEG_ID_MASK - 2; // 262142
 // Segmentation data structure
 // ---------------------------------------------------------------------------
 
-interface Segmentation {
+export interface Segmentation {
   data: Uint32Array;   // segment id per plane pixel
   tmp: Uint32Array;    // scratch buffer for morphological ops
   size: Int32Array;    // pixel count per segment
@@ -49,7 +49,7 @@ interface Segmentation {
   height: number;
 }
 
-function createSegmentation(
+export function createSegmentation(
   width: number, height: number, border: number, maxSlots: number,
 ): Segmentation {
   const slots = Math.max(256, Math.min(maxSlots, MAX_SLOTS));
@@ -79,7 +79,7 @@ function clearSlot(seg: Segmentation, id: number): void {
   seg.val1[id] = 0; seg.val2[id] = 0;
 }
 
-function getSegmentId(seg: Segmentation, loc: number): number {
+export function getSegmentId(seg: Segmentation, loc: number): number {
   if (loc >= seg.width * (seg.height - seg.border)) return 0;
   const id = seg.data[loc] & (SEG_ID_MASK - 1);
   return (id < seg.nr && id > 1) ? id : 0;
@@ -246,7 +246,7 @@ function floodfillSegmentize(
   return true;
 }
 
-function segmentizePlane(seg: Segmentation): void {
+export function segmentizePlane(seg: Segmentation): void {
   const { width, height, border } = seg;
   const stackSize = Math.max(1024, (width * height) >> 5);
   const stackX = new Int32Array(stackSize);
@@ -407,7 +407,7 @@ function fillBorder(d: Uint32Array, w: number, h: number, val: number, border: n
   }
 }
 
-function segmentsCombine(seg: Segmentation, radius: number): void {
+export function segmentsCombine(seg: Segmentation, radius: number): void {
   if (radius <= 0) return;
   const { data, tmp, width, height, border } = seg;
   fillBorder(data, width, height, 0, border);
@@ -466,7 +466,7 @@ const GAUSS_5X5 = [
   [1, 4, 6, 4, 1],
 ];
 
-function calcPlaneCandidates(
+export function calcPlaneCandidates(
   plane: Float32Array, refavg: Float32Array, seg: Segmentation,
   clipval: number, badlevel: number,
 ): void {
@@ -529,7 +529,7 @@ function rawToPlane(pwidth: number, row: number, col: number): number {
   return (HL_BORDER + Math.floor(row / 3)) * pwidth + Math.floor(col / 3) + HL_BORDER;
 }
 
-function extendBorder(mask: Float32Array, width: number, height: number, border: number): void {
+export function extendBorder(mask: Float32Array, width: number, height: number, border: number): void {
   if (border <= 0) return;
   // Extend rows horizontally
   for (let row = border; row < height - border; row++) {

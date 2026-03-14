@@ -1,16 +1,29 @@
 {
   "bayer_w16_base": {
-    "epoch": 499,
+    "epoch": 579,
     "base_width": 16,
     "param_count": 1941427,
     "size_mb": 7.5,
     "dtype": "float32",
     "file": "bayer_w16_base.onnx",
-    "source_sha256": "7421bc805de9500ae8184bb227f8ad1f985d3946b3eed518122657517568307c",
-    "train_psnr": 33.664,
-    "val_psnr": 38.5084,
-    "train_loss": 0.004029,
-    "val_loss": 0.003531
+    "source_sha256": "58155a490771bb7e503d161d2d5900553ed41bcd09dff5df4855061e0d899e74",
+    "train_psnr": 45.1178,
+    "val_psnr": 46.8298,
+    "train_loss": 0.004934,
+    "val_loss": 0.004066
+  },
+  "bayer_w32_base": {
+    "epoch": 7,
+    "base_width": 32,
+    "param_count": 7760739,
+    "size_mb": 29.7,
+    "dtype": "float32",
+    "file": "bayer_w32_base.onnx",
+    "source_sha256": "98c7d0d30c5833a231057e299b202580648f6e2b776e7e0bb8d5edf6e54230d0",
+    "train_psnr": 40.8409,
+    "val_psnr": 43.1435,
+    "train_loss": 0.008176,
+    "val_loss": 0.006196
   },
   "xtrans_w32_base": {
     "epoch": 150,
@@ -26,16 +39,16 @@
     "val_loss": 0.002735
   },
   "xtrans_w16_base": {
-    "epoch": 486,
+    "epoch": 568,
     "base_width": 16,
     "param_count": 1941427,
     "size_mb": 7.5,
     "dtype": "float32",
     "file": "xtrans_w16_base.onnx",
-    "source_sha256": "01c5ca183ed43d90f1ad042b4ebcdd729d2f130d2de660e0e89c006fcb1112ee",
-    "train_psnr": 34.5631,
-    "val_psnr": 41.3119,
-    "train_loss": 0.003606,
-    "val_loss": 0.002827
+    "source_sha256": "315a75946ee873c4687e6e95d74ae3ede94fb2e3678700b84e39a63eb1bf32dd",
+    "train_psnr": 43.5114,
+    "val_psnr": 45.049,
+    "train_loss": 0.005676,
+    "val_loss": 0.004826
   }
 }
