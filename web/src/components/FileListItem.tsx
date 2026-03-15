@@ -1,4 +1,4 @@
-import { Circle, Loader2, CheckCircle2, AlertCircle, ImageIcon, Trash2 } from 'lucide-react';
+import { Loader2, ImageIcon, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { QueuedFile } from '@/store';
 
@@ -7,19 +7,6 @@ interface FileListItemProps {
   selected: boolean;
   onSelect: () => void;
   onRemove: () => void;
-}
-
-function StatusIcon({ status }: { status: QueuedFile['status'] }) {
-  switch (status) {
-    case 'queued':
-      return <Circle className="h-4 w-4 text-muted-foreground" />;
-    case 'processing':
-      return <Loader2 className="h-4 w-4 animate-spin text-primary" />;
-    case 'done':
-      return <CheckCircle2 className="h-4 w-4 text-green-500" />;
-    case 'error':
-      return <AlertCircle className="h-4 w-4 text-destructive" />;
-  }
 }
 
 export function FileListItem({ file, selected, onSelect, onRemove }: FileListItemProps) {
@@ -33,7 +20,7 @@ export function FileListItem({ file, selected, onSelect, onRemove }: FileListIte
       )}
     >
       {/* Thumbnail */}
-      <div className="h-14 w-14 rounded bg-muted flex-shrink-0 overflow-hidden">
+      <div className="h-14 w-14 rounded bg-muted flex-shrink-0 overflow-hidden relative">
         {file.thumbnailUrl ? (
           <img
             src={file.thumbnailUrl}
@@ -43,6 +30,11 @@ export function FileListItem({ file, selected, onSelect, onRemove }: FileListIte
         ) : (
           <div className="h-full w-full flex items-center justify-center text-muted-foreground">
             <ImageIcon className="h-6 w-6" />
+          </div>
+        )}
+        {file.status === 'processing' && (
+          <div className="absolute inset-0 flex items-center justify-center bg-background/50">
+            <Loader2 className="h-5 w-5 animate-spin text-primary" />
           </div>
         )}
       </div>
@@ -75,11 +67,6 @@ export function FileListItem({ file, selected, onSelect, onRemove }: FileListIte
       >
         <Trash2 className="h-3.5 w-3.5" />
       </button>
-
-      {/* Status */}
-      <div className="flex-shrink-0">
-        <StatusIcon status={file.status} />
-      </div>
     </div>
   );
 }

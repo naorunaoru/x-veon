@@ -2,7 +2,7 @@ import { useEffect, useRef, useMemo, useState, memo } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useAppStore } from '@/store';
 import { usePanZoom } from '@/hooks/usePanZoom';
-import { takeHwc, takeClipMask } from '@/lib/hwc-handoff';
+import { takeGpuResult } from '@/lib/hwc-handoff';
 import { HdrRenderer } from '@/gl/renderer';
 import { configFromPreset, configWithOverrides, computeTonescaleParams } from '@/gl/opendrt-params';
 import type { OpenDrtConfig, PreProcessConfig } from '@/gl/opendrt-params';
@@ -84,15 +84,14 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
       setRendererRef(null);
       setLoadingHwc(true);
 
-      const hwc = takeHwc(fileId);
-      if (cancelled || !hwc) {
+      const gpuResult = takeGpuResult(fileId);
+      if (cancelled || !gpuResult) {
         // Handoff missed (e.g. restored session) → re-queue for processing
         useAppStore.getState().updateFileStatus(fileId, 'queued');
         return;
       }
 
-      const clipMask = takeClipMask(fileId) ?? undefined;
-      renderer.uploadImage(hwc, hwcW, hwcH, clipMask);
+      renderer.uploadImageFromBuffer(gpuResult.buffer, hwcW, hwcH, gpuResult.bytesPerRow);
       renderer.setClipMaskOverlay(useAppStore.getState().showClipMask);
       const file = useAppStore.getState().files.find((f) => f.id === fileId);
       const preset = file?.lookPreset ?? 'default';

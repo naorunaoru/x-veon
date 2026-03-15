@@ -291,7 +291,7 @@ struct Params {
   width: u32,
   height: u32,
   dr_gain: f32,
-  _pad0: f32,
+  out_stride: u32,
   clip_r: f32,
   clip_g: f32,
   clip_b: f32,
@@ -324,7 +324,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
   let idx = y * params.width + x;
   let base3 = idx * 3u;
-  let base4 = idx * 4u;
+  let base4 = (y * params.out_stride + x) * 4u;
   let mask = clip_mask[idx];
 
   var r = data[base3];
@@ -365,7 +365,7 @@ struct Params {
   width: u32,
   height: u32,
   dr_gain: f32,
-  _pad0: f32,
+  out_stride: u32,
   clip_r: f32,
   clip_g: f32,
   clip_b: f32,
@@ -387,7 +387,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
   let idx = y * params.width + x;
   let base3 = idx * 3u;
-  let base4 = idx * 4u;
+  let base4 = (y * params.out_stride + x) * 4u;
 
   var r = data[base3];
   var g = data[base3 + 1u];
@@ -466,9 +466,14 @@ function asGpu(data: ArrayBufferView): GPUAllowSharedBufferSource {
   return data as unknown as GPUAllowSharedBufferSource;
 }
 
+/** Pad width to 16-pixel alignment so bytesPerRow (width × 16 bytes) is 256-aligned. */
+function padWidth16(w: number): number {
+  return Math.ceil(w / 16) * 16;
+}
+
 function writeFinalizeParams(
   device: GPUDevice, paramBuf: GPUBuffer,
-  width: number, height: number,
+  width: number, height: number, outStride: number,
   clips: [number, number, number],
   ccMatrix: Float32Array | null,
   drGain: number,
@@ -479,7 +484,7 @@ function writeFinalizeParams(
   u32[0] = width;
   u32[1] = height;
   f32[2] = drGain;
-  f32[3] = 0;
+  u32[3] = outStride;
   f32[4] = clips[0];
   f32[5] = clips[1];
   f32[6] = clips[2];
@@ -499,13 +504,28 @@ function writeFinalizeParams(
 }
 
 // ---------------------------------------------------------------------------
+// Result type
+// ---------------------------------------------------------------------------
+
+export interface PostprocessResult {
+  /** RGBA32F GPU buffer with row-padded layout, ready for copyBufferToTexture. */
+  buffer: GPUBuffer;
+  /** Bytes per row (256-aligned) for copyBufferToTexture. */
+  bytesPerRow: number;
+}
+
+// ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
 
 /**
  * GPU post-demosaic processing: WB → highlight recovery → CC → DR → RGBA.
  *
- * @param device   WebGPU device (shared with renderer)
+ * Returns a GPU-resident RGBA32F buffer (row-padded for 256-byte alignment).
+ * The caller takes ownership of the buffer and must destroy it after use
+ * (e.g. after copyBufferToTexture into the renderer's image texture).
+ *
+ * @param device   WebGPU device (shared with renderer via setSharedDevice)
  * @param rawHwc   Raw demosaic output in HWC layout (no WB applied).
  *                 Can be a Float32Array (uploaded to GPU) or a GPUBuffer
  *                 already on the GPU (e.g. from GPU tile blending).
@@ -515,7 +535,6 @@ function writeFinalizeParams(
  * @param clips    Per-channel clip levels after WB (clipNorm × wb)
  * @param ccMatrix 3×3 row-major camera→sRGB color correction (null = identity)
  * @param drGain   DR exposure compensation multiplier (1.0 = none)
- * @returns Processed HWC Float32Array + per-pixel clip mask
  */
 export async function gpuPostprocess(
   device: GPUDevice,
@@ -526,7 +545,7 @@ export async function gpuPostprocess(
   clips: [number, number, number],
   ccMatrix: Float32Array | null,
   drGain: number,
-): Promise<{ hwc: Float32Array; clipMask: Float32Array }> {
+): Promise<PostprocessResult> {
   const n = width * height;
   const pipes = getPipelines(device);
 
@@ -564,8 +583,10 @@ export async function gpuPostprocess(
     device.queue.writeBuffer(dataBuf, 0, asGpu(rawHwc as Float32Array));
   }
 
-  const outputBuf = buf(device, n * 4 * 4, S | C);
-  const stagingBuf = buf(device, n * 4 * 4, GPUBufferUsage.MAP_READ | D);
+  // Output buffer: RGBA32F with row padding for 256-byte bytesPerRow alignment
+  const paddedW = padWidth16(width);
+  const bytesPerRow = paddedW * 16;  // 4 channels × 4 bytes × paddedW pixels
+  const outputBuf = buf(device, bytesPerRow * height, S | C);
 
   // WB params
   const wbParamBuf = buf(device, 24, U | D);
@@ -578,7 +599,7 @@ export async function gpuPostprocess(
 
   // Finalize params (shared between both finalize variants)
   const finalParamBuf = buf(device, 80, U | D);
-  writeFinalizeParams(device, finalParamBuf, width, height, clips, ccMatrix, drGain);
+  writeFinalizeParams(device, finalParamBuf, width, height, paddedW, clips, ccMatrix, drGain);
 
   // HL recovery buffers (only allocated when needed)
   const hlBufs: GPUBuffer[] = [];
@@ -745,32 +766,14 @@ export async function gpuPostprocess(
     pass.end();
   }
 
-  // ── Readback ──────────────────────────────────────────────────────────
+  // ── Submit & cleanup intermediates ──────────────────────────────────────
 
-  enc.copyBufferToBuffer(outputBuf, 0, stagingBuf, 0, n * 4 * 4);
   device.queue.submit([enc.finish()]);
 
-  await stagingBuf.mapAsync(GPUMapMode.READ);
-  const rgba = new Float32Array(stagingBuf.getMappedRange());
-
-  const hwc = new Float32Array(n * 3);
-  const clipMask = new Float32Array(n);
-  for (let i = 0; i < n; i++) {
-    const s = i * 4;
-    const d = i * 3;
-    hwc[d] = rgba[s];
-    hwc[d + 1] = rgba[s + 1];
-    hwc[d + 2] = rgba[s + 2];
-    clipMask[i] = rgba[s + 3];
-  }
-
-  stagingBuf.unmap();
-
-  // ── Cleanup ───────────────────────────────────────────────────────────
-
-  for (const b of [dataBuf, outputBuf, stagingBuf, wbParamBuf, finalParamBuf, ...hlBufs]) {
+  for (const b of [dataBuf, wbParamBuf, finalParamBuf, ...hlBufs]) {
     b.destroy();
   }
 
-  return { hwc, clipMask };
+  // outputBuf ownership transferred to caller
+  return { buffer: outputBuf, bytesPerRow };
 }

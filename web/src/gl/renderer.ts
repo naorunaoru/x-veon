@@ -48,6 +48,15 @@ const UNIFORM_BYTES   = UNIFORM_FLOATS * 4; // 400
 
 let devicePromise: Promise<GPUDevice> | null = null;
 
+/**
+ * Override the module-level device with an externally-created one
+ * (e.g. ORT's WebGPU device for zero-copy buffer interop).
+ * Must be called before HdrRenderer.create().
+ */
+export function setSharedDevice(device: GPUDevice): void {
+  devicePromise = Promise.resolve(device);
+}
+
 export function getDevice(): Promise<GPUDevice> {
   if (!devicePromise) {
     devicePromise = (async () => {
@@ -355,11 +364,11 @@ export class HdrRenderer {
     return 'gpu' in navigator;
   }
 
+  /**
+   * Upload image from a CPU Float32Array (RGB HWC layout).
+   * Used as fallback when GPU buffer interop isn't available.
+   */
   uploadImage(hwc: Float32Array, width: number, height: number, clipMask?: Float32Array): void {
-    if (this.imageTex) this.imageTex.destroy();
-    this.imgW = width;
-    this.imgH = height;
-
     // Pad RGB→RGBA (WebGPU has no RGB-only texture formats)
     // Alpha channel carries the clip mask for overlay visualization
     const pixelCount = width * height;
@@ -371,42 +380,70 @@ export class HdrRenderer {
       rgba[i * 4 + 3] = clipMask ? clipMask[i] : 0.0;
     }
 
+    this.createImageTex(width, height);
+    this.device.queue.writeTexture(
+      { texture: this.imageTex! },
+      rgba,
+      { bytesPerRow: width * 16 },
+      [width, height],
+    );
+    this.rebuildBindGroups();
+  }
+
+  /**
+   * Upload image directly from a GPU buffer (RGBA32F, row-padded for 256-byte alignment).
+   * Zero-copy path: avoids GPU→CPU readback + CPU→GPU re-upload.
+   * The buffer is destroyed after the copy completes.
+   */
+  uploadImageFromBuffer(buffer: GPUBuffer, width: number, height: number, bytesPerRow: number): void {
+    this.createImageTex(width, height);
+
+    const enc = this.device.createCommandEncoder();
+    enc.copyBufferToTexture(
+      { buffer, bytesPerRow, rowsPerImage: height },
+      { texture: this.imageTex! },
+      [width, height],
+    );
+    this.device.queue.submit([enc.finish()]);
+
+    // Buffer ownership transferred to us — destroy after copy is queued
+    buffer.destroy();
+    this.rebuildBindGroups();
+  }
+
+  private createImageTex(width: number, height: number): void {
+    if (this.imageTex) this.imageTex.destroy();
+    this.imgW = width;
+    this.imgH = height;
+
     this.imageTex = this.device.createTexture({
       size: [width, height],
       format: 'rgba32float',
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
     });
 
-    this.device.queue.writeTexture(
-      { texture: this.imageTex },
-      rgba,
-      { bytesPerRow: width * 16 },  // 4 channels × 4 bytes
-      [width, height],
-    );
+    this.uniformData[U_TEXEL]     = 1 / width;
+    this.uniformData[U_TEXEL + 1] = 1 / height;
+  }
 
-    // Recreate bind group with new texture
+  private rebuildBindGroups(): void {
     this.bindGroup = this.device.createBindGroup({
       layout: this.bindGroupLayout,
       entries: [
         { binding: 0, resource: { buffer: this.uniformBuffer } },
-        { binding: 1, resource: this.imageTex.createView() },
+        { binding: 1, resource: this.imageTex!.createView() },
         { binding: 2, resource: this.sampler },
       ],
     });
 
-    // Recreate HDR histogram bind group with new texture
     this.hdrHistComputeBindGroup = this.device.createBindGroup({
       layout: this.hdrHistBindGroupLayout,
       entries: [
-        { binding: 0, resource: this.imageTex.createView() },
+        { binding: 0, resource: this.imageTex!.createView() },
         { binding: 1, resource: { buffer: this.histogramBinsBuf } },
         { binding: 2, resource: { buffer: this.hdrHistParamsBuf } },
       ],
     });
-
-    // Update texel size
-    this.uniformData[U_TEXEL]     = 1 / width;
-    this.uniformData[U_TEXEL + 1] = 1 / height;
   }
 
   setOpenDrtMode(ts: TonescaleParams, cfg: GradingConfig): void {

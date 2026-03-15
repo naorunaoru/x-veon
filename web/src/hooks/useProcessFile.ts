@@ -20,7 +20,7 @@ import { PATCH_SIZE, OVERLAP, TILE_BATCH } from '@/pipeline/constants';
 import type { DemosaicMethod, ProcessingResultMeta } from '@/pipeline/types';
 import { estimateColorTemperature } from '@/pipeline/color-temperature';
 import { readRaw } from '@/lib/opfs-storage';
-import { setHwc, setClipMask } from '@/lib/hwc-handoff';
+import { setGpuResult } from '@/lib/hwc-handoff';
 
 /** Flatten a 2D pattern array into a Uint32Array for GPU/demosaic use */
 function flattenPattern(pattern: readonly (readonly number[])[], period: number): Uint32Array {
@@ -103,8 +103,7 @@ export function useProcessFile() {
 
       // 8. Demosaic
       const startTime = Date.now();
-      let hwcResult: Float32Array;
-      let clipMaskResult: Float32Array;
+      let gpuResult: import('@/pipeline/postprocess-gpu').PostprocessResult;
       let hPad: number;
       let wPad: number;
       let tileCount: number;
@@ -149,7 +148,6 @@ export function useProcessFile() {
           gpu.accumulateBatch(inferBuf, b, count);
           dispose();
 
-          useAppStore.getState().updateFileProgress(fileId, end, tiles.length);
           b = end;
         }
 
@@ -157,13 +155,10 @@ export function useProcessFile() {
         const hwcBuf = await gpu.finalize();
 
         const ccMatrix = raw.xyzToCam ? buildColorMatrix(raw.xyzToCam) : null;
-        const { hwc, clipMask } = await gpuPostprocess(
+        gpuResult = await gpuPostprocess(
           device, hwcBuf, visWidth, visHeight,
           wb, clipsWb, ccMatrix, raw.drGain,
         );
-
-        hwcResult = hwc;
-        clipMaskResult = clipMask;
       } else {
         // Traditional demosaic: process full image at once (no tile progress)
         const algorithm = method;
@@ -181,17 +176,13 @@ export function useProcessFile() {
         // GPU postprocess: WB → highlight recovery → CC → DR → clip mask
         const ccMatrix = raw.xyzToCam ? buildColorMatrix(raw.xyzToCam) : null;
         const device = await getDevice();
-        const { hwc, clipMask } = await gpuPostprocess(
+        gpuResult = await gpuPostprocess(
           device, rawHwc, visWidth, visHeight,
           wb, clipsWb, ccMatrix, raw.drGain,
         );
-        hwcResult = hwc;
-        clipMaskResult = clipMask;
       }
 
       const inferenceTime = (Date.now() - startTime) / 1000;
-      const hwc = hwcResult;
-      const clipMask = clipMaskResult;
 
       // 11. Compute final display dimensions (after orientation)
       const orientation = raw.orientation;
@@ -202,9 +193,8 @@ export function useProcessFile() {
       // 12. Estimate illuminant color temperature and tint from WB + color matrix
       const { temp: colorTemp, tint } = estimateColorTemperature(wb, raw.camToXyz);
 
-      // Hand off for immediate display
-      setHwc(fileId, hwc);
-      setClipMask(fileId, clipMask);
+      // Hand off GPU buffer for immediate display (zero-copy)
+      setGpuResult(fileId, gpuResult);
 
       const resultMeta: ProcessingResultMeta = {
         exportData: {

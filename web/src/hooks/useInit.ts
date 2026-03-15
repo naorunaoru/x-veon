@@ -2,13 +2,15 @@ import { useEffect } from 'react';
 import { useAppStore } from '@/store';
 import type { QueuedFile } from '@/store';
 import { initWasm } from '@/pipeline/raf-decoder';
-import { initModels, getBackend } from '@/pipeline/inference';
+import { initModels, getBackend, getInferenceDevice } from '@/pipeline/inference';
+import { setSharedDevice } from '@/gl/renderer';
 import { initDemosaicGpuSafe } from '@/pipeline/demosaic';
 import { probeHdrDisplay, hasWindowManagementApi } from '@/gl/hdr-display';
 import { getAllFiles, getSetting } from '@/lib/idb-storage';
 import type { PersistedFile } from '@/lib/idb-storage';
 import { listRawFileIds, deleteAllForFile, readThumbnail } from '@/lib/opfs-storage';
 import type { DemosaicMethod, ExportFormat } from '@/pipeline/types';
+import { deserializeResultMeta } from '@/pipeline/types';
 import type { OpenDrtConfig, PreProcessConfig } from '@/gl/opendrt-params';
 import { matchLens } from '@/lib/lensfun';
 
@@ -29,10 +31,10 @@ async function persistedToQueued(p: PersistedFile): Promise<QueuedFile> {
       fNumber: p.fNumber ?? 0,
     } : null,
     cfaType: p.cfaType,
-    status: 'queued',
+    status: p.status === 'done' && p.resultMeta ? 'done' : 'queued',
     error: null,
     progress: null,
-    result: null,
+    result: p.resultMeta ? deserializeResultMeta(p.resultMeta) : null,
     resultMethod: p.resultMethod,
     lensProfile: p.lensProfile ?? null,
     lookPreset: p.lookPreset,
@@ -80,6 +82,10 @@ export function useInit() {
             selectedFileId: selectedFileId ?? undefined,
           });
         }
+
+        // Share ORT's WebGPU device with the renderer for zero-copy buffer interop
+        const ortDevice = getInferenceDevice();
+        if (ortDevice) setSharedDevice(ortDevice);
 
         const backend = getBackend() ?? 'unknown';
 

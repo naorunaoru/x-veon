@@ -1,36 +1,31 @@
 /**
- * Single-slot transient HWC handoff between processing (producer) and
- * OutputCanvas (consumer). Avoids the OPFS compress/decompress round-trip
- * for immediate display after processing completes.
+ * Single-slot transient handoff between processing (producer) and
+ * OutputCanvas (consumer). Transfers a GPU-resident RGBA32F buffer
+ * directly — no CPU readback involved.
  *
- * At most one Float32Array lives here at a time. Consumed on first read.
+ * At most one buffer lives here at a time. Consumed on first read.
  */
 
-let slot: { key: string; hwc: Float32Array } | null = null;
-let clipSlot: { key: string; mask: Float32Array } | null = null;
-
-export function setHwc(key: string, hwc: Float32Array): void {
-  slot = { key, hwc };
+export interface GpuHandoff {
+  buffer: GPUBuffer;
+  bytesPerRow: number;
 }
 
-export function takeHwc(key: string): Float32Array | null {
-  if (slot?.key === key) {
-    const hwc = slot.hwc;
-    slot = null;
-    return hwc;
+let slot: { key: string; handoff: GpuHandoff } | null = null;
+
+export function setGpuResult(key: string, handoff: GpuHandoff): void {
+  // If there's an unclaimed buffer from a previous run, destroy it
+  if (slot && slot.key !== key) {
+    slot.handoff.buffer.destroy();
   }
-  return null;
+  slot = { key, handoff };
 }
 
-export function setClipMask(key: string, mask: Float32Array): void {
-  clipSlot = { key, mask };
-}
-
-export function takeClipMask(key: string): Float32Array | null {
-  if (clipSlot?.key === key) {
-    const mask = clipSlot.mask;
-    clipSlot = null;
-    return mask;
+export function takeGpuResult(key: string): GpuHandoff | null {
+  if (slot?.key === key) {
+    const handoff = slot.handoff;
+    slot = null;
+    return handoff;
   }
   return null;
 }
