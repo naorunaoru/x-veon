@@ -187,8 +187,24 @@ function formatExposureBias(ev: number): string {
   return `${sign}${ev.toFixed(1)} EV`;
 }
 
+const EMPTY_OPENDRT_OVERRIDES: Partial<OpenDrtConfig> = {};
+const EMPTY_PREPROCESS_OVERRIDES: Partial<PreProcessConfig> = {};
+
+// Reusable typed arrays to avoid per-frame allocations in shootingInfo
+const _tempWbBuf = new Float32Array(3);
+const _tintWbBuf = new Float32Array(3);
+const _baseWbBuf = new Float32Array(3);
+
 export function GradingPanel() {
   const selectedFile = useAppStore((s) => s.files.find((f) => f.id === s.selectedFileId));
+
+  const fileId = selectedFile?.id ?? null;
+  const hasResult = selectedFile?.status === 'done';
+  const lookPreset = selectedFile?.lookPreset ?? 'default';
+  const overrides = selectedFile?.openDrtOverrides ?? EMPTY_OPENDRT_OVERRIDES;
+  const preProcessOverrides = selectedFile?.preProcessOverrides ?? EMPTY_PREPROCESS_OVERRIDES;
+  const resultMeta = selectedFile?.result?.metadata;
+  const exportData = selectedFile?.result?.exportData;
   const setFileLookPreset = useAppStore((s) => s.setFileLookPreset);
   const setFileOpenDrtOverride = useAppStore((s) => s.setFileOpenDrtOverride);
   const resetFileOpenDrtOverrides = useAppStore((s) => s.resetFileOpenDrtOverrides);
@@ -196,14 +212,6 @@ export function GradingPanel() {
   const resetFilePreProcessOverrides = useAppStore((s) => s.resetFilePreProcessOverrides);
   const displayHdr = useAppStore((s) => s.displayHdr);
   const displayHdrHeadroom = useAppStore((s) => s.displayHdrHeadroom);
-
-  const fileId = selectedFile?.id ?? null;
-  const hasResult = selectedFile?.status === 'done';
-  const lookPreset = selectedFile?.lookPreset ?? 'default';
-  const overrides = selectedFile?.openDrtOverrides ?? {};
-  const preProcessOverrides = selectedFile?.preProcessOverrides ?? {};
-  const resultMeta = selectedFile?.result?.metadata;
-  const exportData = selectedFile?.result?.exportData;
 
   const hdrHeadroom = displayHdr ? displayHdrHeadroom : undefined;
   const baseConfig = useMemo(() => configFromPreset(lookPreset, hdrHeadroom), [lookPreset, hdrHeadroom]);
@@ -272,20 +280,20 @@ export function GradingPanel() {
     const exposure = effectivePreProcess('exposure');
 
     // Base values (no adjustment) — used as slider default positions
-    const baseWb = new Float32Array([wb[0], 1.0, wb[2]]);
-    const { temp: baseTempK, tint: baseTint } = estimateColorTemperature(baseWb, camToXyz);
+    _baseWbBuf[0] = wb[0]; _baseWbBuf[1] = 1.0; _baseWbBuf[2] = wb[2];
+    const { temp: baseTempK, tint: baseTint } = estimateColorTemperature(_baseWbBuf, camToXyz);
 
     // Decouple CCT and tint estimation: compute each from its own slider only.
     // R/B gain doesn't trace the Planckian locus exactly, so applying both
     // together causes cross-talk (temp changes tint display and vice versa).
-    const tempWb = new Float32Array([
-      wb[0] * Math.pow(2, temp), 1.0, wb[2] * Math.pow(2, -temp),
-    ]);
-    const tintWb = new Float32Array([
-      wb[0], Math.pow(2, -tint), wb[2],
-    ]);
-    const { temp: cct } = estimateColorTemperature(tempWb, camToXyz);
-    const { tint: cctTint } = estimateColorTemperature(tintWb, camToXyz);
+    _tempWbBuf[0] = wb[0] * Math.pow(2, temp);
+    _tempWbBuf[1] = 1.0;
+    _tempWbBuf[2] = wb[2] * Math.pow(2, -temp);
+    _tintWbBuf[0] = wb[0];
+    _tintWbBuf[1] = Math.pow(2, -tint);
+    _tintWbBuf[2] = wb[2];
+    const { temp: cct } = estimateColorTemperature(_tempWbBuf, camToXyz);
+    const { tint: cctTint } = estimateColorTemperature(_tintWbBuf, camToXyz);
 
     return {
       baseBias: resultMeta.exposureBias,

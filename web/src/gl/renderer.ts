@@ -4,16 +4,12 @@ import type { GradingConfig, TonescaleParams } from './opendrt-params';
 import { SRGB_TO_P3D65, P3D65_TO_REC709, P3D65_TO_REC2020, IDENTITY_3X3, computeCwpAdaptMatrix } from './color-matrices';
 import WGSL_SRC from './shaders/opendrt.wgsl?raw';
 import HDR_HISTOGRAM_WGSL from './shaders/histogram-hdr.wgsl?raw';
+import HISTOGRAM_REDUCE_WGSL from './shaders/histogram-reduce.wgsl?raw';
+import HISTOGRAM_VIZ_WGSL from './shaders/histogram-viz.wgsl?raw';
 
 export type DisplayGamut = 'rec709' | 'rec2020';
 export type HistogramMode = 'linear' | 'log' | 'display-linear' | 'display-log';
-
-export interface HistogramData {
-  r: Uint32Array;
-  g: Uint32Array;
-  b: Uint32Array;
-  l: Uint32Array;
-}
+export type HistogramChannel = 'rgb' | 'luma' | 'ev';
 
 const HIST_BINS = 1024;  // 4 channels × 256 bins
 const HIST_BYTES = HIST_BINS * 4;  // 4096 bytes
@@ -118,23 +114,32 @@ export class HdrRenderer {
   private exportW = 0;
   private exportH = 0;
 
-  // Histogram resources
+  // Histogram compute resources
   private histogramBinsBuf!: GPUBuffer;
-  private histogramReadBuf!: GPUBuffer;
-  private histogramMapped = false;
-  private lastHistogramData: HistogramData | null = null;
-
-  // HDR histogram resources
   private hdrHistComputePipeline!: GPUComputePipeline;
   private hdrHistBindGroupLayout!: GPUBindGroupLayout;
   private hdrHistComputeBindGroup: GPUBindGroup | null = null;
   private hdrHistParamsBuf!: GPUBuffer;
+  private hdrHistParamsData = new Float32Array(8);  // reused every frame
   private _histogramMode: HistogramMode = 'linear';
+  private _histogramChannel: HistogramChannel = 'rgb';
 
   // Display histogram resources (post-tonemapped)
   private dispHistTex!: GPUTexture;
   private dispHistRenderPipeline!: GPURenderPipeline;
   private dispHistBindGroup!: GPUBindGroup;  // fixed — always reads from dispHistTex
+
+  // Histogram visualization (GPU-rendered)
+  private histReducePipeline!: GPUComputePipeline;
+  private histReduceBindGroup!: GPUBindGroup;
+  private histReduceResultBuf!: GPUBuffer;
+  private histReduceFlagBuf!: GPUBuffer;
+  private histVizPipeline!: GPURenderPipeline;
+  private histVizBindGroup!: GPUBindGroup;
+  private histVizConfigBuf!: GPUBuffer;
+  private histVizConfigData = new Float32Array(4);  // canvas_w, canvas_h, mode, clip_bin
+  private histVizCanvas: HTMLCanvasElement | null = null;
+  private histVizContext: GPUCanvasContext | null = null;
 
   // Saved display state for restore after export render
   private displayTs: TonescaleParams | null = null;
@@ -249,17 +254,12 @@ export class HdrRenderer {
     const uniformData = new Float32Array(UNIFORM_FLOATS);
 
     // ── Histogram resources ───────────────────────────────────────────
-    // Storage buffer for atomic bins + readback buffer
     const histogramBinsBuf = device.createBuffer({
       size: HIST_BYTES,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
     });
-    const histogramReadBuf = device.createBuffer({
-      size: HIST_BYTES,
-      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-    });
 
-    // ── HDR histogram resources ─────────────────────────────────────
+    // ── HDR histogram compute ───────────────────────────────────────
     const hdrHistBindGroupLayout = device.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: 'unfilterable-float' } },
@@ -275,7 +275,7 @@ export class HdrRenderer {
     });
 
     const hdrHistParamsBuf = device.createBuffer({
-      size: 32,  // 2 × vec4f: (exposure, wb_temp, wb_tint, mode), (range_lo, range_hi, 0, 0)
+      size: 32,  // 2 × vec4f: (exposure, wb_temp, wb_tint, mode), (range_lo, range_hi, stride, pad)
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
@@ -313,15 +313,96 @@ export class HdrRenderer {
       ],
     });
 
+    // ── Histogram reduce (scan bins → range + max) ──────────────────
+    const histReduceResultBuf = device.createBuffer({
+      size: 16,  // vec4f: (bin_lo, bin_hi, max_log, pad)
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+
+    const histReduceFlagBuf = device.createBuffer({
+      size: 4,   // u32: force_zero_lo
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    const histReduceLayout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
+      ],
+    });
+
+    const histReduceModule = device.createShaderModule({ code: HISTOGRAM_REDUCE_WGSL });
+    const histReducePipeline = device.createComputePipeline({
+      layout: device.createPipelineLayout({ bindGroupLayouts: [histReduceLayout] }),
+      compute: { module: histReduceModule, entryPoint: 'main' },
+    });
+
+    const histReduceBindGroup = device.createBindGroup({
+      layout: histReduceLayout,
+      entries: [
+        { binding: 0, resource: { buffer: histogramBinsBuf } },
+        { binding: 1, resource: { buffer: histReduceResultBuf } },
+        { binding: 2, resource: { buffer: histReduceFlagBuf } },
+      ],
+    });
+
+    // ── Histogram visualization (GPU-rendered) ──────────────────────
+    const histVizConfigBuf = device.createBuffer({
+      size: 16,  // vec4f: (canvas_w, canvas_h, mode, clip_bin)
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    const histVizLayout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
+        { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+      ],
+    });
+
+    const histVizModule = device.createShaderModule({ code: HISTOGRAM_VIZ_WGSL });
+    const histVizPipeline = device.createRenderPipeline({
+      layout: device.createPipelineLayout({ bindGroupLayouts: [histVizLayout] }),
+      vertex: { module: histVizModule, entryPoint: 'vs_main' },
+      fragment: {
+        module: histVizModule,
+        entryPoint: 'fs_main',
+        targets: [{
+          format: navigator.gpu.getPreferredCanvasFormat(),
+          blend: {
+            color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' },
+            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
+          },
+        }],
+      },
+      primitive: { topology: 'triangle-list' },
+    });
+
+    const histVizBindGroup = device.createBindGroup({
+      layout: histVizLayout,
+      entries: [
+        { binding: 0, resource: { buffer: histogramBinsBuf } },
+        { binding: 1, resource: { buffer: histReduceResultBuf } },
+        { binding: 2, resource: { buffer: histVizConfigBuf } },
+      ],
+    });
+
     // Assign histogram resources
     renderer.histogramBinsBuf = histogramBinsBuf;
-    renderer.histogramReadBuf = histogramReadBuf;
     renderer.hdrHistComputePipeline = hdrHistComputePipeline;
     renderer.hdrHistBindGroupLayout = hdrHistBindGroupLayout;
     renderer.hdrHistParamsBuf = hdrHistParamsBuf;
     renderer.dispHistTex = dispHistTex;
     renderer.dispHistRenderPipeline = dispHistRenderPipeline;
     renderer.dispHistBindGroup = dispHistBindGroup;
+    renderer.histReducePipeline = histReducePipeline;
+    renderer.histReduceBindGroup = histReduceBindGroup;
+    renderer.histReduceResultBuf = histReduceResultBuf;
+    renderer.histReduceFlagBuf = histReduceFlagBuf;
+    renderer.histVizPipeline = histVizPipeline;
+    renderer.histVizBindGroup = histVizBindGroup;
+    renderer.histVizConfigBuf = histVizConfigBuf;
 
     // Set constant uniforms: matrices + flags
     renderer.setMat3(U_SRGB_P3_C0, SRGB_TO_P3D65);
@@ -358,6 +439,31 @@ export class HdrRenderer {
 
   set histogramMode(mode: HistogramMode) {
     this._histogramMode = mode;
+  }
+
+  get histogramChannel(): HistogramChannel {
+    return this._histogramChannel;
+  }
+
+  set histogramChannel(ch: HistogramChannel) {
+    this._histogramChannel = ch;
+  }
+
+  setHistogramCanvas(canvas: HTMLCanvasElement | null): void {
+    if (canvas) {
+      const ctx = canvas.getContext('webgpu');
+      if (!ctx) return;
+      ctx.configure({
+        device: this.device,
+        format: navigator.gpu.getPreferredCanvasFormat(),
+        alphaMode: 'premultiplied',
+      });
+      this.histVizCanvas = canvas;
+      this.histVizContext = ctx;
+    } else {
+      this.histVizCanvas = null;
+      this.histVizContext = null;
+    }
   }
 
   static isSupported(): boolean {
@@ -479,23 +585,23 @@ export class HdrRenderer {
     pass.draw(3);
     pass.end();
 
-    // ── Histogram (skip if readback buffer is currently mapped) ─────
+    // ── Histogram compute ─────────────────────────────────────────────
     const isDisplay = this._histogramMode.startsWith('display-');
     const isLog = this._histogramMode.endsWith('log');
 
-    if (!this.histogramMapped && !isDisplay && this.hdrHistComputeBindGroup) {
+    if (!isDisplay && this.hdrHistComputeBindGroup) {
       // Scene histogram: compute from imageTex in the same submission
       encoder.clearBuffer(this.histogramBinsBuf);
 
-      this.device.queue.writeBuffer(this.hdrHistParamsBuf, 0, new Float32Array([
-        this.uniformData[U_PREPROCESS],      // exposure
-        this.uniformData[U_PREPROCESS + 1],  // wb_temp
-        this.uniformData[U_PREPROCESS + 2],  // wb_tint
-        isLog ? 1.0 : 0.0,                   // mode
-        isLog ? -8.0 : 0.0,                  // range_lo
-        isLog ? 8.0 : 2.0,                   // range_hi
-        4, 0,                                 // stride, pad
-      ]));
+      const p = this.hdrHistParamsData;
+      p[0] = this.uniformData[U_PREPROCESS];      // exposure
+      p[1] = this.uniformData[U_PREPROCESS + 1];  // wb_temp
+      p[2] = this.uniformData[U_PREPROCESS + 2];  // wb_tint
+      p[3] = isLog ? 1.0 : 0.0;                   // mode
+      p[4] = isLog ? -8.0 : 0.0;                  // range_lo
+      p[5] = isLog ? 8.0 : 2.0;                   // range_hi
+      p[6] = 4; p[7] = 0;                         // stride, pad
+      this.device.queue.writeBuffer(this.hdrHistParamsBuf, 0, p);
 
       const computePass = encoder.beginComputePass();
       computePass.setPipeline(this.hdrHistComputePipeline);
@@ -505,37 +611,20 @@ export class HdrRenderer {
         Math.ceil(this.imgH / 4 / 16),
       );
       computePass.end();
+    }
 
-      encoder.copyBufferToBuffer(this.histogramBinsBuf, 0, this.histogramReadBuf, 0, HIST_BYTES);
+    // ── Histogram reduce + viz (scene path only) ───────────────────
+    // Display path appends reduce+viz in renderDisplayHistogram after bins are computed
+    if (!isDisplay && this.histVizContext) {
+      this.encodeHistogramViz(encoder);
     }
 
     this.device.queue.submit([encoder.finish()]);
 
     // Display histogram: separate submission (needs exportMode=1 for display-linear output)
-    if (!this.histogramMapped && isDisplay && this.bindGroup) {
+    if (isDisplay && this.bindGroup) {
       this.renderDisplayHistogram(isLog);
     }
-  }
-
-  async getHistogramData(): Promise<HistogramData | null> {
-    if (this.histogramMapped) return this.lastHistogramData;
-    this.histogramMapped = true;
-    try {
-      await this.histogramReadBuf.mapAsync(GPUMapMode.READ);
-      const mapped = new Uint32Array(this.histogramReadBuf.getMappedRange());
-      this.lastHistogramData = {
-        r: new Uint32Array(mapped.subarray(0, 256)),
-        g: new Uint32Array(mapped.subarray(256, 512)),
-        b: new Uint32Array(mapped.subarray(512, 768)),
-        l: new Uint32Array(mapped.subarray(768, 1024)),
-      };
-      this.histogramReadBuf.unmap();
-    } catch {
-      // GPU device lost or buffer destroyed — return stale data
-    } finally {
-      this.histogramMapped = false;
-    }
-    return this.lastHistogramData;
   }
 
   /**
@@ -638,9 +727,11 @@ export class HdrRenderer {
     this.exportBuf?.destroy();
     this.uniformBuffer.destroy();
     this.histogramBinsBuf.destroy();
-    this.histogramReadBuf.destroy();
     this.hdrHistParamsBuf.destroy();
     this.dispHistTex.destroy();
+    this.histReduceResultBuf.destroy();
+    this.histReduceFlagBuf.destroy();
+    this.histVizConfigBuf.destroy();
     // Don't call context.unconfigure() — the canvas context is shared across
     // renderer instances (canvas.getContext('webgpu') returns the same object).
     // In React strict mode, two create() calls race and the cancelled one's
@@ -651,6 +742,8 @@ export class HdrRenderer {
     this.exportBuf = null;
     this.bindGroup = null;
     this.hdrHistComputeBindGroup = null;
+    this.histVizCanvas = null;
+    this.histVizContext = null;
   }
 
   // ── Private helpers ───────────────────────────────────────────────────
@@ -756,10 +849,47 @@ export class HdrRenderer {
     d[U_PREPROCESS + 3] = cfg.sharpen_amount;
   }
 
+  /** Append histogram reduce + visualization render passes to an encoder. */
+  private encodeHistogramViz(encoder: GPUCommandEncoder): void {
+    const forceZeroLo = this._histogramChannel !== 'ev' ? 1 : 0;
+    this.device.queue.writeBuffer(this.histReduceFlagBuf, 0, new Uint32Array([forceZeroLo]));
+
+    const c = this.histVizConfigData;
+    const vizCanvas = this.histVizCanvas!;
+    c[0] = vizCanvas.width;
+    c[1] = vizCanvas.height;
+    c[2] = this._histogramChannel === 'rgb' ? 0.0 : this._histogramChannel === 'luma' ? 1.0 : 2.0;
+    c[3] = Math.floor((1.0 / 1.2) * 255);
+    this.device.queue.writeBuffer(this.histVizConfigBuf, 0, c);
+
+    // Reduce pass: scan bins → range + max
+    const reducePass = encoder.beginComputePass();
+    reducePass.setPipeline(this.histReducePipeline);
+    reducePass.setBindGroup(0, this.histReduceBindGroup);
+    reducePass.dispatchWorkgroups(1);
+    reducePass.end();
+
+    // Viz render pass: draw histogram to viz canvas
+    const vizView = this.histVizContext!.getCurrentTexture().createView();
+    const vizPass = encoder.beginRenderPass({
+      colorAttachments: [{
+        view: vizView,
+        loadOp: 'clear',
+        storeOp: 'store',
+        clearValue: { r: 0, g: 0, b: 0, a: 0 },
+      }],
+    });
+    vizPass.setPipeline(this.histVizPipeline);
+    vizPass.setBindGroup(0, this.histVizBindGroup);
+    vizPass.draw(3);
+    vizPass.end();
+  }
+
   private renderDisplayHistogram(isLog: boolean): void {
     const d = this.uniformData;
     d[U_FLAGS + 2] = 1.0;  // exportMode on → raw display-linear output
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, d as Float32Array<ArrayBuffer>);
+    // Write only the exportMode float (offset = U_FLAGS+2 floats = (U_FLAGS+2)*4 bytes)
+    this.device.queue.writeBuffer(this.uniformBuffer, (U_FLAGS + 2) * 4, d as Float32Array<ArrayBuffer>, U_FLAGS + 2, 1);
 
     const encoder = this.device.createCommandEncoder();
 
@@ -779,13 +909,13 @@ export class HdrRenderer {
 
     // Compute histogram from display texture (exposure/WB zeroed → pass-through)
     encoder.clearBuffer(this.histogramBinsBuf);
-    this.device.queue.writeBuffer(this.hdrHistParamsBuf, 0, new Float32Array([
-      0, 0, 0,                      // exposure=0, wb=0 (already baked in)
-      isLog ? 1.0 : 0.0,            // mode
-      isLog ? -8.0 : 0.0,           // range_lo
-      isLog ? 8.0 : 2.0,            // range_hi
-      1, 0,                          // stride=1 (texture is already small), pad
-    ]));
+    const p = this.hdrHistParamsData;
+    p[0] = 0; p[1] = 0; p[2] = 0;       // exposure=0, wb=0 (already baked in)
+    p[3] = isLog ? 1.0 : 0.0;            // mode
+    p[4] = isLog ? -8.0 : 0.0;           // range_lo
+    p[5] = isLog ? 8.0 : 2.0;            // range_hi
+    p[6] = 1; p[7] = 0;                  // stride=1 (texture is already small), pad
+    this.device.queue.writeBuffer(this.hdrHistParamsBuf, 0, p);
 
     const computePass = encoder.beginComputePass();
     computePass.setPipeline(this.hdrHistComputePipeline);
@@ -796,12 +926,14 @@ export class HdrRenderer {
     );
     computePass.end();
 
-    encoder.copyBufferToBuffer(this.histogramBinsBuf, 0, this.histogramReadBuf, 0, HIST_BYTES);
+    if (this.histVizContext) {
+      this.encodeHistogramViz(encoder);
+    }
+
     this.device.queue.submit([encoder.finish()]);
 
-    // Restore exportMode
+    // Restore exportMode in CPU-side data; GPU gets it on next render()'s full uniform write
     d[U_FLAGS + 2] = 0.0;
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, d as Float32Array<ArrayBuffer>);
   }
 
   private ensureExportResources(w: number, h: number): void {
