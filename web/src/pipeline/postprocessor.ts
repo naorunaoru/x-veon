@@ -92,15 +92,23 @@ export function createTileBlender(
 }
 
 export function cropToHWC(
-  output: Float32Array, _hPad: number, wPad: number,
+  output: Float32Array, hPad: number, wPad: number,
   padTop: number, padLeft: number, hOrig: number, wOrig: number,
 ): Float32Array {
-  const hwc = new Float32Array(hOrig * wOrig * 3);
-  const rowBytes = wOrig * 3;
+  const planeSize = hPad * wPad;
+  const n = hOrig * wOrig;
+  const hwc = new Float32Array(n * 3);
 
   for (let y = 0; y < hOrig; y++) {
-    const src = ((y + padTop) * wPad + padLeft) * 3;
-    hwc.set(output.subarray(src, src + rowBytes), y * rowBytes);
+    const srcRow = (y + padTop) * wPad + padLeft;
+    const dstRow = y * wOrig;
+    for (let x = 0; x < wOrig; x++) {
+      const srcIdx = srcRow + x;
+      const dstIdx = (dstRow + x) * 3;
+      hwc[dstIdx]     = output[srcIdx];
+      hwc[dstIdx + 1] = output[planeSize + srcIdx];
+      hwc[dstIdx + 2] = output[2 * planeSize + srcIdx];
+    }
   }
 
   return hwc;
