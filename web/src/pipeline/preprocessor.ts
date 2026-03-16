@@ -2,7 +2,8 @@ import { XTRANS_PATTERN, BAYER_PATTERN } from './constants';
 import type { CfaInfo, CroppedImage, PaddedImage, TileGrid, ChannelMasks } from './types';
 
 /** darktable's clip threshold factor (0.987 × white level). */
-export const CLIP_MAGIC = 0.987;
+// lowered because huh
+export const CLIP_MAGIC = 0.96;
 
 export function cropToVisible(
   rawData: Uint16Array, fullWidth: number, fullHeight: number, crops: Uint16Array,
@@ -92,46 +93,94 @@ export function findPatternShift(cfaStr: string, cfaWidth: number, crops: Uint16
 }
 
 /**
- * Per-channel normalized clip levels from the 4-element whiteLevels array.
- * Maps CFA positions to R/G/B using the first 2×2 block of the CFA string,
- * then computes (whiteLevel[c] - black) / range for each channel.
+ * Per-channel normalized clip levels.
+ * With per-CFA-position normalization in normalizeRawCfa, every channel
+ * clips at exactly 1.0, so clips are simply CLIP_MAGIC for all channels.
  */
-export function channelClips(
-  cfaStr: string, cfaWidth: number, whiteLevels: Uint16Array,
-  black: number, range: number,
-): [number, number, number] {
-  // Default to whiteLevels[0] (= 1.0 in normalized space)
-  const wl: [number, number, number] = [
-    whiteLevels[0], whiteLevels[0], whiteLevels[0],
-  ];
-  // Map first 2×2 of CFA pattern to R/G/B, taking minimum per channel
-  for (let y = 0; y < 2; y++) {
-    for (let x = 0; x < 2; x++) {
-      const ci = y * cfaWidth + x;
-      const wi = y * 2 + x;
-      if (wi >= whiteLevels.length || ci >= cfaStr.length) continue;
-      const ch = cfaStr[ci] === 'R' ? 0 : cfaStr[ci] === 'G' ? 1 : 2;
-      wl[ch] = Math.min(wl[ch], whiteLevels[wi]);
+export function channelClips(): [number, number, number] {
+  return [CLIP_MAGIC, CLIP_MAGIC, CLIP_MAGIC];
+}
+
+/**
+ * White-point calibration: detect actual sensor saturation from raw data.
+ *
+ * Camera databases (rawloader TOML, etc.) often report the theoretical ADC
+ * maximum (e.g. 16383 for 14-bit) rather than the real photosite saturation
+ * which can be significantly lower.  RawSpeed's cameras.xml tends to have
+ * empirically calibrated values, so darktable doesn't hit this problem.
+ *
+ * For each 2×2 CFA position we find the actual data maximum.  If a
+ * meaningful number of pixels sit at that maximum (≥ 0.01 % of that
+ * position's pixel count) — indicating real sensor clipping — AND the
+ * maximum is below the metadata white level, we adopt the measured value
+ * as the effective white point.
+ */
+export function calibrateWhiteLevels(
+  rawData: Uint16Array, width: number, height: number,
+  whiteLevels: Uint16Array,
+): Uint16Array {
+  const max = [0, 0, 0, 0];
+  const cnt = [0, 0, 0, 0];
+
+  for (let y = 0; y < height; y++) {
+    const row = y * width;
+    const yBit = (y & 1) << 1;
+    for (let x = 0; x < width; x++) {
+      const id = yBit | (x & 1);
+      const v = rawData[row + x];
+      if (v > max[id]) max[id] = v;
+      cnt[id]++;
     }
   }
-  return [
-    (wl[0] - black) / range * CLIP_MAGIC,
-    (wl[1] - black) / range * CLIP_MAGIC,
-    (wl[2] - black) / range * CLIP_MAGIC,
-  ];
+
+  // Second pass: count pixels at the detected maximum (within 1 DN)
+  const atMax = [0, 0, 0, 0];
+  for (let y = 0; y < height; y++) {
+    const row = y * width;
+    const yBit = (y & 1) << 1;
+    for (let x = 0; x < width; x++) {
+      const id = yBit | (x & 1);
+      if (rawData[row + x] >= max[id] - 1) atMax[id]++;
+    }
+  }
+
+  const calibrated = new Uint16Array(4);
+  for (let i = 0; i < 4; i++) {
+    const wl = i < whiteLevels.length ? whiteLevels[i] : whiteLevels[0];
+    // Clipping detected AND actual saturation is below metadata white level
+    if (atMax[i] > cnt[i] * 1e-4 && max[i] < wl) {
+      calibrated[i] = max[i];
+    } else {
+      calibrated[i] = wl;
+    }
+  }
+  return calibrated;
 }
 
 export function normalizeRawCfa(
   rawData: Uint16Array, width: number, height: number,
   blackLevels: Uint16Array, whiteLevels: Uint16Array,
 ): Float32Array {
-  const black = blackLevels[0];
-  const white = whiteLevels[0];
-  const range = white - black;
+  // Per-CFA-position black/white calibration (matches darktable rawprepare).
+  // Each 2×2 photosite position gets its own black subtraction and range,
+  // so every channel clips at exactly 1.0 after normalization.
+  const sub = new Float32Array(4);
+  const div = new Float32Array(4);
+  for (let i = 0; i < 4; i++) {
+    const bl = i < blackLevels.length ? blackLevels[i] : blackLevels[0];
+    sub[i] = bl;
+    div[i] = whiteLevels[i] - bl;
+  }
+
   const n = width * height;
   const out = new Float32Array(n);
-  for (let i = 0; i < n; i++) {
-    out[i] = (rawData[i] - black) / range;
+  for (let y = 0; y < height; y++) {
+    const row = y * width;
+    const yBit = (y & 1) << 1;
+    for (let x = 0; x < width; x++) {
+      const id = yBit | (x & 1);
+      out[row + x] = (rawData[row + x] - sub[id]) / div[id];
+    }
   }
   return out;
 }

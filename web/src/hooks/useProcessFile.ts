@@ -4,6 +4,7 @@ import { decodeRaw } from '@/pipeline/raf-decoder';
 import {
   cropToVisible,
   findPatternShift,
+  calibrateWhiteLevels,
   normalizeRawCfa,
   channelClips,
   padToAlignment,
@@ -67,41 +68,45 @@ export function useProcessFile() {
       const visWidth = visible.width;
       const visHeight = visible.height;
 
-      // 3. Normalize (no WB — model trained on raw CFA data)
+      // 3. White-point calibration: detect actual sensor saturation
+      const whiteLevels = calibrateWhiteLevels(
+        visible.data, visWidth, visHeight, raw.whiteLevels,
+      );
+      console.log(`WP calibration: metadata=[${Array.from(raw.whiteLevels)}] calibrated=[${Array.from(whiteLevels)}] black=[${Array.from(raw.blackLevels)}]`);
+
+      // 4. Normalize (no WB — model trained on raw CFA data)
       let cfa: Float32Array | null = normalizeRawCfa(
-        visible.data, visWidth, visHeight, raw.blackLevels, raw.whiteLevels,
+        visible.data, visWidth, visHeight, raw.blackLevels, whiteLevels,
       );
       visible = null!;
 
-      // 4. WB coefficients (normalize to G=1, applied post-demosaic on GPU)
+      // 5. WB coefficients (normalize to G=1, applied post-demosaic on GPU)
       const wb = new Float32Array([
         raw.wbCoeffs[0] / raw.wbCoeffs[1],
         1.0,
         raw.wbCoeffs[2] / raw.wbCoeffs[1],
       ]);
 
-      // 5. Find CFA pattern shift and type
+      // 6. Find CFA pattern shift and type
       const cfaInfo = findPatternShift(raw.cfaStr, raw.cfaWidth, raw.crops);
       const { pattern, period, dy, dx, cfaType } = cfaInfo;
       console.log(`CFA: ${cfaType} (period=${period}, shift=dy${dy} dx${dx})`);
 
-      // 6. Per-channel clip thresholds
-      const black = raw.blackLevels[0];
-      const range = raw.whiteLevels[0] - black;
-      const clipNorm = channelClips(raw.cfaStr, raw.cfaWidth, raw.whiteLevels, black, range);
+      // 7. Per-channel clip thresholds (all 0.987 after per-CFA-position normalization)
+      const clipNorm = channelClips();
       // WB-scaled clips for GPU postprocessor (HL recovery operates on WB'd data)
       const clipsWb: [number, number, number] = [
         clipNorm[0] * wb[0], clipNorm[1] * wb[1], clipNorm[2] * wb[2],
       ];
 
-      // 7. Pad for alignment
+      // 8. Pad for alignment
       const method: DemosaicMethod = useAppStore.getState().demosaicMethod;
       let padded = padToAlignment(cfa, visWidth, visHeight, dy, dx);
       const padTop = padded.padTop;
       const padLeft = padded.padLeft;
       if (padded.data !== cfa) cfa = null;
 
-      // 8. Demosaic
+      // 9. Demosaic
       const startTime = Date.now();
       let gpuResult: import('@/pipeline/postprocess-gpu').PostprocessResult;
       let hPad: number;

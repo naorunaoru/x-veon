@@ -23,7 +23,7 @@ import cv2
 HL_POWERF = 3.0          # cube-root/cube for perceptual linearity
 HL_BORDER = 8            # plane border padding
 # CLIP_MAGIC = 0.987       # darktable's clip threshold factor
-CLIP_MAGIC = 0.9
+CLIP_MAGIC = 0.96
 MIN_SEGMENT_SIZE = 4
 SEG_ID_MASK = 0x40000
 MAX_SLOTS = SEG_ID_MASK - 2
