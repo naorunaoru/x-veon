@@ -1,0 +1,252 @@
+{
+  "docs": [
+    {
+      "name": "codebase-layout",
+      "title": "Project Structure and Codebase Layout",
+      "description": "Overview of the project organization: root-level training scripts, web/ app, src/ (legacy, pending removal), tests/, and how the pieces connect.",
+      "scope": ["*.py", "src/**", "web/package.json", ".github/**"],
+      "tags": ["overview", "structure"],
+      "dependsOn": []
+    },
+    {
+      "name": "cfa-pattern-system",
+      "title": "CFA Pattern Definitions, Masking, and Mosaicing",
+      "description": "The X-Trans 6x6 and Bayer 2x2 pattern representations, CFA_REGISTRY, make_channel_masks(), mosaic(), and how CFA patterns are tiled and applied throughout training and inference.",
+      "scope": ["cfa.py", "xtrans_pattern.py"],
+      "tags": ["cfa", "pattern", "core"],
+      "dependsOn": []
+    },
+    {
+      "name": "cfa-alignment-detection",
+      "title": "CFA Phase Shift Detection and Alignment",
+      "description": "How the system detects CFA phase offset relative to a canonical origin — find_pattern_shift(), detect_cfa_from_raw(), padding to canonical alignment. Used in both Python inference and the web preprocessor.",
+      "scope": ["cfa.py", "web/src/pipeline/preprocessor.ts", "web/src/pipeline/constants.ts"],
+      "tags": ["cfa", "alignment", "preprocessing"],
+      "dependsOn": ["cfa-pattern-system"]
+    },
+    {
+      "name": "unet-model-architecture",
+      "title": "U-Net Demosaicing Model Architecture",
+      "description": "The XTransUNet encoder-decoder: 4 levels with skip connections, residual CFA skip for exposure-agnostic output, CFA-agnostic 4-channel input (CFA value + 3 binary masks), configurable base_width.",
+      "scope": ["model.py"],
+      "tags": ["model", "neural-net", "architecture"],
+      "dependsOn": ["cfa-pattern-system"]
+    },
+    {
+      "name": "onnx-export",
+      "title": "ONNX Export Pipeline for Browser Inference",
+      "description": "How the PyTorch model is exported to ONNX format: fp16 conversion, metadata embedding, self-contained file, PSNR-based verification against the PyTorch original.",
+      "scope": ["export_onnx.py"],
+      "tags": ["model", "onnx", "export", "deployment"],
+      "dependsOn": ["unet-model-architecture"]
+    },
+    {
+      "name": "dataset-build",
+      "title": "Training Dataset Build from RAW Files",
+      "description": "How RAW camera files become .npy training data: demosaic with DHT/AHD, black-level subtraction, normalization without clipping, 4x area-average downscale, metadata JSON sidecar.",
+      "scope": ["build_dataset.py"],
+      "tags": ["dataset", "training", "raw-processing"],
+      "dependsOn": ["cfa-pattern-system"]
+    },
+    {
+      "name": "training-augmentations",
+      "title": "Training Data Augmentation Strategy",
+      "description": "CFA-aware augmentations during training: random crops aligned to CFA period, safe flips, additive Gaussian noise, white balance perturbation in log space, exposure shift toward clipping, OLPF blur simulation.",
+      "scope": ["dataset.py"],
+      "tags": ["dataset", "training", "augmentation"],
+      "dependsOn": ["cfa-pattern-system", "dataset-build"]
+    },
+    {
+      "name": "torture-patterns",
+      "title": "Synthetic Torture Test Patterns",
+      "description": "Procedurally generated worst-case patterns (13 types) with 4x supersampling: diagonal stripes, Siemens star, Nyquist grid, chromatic edges, Julia fractals, Perlin noise. Purpose and mixing strategy during training.",
+      "scope": ["torture_v2.py"],
+      "tags": ["dataset", "training", "torture-tests"],
+      "dependsOn": ["dataset-build"]
+    },
+    {
+      "name": "loss-functions",
+      "title": "Composite Demosaicing Loss Functions",
+      "description": "The DemosaicLoss system combining L1, MS-SSIM, Sobel gradient, chroma artifact, and color bias losses. Per-channel normalization for X-Trans green imbalance. Base vs finetune presets.",
+      "scope": ["losses.py"],
+      "tags": ["training", "loss", "optimization"],
+      "dependsOn": ["unet-model-architecture"]
+    },
+    {
+      "name": "training-loop",
+      "title": "Training Loop and Fine-tuning Modes",
+      "description": "The train.py training orchestration: AMP mixed precision, mode switching (train → finetune), torture pattern mixing, checkpoint management (best.pt, latest.pt), validation with PSNR tracking.",
+      "scope": ["train.py"],
+      "tags": ["training", "loop", "checkpoints"],
+      "dependsOn": ["loss-functions", "training-augmentations", "torture-patterns"]
+    },
+    {
+      "name": "raw-decoding-wasm",
+      "title": "RAW File Decoding via WASM",
+      "description": "The Rust WASM rawloader module for decoding RAF, CR2, ARW, NEF files in the browser. Metadata extraction (WB, black/white levels, XYZ matrix, crop boundaries, DR gain). Lazy initialization.",
+      "scope": ["web/src/pipeline/raf-decoder.ts", "web/src/pipeline/raf-thumbnail.ts"],
+      "tags": ["web", "wasm", "decoding", "raw"],
+      "dependsOn": []
+    },
+    {
+      "name": "cfa-preprocessing-web",
+      "title": "CFA Preprocessing in the Web Pipeline",
+      "description": "Preparing decoded CFA data for demosaicing: crop-to-visible, normalize to [0,1], white balance multiplication, mirror-pad to canonical CFA alignment, tile generation (288x288/48px overlap), channel mask building.",
+      "scope": ["web/src/pipeline/preprocessor.ts"],
+      "tags": ["web", "preprocessing", "cfa", "pipeline"],
+      "dependsOn": ["cfa-alignment-detection", "raw-decoding-wasm"]
+    },
+    {
+      "name": "highlight-reconstruction-opposed",
+      "title": "Opposed-Channel Highlight Inpainting",
+      "description": "First stage of highlight recovery: using unclipped color channels to estimate clipped ones in cube-root (perceptual) space. Fast, per-pixel operation applied before segmentation pass.",
+      "scope": ["web/src/pipeline/preprocessor.ts"],
+      "tags": ["web", "highlights", "inpainting", "pipeline"],
+      "dependsOn": ["cfa-preprocessing-web"]
+    },
+    {
+      "name": "highlight-reconstruction-segmentation",
+      "title": "Segmentation-Based Highlight Reconstruction",
+      "description": "Second-stage highlight recovery adapted from darktable: superpixel planes at 1/3 resolution, flood-fill segmentation of clipped regions, morphological closing, candidate selection, pseudo-chrominance transfer.",
+      "scope": ["web/src/pipeline/highlight-segments.ts"],
+      "tags": ["web", "highlights", "segmentation", "darktable", "pipeline"],
+      "dependsOn": ["highlight-reconstruction-opposed"]
+    },
+    {
+      "name": "demosaic-algorithm-dispatch",
+      "title": "Demosaic Algorithm Selection and Dispatch",
+      "description": "How the web app routes demosaicing: neural-net (tiled ONNX), or traditional algorithms via WebGPU compute (bilinear, DHT) or WASM worker pool (Markesteijn, AHD, PPG, MHC). Selection logic and fallback chain.",
+      "scope": ["web/src/pipeline/demosaic.ts"],
+      "tags": ["web", "demosaic", "dispatch", "pipeline"],
+      "dependsOn": ["cfa-preprocessing-web"]
+    },
+    {
+      "name": "worker-pool-parallelism",
+      "title": "WASM Worker Pool with Strip-Based Parallelism",
+      "description": "The DemosaicPool class: up to 8 workers via hardwareConcurrency, horizontal strip splitting with 3x CFA-period overlap, per-strip WASM invocation, non-overlapping region stitching. Bayer variant detection.",
+      "scope": ["web/src/pipeline/demosaic-pool.ts", "web/src/pipeline/demosaic-worker.ts"],
+      "tags": ["web", "workers", "wasm", "parallelism"],
+      "dependsOn": ["demosaic-algorithm-dispatch"]
+    },
+    {
+      "name": "webgpu-compute-demosaicing",
+      "title": "WebGPU Compute Shader Demosaicing",
+      "description": "GPU-accelerated bilinear (single-pass 5x5 window) and DHT (two-pass: directional green + homogeneity-weighted resolve) demosaicing via WebGPU compute shaders.",
+      "scope": ["web/src/pipeline/demosaic-gpu.ts"],
+      "tags": ["web", "webgpu", "compute", "demosaic"],
+      "dependsOn": ["demosaic-algorithm-dispatch"]
+    },
+    {
+      "name": "tiled-inference-blending",
+      "title": "Tiled Neural Network Inference with Cosine Blending",
+      "description": "How large images are processed via ONNX Runtime: 288x288 tiles with 48px overlap, per-tile 4-channel input, cosine (raised-cosine) window blending to eliminate seams. WebGPU-first with WASM fallback.",
+      "scope": ["web/src/pipeline/inference.ts", "web/src/pipeline/postprocessor.ts"],
+      "tags": ["web", "inference", "onnx", "tiling", "blending"],
+      "dependsOn": ["demosaic-algorithm-dispatch", "onnx-export"]
+    },
+    {
+      "name": "color-correction-pipeline",
+      "title": "Color Correction and Camera-to-sRGB Transform",
+      "description": "Building the 3x3 camera-to-sRGB matrix: invert xyzToCam, multiply by XYZ_TO_SRGB inverse, row-normalize for neutral white. Application to HWC pixel data. Fujifilm DR gain compensation.",
+      "scope": ["web/src/pipeline/postprocessor.ts", "web/src/gl/color-matrices.ts"],
+      "tags": ["web", "color", "matrix", "postprocessing"],
+      "dependsOn": ["tiled-inference-blending"]
+    },
+    {
+      "name": "color-temperature-estimation",
+      "title": "Color Temperature and Tint Estimation from WB Coefficients",
+      "description": "McCamy's CCT approximation + Planckian locus distance for tint. Brute-force search for WB parameters matching target CCT/tint. Used to initialize grading sliders from camera metadata.",
+      "scope": ["web/src/pipeline/color-temperature.ts"],
+      "tags": ["web", "color", "white-balance", "cct"],
+      "dependsOn": ["raw-decoding-wasm"]
+    },
+    {
+      "name": "webgpu-renderer",
+      "title": "WebGPU HdrRenderer for Real-Time Preview",
+      "description": "The HdrRenderer class: dual render pipelines (canvas display vs float-texture export), uniform buffer layout (304 bytes / 76 floats for OpenDRT params + preprocessing), histogram compute shaders, HDR histogram.",
+      "scope": ["web/src/gl/renderer.ts", "web/src/gl/hdr-display.ts"],
+      "tags": ["web", "webgpu", "renderer", "preview"],
+      "dependsOn": []
+    },
+    {
+      "name": "opendrt-tone-mapping",
+      "title": "OpenDRT Tone Mapping and Color Grading",
+      "description": "The OpenDRT implementation: 47-parameter config, look presets (base/default/flat), tonescale derivation (precomputed shader constants), per-channel adjustments, brilliance. WGSL shader structure.",
+      "scope": ["web/src/gl/opendrt-params.ts", "web/src/gl/shaders/opendrt.wgsl"],
+      "tags": ["web", "opendrt", "tonemapping", "grading", "color-science"],
+      "dependsOn": ["webgpu-renderer"]
+    },
+    {
+      "name": "hdr-display-export",
+      "title": "HDR Display Detection and Dual-Render Export",
+      "description": "HDR headroom probing, display capability detection, dual-render strategy (SDR Rec.709 + HDR Rec.2020), JPEG gain-map encoding, AVIF HLG output. Export format differences.",
+      "scope": ["web/src/gl/hdr-display.ts", "web/src/hooks/useExport.ts", "web/src/pipeline/encoder.ts"],
+      "tags": ["web", "hdr", "export", "display"],
+      "dependsOn": ["webgpu-renderer", "opendrt-tone-mapping"]
+    },
+    {
+      "name": "opfs-pixel-storage",
+      "title": "OPFS Pixel Storage with Byte-Shuffle Compression",
+      "description": "Storing large HWC float32 buffers off-heap via Origin Private File System. Byte-shuffle preprocessing before gzip for 8-10x compression. Handoff cache to skip decompress on immediate reads. RAW and thumbnail storage.",
+      "scope": ["web/src/lib/opfs-storage.ts"],
+      "tags": ["web", "storage", "opfs", "compression"],
+      "dependsOn": []
+    },
+    {
+      "name": "zustand-state-management",
+      "title": "Zustand Store and Per-File Grading State",
+      "description": "The useAppStore structure: file queue management, per-file processing status, per-file grading overrides (OpenDRT params, exposure, WB, sharpen), demosaic method selection, export settings.",
+      "scope": ["web/src/store.ts"],
+      "tags": ["web", "state", "zustand", "ui"],
+      "dependsOn": []
+    },
+    {
+      "name": "session-persistence",
+      "title": "IndexedDB Persistence and Session Restore",
+      "description": "Two IDB stores: 'files' (serialized results + grading) and 'settings' (global prefs). Debounced writes for slider changes. Session restore on init: IDB metadata + OPFS pixel validation. Orphan cleanup.",
+      "scope": ["web/src/lib/idb-storage.ts", "web/src/hooks/useInit.ts"],
+      "tags": ["web", "persistence", "indexeddb", "session"],
+      "dependsOn": ["opfs-pixel-storage", "zustand-state-management"]
+    },
+    {
+      "name": "gradio-inference-ui",
+      "title": "Gradio UI for Local Model Inference",
+      "description": "The ui.py Gradio web interface: RAF upload, model checkpoint selection with caching, tile overlap configuration, HDR AVIF output, confidence heatmap visualization, training history display.",
+      "scope": ["ui.py"],
+      "tags": ["ui", "gradio", "inference", "python"],
+      "dependsOn": ["unet-model-architecture"]
+    },
+    {
+      "name": "gpu-resident-nn-pipeline",
+      "title": "GPU-Resident Neural Network Pipeline",
+      "description": "The fully GPU-resident demosaicing path: tile-blend-gpu.ts (extract/accumulate/finalize/crop) and postprocess-gpu.ts (WB/HL/CC/DR on GPU). Zero CPU readback from tile extraction to final RGBA output.",
+      "scope": ["web/src/pipeline/tile-blend-gpu.ts", "web/src/pipeline/postprocess-gpu.ts"],
+      "tags": ["web", "webgpu", "compute", "inference", "pipeline"],
+      "dependsOn": ["tiled-inference-blending", "color-correction-pipeline"]
+    },
+    {
+      "name": "checkpoint-registry",
+      "title": "Checkpoint Registry and Multi-Model Management",
+      "description": "checkpoint_registry.py JSON registry, models.json manifest, browser-side ModelSize (S/M/L) switching, the full train→register→export→manifest→browser lifecycle.",
+      "scope": ["checkpoint_registry.py", "export_onnx.py", "web/src/pipeline/inference.ts"],
+      "tags": ["model", "registry", "export", "deployment"],
+      "dependsOn": ["onnx-export", "training-loop"]
+    },
+    {
+      "name": "lensfun-integration",
+      "title": "LensFun Lens Profile Integration",
+      "description": "Client-side LensFun database matching: XML→JSON conversion, multi-strategy string matching (exact/substring/Jaccard), mount weighting, caching, integration with file processing and session restore.",
+      "scope": ["web/src/lib/lensfun.ts", "web/scripts/convert-lensfun-db.ts"],
+      "tags": ["web", "lens", "metadata", "matching"],
+      "dependsOn": ["raw-decoding-wasm"]
+    },
+    {
+      "name": "python-highlight-recovery",
+      "title": "Python Highlight Recovery (CFA and RGB Domains)",
+      "description": "Two-pass darktable-compatible highlight reconstruction in Python: inpaint-opposed + segmentation-based, in both CFA-domain (before demosaic) and RGB-domain (after demosaic+WB). Used by infer_hdr.py and ui.py.",
+      "scope": ["highlight_recovery.py", "highlight_recovery_rgb.py"],
+      "tags": ["python", "highlights", "reconstruction", "inference"],
+      "dependsOn": ["highlight-reconstruction-opposed", "highlight-reconstruction-segmentation"]
+    }
+  ]
+}

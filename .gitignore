@@ -100,3 +100,4 @@ web/**/pkg/
 
 /checkpoint_registry.json
 /.ui_state.json
+.osgrep
