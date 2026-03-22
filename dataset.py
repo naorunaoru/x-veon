@@ -625,11 +625,11 @@ class PatchCacheDataset(LinearDataset):
 class TortureDataset(Dataset):
     """
     Synthetic torture test patterns.
-    Import from torture_v2 for the actual pattern generation.
+    Import from torture for the actual pattern generation.
     """
 
     def __init__(self, patch_size: int = 96, num_patterns: int = 1000, cfa_type: str = "xtrans"):
-        from torture_v2 import TortureDatasetV2
+        from torture import TortureDatasetV2
         self._inner = TortureDatasetV2(size=patch_size, num_patterns=num_patterns, cfa_type=cfa_type)
 
     def __len__(self):

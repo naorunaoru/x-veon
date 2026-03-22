@@ -1,5 +1,5 @@
 """
-Expanded torture test dataset v2 with 4x supersampling, smart colors, and fractals.
+Expanded torture test dataset with 4x supersampling, smart colors, and fractals.
 """
 
 import torch
