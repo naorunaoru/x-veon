@@ -20,7 +20,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
+from cfa import CFA_REGISTRY, cfa_period as _cfa_period_fn
 from model import XTransUNet
+
+
+def _ckpt_cfa_period(ckpt: dict) -> int:
+    cfa_type = ckpt.get("cfa_type", "xtrans")
+    return _cfa_period_fn(CFA_REGISTRY[cfa_type])
 from infer_hdr import apply_exif_rotation, process_raw, save_hdr_avif
 
 
@@ -113,21 +119,9 @@ def plot_training_history(checkpoint_dir: str) -> tuple:
     
     ax1, ax2, ax3 = axes
     
-    # Smoothed validation (EMA)
-    def ema(data, alpha=0.1):
-        smoothed = [data[0]]
-        for v in data[1:]:
-            if v is None or smoothed[-1] is None:
-                smoothed.append(v)
-            else:
-                smoothed.append(alpha * v + (1 - alpha) * smoothed[-1])
-        return smoothed
-    
     # PSNR plot
     ax1.plot(epochs, train_psnr, label="Train", alpha=0.5)
-    ax1.plot(epochs, val_psnr, label="Val", alpha=0.3, linewidth=1)
-    val_smoothed = ema(val_psnr, alpha=0.1)
-    ax1.plot(epochs, val_smoothed, label="Val (smoothed)", linewidth=2, color="tab:orange")
+    ax1.plot(epochs, val_psnr, label="Val", alpha=0.5)
     ax1.set_xlabel("Epoch")
     ax1.set_ylabel("PSNR (dB)")
     ax1.set_title(f"{checkpoint_dir}\n{config_str}" if config_str else checkpoint_dir)
@@ -193,7 +187,8 @@ def load_model(checkpoint_path: str):
 
     _device = get_device()
     ckpt = torch.load(checkpoint_path, map_location=_device, weights_only=True)
-    _model = XTransUNet(base_width=ckpt.get("base_width", 64)).to(_device)
+    _cfa_p = _ckpt_cfa_period(ckpt)
+    _model = XTransUNet(base_width=ckpt.get("base_width", 64), cfa_period=_cfa_p).to(_device)
     _model.load_state_dict(ckpt["model"], strict=False)
     _model.eval()
     _model_path = checkpoint_path

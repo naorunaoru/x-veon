@@ -218,6 +218,7 @@ class EpochData:
 @dataclass
 class SystemSnapshot:
     cpu_percent: float = 0.0
+    cpu_temp: Optional[int] = None
     ram_used_gb: float = 0.0
     ram_total_gb: float = 0.0
     gpu_util: Optional[float] = None
@@ -242,6 +243,14 @@ def sample_system() -> SystemSnapshot:
         mem = psutil.virtual_memory()
         snap.ram_used_gb = mem.used / (1 << 30)
         snap.ram_total_gb = mem.total / (1 << 30)
+        try:
+            temps = psutil.sensors_temperatures()
+            for key in ("k10temp", "coretemp", "cpu_thermal", "zenpower"):
+                if key in temps and temps[key]:
+                    snap.cpu_temp = int(temps[key][0].current)
+                    break
+        except Exception:
+            pass
 
     if _HAS_NVML and _NVML_HANDLE is not None:
         try:
@@ -651,11 +660,17 @@ class TrainingDashboard:
 
         if _HAS_PSUTIL:
             cpu_vals = [h.cpu_percent for h in hist]
+            cpu_detail = ""
+            if s.cpu_temp is not None:
+                temp_style = "bright_red" if s.cpu_temp >= 85 else (
+                    "bright_yellow" if s.cpu_temp >= 75 else "bright_white"
+                )
+                cpu_detail = Text(f"{s.cpu_temp}°C", style=temp_style)
             table.add_row(
                 "CPU",
                 Text(f"{s.cpu_percent:3.0f}%", style="bright_white"),
                 sys_sparkline(cpu_vals),
-                "",
+                cpu_detail,
             )
             ram_pct = s.ram_used_gb / s.ram_total_gb * 100 if s.ram_total_gb > 0 else 0
             ram_vals = [

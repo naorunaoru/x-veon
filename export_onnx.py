@@ -13,7 +13,12 @@ import torch
 import onnx
 from onnxconverter_common import float16
 
+from cfa import CFA_REGISTRY, cfa_period as _cfa_period_fn
 from model import XTransUNet
+
+
+def _ckpt_cfa_period(ckpt: dict) -> int:
+    return _cfa_period_fn(CFA_REGISTRY[ckpt.get("cfa_type", "xtrans")])
 from checkpoint_registry import REGISTRY_FILENAME
 
 
@@ -38,7 +43,8 @@ def _extract_metadata(ckpt: dict) -> dict:
 def export(checkpoint_path: str, output_path: str, patch_size: int = 288, opset: int = 18, fp16: bool = False, base_width: int | None = None):
     ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     bw = base_width or ckpt.get("base_width", 64)
-    model = XTransUNet(base_width=bw)
+    cp = _ckpt_cfa_period(ckpt)
+    model = XTransUNet(base_width=bw, cfa_period=cp)
     model.load_state_dict(ckpt["model"], strict=False)
     model.eval()
 
@@ -90,7 +96,8 @@ def verify(checkpoint_path: str, onnx_path: str, patch_size: int = 288, base_wid
     # PyTorch
     ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     bw = base_width or ckpt.get("base_width", 64)
-    model = XTransUNet(base_width=bw)
+    cp = _ckpt_cfa_period(ckpt)
+    model = XTransUNet(base_width=bw, cfa_period=cp)
     model.load_state_dict(ckpt["model"], strict=False)
     model.eval()
 

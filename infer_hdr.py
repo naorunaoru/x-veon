@@ -342,7 +342,8 @@ def main():
     print(f"Device: {device}")
     
     ckpt = torch.load(args.checkpoint, map_location=device, weights_only=False)
-    model = XTransUNet(base_width=ckpt.get("base_width", 64))
+    _cfa_p = cfa_period(CFA_REGISTRY[ckpt.get("cfa_type", "xtrans")])
+    model = XTransUNet(base_width=ckpt.get("base_width", 64), cfa_period=_cfa_p)
     model.load_state_dict(ckpt["model"], strict=False)
     model.to(device)
     model.eval()

@@ -329,6 +329,8 @@ def parse_config() -> tuple[TrainConfig, str | None, str | None]:
                              "All params are inherited; override any with explicit CLI args.")
     parser.add_argument("--resume", type=str, default=None,
                         help="Resume from checkpoint file")
+    parser.add_argument("--no-resume", action="store_true",
+                        help="Skip auto-resume when using --from-checkpoint (config only)")
 
     # --- Config args (all default=None for override detection) ---
     # Data
@@ -430,6 +432,7 @@ def parse_config() -> tuple[TrainConfig, str | None, str | None]:
     # Separate routing args
     from_checkpoint = args.from_checkpoint
     resume = args.resume
+    no_resume = args.no_resume
 
     # Collect explicit CLI overrides (non-None values for config fields only)
     config_field_names = {f.name for f in fields(TrainConfig)}
@@ -456,7 +459,7 @@ def parse_config() -> tuple[TrainConfig, str | None, str | None]:
         setattr(cfg, k, v)
 
     # Step 3: Auto-set resume from checkpoint dir
-    if from_checkpoint and resume is None:
+    if from_checkpoint and resume is None and not no_resume:
         ckpt_dir = Path(from_checkpoint)
         if ckpt_dir.is_file():
             ckpt_dir = ckpt_dir.parent
@@ -659,7 +662,9 @@ def main():
         val_batches = None
 
     # Model
-    model = XTransUNet(base_width=cfg.base_width).to(device)
+    from cfa import CFA_REGISTRY, cfa_period as _cfa_period
+    _cfa_p = _cfa_period(CFA_REGISTRY[cfg.cfa_type])
+    model = XTransUNet(base_width=cfg.base_width, cfa_period=_cfa_p).to(device)
     dash.log(f"Model parameters: {count_parameters(model):,}")
 
     # Resume
@@ -805,134 +810,163 @@ def main():
             for h in history
         ])
 
-    for epoch in range(start_epoch, cfg.epochs):
-        if use_cache:
-            replaced = train_dataset.reset_stats()
-            if replaced > 0:
-                pct = replaced / len(train_dataset) * 100
-                dash.log(f"Cache: swapped {replaced} patches ({pct:.1f}%)")
-        else:
-            train_sampler.set_epoch(epoch)
-        t0 = time.time()
+    interrupted = False
+    fatal_exc = None
+    try:
+        for epoch in range(start_epoch, cfg.epochs):
+            if use_cache:
+                replaced = train_dataset.reset_stats()
+                if replaced > 0:
+                    pct = replaced / len(train_dataset) * 100
+                    dash.log(f"Cache: swapped {replaced} patches ({pct:.1f}%)")
+            else:
+                train_sampler.set_epoch(epoch)
+            t0 = time.time()
 
-        train_loss, train_psnr, train_comp = train_epoch(
-            model, train_loader, optimizer, criterion, device, scaler=scaler
-        )
-        t_train = time.time() - t0
-
-        # Swap staged patches while no DataLoader workers are active
-        if use_cache:
-            train_dataset.swap_staging()
-
-        t1 = time.time()
-        val_loss, val_psnr, val_comp = evaluate(
-            model, val_loader, criterion, device, use_amp=cfg.amp,
-            gpu_batches=val_batches,
-        )
-        t_val = time.time() - t1
-
-        scheduler.step()
-
-        if device.type == "mps":
-            gc.collect()
-            torch.mps.synchronize()
-            torch.mps.empty_cache()
-
-        elapsed = time.time() - t0
-        lr_now = optimizer.param_groups[0]["lr"]
-
-        dash.update(EpochData(
-            epoch=epoch + 1,
-            train_psnr=train_psnr,
-            val_psnr=val_psnr,
-            train_components=train_comp,
-            val_components=val_comp,
-            lr=lr_now,
-            epoch_time=elapsed,
-            train_time=t_train,
-            val_time=t_val,
-        ))
-
-        if dash.has_fatal_error:
-            dash.log("Stopping training due to NaN/Inf detection.", "ERROR")
-            break
-
-        entry = {
-            "epoch": epoch + 1,
-            "train_loss": train_loss,
-            "train_psnr": train_psnr,
-            "train_components": train_comp,
-            "val_loss": val_loss,
-            "val_psnr": val_psnr,
-            "val_components": val_comp,
-            "lr": lr_now,
-            "time": elapsed,
-        }
-        history.append(entry)
-
-        # Save best
-        if val_psnr > best_val_psnr:
-            best_val_psnr = val_psnr
-            ckpt_data = {
-                "epoch": epoch,
-                "model": model.state_dict(),
-                "optimizer": optimizer.state_dict(),
-                "scheduler": scheduler.state_dict(),
-                "best_val_psnr": best_val_psnr,
-                "base_width": cfg.base_width,
-                "cfa_type": cfg.cfa_type,
-            }
-            if scaler is not None:
-                ckpt_data["scaler"] = scaler.state_dict()
-            torch.save(ckpt_data, output_dir / "best.pt")
-            update_registry(
-                registry_path, cfa_type=cfg.cfa_type, base_width=cfg.base_width,
-                status="beta", slot="best",
-                path=str(output_dir / "best.pt"), epoch=epoch + 1,
-                train_psnr=train_psnr, val_psnr=val_psnr,
-                train_loss=train_loss, val_loss=val_loss,
-                history=history_rel,
+            train_loss, train_psnr, train_comp = train_epoch(
+                model, train_loader, optimizer, criterion, device, scaler=scaler
             )
+            t_train = time.time() - t0
 
-        # Save periodic checkpoint
-        if (epoch + 1) % 10 == 0:
-            ckpt_data = {
-                "epoch": epoch,
-                "model": model.state_dict(),
-                "optimizer": optimizer.state_dict(),
-                "scheduler": scheduler.state_dict(),
-                "best_val_psnr": best_val_psnr,
-                "base_width": cfg.base_width,
-                "cfa_type": cfg.cfa_type,
-            }
-            if scaler is not None:
-                ckpt_data["scaler"] = scaler.state_dict()
-            torch.save(ckpt_data, output_dir / "latest.pt")
-            update_registry(
-                registry_path, cfa_type=cfg.cfa_type, base_width=cfg.base_width,
-                status="beta", slot="latest",
-                path=str(output_dir / "latest.pt"), epoch=epoch + 1,
-                train_psnr=train_psnr, val_psnr=val_psnr,
-                train_loss=train_loss, val_loss=val_loss,
-                history=history_rel,
+            # Swap staged patches while no DataLoader workers are active
+            if use_cache:
+                train_dataset.swap_staging()
+
+            t1 = time.time()
+            val_loss, val_psnr, val_comp = evaluate(
+                model, val_loader, criterion, device, use_amp=cfg.amp,
+                gpu_batches=val_batches,
             )
+            t_val = time.time() - t1
 
-        # Save history
-        with open(output_dir / "history.json", "w") as f:
-            json.dump(history, f, indent=2)
+            scheduler.step()
+
+            if device.type == "mps":
+                gc.collect()
+                torch.mps.synchronize()
+                torch.mps.empty_cache()
+
+            elapsed = time.time() - t0
+            lr_now = optimizer.param_groups[0]["lr"]
+
+            dash.update(EpochData(
+                epoch=epoch + 1,
+                train_psnr=train_psnr,
+                val_psnr=val_psnr,
+                train_components=train_comp,
+                val_components=val_comp,
+                lr=lr_now,
+                epoch_time=elapsed,
+                train_time=t_train,
+                val_time=t_val,
+            ))
+
+            if dash.has_fatal_error:
+                dash.log("Stopping training due to NaN/Inf detection.", "ERROR")
+                break
+
+            entry = {
+                "epoch": epoch + 1,
+                "train_loss": train_loss,
+                "train_psnr": train_psnr,
+                "train_components": train_comp,
+                "val_loss": val_loss,
+                "val_psnr": val_psnr,
+                "val_components": val_comp,
+                "lr": lr_now,
+                "time": elapsed,
+            }
+            history.append(entry)
+
+            # Save best
+            if val_psnr > best_val_psnr:
+                best_val_psnr = val_psnr
+                ckpt_data = {
+                    "epoch": epoch,
+                    "model": model.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                    "scheduler": scheduler.state_dict(),
+                    "best_val_psnr": best_val_psnr,
+                    "base_width": cfg.base_width,
+                    "cfa_type": cfg.cfa_type,
+                }
+                if scaler is not None:
+                    ckpt_data["scaler"] = scaler.state_dict()
+                torch.save(ckpt_data, output_dir / "best.pt")
+                update_registry(
+                    registry_path, cfa_type=cfg.cfa_type, base_width=cfg.base_width,
+                    status="beta", slot="best",
+                    path=str(output_dir / "best.pt"), epoch=epoch + 1,
+                    train_psnr=train_psnr, val_psnr=val_psnr,
+                    train_loss=train_loss, val_loss=val_loss,
+                    history=history_rel,
+                )
+
+            # Save periodic checkpoint
+            if (epoch + 1) % 10 == 0:
+                ckpt_data = {
+                    "epoch": epoch,
+                    "model": model.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                    "scheduler": scheduler.state_dict(),
+                    "best_val_psnr": best_val_psnr,
+                    "base_width": cfg.base_width,
+                    "cfa_type": cfg.cfa_type,
+                }
+                if scaler is not None:
+                    ckpt_data["scaler"] = scaler.state_dict()
+                torch.save(ckpt_data, output_dir / "latest.pt")
+                update_registry(
+                    registry_path, cfa_type=cfg.cfa_type, base_width=cfg.base_width,
+                    status="beta", slot="latest",
+                    path=str(output_dir / "latest.pt"), epoch=epoch + 1,
+                    train_psnr=train_psnr, val_psnr=val_psnr,
+                    train_loss=train_loss, val_loss=val_loss,
+                    history=history_rel,
+                )
+
+            # Save history
+            with open(output_dir / "history.json", "w") as f:
+                json.dump(history, f, indent=2)
+    except KeyboardInterrupt:
+        interrupted = True
+    except Exception as e:
+        fatal_exc = e
 
     dash.stop()
 
     if use_cache:
         train_dataset.cleanup()
 
-    # Mark as stable if all epochs completed
-    if not dash.has_fatal_error:
+    # Mark as stable if all epochs completed without interruption
+    if not dash.has_fatal_error and not interrupted:
         promote_to_stable(
             registry_path, cfa_type=cfg.cfa_type,
             base_width=cfg.base_width,
         )
-    dash.log(f"Done. Best val PSNR: {best_val_psnr:.2f} dB")
+
+    # Print summary to console (visible after dashboard closes)
+    total_elapsed = time.time() - dash.start_time if dash.start_time else 0.0
+    n_epochs = len(history)
+    avg_epoch = sum(h["time"] for h in history) / n_epochs if n_epochs else 0.0
+    data_dirs = ", ".join(cfg.data_dir) if cfg.data_dir else "N/A"
+    status = ("Crashed" if fatal_exc else
+              "Interrupted" if interrupted else
+              "Error" if dash.has_fatal_error else "Completed")
+
+    from dashboard import format_time
+    print()
+    print("=" * 60)
+    print(f"  Training Summary ({status})")
+    print("=" * 60)
+    print(f"  Elapsed:       {format_time(total_elapsed)} ({n_epochs} epochs)")
+    print(f"  Avg epoch:     {avg_epoch:.1f}s")
+    print(f"  Sensor:        {cfg.cfa_type}")
+    print(f"  Model width:   {cfg.base_width}")
+    print(f"  Best PSNR:     {best_val_psnr:.2f} dB")
+    print(f"  Data:          {data_dirs}")
+    print(f"  Output:        {cfg.output_dir}")
+    print("=" * 60)
 
 
 if __name__ == "__main__":

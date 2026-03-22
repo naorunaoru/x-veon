@@ -12,19 +12,24 @@ Architecture: encoder-decoder with skip connections.
 - Receptive field easily covers 2-3 X-Trans repeats (12-18 pixels)
 """
 
+import math
+
 import torch
 import torch.nn as nn
 
 
-class ConvBlock(nn.Module):
-    """Two 3x3 convolutions with ReLU."""
 
-    def __init__(self, in_ch: int, out_ch: int):
+class ConvBlock(nn.Module):
+    """Two convolutions with LayerNorm and ReLU. First kernel size is configurable."""
+
+    def __init__(self, in_ch: int, out_ch: int, first_kernel: int = 3):
         super().__init__()
         self.block = nn.Sequential(
-            nn.Conv2d(in_ch, out_ch, 3, padding=1),
+            nn.Conv2d(in_ch, out_ch, first_kernel, padding=first_kernel // 2),
+            nn.GroupNorm(1, out_ch),
             nn.ReLU(inplace=True),
             nn.Conv2d(out_ch, out_ch, 3, padding=1),
+            nn.GroupNorm(1, out_ch),
             nn.ReLU(inplace=True),
         )
 
@@ -33,23 +38,26 @@ class ConvBlock(nn.Module):
 
 
 class DownBlock(nn.Module):
-    """Downsample with MaxPool then ConvBlock."""
+    """Downsample with strided convolution then ConvBlock."""
 
     def __init__(self, in_ch: int, out_ch: int):
         super().__init__()
-        self.pool = nn.MaxPool2d(2)
+        self.down = nn.Conv2d(in_ch, in_ch, 2, stride=2)
         self.conv = ConvBlock(in_ch, out_ch)
 
     def forward(self, x):
-        return self.conv(self.pool(x))
+        return self.conv(self.down(x))
 
 
 class UpBlock(nn.Module):
-    """Upsample with ConvTranspose2d, concatenate skip, then ConvBlock."""
+    """Upsample with PixelShuffle, concatenate skip, then ConvBlock."""
 
     def __init__(self, in_ch: int, out_ch: int):
         super().__init__()
-        self.up = nn.ConvTranspose2d(in_ch, out_ch, 2, stride=2)
+        self.up = nn.Sequential(
+            nn.Conv2d(in_ch, out_ch * 4, 1),
+            nn.PixelShuffle(2),
+        )
         self.conv = ConvBlock(out_ch * 2, out_ch)  # *2 for skip concat
 
     def forward(self, x, skip):
@@ -67,12 +75,17 @@ class XTransUNet(nn.Module):
     """
 
     def __init__(self, in_channels: int = 5, out_channels: int = 3,
-                 base_width: int = 64):
+                 base_width: int = 64, cfa_period: int = 2):
         super().__init__()
         w = base_width
+        self.cfa_period = cfa_period
+
+        # Positional encoding channels: sin/cos for row and column phase
+        pos_channels = 4 if cfa_period > 2 else 0
+        stem_kernel = 7 if cfa_period > 2 else 3
 
         # Encoder
-        self.enc1 = ConvBlock(in_channels, w)
+        self.enc1 = ConvBlock(in_channels + pos_channels, w, first_kernel=stem_kernel)
         self.enc2 = DownBlock(w, w * 2)
         self.enc3 = DownBlock(w * 2, w * 4)
         self.enc4 = DownBlock(w * 4, w * 8)
@@ -93,6 +106,20 @@ class XTransUNet(nn.Module):
         cfa = x[:, 0:1]    # (B, 1, H, W)
         masks = x[:, 1:4]  # (B, 3, H, W) — R, G, B position masks
         baseline = cfa * masks  # (B, 3, H, W) — value only in its true channel
+
+        # CFA periodic positional encoding for non-Bayer patterns
+        if self.cfa_period > 2:
+            B, _, H, W = x.shape
+            y = torch.arange(H, device=x.device, dtype=x.dtype).unsqueeze(1).expand(H, W)
+            xc = torch.arange(W, device=x.device, dtype=x.dtype).unsqueeze(0).expand(H, W)
+            phase = 2 * math.pi / self.cfa_period
+            pos_enc = torch.stack([
+                torch.sin(phase * y),
+                torch.cos(phase * y),
+                torch.sin(phase * xc),
+                torch.cos(phase * xc),
+            ]).unsqueeze(0).expand(B, -1, -1, -1)  # (B, 4, H, W)
+            x = torch.cat([x, pos_enc], dim=1)
 
         # Encoder
         e1 = self.enc1(x)   # 64, H, W
