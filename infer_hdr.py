@@ -15,7 +15,7 @@ import rawpy
 import torch
 
 from model import XTransUNet
-from cfa import make_cfa_mask, make_channel_masks, detect_cfa_from_raw, find_pattern_shift, cfa_period, CFA_REGISTRY
+from cfa import make_cfa_mask, detect_cfa_from_raw, find_pattern_shift, cfa_period, CFA_REGISTRY
 from highlight_recovery import reconstruct_highlights
 from highlight_recovery_rgb import reconstruct_highlights as reconstruct_highlights_rgb
 
@@ -194,13 +194,8 @@ def process_raw(raw_path: str, model: torch.nn.Module, device: str,
 
     h_aligned, w_aligned = cfa_norm.shape
 
-    r_mask, g_mask, b_mask = make_channel_masks(patch_size, patch_size, ref_pattern)
-    masks = torch.cat([r_mask.unsqueeze(0), g_mask.unsqueeze(0), b_mask.unsqueeze(0)], dim=0).to(device)
+    # Masks are generated internally by the model
 
-    # Per-pixel clip level map for one tile (CFA-aligned after padding, so periodic)
-    tile_cfa = make_cfa_mask(patch_size, patch_size, ref_pattern).numpy()
-    tile_clip_level = np.array([clip_levels[int(c)] for c in tile_cfa.flat],
-                               dtype=np.float32).reshape(patch_size, patch_size)
 
     confidence_map = None
     variance = None
@@ -218,10 +213,7 @@ def process_raw(raw_path: str, model: torch.nn.Module, device: str,
                 for x in range(0, w_pad, patch_size):
                     crop = cfa_padded[y:y+patch_size, x:x+patch_size]
                     cfa_t = torch.from_numpy(crop).unsqueeze(0).unsqueeze(0).float().to(device)
-                    raw_ratio = np.clip(crop / (tile_clip_level + 1e-8), 0, 1)
-                    clip_ratio = torch.from_numpy(np.clip((raw_ratio - 0.5) * 2.0, 0, 1).astype(np.float32)).unsqueeze(0).unsqueeze(0).to(device)
-                    inp = torch.cat([cfa_t, masks.unsqueeze(0), clip_ratio], dim=1)
-                    out = model(inp)[0].cpu().numpy()
+                    out = model(cfa_t)[0].cpu().numpy()
                     output[:, y:y+patch_size, x:x+patch_size] = out
     else:
         stride = patch_size - overlap
@@ -245,10 +237,7 @@ def process_raw(raw_path: str, model: torch.nn.Module, device: str,
                 for x in range(0, w_pad - patch_size + 1, stride):
                     crop = cfa_padded[y:y+patch_size, x:x+patch_size]
                     cfa_t = torch.from_numpy(crop).unsqueeze(0).unsqueeze(0).float().to(device)
-                    raw_ratio = np.clip(crop / (tile_clip_level + 1e-8), 0, 1)
-                    clip_ratio = torch.from_numpy(np.clip((raw_ratio - 0.5) * 2.0, 0, 1).astype(np.float32)).unsqueeze(0).unsqueeze(0).to(device)
-                    inp = torch.cat([cfa_t, masks.unsqueeze(0), clip_ratio], dim=1)
-                    out = model(inp)[0].cpu().numpy()
+                    out = model(cfa_t)[0].cpu().numpy()
 
                     for c in range(3):
                         output[c, y:y+patch_size, x:x+patch_size] += out[c] * blend_weight
@@ -343,7 +332,9 @@ def main():
     
     ckpt = torch.load(args.checkpoint, map_location=device, weights_only=False)
     _cfa_p = cfa_period(CFA_REGISTRY[ckpt.get("cfa_type", "xtrans")])
-    model = XTransUNet(base_width=ckpt.get("base_width", 64), cfa_period=_cfa_p)
+    _cfa_pat = CFA_REGISTRY[ckpt.get("cfa_type", "xtrans")]
+    model = XTransUNet(base_width=ckpt.get("base_width", 64), cfa_period=_cfa_p,
+                       cfa_pattern=torch.from_numpy(_cfa_pat))
     model.load_state_dict(ckpt["model"], strict=False)
     model.to(device)
     model.eval()

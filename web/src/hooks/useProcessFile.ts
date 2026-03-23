@@ -9,7 +9,6 @@ import {
   channelClips,
   padToAlignment,
   generateTiles,
-  makeChannelMasks,
 } from '@/pipeline/preprocessor';
 import { runBatchGpu, getBackend, getInferenceDevice } from '@/pipeline/inference';
 import { runDemosaic, destroyDemosaicPool } from '@/pipeline/demosaic';
@@ -126,11 +125,10 @@ export function useProcessFile() {
         tileCount = tileGrid.tiles.length;
         const tiles = tileGrid.tiles;
 
-        const masks = makeChannelMasks(PATCH_SIZE, pattern, period);
         const device = getInferenceDevice() ?? await getDevice();
         const gpu = createGpuNNPipeline(
           device, cfaData, cfaW, cfaH,
-          masks, clipNorm as [number, number, number], tiles,
+          tiles,
           hPad, wPad, PATCH_SIZE, OVERLAP,
           padTop, padLeft, visHeight, visWidth, TILE_BATCH,
         );
@@ -141,7 +139,7 @@ export function useProcessFile() {
           const end = Math.min(b + TILE_BATCH, tiles.length);
           const count = end - b;
 
-          // GPU: extract tiles from CFA → 5ch NCHW buffer
+          // GPU: extract tiles from CFA → 1ch NCHW buffer
           const inputBuf = gpu.extractBatch(b, count);
 
           // GPU: inference (GPU buffer in → GPU buffer out)

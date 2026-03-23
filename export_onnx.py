@@ -44,11 +44,13 @@ def export(checkpoint_path: str, output_path: str, patch_size: int = 288, opset:
     ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     bw = base_width or ckpt.get("base_width", 64)
     cp = _ckpt_cfa_period(ckpt)
-    model = XTransUNet(base_width=bw, cfa_period=cp)
+    cfa_pat = CFA_REGISTRY[ckpt.get("cfa_type", "xtrans")]
+    model = XTransUNet(base_width=bw, cfa_period=cp,
+                       cfa_pattern=torch.from_numpy(cfa_pat))
     model.load_state_dict(ckpt["model"], strict=False)
     model.eval()
 
-    dummy = torch.randn(1, 5, patch_size, patch_size)
+    dummy = torch.randn(1, 1, patch_size, patch_size)
 
     torch.onnx.export(
         model,
@@ -97,11 +99,13 @@ def verify(checkpoint_path: str, onnx_path: str, patch_size: int = 288, base_wid
     ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     bw = base_width or ckpt.get("base_width", 64)
     cp = _ckpt_cfa_period(ckpt)
-    model = XTransUNet(base_width=bw, cfa_period=cp)
+    cfa_pat = CFA_REGISTRY[ckpt.get("cfa_type", "xtrans")]
+    model = XTransUNet(base_width=bw, cfa_period=cp,
+                       cfa_pattern=torch.from_numpy(cfa_pat))
     model.load_state_dict(ckpt["model"], strict=False)
     model.eval()
 
-    test_input = torch.randn(1, 5, patch_size, patch_size)
+    test_input = torch.randn(1, 1, patch_size, patch_size)
     with torch.no_grad():
         pt_output = model(test_input).numpy()
 

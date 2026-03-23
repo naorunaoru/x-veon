@@ -80,6 +80,9 @@ class TrainConfig:
     chroma_weight: float = 0.05
     color_bias_weight: float = 0.0
     zipper_weight: float = 0.05
+    fft_weight: float = 0.0
+    texture_weight: float = 0.0
+    texture_window: int = 7
     huber: bool = False
     huber_delta: float = 1.0
     per_channel_norm: bool = False
@@ -135,6 +138,7 @@ class TrainConfig:
             gradient_weight=0.2,
             chroma_weight=0.02,
             zipper_weight=0.1,
+            texture_weight=0.1,
         )
 
     # --- Serialization ---------------------------------------------------- #
@@ -171,6 +175,9 @@ class TrainConfig:
             chroma_weight=self.chroma_weight,
             color_bias_weight=self.color_bias_weight,
             zipper_weight=self.zipper_weight,
+            fft_weight=self.fft_weight,
+            texture_weight=self.texture_weight,
+            texture_window=self.texture_window,
             per_channel_norm=self.per_channel_norm,
             use_huber=self.huber,
             huber_delta=self.huber_delta,
@@ -231,16 +238,15 @@ def train_epoch(model, loader, optimizer, criterion, device, scaler=None):
     use_amp = scaler is not None
 
     for batch in loader:
-        inputs, targets, clip_levels = batch
+        inputs, targets = batch
         inputs = inputs.to(device, non_blocking=True)
         targets = targets.to(device, non_blocking=True)
-        clip_levels = clip_levels.to(device, non_blocking=True)
 
         optimizer.zero_grad()
         with torch.autocast(device.type, enabled=use_amp):
             outputs = model(inputs)
-            channel_masks = inputs[:, 1:4] if criterion.recon_only else None
-            loss, components = criterion(outputs, targets, clip_levels=clip_levels,
+            channel_masks = model._make_masks(inputs.shape[2], inputs.shape[3]) if criterion.recon_only else None
+            loss, components = criterion(outputs, targets,
                                          channel_masks=channel_masks)
 
         if use_amp:
@@ -282,17 +288,16 @@ def evaluate(model, loader, criterion, device, use_amp=False, gpu_batches=None):
     source = gpu_batches if gpu_batches is not None else loader
     for batch in source:
         if gpu_batches is not None:
-            inputs, targets, clip_levels = batch
+            inputs, targets = batch
         else:
-            inputs, targets, clip_levels = batch
+            inputs, targets = batch
             inputs = inputs.to(device, non_blocking=True)
             targets = targets.to(device, non_blocking=True)
-            clip_levels = clip_levels.to(device, non_blocking=True)
 
         with torch.autocast(device.type, enabled=use_amp):
             outputs = model(inputs)
-            channel_masks = inputs[:, 1:4] if criterion.recon_only else None
-            loss, components = criterion(outputs, targets, clip_levels=clip_levels,
+            channel_masks = model._make_masks(inputs.shape[2], inputs.shape[3]) if criterion.recon_only else None
+            loss, components = criterion(outputs, targets,
                                          channel_masks=channel_masks)
 
         total_loss = total_loss + loss.squeeze()
@@ -365,6 +370,12 @@ def parse_config() -> tuple[TrainConfig, str | None, str | None]:
                         help="Weight for mean color bias penalty")
     parser.add_argument("--zipper-weight", type=float, default=None,
                         help="Weight for zipper artifact penalty")
+    parser.add_argument("--fft-weight", type=float, default=None,
+                        help="Weight for FFT magnitude spectrum loss (periodic artifacts)")
+    parser.add_argument("--texture-weight", type=float, default=None,
+                        help="Weight for local variance texture consistency loss (anti-mush)")
+    parser.add_argument("--texture-window", type=int, default=None,
+                        help="Window size for local variance computation (default: 7)")
     parser.add_argument("--huber", action="store_true", default=None,
                         help="Use Huber loss instead of L1")
     parser.add_argument("--huber-delta", type=float, default=None,
@@ -644,27 +655,14 @@ def main():
 
     # Pre-materialize validation batches on GPU to avoid CPU memory contention
     # during evaluation (streaming threads compete for DDR5 bandwidth).
-    if device.type == "cuda":
-        dash.log("Pre-loading validation batches to GPU...")
-        val_batches = []
-        for batch in val_loader:
-            inputs, targets, clip_levels = batch
-            val_batches.append((
-                inputs.to(device, non_blocking=True),
-                targets.to(device, non_blocking=True),
-                clip_levels.to(device, non_blocking=True),
-            ))
-        val_vram_mb = sum(
-            t.nbytes for b in val_batches for t in b
-        ) / 1e6
-        dash.log(f"Validation: {len(val_batches)} batches ({val_vram_mb:.0f} MB VRAM)")
-    else:
-        val_batches = None
+    val_batches = None  # populated after model + optimizer are loaded
 
     # Model
     from cfa import CFA_REGISTRY, cfa_period as _cfa_period
-    _cfa_p = _cfa_period(CFA_REGISTRY[cfg.cfa_type])
-    model = XTransUNet(base_width=cfg.base_width, cfa_period=_cfa_p).to(device)
+    _cfa_pattern = CFA_REGISTRY[cfg.cfa_type]
+    _cfa_p = _cfa_period(_cfa_pattern)
+    model = XTransUNet(base_width=cfg.base_width, cfa_period=_cfa_p,
+                       cfa_pattern=torch.from_numpy(_cfa_pattern)).to(device)
     dash.log(f"Model parameters: {count_parameters(model):,}")
 
     # Resume
@@ -685,13 +683,13 @@ def main():
 
         # Only restore optimizer/scheduler if continuing same training
         if cfg.mode == "train":
-            start_epoch = ckpt.get("epoch", 0) + 1
-            # Only carry over best_val_psnr and scheduler when resuming into
+            # Only carry over epoch and best_val_psnr when resuming into
             # the same output dir (truly continuing a run). When --from-checkpoint
             # writes to a new dir, start fresh tracking and a fresh LR schedule.
             ckpt_dir = Path(resume).parent
             same_run = ckpt_dir.resolve() == Path(cfg.output_dir).resolve()
             if same_run:
+                start_epoch = ckpt.get("epoch", 0) + 1
                 best_val_psnr = ckpt.get("best_val_psnr", 0.0)
             dash.log(f"  Resuming from epoch {start_epoch}"
                      + (f", best PSNR: {best_val_psnr:.1f}" if same_run else " (fresh best PSNR tracking)"))
@@ -711,6 +709,8 @@ def main():
         loss_info += f", chroma={criterion.chroma_weight}"
     if criterion.zipper_weight > 0:
         loss_info += f", zipper={criterion.zipper_weight}"
+    if criterion.fft_weight > 0:
+        loss_info += f", fft={criterion.fft_weight}"
     if criterion.color_bias_weight > 0:
         loss_info += f", color_bias={criterion.color_bias_weight}"
     if criterion.recon_only:
@@ -762,6 +762,35 @@ def main():
         "from_checkpoint": from_checkpoint,
         "resume": resume,
     })
+
+    # Pre-materialize validation batches on GPU to avoid CPU memory contention
+    # during evaluation. Done after model + optimizer are loaded so we can
+    # check actual free VRAM rather than guessing with a fixed percentage.
+    # Reserve 2 GB headroom for training activations and batch tensors.
+    if device.type == "cuda":
+        free_vram, _ = torch.cuda.mem_get_info(device)
+        headroom = 2 * 1024**3
+        vram_budget = max(0, free_vram - headroom)
+        n_val = len(val_dataset)
+        ps = cfg.patch_size
+        bpp = 2 if cfg.amp else 4
+        est_bytes = n_val * ps * ps * (1 + 3) * bpp  # 1ch input + 3ch target
+        if est_bytes < vram_budget:
+            store_dtype = torch.float16 if cfg.amp else torch.float32
+            dash.log(f"Pre-loading validation batches to GPU ({store_dtype})...")
+            val_batches = []
+            for batch in val_loader:
+                inputs, targets = batch
+                val_batches.append((
+                    inputs.to(device=device, dtype=store_dtype, non_blocking=True),
+                    targets.to(device=device, dtype=store_dtype, non_blocking=True),
+                ))
+            val_vram_mb = sum(
+                t.nbytes for b in val_batches for t in b
+            ) / 1e6
+            dash.log(f"Validation: {len(val_batches)} batches ({val_vram_mb:.0f} MB VRAM)")
+        else:
+            dash.log(f"Validation: streaming from CPU (est. {est_bytes / 1e9:.1f} GB > {vram_budget / 1e9:.1f} GB budget)")
 
     # Training loop — restore history if continuing a run
     history = []
@@ -968,6 +997,22 @@ def main():
     print(f"  Output:        {cfg.output_dir}")
     print("=" * 60)
 
+    if fatal_exc is not None:
+        raise fatal_exc
+
+    if dash.has_fatal_error:
+        print(f"\n  Training stopped: NaN/Inf detected in loss.")
+        raise SystemExit(1)
+
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        # If the dashboard is still running, stop it before printing the
+        # traceback so the Rich Live display doesn't corrupt the output.
+        import traceback
+        from dashboard import TrainingDashboard
+        TrainingDashboard.force_stop()
+        traceback.print_exc()
+        raise SystemExit(1)

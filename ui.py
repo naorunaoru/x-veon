@@ -139,23 +139,33 @@ def plot_training_history(checkpoint_dir: str) -> tuple:
     # Helper to plot components
     COMP_COLORS = {
         "l1": "tab:blue",
+        "l1_recon": "royalblue",
+        "l1_known": "cornflowerblue",
         "huber": "tab:blue",
         "msssim": "tab:orange",
         "gradient": "tab:green",
         "chroma": "tab:red",
+        "fft": "tab:cyan",
+        "texture": "tab:olive",
         "zipper": "tab:purple",
         "color_bias": "tab:brown",
     }
     def plot_components(ax, history, key, title):
         if key not in history[0]:
             return
-        for comp, color in COMP_COLORS.items():
+        # Discover all component names present in any epoch
+        all_comps = dict.fromkeys(
+            comp for h in history for comp in h[key]
+        )
+        for comp in all_comps:
             values = [h[key].get(comp, 0) for h in history]
             if any(v > 0 for v in values):
                 # Convert MS-SSIM to loss (it's stored as similarity)
                 if comp == "msssim":
                     values = [1 - v for v in values]
-                ax.plot(epochs, values, label=comp, alpha=0.7, color=color)
+                color = COMP_COLORS.get(comp)
+                ax.plot(epochs, values, label=comp, alpha=0.7,
+                        **({"color": color} if color else {}))
         ax.set_xlabel("Epoch")
         ax.set_ylabel("Loss")
         ax.set_title(title)
@@ -188,7 +198,9 @@ def load_model(checkpoint_path: str):
     _device = get_device()
     ckpt = torch.load(checkpoint_path, map_location=_device, weights_only=True)
     _cfa_p = _ckpt_cfa_period(ckpt)
-    _model = XTransUNet(base_width=ckpt.get("base_width", 64), cfa_period=_cfa_p).to(_device)
+    _cfa_pat = CFA_REGISTRY[ckpt.get("cfa_type", "xtrans")]
+    _model = XTransUNet(base_width=ckpt.get("base_width", 64), cfa_period=_cfa_p,
+                        cfa_pattern=torch.from_numpy(_cfa_pat)).to(_device)
     _model.load_state_dict(ckpt["model"], strict=False)
     _model.eval()
     _model_path = checkpoint_path

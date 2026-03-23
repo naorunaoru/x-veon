@@ -8,6 +8,8 @@ Components:
 - Gradient (Sobel): edge preservation
 - MS-SSIM: multi-scale structural similarity (texture/detail)
 - Chroma: penalizes false color artifacts
+- FFT: frequency-domain magnitude spectrum (periodic artifact penalty)
+- Local variance: texture consistency (penalizes mushy/averaged-out detail)
 """
 
 import torch
@@ -58,34 +60,58 @@ class SobelGradientLoss(nn.Module):
 
 
 class ChromaLoss(nn.Module):
-    """Penalize high-frequency chrominance (false color artifacts)."""
+    """Penalize false-color artifacts using a guided filter.
 
-    def __init__(self, kernel_size: int = 5):
+    A guided filter (He et al. 2013) with the luminance channel as guide
+    produces an edge-preserving lowpass of the chroma channels.  The highpass
+    residual (original minus guided lowpass) then contains only chroma
+    variations that are NOT explained by luminance edges — i.e. false color.
+    """
+
+    def __init__(self, radius: int = 2, eps: float = 1e-2):
         super().__init__()
-        self.kernel_size = kernel_size
-        sigma = kernel_size / 4.0
-        kernel = _gaussian_kernel_2d(kernel_size, sigma, channels=1)
-        self.register_buffer('lowpass', kernel[:1])  # Single channel
+        self.radius = radius
+        self.eps = eps
+
+    @staticmethod
+    def _box_mean(x: torch.Tensor, r: int) -> torch.Tensor:
+        """Box (mean) filter with reflect-padding for correct borders."""
+        return F.avg_pool2d(
+            F.pad(x, [r, r, r, r], mode='reflect'),
+            kernel_size=2 * r + 1, stride=1, padding=0,
+        )
+
+    def _guided_highpass(
+        self, luma: torch.Tensor, chroma: torch.Tensor,
+    ) -> torch.Tensor:
+        """Edge-preserving highpass: chroma minus guided-filter lowpass.
+
+        luma:   (B, 1, H, W)  — guide signal
+        chroma: (B, 2, H, W)  — Cb, Cr channels to filter
+        """
+        r, eps, bm = self.radius, self.eps, self._box_mean
+        mean_I = bm(luma, r)
+        mean_p = bm(chroma, r)
+        cov_Ip = bm(luma * chroma, r) - mean_I * mean_p
+        var_I = bm(luma * luma, r) - mean_I * mean_I
+        a = cov_Ip / (var_I + eps)
+        b = mean_p - a * mean_I
+        lowpass = bm(a, r) * luma + bm(b, r)
+        return chroma - lowpass
 
     def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        # RGB to YCbCr (simplified)
-        def to_chroma(rgb):
+        def rgb_to_y_chroma(rgb):
             r, g, b = rgb[:, 0:1], rgb[:, 1:2], rgb[:, 2:3]
+            y  =  0.299 * r + 0.587 * g + 0.114 * b
             cb = -0.169 * r - 0.331 * g + 0.500 * b
-            cr = 0.500 * r - 0.419 * g - 0.081 * b
-            return torch.cat([cb, cr], dim=1)
+            cr =  0.500 * r - 0.419 * g - 0.081 * b
+            return y, torch.cat([cb, cr], dim=1)
 
-        pred_chroma = to_chroma(pred)
-        target_chroma = to_chroma(target)
+        pred_y, pred_chroma = rgb_to_y_chroma(pred)
+        target_y, target_chroma = rgb_to_y_chroma(target)
 
-        # High-pass = original - low-pass
-        pad = self.kernel_size // 2
-        B, C, H, W = pred_chroma.shape
-        pred_flat = pred_chroma.reshape(B * C, 1, H, W)
-        target_flat = target_chroma.reshape(B * C, 1, H, W)
-
-        pred_hp = pred_flat - F.conv2d(pred_flat, self.lowpass, padding=pad)
-        target_hp = target_flat - F.conv2d(target_flat, self.lowpass, padding=pad)
+        pred_hp = self._guided_highpass(pred_y, pred_chroma)
+        target_hp = self._guided_highpass(target_y, target_chroma)
 
         return F.l1_loss(pred_hp, target_hp)
 
@@ -125,6 +151,47 @@ class ColorBiasLoss(nn.Module):
         pred_mean = pred.mean(dim=(2, 3))    # (B, 3)
         target_mean = target.mean(dim=(2, 3))
         return F.l1_loss(pred_mean, target_mean)
+
+
+class LocalVarianceLoss(nn.Module):
+    """Penalize differences in local texture energy between prediction and target.
+
+    Computes variance in sliding windows: var = E[x²] - E[x]².
+    L1-trained networks tend to produce lower local variance (mushy textures)
+    because averaging minimizes L1/L2 but kills fine detail.  This loss
+    directly penalizes that variance gap — cheaper than a VGG forward pass.
+    """
+
+    def __init__(self, window_size: int = 7):
+        super().__init__()
+        self.window_size = window_size
+
+    def _local_variance(self, x: torch.Tensor) -> torch.Tensor:
+        """(B, C, H, W) -> (B, C, H, W) local variance map."""
+        B, C, H, W = x.shape
+        x_flat = x.reshape(B * C, 1, H, W)
+        r = self.window_size // 2
+        padded = F.pad(x_flat, [r, r, r, r], mode='reflect')
+        mean = F.avg_pool2d(padded, self.window_size, stride=1)
+        sq_mean = F.avg_pool2d(padded ** 2, self.window_size, stride=1)
+        return (sq_mean - mean ** 2).clamp(min=0).reshape(B, C, H, W)
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        return F.l1_loss(self._local_variance(pred), self._local_variance(target))
+
+
+class FFTLoss(nn.Module):
+    """L1 loss on the magnitude spectrum of pred vs target.
+
+    Penalizes periodic artifacts (e.g. grid patterns from demosaicing)
+    that spatial-domain losses are blind to.
+    """
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        # cuFFT requires float32 for non-power-of-2 sizes under AMP
+        diff = torch.fft.rfft2(pred.float()) - torch.fft.rfft2(target.float())
+        norm = (pred.shape[-2] * pred.shape[-1]) ** 0.5
+        return diff.abs().mean() / norm
 
 
 class SSIM(nn.Module):
@@ -254,8 +321,10 @@ class DemosaicLoss(nn.Module):
     Components:
     - L1: pixel accuracy (PSNR)
     - MS-SSIM: multi-scale structure (texture/detail)
-    - Gradient: edge preservation  
+    - Gradient: edge preservation
     - Chroma: false color penalty
+    - FFT: frequency-domain magnitude spectrum (periodic artifacts)
+    - Texture: local variance consistency (anti-mush)
     Presets:
     - "base": L1-heavy for initial training (high PSNR)
     - "finetune": MS-SSIM + gradient for texture recovery
@@ -274,6 +343,9 @@ class DemosaicLoss(nn.Module):
         chroma_weight: float = 0.05,
         color_bias_weight: float = 0.0,
         zipper_weight: float = 0.0,
+        fft_weight: float = 0.0,
+        texture_weight: float = 0.0,
+        texture_window: int = 7,
         per_channel_norm: bool = False,
         use_huber: bool = False,
         huber_delta: float = 1.0,
@@ -288,6 +360,8 @@ class DemosaicLoss(nn.Module):
         self.chroma_weight = chroma_weight
         self.color_bias_weight = color_bias_weight
         self.zipper_weight = zipper_weight
+        self.fft_weight = fft_weight
+        self.texture_weight = texture_weight
         self.per_channel_norm = per_channel_norm
         self.use_huber = use_huber
         self.huber_delta = huber_delta
@@ -300,6 +374,8 @@ class DemosaicLoss(nn.Module):
         self.chroma = ChromaLoss() if chroma_weight > 0 else None
         self.color_bias = ColorBiasLoss() if color_bias_weight > 0 else None
         self.zipper = ZipperLoss() if zipper_weight > 0 else None
+        self.fft = FFTLoss() if fft_weight > 0 else None
+        self.texture = LocalVarianceLoss(window_size=texture_window) if texture_weight > 0 else None
 
     @classmethod
     def base(cls, data_range: float = 1.0) -> "DemosaicLoss":
@@ -310,13 +386,14 @@ class DemosaicLoss(nn.Module):
     @classmethod
     def finetune(cls, msssim_weight: float = 0.3, gradient_weight: float = 0.2,
                  data_range: float = 1.0) -> "DemosaicLoss":
-        """Preset for fine-tuning: MS-SSIM + gradient for texture."""
+        """Preset for fine-tuning: MS-SSIM + gradient + texture for detail recovery."""
         return cls(
             l1_weight=0.5,
             msssim_weight=msssim_weight,
             gradient_weight=gradient_weight,
             chroma_weight=0.02,
             zipper_weight=0.1,
+            texture_weight=0.1,
             data_range=data_range,
         )
 
@@ -325,16 +402,19 @@ class DemosaicLoss(nn.Module):
         mask: torch.Tensor, loss_fn,
     ) -> torch.Tensor:
         """Compute mean loss over masked pixels only."""
+        # mask may be (1, C, H, W) broadcasting over batch — scale denominator
+        # to account for the batch dimension in the numerator's .sum()
+        B = pred.shape[0]
+        denom = mask.sum().clamp(min=1) * B
         diff = (pred - target).abs() if loss_fn is F.l1_loss else None
         if diff is not None:
-            return (diff * mask).sum() / mask.sum().clamp(min=1)
+            return (diff * mask).sum() / denom
         # Huber: element-wise then mask
         elem = F.huber_loss(pred, target, delta=self.huber_delta, reduction='none')
-        return (elem * mask).sum() / mask.sum().clamp(min=1)
+        return (elem * mask).sum() / denom
 
     def forward(
         self, pred: torch.Tensor, target: torch.Tensor,
-        clip_levels: torch.Tensor | None = None,
         channel_masks: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         components: dict[str, torch.Tensor] = {}
@@ -396,6 +476,18 @@ class DemosaicLoss(nn.Module):
             zipper = self.zipper(pred, target)
             components['zipper'] = zipper.detach()
             total = total + self.zipper_weight * zipper
+
+        # FFT (frequency-domain magnitude spectrum)
+        if self.fft is not None and self.fft_weight > 0:
+            fft = self.fft(pred, target)
+            components['fft'] = fft.detach()
+            total = total + self.fft_weight * fft
+
+        # Texture (local variance consistency)
+        if self.texture is not None and self.texture_weight > 0:
+            tex = self.texture(pred, target)
+            components['texture'] = tex.detach()
+            total = total + self.texture_weight * tex
 
         # Color bias (DC shift penalty)
         if self.color_bias is not None and self.color_bias_weight > 0:

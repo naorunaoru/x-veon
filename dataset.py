@@ -20,7 +20,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset, ConcatDataset, Sampler
 
-from cfa import make_cfa_mask, make_channel_masks, CFA_REGISTRY, cfa_period, patch_alignment
+from cfa import make_cfa_mask, CFA_REGISTRY, cfa_period, patch_alignment
 from losses import _gaussian_kernel_2d
 
 
@@ -37,16 +37,16 @@ _SPOT_PALETTE = [
 _SPOT_WEIGHTS = [e[4] for e in _SPOT_PALETTE]
 
 
-def mosaic(rgb: torch.Tensor, channel_masks: torch.Tensor) -> torch.Tensor:
-    """Apply CFA mosaic to RGB image using pre-computed channel masks.
+def mosaic(rgb: torch.Tensor, cfa: torch.Tensor) -> torch.Tensor:
+    """Apply CFA mosaic to RGB image.
 
     Args:
         rgb: (3, H, W) image
-        channel_masks: (3, H, W) binary masks for R, G, B positions
+        cfa: (H, W) long tensor with values 0 (R), 1 (G), 2 (B)
     Returns:
         (1, H, W) mosaiced image
     """
-    return (rgb * channel_masks).sum(dim=0, keepdim=True)
+    return torch.gather(rgb, 0, cfa.unsqueeze(0).expand(1, -1, -1))
 
 
 class LinearDataset(Dataset):
@@ -146,7 +146,6 @@ class LinearDataset(Dataset):
                 print(f"  WB: {n_missing}/{len(self.data_files)} images missing metadata, using identity WB")
 
         self.cfa = make_cfa_mask(patch_size, patch_size, self.pattern)
-        self.masks = make_channel_masks(patch_size, patch_size, self.pattern)
 
     @staticmethod
     def find_files(
@@ -177,7 +176,6 @@ class LinearDataset(Dataset):
         self,
         rgb: torch.Tensor,
         wb: torch.Tensor,
-        clip_scale: float,
         rng: random.Random,
     ) -> torch.Tensor:
         """Add synthetic bright spots simulating point light sources."""
@@ -254,7 +252,7 @@ class LinearDataset(Dataset):
             img_idx: index into self.data_files / self.wb_multipliers
             rng: random.Random instance for this sample
         Returns:
-            (input_tensor, ref, clip_ch) — same as __getitem__
+            (input_tensor, ref) — same as __getitem__
         """
         # Apply white balance before mosaicing (model learns WB'd data)
         wb = torch.ones(3)
@@ -267,13 +265,11 @@ class LinearDataset(Dataset):
                 wb = wb * torch.tensor([r_shift, 1.0, b_shift])
             rgb = rgb * wb.view(3, 1, 1)
 
-        clip_scale = 1.0
-
         # Bright spot augmentation: add synthetic point light sources
         do_bright_spots = (self.bright_spot_prob > 0
                            and rng.random() < self.bright_spot_prob)
         if do_bright_spots:
-            rgb = self._add_bright_spots(rgb, wb, clip_scale, rng)
+            rgb = self._add_bright_spots(rgb, wb, rng)
 
         # Geometric augmentation: flips + 90° rotations (applied before
         # mosaicing, so CFA is applied fresh to the transformed image)
@@ -298,20 +294,12 @@ class LinearDataset(Dataset):
                 kernel = _gaussian_kernel_2d(ks, sigma, 3)
                 rgb = F.conv2d(rgb.unsqueeze(0), kernel, padding=pad, groups=3).squeeze(0)
 
-        cfa_img = mosaic(rgb, self.masks)
+        cfa_img = mosaic(rgb, self.cfa)
 
-        # Sensor saturation: raw photosites clip at white level (1.0 in
-        # normalized raw space). In WB'd space the clip level per channel
-        # is wb[ch], since raw_clip=1.0 × wb[ch].
-        clip_levels = wb[self.cfa.long()].unsqueeze(0) * clip_scale  # (1, H, W)
-
+        # Clamp bright spots at per-channel white level
         if do_bright_spots:
+            clip_levels = wb[self.cfa.long()].unsqueeze(0)  # (1, H, W)
             cfa_img = cfa_img.clamp(max=clip_levels)
-
-        # Clip proximity: 0 below 50% of clip level, ramps 0→1 from 50% to 100%.
-        # Only encodes proximity to clipping, not scene luminance.
-        raw_ratio = (cfa_img / (clip_levels + 1e-8)).clamp(0, 1)
-        clip_ratio = ((raw_ratio - 0.5) * 2.0).clamp(0, 1)  # (1, H, W)
 
         # Poisson-Gaussian noise: noise_std(x) = sqrt(shot * x + read^2)
         read_sigma = rng.uniform(*self.noise_sigma)
@@ -320,9 +308,7 @@ class LinearDataset(Dataset):
             noise_var = shot_coeff * cfa_img.clamp(min=0) + read_sigma ** 2
             cfa_img = cfa_img + torch.randn_like(cfa_img) * noise_var.sqrt()
 
-        input_tensor = torch.cat([cfa_img, self.masks, clip_ratio], dim=0)  # (5, H, W)
-        clip_ch = wb * clip_scale  # (3,) per-channel clip levels for loss
-        return input_tensor, ref, clip_ch
+        return cfa_img, ref  # (1, H, W), (3, H, W)
 
     def __getitem__(self, idx):
         img_idx = idx // self.patches_per_image
@@ -347,8 +333,8 @@ class LinearDataset(Dataset):
         left = (rng.randint(0, max(0, max_x)) // self.period) * self.period
         patch = img[top:top+crop_size, left:left+crop_size]
 
-        # Read contiguously from mmap (sequential I/O), then HWC→CHW in RAM
-        rgb = torch.from_numpy(np.ascontiguousarray(patch)).permute(2, 0, 1).contiguous()
+        # Read contiguously from mmap (sequential I/O), uint16→float32, HWC→CHW
+        rgb = torch.from_numpy(np.ascontiguousarray(patch, dtype=np.float32) / 65535.0).permute(2, 0, 1).contiguous()
 
         # Area-average 2x downscale
         if do_downscale:
@@ -438,6 +424,7 @@ class PatchCacheDataset(LinearDataset):
         ps = self.patch_size
         period = self.period
 
+        n_slots = self._n_slots
         rng = random.Random(seed)
         crops = []
         for img_i in range(n_images):
@@ -451,22 +438,30 @@ class PatchCacheDataset(LinearDataset):
                 left = (rng.randint(0, max_x) // period) * period
                 crops.append((img_i, top, left, crop_size))
 
+        # When cache_gb caps the buffer, only fill the available slots
+        n_fill = min(n_images * ppi, n_slots)
+        # Determine which images have at least one slot in range
+        fill_images = set(crops[i][0] for i in range(n_fill))
+
         def _extract_image(img_i):
             img = np.load(self.data_files[img_i], mmap_mode='r')
             base = img_i * ppi
             for j in range(ppi):
-                _, top, left, crop_size = crops[base + j]
                 slot = base + j
+                if slot >= n_fill:
+                    break
+                _, top, left, crop_size = crops[slot]
                 patch = img[top:top + crop_size, left:left + crop_size]
+                norm_patch = np.asarray(patch, dtype=np.float32) / 65535.0
                 if crop_size < es:
                     self._patch_data[slot] = 0
-                    self._patch_data[slot, :crop_size, :crop_size] = patch
+                    self._patch_data[slot, :crop_size, :crop_size] = norm_patch
                 else:
-                    self._patch_data[slot] = patch
+                    self._patch_data[slot] = norm_patch
                 self._patch_img_idx[slot] = img_i
 
         with ThreadPoolExecutor(max_workers=8) as pool:
-            list(pool.map(_extract_image, range(n_images)))
+            list(pool.map(_extract_image, sorted(fill_images)))
 
     def _stream_worker(self):
         """Worker thread: load patches into staging slots."""
@@ -513,11 +508,12 @@ class PatchCacheDataset(LinearDataset):
             left = (rng.randint(0, max_x) // period) * period
 
             patch = img[top:top + crop_size, left:left + crop_size]
+            norm_patch = np.asarray(patch, dtype=np.float32) / 65535.0
             if crop_size < es:
                 self._patch_data[physical] = 0
-                self._patch_data[physical, :crop_size, :crop_size] = patch
+                self._patch_data[physical, :crop_size, :crop_size] = norm_patch
             else:
-                self._patch_data[physical] = patch
+                self._patch_data[physical] = norm_patch
             self._patch_img_idx[physical] = img_i
 
             # Queue for swap into a random active slot

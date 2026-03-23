@@ -104,3 +104,5 @@ web/**/pkg/
 
 .mcp.json
 .docrag
+
+.env

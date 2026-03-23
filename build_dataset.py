@@ -11,21 +11,15 @@ Input modes:
   - JSON file: ranking/classification list (see load_raw_map for formats)
   - --scan-dir: scan a directory tree for raw files directly
 
-DR-aware push (--dr-push):
-  Reads Fuji DevelopmentDynamicRange from EXIF makernotes.
-  DR400 images are underexposed by 2 stops → pushed +2 EV (×4).
-  DR200 images are underexposed by 1 stop → pushed +1 EV (×2).
 For each raw file:
 1. Demosaic (DHT for X-Trans, AHD for Bayer)
-2. Black-subtract, normalize by (white - black), NO CLIP
-3. Apply DR push if enabled
-4. Area-average 2x downscale
-5. Save as float32 .npy
+2. Auto-scale to full 16-bit range (lossless bit-shift)
+3. Area-average 2x downscale
+4. Round to uint16, save as .npy
 """
 import argparse
 import os
 import sys
-import subprocess
 import time
 import json
 from multiprocessing import Pool, cpu_count
@@ -36,8 +30,6 @@ import rawpy
 
 RAW_EXTENSIONS = {'.RAF', '.CR2', '.CR3', '.NEF', '.NRW', '.ARW', '.SRW',
                   '.RW2', '.ORF', '.PEF', '.IIQ'}
-
-DR_GAIN = {400: 4.0, 200: 2.0, 100: 1.0}
 
 
 def scan_dir(scan_path: str) -> dict[str, str]:
@@ -50,20 +42,6 @@ def scan_dir(scan_path: str) -> dict[str, str]:
             stem = os.path.splitext(filename)[0]
             raw_map[stem] = os.path.join(root, filename)
     return raw_map
-
-
-def scan_dr(paths: list[str]) -> dict[str, int]:
-    """Batch-query Fuji DevelopmentDynamicRange via exiftool. Returns {path: dr_value}."""
-    if not paths:
-        return {}
-    result = subprocess.run(
-        ['exiftool', '-json', '-DevelopmentDynamicRange'] + paths,
-        capture_output=True, text=True, timeout=600,
-    )
-    dr_map = {}
-    for entry in json.loads(result.stdout):
-        dr_map[entry['SourceFile']] = entry.get('DevelopmentDynamicRange', 100)
-    return dr_map
 
 
 def load_raw_map(json_path: str, raw_base: str | None = None, top_n: int | None = None) -> dict[str, str]:
@@ -108,7 +86,7 @@ def load_raw_map(json_path: str, raw_base: str | None = None, top_n: int | None 
 
 def process_raw(args):
     """Process a single raw file: demosaic, downsample, save."""
-    raw_path, output_dir, stem, index, total, dr_gain = args
+    raw_path, output_dir, stem, index, total = args
 
     output_path = os.path.join(output_dir, f"{stem}.npy")
 
@@ -119,19 +97,14 @@ def process_raw(args):
     try:
         raw = rawpy.imread(raw_path)
 
-        black = float(raw.black_level_per_channel[0])
-        white = float(raw.white_level)
-
         # Auto-detect sensor type from CFA pattern
         raw_pat = raw.raw_pattern
         pat_h = raw_pat.shape[0]
 
         if pat_h >= 6:
-            # X-Trans sensor
             demosaic_algo = rawpy.DemosaicAlgorithm.DHT
             sensor_type = "xtrans"
         else:
-            # Bayer sensor
             demosaic_algo = rawpy.DemosaicAlgorithm.AHD
             sensor_type = "bayer"
 
@@ -139,7 +112,6 @@ def process_raw(args):
             demosaic_algorithm=demosaic_algo,
             output_bps=16,
             no_auto_bright=True,
-            no_auto_scale=True,  # CRITICAL: keeps values in raw range, not scaled to 16-bit
             gamma=(1, 1),  # Linear
             output_color=rawpy.ColorSpace.raw,  # No color matrix
             use_camera_wb=False,
@@ -150,40 +122,32 @@ def process_raw(args):
             user_flip=0,  # No EXIF rotation - keep raw sensor orientation
         )
 
-        # Area-average 2x downscale
+        # Area-average 2x downscale, round back to uint16
         ds = 2
         h_crop = rgb_16.shape[0] // ds * ds
         w_crop = rgb_16.shape[1] // ds * ds
-        rgb_f = (rgb_16[:h_crop, :w_crop]
-                 .reshape(h_crop // ds, ds, w_crop // ds, ds, 3)
-                 .mean(axis=(1, 3), dtype=np.float32))
+        rgb_ds = (rgb_16[:h_crop, :w_crop]
+                  .reshape(h_crop // ds, ds, w_crop // ds, ds, 3)
+                  .mean(axis=(1, 3), dtype=np.float32))
         del rgb_16
+        rgb_u16 = np.rint(rgb_ds).astype(np.uint16)
+        del rgb_ds
 
-        h, w = rgb_f.shape[:2]
-
-        # Normalize: subtract black, divide by (white - black), NO CLIP
-        rgb_f = (rgb_f - black) / (white - black)
-
-        # DR push: compensate for deliberate underexposure in DR200/400
-        if dr_gain > 1.0:
-            rgb_f *= dr_gain
+        h, w = rgb_u16.shape[:2]
 
         # Save
-        np.save(output_path, rgb_f)
+        np.save(output_path, rgb_u16)
 
         # Save metadata
         meta = {
             'source': raw_path,
             'sensor_type': sensor_type,
-            'black_level': black,
-            'white_level': white,
             'camera_wb': list(raw.camera_whitebalance[:3]),
             'original_size': [w * 2, h * 2],
             'downscaled_size': [w, h],
             'pattern': [[int(v) for v in row] for row in raw.raw_pattern],
-            'range_min': float(rgb_f.min()),
-            'range_max': float(rgb_f.max()),
-            'dr_gain': dr_gain,
+            'range_min': int(rgb_u16.min()),
+            'range_max': int(rgb_u16.max()),
         }
 
         meta_path = os.path.join(output_dir, f"{stem}_meta.json")
@@ -192,8 +156,7 @@ def process_raw(args):
 
         raw.close()
 
-        dr_label = f" DR×{dr_gain:.0f}" if dr_gain > 1.0 else ""
-        return f"  [{index}/{total}] {stem} ({sensor_type}{dr_label}): {w}x{h} range=[{rgb_f.min():.3f}, {rgb_f.max():.3f}]"
+        return f"  [{index}/{total}] {stem} ({sensor_type}): {w}x{h} range=[{rgb_u16.min()}, {rgb_u16.max()}]"
 
     except Exception as e:
         return f"  [{index}/{total}] {stem}: ERROR - {e}"
@@ -209,10 +172,6 @@ def main():
     parser.add_argument("-n", "--top-n", type=int, default=None, help="Only process the top N entries (default: all)")
     parser.add_argument("--raw-base", default=None, help="Base DCIM directory (only needed for legacy plain-list JSON)")
     parser.add_argument("-w", "--workers", type=int, default=4, help="Number of parallel workers (default: 4)")
-    parser.add_argument("--dr-push", action="store_true",
-                        help="Apply DR-aware exposure push (DR400→×4, DR200→×2). Reads Fuji EXIF makernotes.")
-    parser.add_argument("--dr-min", type=int, default=0,
-                        help="Only include files with DR >= this value (e.g. 200 or 400). Requires --dr-push.")
     args = parser.parse_args()
 
     if not args.json_file and not args.scan_dir:
@@ -236,33 +195,6 @@ def main():
             print(f"  {missing[stem]}")
         raw_map = {k: v for k, v in raw_map.items() if k not in missing}
 
-    # DR scanning
-    dr_per_file = {}  # stem -> dr_gain
-    if args.dr_push:
-        print("Scanning EXIF for DevelopmentDynamicRange...")
-        path_to_stem = {v: k for k, v in raw_map.items()}
-        dr_raw = scan_dr(list(raw_map.values()))
-        for path, dr_val in dr_raw.items():
-            stem = path_to_stem.get(path)
-            if stem:
-                dr_per_file[stem] = DR_GAIN.get(dr_val, 1.0)
-
-        # Distribution
-        dr_counts = {}
-        for gain in dr_per_file.values():
-            dr_counts[gain] = dr_counts.get(gain, 0) + 1
-        for gain in sorted(dr_counts):
-            label = {4.0: "DR400", 2.0: "DR200", 1.0: "DR100"}.get(gain, f"×{gain}")
-            print(f"  {label}: {dr_counts[gain]} images")
-
-        # Filter by --dr-min
-        if args.dr_min > 0:
-            min_gain = DR_GAIN.get(args.dr_min, 1.0)
-            before = len(raw_map)
-            raw_map = {k: v for k, v in raw_map.items()
-                       if dr_per_file.get(k, 1.0) >= min_gain}
-            print(f"  --dr-min {args.dr_min}: {before} → {len(raw_map)} files")
-
     # Create output dir
     output_dir = args.output
     os.makedirs(output_dir, exist_ok=True)
@@ -278,8 +210,7 @@ def main():
 
     # Prepare work items
     work_args = [
-        (path, output_dir, stem, i+1, len(remaining),
-         dr_per_file.get(stem, 1.0))
+        (path, output_dir, stem, i+1, len(remaining))
         for i, (stem, path) in enumerate(remaining.items())
     ]
 

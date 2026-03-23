@@ -172,7 +172,7 @@ export async function runBatch(
   if (!key) throw new Error(`No active model for ${cfaType}`);
   const entry = sessions.get(key);
   if (!entry) throw new Error(`ONNX session not loaded for ${key}`);
-  const tensor = new ort.Tensor('float32', batchInput, [batchSize, 5, patchSize, patchSize]);
+  const tensor = new ort.Tensor('float32', batchInput, [batchSize, 1, patchSize, patchSize]);
   const results = await entry.session.run({ input: tensor });
   return results.output.data as Float32Array;
 }
@@ -193,7 +193,7 @@ export async function runBatchGpu(
 
   const inputTensor = ort.Tensor.fromGpuBuffer(inputBuffer, {
     dataType: 'float32' as const,
-    dims: [batchSize, 5, patchSize, patchSize],
+    dims: [batchSize, 1, patchSize, patchSize],
   });
   const results = await entry.session.run({ input: inputTensor });
   const outTensor = results.output;

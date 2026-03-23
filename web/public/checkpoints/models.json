@@ -1,16 +1,16 @@
 {
   "bayer_w16_base": {
-    "epoch": 579,
+    "epoch": 294,
     "base_width": 16,
-    "param_count": 1941427,
-    "size_mb": 7.5,
+    "param_count": 2032371,
+    "size_mb": 8.0,
     "dtype": "float32",
     "file": "bayer_w16_base.onnx",
-    "source_sha256": "58155a490771bb7e503d161d2d5900553ed41bcd09dff5df4855061e0d899e74",
-    "train_psnr": 45.1178,
-    "val_psnr": 46.8298,
-    "train_loss": 0.004934,
-    "val_loss": 0.004066
+    "source_sha256": "7894dea69a1ec8f29ab882e69b872d7a9e0d52a645cde278b4888248cbada2cb",
+    "train_psnr": 44.1323,
+    "val_psnr": 45.731,
+    "train_loss": 0.005295,
+    "val_loss": 0.004455
   },
   "bayer_w32_base": {
     "epoch": 577,
@@ -26,29 +26,29 @@
     "val_loss": 0.003709
   },
   "xtrans_w32_base": {
-    "epoch": 150,
+    "epoch": 281,
     "base_width": 32,
-    "param_count": 7760739,
-    "size_mb": 29.7,
+    "param_count": 8129379,
+    "size_mb": 31.9,
     "dtype": "float32",
     "file": "xtrans_w32_base.onnx",
-    "source_sha256": "1b5a035c6a4087586115dbe7726d3f2f1d912bff06167a467d83e5b4ecccc81c",
-    "train_psnr": 33.6553,
-    "val_psnr": 41.9766,
-    "train_loss": 0.003627,
-    "val_loss": 0.002735
+    "source_sha256": "053f55938e51fe2724fd65a77d5b15ee2b88c917d034904291d60e970be1efe5",
+    "train_psnr": 44.4977,
+    "val_psnr": 46.1546,
+    "train_loss": 0.005118,
+    "val_loss": 0.00436
   },
   "xtrans_w16_base": {
-    "epoch": 568,
+    "epoch": 290,
     "base_width": 16,
-    "param_count": 1941427,
-    "size_mb": 7.5,
+    "param_count": 2038707,
+    "size_mb": 8.7,
     "dtype": "float32",
     "file": "xtrans_w16_base.onnx",
-    "source_sha256": "315a75946ee873c4687e6e95d74ae3ede94fb2e3678700b84e39a63eb1bf32dd",
-    "train_psnr": 43.5114,
-    "val_psnr": 45.049,
-    "train_loss": 0.005676,
-    "val_loss": 0.004826
+    "source_sha256": "6c2cb5ee1b149da380a6213b9a98362821390c84d7f6dc7e2279d79caf9de9d0",
+    "train_psnr": 42.2612,
+    "val_psnr": 43.8526,
+    "train_loss": 0.006303,
+    "val_loss": 0.005282
   }
 }

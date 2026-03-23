@@ -54,11 +54,10 @@ def profile_getitem(dataset, indices, warmup=10):
         t["wb"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
-        clip_scale = 1.0
         do_bright_spots = (dataset.bright_spot_prob > 0
                            and rng.random() < dataset.bright_spot_prob)
         if do_bright_spots:
-            rgb = dataset._add_bright_spots(rgb, wb, clip_scale, rng)
+            rgb = dataset._add_bright_spots(rgb, wb, rng)
         t["bright_spots"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
@@ -88,14 +87,6 @@ def profile_getitem(dataset, indices, warmup=10):
         t["mosaic"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
-        clip_levels = wb[dataset.cfa.long()].unsqueeze(0) * clip_scale
-        if do_bright_spots:
-            cfa_img = cfa_img.clamp(max=clip_levels)
-        raw_ratio = (cfa_img / (clip_levels + 1e-8)).clamp(0, 1)
-        clip_ratio = ((raw_ratio - 0.5) * 2.0).clamp(0, 1)
-        t["clip_ratio"] = time.perf_counter() - t0
-
-        t0 = time.perf_counter()
         read_sigma = rng.uniform(*dataset.noise_sigma)
         shot_coeff = rng.uniform(*dataset.shot_noise)
         if read_sigma > 0 or shot_coeff > 0:
@@ -104,8 +95,7 @@ def profile_getitem(dataset, indices, warmup=10):
         t["noise"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
-        input_tensor = torch.cat([cfa_img, dataset.masks, clip_ratio], dim=0)
-        clip_ch = wb * clip_scale
+        input_tensor = torch.cat([cfa_img, dataset.masks], dim=0)
         t["cat_output"] = time.perf_counter() - t0
 
         for k, v in t.items():

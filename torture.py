@@ -485,10 +485,9 @@ class TortureDatasetV2(Dataset):
         
         # Create CFA mosaic
         cfa_img = mosaic_linear(rgb, self.cfa)
-        clip_ratio = torch.zeros_like(cfa_img)  # No clipping in synthetic patterns
-        input_tensor = torch.cat([cfa_img, self.masks, clip_ratio], dim=0)
+        input_tensor = torch.cat([cfa_img, self.masks], dim=0)
 
-        return input_tensor, rgb, torch.ones(3)
+        return input_tensor, rgb
 
 
 def generate_dataset(output_dir: str, num_samples: int = 5000, size: int = 288):

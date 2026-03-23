@@ -334,7 +334,16 @@ class TrainingDashboard:
         self._sys_stop: Optional[threading.Event] = None
         self._sys_thread: Optional[threading.Thread] = None
 
+    _active_instance: "Optional[TrainingDashboard]" = None
+
     # ── Lifecycle ────────────────────────────────────────────────────────
+
+    @classmethod
+    def force_stop(cls):
+        """Stop the active dashboard (if any) so tracebacks print cleanly."""
+        if cls._active_instance is not None:
+            cls._active_instance.stop()
+            cls._active_instance = None
 
     def start(self):
         self.start_time = time.time()
@@ -347,6 +356,7 @@ class TrainingDashboard:
             screen=True,
         )
         self._live.start()
+        TrainingDashboard._active_instance = self
         atexit.register(self.stop)
         # Background system sampling every 5 seconds
         self._sys_stop = threading.Event()
@@ -354,6 +364,7 @@ class TrainingDashboard:
         self._sys_thread.start()
 
     def stop(self):
+        TrainingDashboard._active_instance = None
         if self._sys_stop:
             self._sys_stop.set()
         if self._sys_thread:

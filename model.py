@@ -1,15 +1,14 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2024-present X-Veon contributors
 """
-U-Net for X-Trans demosaicing.
+U-Net for CFA demosaicing (X-Trans / Bayer).
 
 Architecture: encoder-decoder with skip connections.
-- Input: 5 channels (CFA + position masks + clip ratio)
+- Input: 1 channel (CFA mosaic)
 - Output: 3 channels (RGB)
+- CFA channel masks are generated internally from a stored pattern buffer
 - Additive residual: output = CFA_per_channel + learned_delta
-- 4 levels: 64 -> 128 -> 256 -> 512
-- 3x3 convolutions throughout
-- Receptive field easily covers 2-3 X-Trans repeats (12-18 pixels)
+- 4 levels: base_width * [1, 2, 4, 8, 16]
 """
 
 import math
@@ -74,18 +73,30 @@ class XTransUNet(nn.Module):
     Channel widths: base_width * [1, 2, 4, 8, 16] (default 64 → 64..1024).
     """
 
-    def __init__(self, in_channels: int = 5, out_channels: int = 3,
-                 base_width: int = 64, cfa_period: int = 2):
+    def __init__(self, in_channels: int = 1, out_channels: int = 3,
+                 base_width: int = 64, cfa_period: int = 2,
+                 cfa_pattern: torch.Tensor | None = None):
         super().__init__()
         w = base_width
         self.cfa_period = cfa_period
 
+        # Store CFA pattern as buffer (travels with .to(device), saved in state_dict)
+        if cfa_pattern is None:
+            cfa_pattern = torch.tensor([[0, 1], [1, 2]], dtype=torch.long)
+        self.register_buffer('cfa_pattern', cfa_pattern.long())
+
+        # Channel masks are generated from the pattern in forward() —
+        # cache the last size to avoid recomputing every call
+        self._cached_masks: torch.Tensor | None = None
+        self._cached_hw: tuple[int, int] = (0, 0)
+
         # Positional encoding channels: sin/cos for row and column phase
+        # Mask channels (3) are generated internally and concatenated with input
         pos_channels = 4 if cfa_period > 2 else 0
         stem_kernel = 7 if cfa_period > 2 else 3
 
-        # Encoder
-        self.enc1 = ConvBlock(in_channels + pos_channels, w, first_kernel=stem_kernel)
+        # Encoder: 1 (CFA) + 3 (masks) + pos_channels
+        self.enc1 = ConvBlock(in_channels + 3 + pos_channels, w, first_kernel=stem_kernel)
         self.enc2 = DownBlock(w, w * 2)
         self.enc3 = DownBlock(w * 2, w * 4)
         self.enc4 = DownBlock(w * 4, w * 8)
@@ -102,14 +113,31 @@ class XTransUNet(nn.Module):
         # Output
         self.out_conv = nn.Conv2d(w, out_channels, 1)
 
+    def _make_masks(self, H: int, W: int) -> torch.Tensor:
+        """Tile CFA pattern to (1, 3, H, W) channel masks. Cached by (H, W)."""
+        if self._cached_hw == (H, W) and self._cached_masks is not None:
+            return self._cached_masks
+        ph, pw = self.cfa_pattern.shape
+        tiled = self.cfa_pattern.repeat((H + ph - 1) // ph, (W + pw - 1) // pw)[:H, :W]
+        masks = torch.zeros(1, 3, H, W, device=self.cfa_pattern.device, dtype=torch.float32)
+        masks[0, 0] = (tiled == 0).float()  # R
+        masks[0, 1] = (tiled == 1).float()  # G
+        masks[0, 2] = (tiled == 2).float()  # B
+        self._cached_masks = masks
+        self._cached_hw = (H, W)
+        return masks
+
     def forward(self, x):
+        B, _, H, W = x.shape
         cfa = x[:, 0:1]    # (B, 1, H, W)
-        masks = x[:, 1:4]  # (B, 3, H, W) — R, G, B position masks
+        masks = self._make_masks(H, W)  # (1, 3, H, W) — broadcasts over batch
         baseline = cfa * masks  # (B, 3, H, W) — value only in its true channel
+
+        # Concatenate CFA + masks for encoder input
+        x = torch.cat([x, masks.expand(B, -1, -1, -1)], dim=1)  # (B, 4, H, W)
 
         # CFA periodic positional encoding for non-Bayer patterns
         if self.cfa_period > 2:
-            B, _, H, W = x.shape
             y = torch.arange(H, device=x.device, dtype=x.dtype).unsqueeze(1).expand(H, W)
             xc = torch.arange(W, device=x.device, dtype=x.dtype).unsqueeze(0).expand(H, W)
             phase = 2 * math.pi / self.cfa_period
@@ -145,13 +173,18 @@ def count_parameters(model: nn.Module) -> int:
 
 if __name__ == "__main__":
     import sys
+    from cfa import CFA_REGISTRY, cfa_period as _cfa_period
 
     base_width = int(sys.argv[1]) if len(sys.argv) > 1 else 64
-    model = XTransUNet(base_width=base_width)
-    print(f"base_width={base_width}, Parameters: {count_parameters(model):,}")
+    cfa_type = sys.argv[2] if len(sys.argv) > 2 else "bayer"
+    pattern = CFA_REGISTRY[cfa_type]
+    cp = _cfa_period(pattern)
+    model = XTransUNet(base_width=base_width, cfa_period=cp,
+                       cfa_pattern=torch.from_numpy(pattern))
+    print(f"base_width={base_width}, cfa={cfa_type}, Parameters: {count_parameters(model):,}")
 
-    # Test forward pass
-    x = torch.randn(1, 5, 256, 256)
+    # Test forward pass — input is 1 channel (CFA mosaic only)
+    x = torch.randn(1, 1, 256, 256)
     y = model(x)
     print(f"Input:  {x.shape}")
     print(f"Output: {y.shape}")
