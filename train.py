@@ -47,6 +47,7 @@ from checkpoint_registry import (
     update_registry, promote_to_stable, REGISTRY_FILENAME, infer_checkpoint_version,
 )
 from dashboard import TrainingDashboard, EpochData
+from state_server import StateServer
 
 
 # ---------------------------------------------------------------------------
@@ -340,13 +341,20 @@ def evaluate(model, loader, criterion, device, use_amp=False, gpu_batches=None):
 # CLI → Config
 # ---------------------------------------------------------------------------
 
-def parse_config() -> tuple[TrainConfig, str | None, str | None]:
+@dataclass
+class RoutingOptions:
+    """Non-config CLI flags that control output routing."""
+    detach: bool = False
+    socket_path: str | None = None
+
+
+def parse_config() -> tuple[TrainConfig, str | None, str | None, RoutingOptions]:
     """Parse CLI arguments and build a TrainConfig.
 
     Priority: preset defaults → checkpoint config → CLI overrides.
 
     Returns:
-        (config, from_checkpoint_path, resume_path)
+        (config, from_checkpoint_path, resume_path, routing)
     """
     parser = argparse.ArgumentParser(description="CFA demosaicing training")
 
@@ -358,6 +366,13 @@ def parse_config() -> tuple[TrainConfig, str | None, str | None]:
                         help="Resume from checkpoint file")
     parser.add_argument("--no-resume", action="store_true",
                         help="Skip auto-resume when using --from-checkpoint (config only)")
+
+    # Observer routing (headless / socket-based state)
+    parser.add_argument("--detach", action="store_true", default=False,
+                        help="Run headless: no Rich UI, publish state + events on a UNIX socket")
+    parser.add_argument("--socket-path", type=str, default=None,
+                        help="Override the UNIX socket path used by --detach "
+                             "(default: <output_dir>/.train.sock)")
 
     # --- Config args (all default=None for override detection) ---
     # Data
@@ -472,6 +487,7 @@ def parse_config() -> tuple[TrainConfig, str | None, str | None]:
     from_checkpoint = args.from_checkpoint
     resume = args.resume
     no_resume = args.no_resume
+    routing = RoutingOptions(detach=args.detach, socket_path=args.socket_path)
 
     # Collect explicit CLI overrides (non-None values for config fields only)
     config_field_names = {f.name for f in fields(TrainConfig)}
@@ -534,7 +550,7 @@ def parse_config() -> tuple[TrainConfig, str | None, str | None]:
         except (ValueError, IndexError):
             pass
 
-    return cfg, from_checkpoint, resume
+    return cfg, from_checkpoint, resume, routing
 
 
 # ---------------------------------------------------------------------------
@@ -542,21 +558,43 @@ def parse_config() -> tuple[TrainConfig, str | None, str | None]:
 # ---------------------------------------------------------------------------
 
 def main():
-    cfg, from_checkpoint, resume = parse_config()
+    cfg, from_checkpoint, resume, routing = parse_config()
 
-    # Dashboard — start immediately so setup messages appear in the log panel
-    dash = TrainingDashboard(total_epochs=cfg.epochs, log_capacity=50,
-                              best_metric=cfg.best_metric,
-                              loss_weights={
-                                  "l1": cfg.l1_weight,
-                                  "msssim": cfg.msssim_weight,
-                                  "gradient": cfg.gradient_weight,
-                                  "chroma": cfg.chroma_weight,
-                                  "fft": cfg.fft_weight,
-                                  "texture": cfg.texture_weight,
-                                  "zipper": cfg.zipper_weight,
-                                  "color_bias": cfg.color_bias_weight,
-                              })
+    loss_weights = {
+        "l1": cfg.l1_weight,
+        "msssim": cfg.msssim_weight,
+        "gradient": cfg.gradient_weight,
+        "chroma": cfg.chroma_weight,
+        "fft": cfg.fft_weight,
+        "texture": cfg.texture_weight,
+        "zipper": cfg.zipper_weight,
+        "color_bias": cfg.color_bias_weight,
+    }
+    config_summary = cfg.to_dict()
+
+    # Observer — start immediately so setup messages are captured.
+    # Foreground: Rich dashboard. Detached: headless UNIX-socket state server.
+    output_dir = Path(cfg.output_dir)
+    if routing.detach:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        sock_path = Path(routing.socket_path) if routing.socket_path \
+            else output_dir / ".train.sock"
+        dash = StateServer(
+            sock_path, total_epochs=cfg.epochs,
+            best_metric=cfg.best_metric,
+            loss_weights=loss_weights,
+            config=config_summary,
+            log_capacity=50,
+        )
+        print(f"[detached] state socket: {sock_path}", flush=True)
+    else:
+        dash = TrainingDashboard(
+            total_epochs=cfg.epochs, log_capacity=50,
+            best_metric=cfg.best_metric,
+            loss_weights=loss_weights,
+            config=config_summary,
+        )
+    start_wallclock = time.time()
     dash.start()
 
     if from_checkpoint:
@@ -887,26 +925,45 @@ def main():
                  f"{train_dataset._n_staging} staging slots / {staging_gb:.1f} GB)")
         train_dataset.start_streaming()
 
-    # Update dashboard with checkpoint info and start training
-    dash.start_epoch = start_epoch
-    if history:
-        dash.bulk_load([
-            EpochData(
-                epoch=h["epoch"],
-                train_psnr=h["train_psnr"],
-                val_psnr=h["val_psnr"],
-                train_components=h.get("train_components", {}),
-                val_components=h.get("val_components", {}),
-                lr=h["lr"],
-                epoch_time=h["time"],
-            )
-            for h in history
-        ])
+    # Seed observer with resume state (works for both dashboard and state server).
+    history_epochs = [
+        EpochData(
+            epoch=h["epoch"],
+            train_psnr=h["train_psnr"],
+            val_psnr=h["val_psnr"],
+            train_components=h.get("train_components", {}),
+            val_components=h.get("val_components", {}),
+            lr=h["lr"],
+            epoch_time=h["time"],
+        )
+        for h in history
+    ]
+    if isinstance(dash, TrainingDashboard):
+        dash.start_epoch = start_epoch
+        if history_epochs:
+            dash.bulk_load(history_epochs)
+        else:
+            dash.best_val_psnr = best_val_metric
     else:
-        dash.best_val_psnr = best_val_metric
+        # Detached state server — seed the snapshot without broadcasting
+        # live events. Subscribers that are already connected must not see
+        # fake epoch_done messages for history that has already happened;
+        # new subscribers will get the seeded state in their initial snapshot.
+        dash.seed_resume(
+            start_epoch=start_epoch,
+            history=history_epochs,
+            best=(
+                (cfg.best_metric, float(best_val_metric), start_epoch)
+                if best_val_metric else None
+            ),
+        )
 
     interrupted = False
     fatal_exc = None
+    last_train_comp: dict = {}
+    last_val_comp: dict = {}
+    last_train_psnr = float("nan")
+    last_val_psnr = float("nan")
     try:
         for epoch in range(start_epoch, cfg.epochs):
             if use_cache:
@@ -955,6 +1012,11 @@ def main():
                 train_time=t_train,
                 val_time=t_val,
             ))
+
+            last_train_comp = train_comp
+            last_val_comp = val_comp
+            last_train_psnr = train_psnr
+            last_val_psnr = val_psnr
 
             if dash.has_fatal_error:
                 dash.log("Stopping training due to NaN/Inf detection.", "ERROR")
@@ -1010,6 +1072,13 @@ def main():
                     train_loss=train_loss, val_loss=val_loss,
                     history=history_rel,
                 )
+                dash.event("new_best", {
+                    "metric": cfg.best_metric,
+                    "value": float(best_val_metric),
+                    "epoch": epoch + 1,
+                    "checkpoint": str(output_dir / "best.pt"),
+                    "val_psnr": float(val_psnr),
+                })
 
             # Save periodic checkpoint
             if (epoch + 1) % 10 == 0:
@@ -1047,13 +1116,59 @@ def main():
     except Exception as e:
         fatal_exc = e
 
+    # Determine final status before emitting events / stopping.
+    # The snapshot contract only allows completed/interrupted/error, so a
+    # Python-level crash collapses into "error" in the shared status and is
+    # only distinguished by the separate "error" event payload. We keep a
+    # more specific local label for the user-facing summary print below.
+    had_fatal = dash.has_fatal_error
+    if fatal_exc is not None:
+        final_status = "error"
+        summary_label = "Crashed"
+    elif interrupted:
+        final_status = "interrupted"
+        summary_label = "Interrupted"
+    elif had_fatal:
+        final_status = "error"
+        summary_label = "Error"
+    else:
+        final_status = "completed"
+        summary_label = "Completed"
+
+    n_epochs = len(history)
+    total_elapsed = time.time() - start_wallclock
+
+    # Emit explicit lifecycle events before tearing down the observer
+    # so subscribers see them on the wire.
+    if fatal_exc is not None:
+        import traceback as _tb
+        dash.event("error", {
+            "type": type(fatal_exc).__name__,
+            "message": str(fatal_exc),
+            "traceback": "".join(_tb.format_exception(
+                type(fatal_exc), fatal_exc, fatal_exc.__traceback__,
+            )),
+            "epochs_completed": n_epochs,
+        })
+    dash.event("training_done", {
+        "status": final_status,
+        "epochs_completed": n_epochs,
+        "elapsed_seconds": total_elapsed,
+        "best": {
+            "metric": cfg.best_metric,
+            "value": float(best_val_metric) if best_val_metric else None,
+        },
+        "interrupted": interrupted,
+        "fatal": had_fatal,
+    })
+
     dash.stop()
 
     if use_cache:
         train_dataset.cleanup()
 
     # Mark as stable if all epochs completed without interruption
-    if not dash.has_fatal_error and not interrupted:
+    if not had_fatal and not interrupted and fatal_exc is None:
         promote_to_stable(
             registry_path, cfa_type=cfg.cfa_type,
             checkpoint_version=cfg.checkpoint_version or "unversioned",
@@ -1061,18 +1176,13 @@ def main():
         )
 
     # Print summary to console (visible after dashboard closes)
-    total_elapsed = time.time() - dash.start_time if dash.start_time else 0.0
-    n_epochs = len(history)
     avg_epoch = sum(h["time"] for h in history) / n_epochs if n_epochs else 0.0
     data_dirs = ", ".join(cfg.data_dir) if cfg.data_dir else "N/A"
-    status = ("Crashed" if fatal_exc else
-              "Interrupted" if interrupted else
-              "Error" if dash.has_fatal_error else "Completed")
 
     from dashboard import format_time
     print()
     print("=" * 60)
-    print(f"  Training Summary ({status})")
+    print(f"  Training Summary ({summary_label})")
     print("=" * 60)
     print(f"  Elapsed:       {format_time(total_elapsed)} ({n_epochs} epochs)")
     print(f"  Avg epoch:     {avg_epoch:.1f}s")
@@ -1087,12 +1197,18 @@ def main():
     if fatal_exc is not None:
         raise fatal_exc
 
-    if dash.has_fatal_error:
+    if had_fatal:
         print(f"\n  Training stopped: NaN/Inf detected in loss.")
-        # Replay the dashboard logs that contain the detailed breakdown
-        for entry in dash.logs:
-            if entry.level == "ERROR":
-                print(f"  [{entry.level}] {entry.message}")
+        # Replay the ERROR-level logs that contain the detailed breakdown.
+        # Works for both dashboard (LogEntry) and state server (TrainingLogRecord).
+        logs = getattr(dash, "recent_logs", None)
+        if logs is None:
+            logs = getattr(dash, "logs", None)
+        for entry in (logs or []):
+            level = getattr(entry, "level", "")
+            message = getattr(entry, "message", "")
+            if level == "ERROR":
+                print(f"  [{level}] {message}")
         raise SystemExit(1)
 
 

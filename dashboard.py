@@ -315,6 +315,7 @@ class TrainingDashboard:
         best_val_psnr: float = 0.0,
         best_metric: str = "psnr",
         loss_weights: dict[str, float] | None = None,
+        config: dict | None = None,
     ):
         self.total_epochs = total_epochs
         self.start_epoch = start_epoch
@@ -323,6 +324,9 @@ class TrainingDashboard:
         self.best_val_epoch = 0
         self.best_metric = best_metric  # "psnr" or "msssim"
         self.loss_weights = loss_weights or {}
+        self.config = dict(config) if config else {}
+        self._last_error: dict | None = None
+        self._terminal_status: str | None = None
 
         self.history: list[EpochData] = []
         self.logs: deque[LogEntry] = deque(maxlen=log_capacity)
@@ -490,6 +494,114 @@ class TrainingDashboard:
     @property
     def has_fatal_error(self) -> bool:
         return self._fatal
+
+    # ── Observer contract ────────────────────────────────────────────────
+
+    def event(self, kind: str, payload: dict | None = None) -> None:
+        """Record a lifecycle event. Unknown kinds are ignored."""
+        payload = dict(payload or {})
+        if kind == "new_best":
+            # Snapshot state only; the actual update path still happens via
+            # update() to keep UI deltas consistent.
+            value = payload.get("value")
+            epoch = payload.get("epoch")
+            if isinstance(value, (int, float)) and not (
+                isinstance(value, float) and math.isnan(value)
+            ):
+                if value > self.best_val_psnr:
+                    self.best_val_psnr = float(value)
+                    if epoch is not None:
+                        self.best_val_epoch = int(epoch)
+        elif kind == "training_done":
+            self._terminal_status = str(payload.get("status", "completed"))
+        elif kind == "error":
+            self._fatal = True
+            self._terminal_status = "error"
+            self._last_error = {
+                "type": str(payload.get("type", "Error")),
+                "message": str(payload.get("message", "")),
+                "traceback": str(payload.get("traceback", "")),
+                "ts": time.time(),
+            }
+            self.log(
+                f"{self._last_error['type']}: {self._last_error['message']}",
+                "ERROR",
+            )
+        # other kinds are silently ignored
+
+    def get_snapshot(self) -> dict:
+        """Return a JSON-safe snapshot dict, shape-compatible with
+        ``observer.TrainingStateSnapshot.to_dict()``.
+        """
+        # Build inline to avoid a circular import with observer.py.
+        def _safe(v):
+            if isinstance(v, float):
+                if math.isnan(v) or math.isinf(v):
+                    return None
+                return v
+            if isinstance(v, dict):
+                return {str(k): _safe(x) for k, x in v.items()}
+            if isinstance(v, (list, tuple)):
+                return [_safe(x) for x in v]
+            if isinstance(v, (int, bool, str)) or v is None:
+                return v
+            return str(v)
+
+        latest: dict | None = None
+        current_epoch = self.start_epoch
+        if self.history:
+            h = self.history[-1]
+            current_epoch = h.epoch
+            latest = _safe({
+                "epoch": h.epoch,
+                "train_psnr": h.train_psnr,
+                "val_psnr": h.val_psnr,
+                "train_components": h.train_components,
+                "val_components": h.val_components,
+                "lr": h.lr,
+                "epoch_time": h.epoch_time,
+                "train_time": h.train_time,
+                "val_time": h.val_time,
+            })
+
+        if self._terminal_status is not None:
+            status = self._terminal_status
+        elif self._fatal:
+            status = "error"
+        elif self.start_time is None:
+            status = "starting"
+        else:
+            status = "running"
+
+        elapsed = 0.0
+        if self.start_time is not None:
+            elapsed = max(0.0, time.time() - self.start_time)
+
+        return {
+            "status": status,
+            "total_epochs": self.total_epochs,
+            "start_epoch": self.start_epoch,
+            "current_epoch": current_epoch,
+            "start_time": self.start_time,
+            "elapsed_seconds": elapsed,
+            "best": {
+                "metric": self.best_metric,
+                "value": self.best_val_psnr if self.best_val_epoch else None,
+                "epoch": self.best_val_epoch or None,
+            },
+            "latest_epoch": latest,
+            "loss_weights": _safe(self.loss_weights) or {},
+            "config": _safe(self.config) or {},
+            "recent_logs": [
+                {
+                    "ts": e.timestamp.timestamp(),
+                    "level": e.level,
+                    "message": e.message,
+                }
+                for e in list(self.logs)
+            ],
+            "last_error": _safe(self._last_error),
+        }
 
     def print_static(self):
         """Render once without Live context."""
