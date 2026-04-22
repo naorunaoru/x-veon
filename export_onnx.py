@@ -6,6 +6,7 @@
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 
 import numpy as np
@@ -36,8 +37,25 @@ def _extract_metadata(ckpt: dict) -> dict:
     return {
         "epoch": ckpt.get("epoch", 0),
         "base_width": ckpt.get("base_width", 64),
+        "cfa_type": ckpt.get("cfa_type"),
+        "checkpoint_version": ckpt.get("checkpoint_version"),
+        "checkpoint_major": ckpt.get("checkpoint_major"),
+        "architecture_tag": ckpt.get("architecture_tag"),
         "param_count": sum(v.numel() for v in state.values()),
     }
+
+
+def _version_sort_key(version: str | None) -> tuple[int, int, int, int]:
+    if not version:
+        return (-1, -1, -1, -1)
+    m = re.match(r"^v(\d+)\.(\d+)\.(\d+)(?:-w(\d+))?$", version)
+    if not m:
+        return (-1, -1, -1, -1)
+    return tuple(int(x or 0) for x in m.groups())
+
+
+def _manifest_label(sensor: str, version: str, base_width: int) -> str:
+    return f"{sensor}-{version}" if base_width == 16 else f"{sensor}-{version}"
 
 
 def export(checkpoint_path: str, output_path: str, patch_size: int = 288, opset: int = 18, fp16: bool = False, base_width: int | None = None):
@@ -50,16 +68,17 @@ def export(checkpoint_path: str, output_path: str, patch_size: int = 288, opset:
     model.load_state_dict(ckpt["model"], strict=False)
     model.eval()
 
-    dummy = torch.randn(1, 1, patch_size, patch_size)
+    dummy_input = torch.randn(1, 1, patch_size, patch_size)
+    dummy_wb = torch.tensor([[2.0, 1.0, 1.5]])
 
     torch.onnx.export(
         model,
-        dummy,
+        (dummy_input, dummy_wb),
         output_path,
         opset_version=opset,
-        input_names=["input"],
+        input_names=["input", "wb"],
         output_names=["output"],
-        dynamic_axes={"input": {0: "batch"}, "output": {0: "batch"}},
+        dynamic_axes={"input": {0: "batch"}, "wb": {0: "batch"}, "output": {0: "batch"}},
     )
 
     # Convert external data to a single self-contained file
@@ -106,16 +125,19 @@ def verify(checkpoint_path: str, onnx_path: str, patch_size: int = 288, base_wid
     model.eval()
 
     test_input = torch.randn(1, 1, patch_size, patch_size)
+    test_wb = torch.tensor([[2.0, 1.0, 1.5]])
     with torch.no_grad():
-        pt_output = model(test_input).numpy()
+        pt_output = model(test_input, test_wb).numpy()
 
     # ONNX
     sess = ort.InferenceSession(onnx_path)
     ort_input = test_input.numpy()
+    ort_wb = test_wb.numpy()
     input_meta = sess.get_inputs()[0]
     if input_meta.type == "tensor(float16)":
         ort_input = ort_input.astype(np.float16)
-    ort_output = sess.run(None, {"input": ort_input})[0].astype(np.float32)
+        ort_wb = ort_wb.astype(np.float16)
+    ort_output = sess.run(None, {"input": ort_input, "wb": ort_wb})[0].astype(np.float32)
 
     # Compare
     max_diff = np.max(np.abs(pt_output - ort_output))
@@ -139,28 +161,34 @@ def verify(checkpoint_path: str, onnx_path: str, patch_size: int = 288, base_wid
         print(f"  WARN: PSNR below {psnr_threshold} dB, outputs may not match closely")
 
 
-def _iter_registry(registry: dict, *, cfa_type=None, base_width=None, variant=None, status=None, slot="best"):
+def _iter_registry(registry: dict, *, cfa_type=None, base_width=None, version=None, status=None, slot="best"):
     """Yield (label, checkpoint_path, meta) tuples from registry, applying filters."""
-    for sensor, widths in registry.items():
+    for sensor, versions in registry.items():
         if cfa_type and sensor != cfa_type:
             continue
-        for width_key, variants in widths.items():
-            if base_width and width_key != str(base_width):
+        items = sorted(versions.items(), key=lambda kv: _version_sort_key(kv[0]), reverse=True)
+        for checkpoint_version, meta in items:
+            if version and checkpoint_version != version:
                 continue
-            for var_name, statuses in variants.items():
-                if variant and var_name != variant:
+            if base_width and meta.get("base_width") != base_width:
+                continue
+            # Pick requested status, or first available (stable preferred)
+            for st_name in ([status] if status else ["stable", "beta"]):
+                if st_name not in meta:
                     continue
-                # Pick requested status, or first available (stable preferred)
-                for st_name in ([status] if status else ["stable", "beta"]):
-                    if st_name not in statuses:
-                        continue
-                    slots = statuses[st_name]
-                    if slot not in slots:
-                        continue
-                    entry = slots[slot]
-                    label = f"{sensor}_w{width_key}_{var_name}"
-                    yield label, entry["path"], entry
-                    break  # only one status per variant
+                slots = meta[st_name]
+                if slot not in slots:
+                    continue
+                entry = slots[slot]
+                label = _manifest_label(sensor, checkpoint_version, meta.get("base_width", 16))
+                yield label, entry["path"], {
+                    **entry,
+                    "registry_status": st_name,
+                    "checkpoint_version": checkpoint_version,
+                    "base_width": meta.get("base_width", entry.get("base_width", 16)),
+                    "cfa_type": sensor,
+                }
+                break  # only one status per version
 
 
 def main():
@@ -169,7 +197,7 @@ def main():
     # Registry-based batch export (default)
     parser.add_argument("--cfa-type", default=None, help="Filter by sensor type (xtrans, bayer)")
     parser.add_argument("--base-width", type=int, default=None, help="Filter by base width (16, 32, 64)")
-    parser.add_argument("--variant", default=None, help="Filter by variant")
+    parser.add_argument("--version", default=None, help="Filter by canonical checkpoint version (e.g. v6.1.4)")
     parser.add_argument("--status", default=None, choices=["stable", "beta"], help="Filter by status (default: prefer stable)")
     parser.add_argument("--slot", default="best", choices=["best", "latest"], help="Which checkpoint slot to export")
     parser.add_argument("--output-dir", default="web/public/checkpoints", help="Output directory for batch export")
@@ -219,7 +247,7 @@ def main():
         registry,
         cfa_type=args.cfa_type,
         base_width=args.base_width,
-        variant=args.variant,
+        version=args.version,
         status=args.status,
         slot=args.slot,
     ))
@@ -262,6 +290,10 @@ def main():
             **ckpt_meta,
             "file": onnx_file,
             "source_sha256": sha,
+            "registry_status": reg_entry.get("registry_status"),
+            "checkpoint_version": reg_entry.get("checkpoint_version") or ckpt_meta.get("checkpoint_version"),
+            "cfa_type": reg_entry.get("cfa_type") or ckpt_meta.get("cfa_type"),
+            "base_width": reg_entry.get("base_width") or ckpt_meta.get("base_width"),
             "train_psnr": reg_entry.get("train_psnr"),
             "val_psnr": reg_entry.get("val_psnr"),
             "train_loss": reg_entry.get("train_loss"),

@@ -487,7 +487,8 @@ class TortureDatasetV2(Dataset):
         cfa_img = mosaic_linear(rgb, self.cfa)
         input_tensor = torch.cat([cfa_img, self.masks], dim=0)
 
-        return input_tensor, rgb
+        wb = torch.ones(3)  # synthetic patterns have no real WB
+        return input_tensor, rgb, wb
 
 
 def generate_dataset(output_dir: str, num_samples: int = 5000, size: int = 288):

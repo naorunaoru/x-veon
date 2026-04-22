@@ -194,8 +194,8 @@ def process_raw(raw_path: str, model: torch.nn.Module, device: str,
 
     h_aligned, w_aligned = cfa_norm.shape
 
-    # Masks are generated internally by the model
-
+    # WB tensor for model (batch dim=1)
+    wb_t = torch.from_numpy(wb).unsqueeze(0).float().to(device)
 
     confidence_map = None
     variance = None
@@ -213,7 +213,7 @@ def process_raw(raw_path: str, model: torch.nn.Module, device: str,
                 for x in range(0, w_pad, patch_size):
                     crop = cfa_padded[y:y+patch_size, x:x+patch_size]
                     cfa_t = torch.from_numpy(crop).unsqueeze(0).unsqueeze(0).float().to(device)
-                    out = model(cfa_t)[0].cpu().numpy()
+                    out = model(cfa_t, wb_t)[0].cpu().numpy()
                     output[:, y:y+patch_size, x:x+patch_size] = out
     else:
         stride = patch_size - overlap
@@ -237,7 +237,7 @@ def process_raw(raw_path: str, model: torch.nn.Module, device: str,
                 for x in range(0, w_pad - patch_size + 1, stride):
                     crop = cfa_padded[y:y+patch_size, x:x+patch_size]
                     cfa_t = torch.from_numpy(crop).unsqueeze(0).unsqueeze(0).float().to(device)
-                    out = model(cfa_t)[0].cpu().numpy()
+                    out = model(cfa_t, wb_t)[0].cpu().numpy()
 
                     for c in range(3):
                         output[c, y:y+patch_size, x:x+patch_size] += out[c] * blend_weight

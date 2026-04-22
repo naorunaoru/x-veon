@@ -23,6 +23,7 @@ Usage:
 """
 
 import atexit
+import json
 import math
 import shutil
 import threading
@@ -30,6 +31,7 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 from rich.console import Console, Group
@@ -311,12 +313,16 @@ class TrainingDashboard:
         rolling_window: int = 10,
         log_capacity: int = 10,
         best_val_psnr: float = 0.0,
+        best_metric: str = "psnr",
+        loss_weights: dict[str, float] | None = None,
     ):
         self.total_epochs = total_epochs
         self.start_epoch = start_epoch
         self.rolling_window = rolling_window
         self.best_val_psnr = best_val_psnr
         self.best_val_epoch = 0
+        self.best_metric = best_metric  # "psnr" or "msssim"
+        self.loss_weights = loss_weights or {}
 
         self.history: list[EpochData] = []
         self.logs: deque[LogEntry] = deque(maxlen=log_capacity)
@@ -324,6 +330,7 @@ class TrainingDashboard:
         self._fatal = False
         self._sys: SystemSnapshot = SystemSnapshot()
         self._sys_history: deque[SystemSnapshot] = deque(maxlen=SYS_SPARK_WIDTH * 2)
+        self._metric_label = "PSNR" if best_metric == "psnr" else "MS-SSIM"
 
         term_size = shutil.get_terminal_size((160, 40))
         self.console = Console(
@@ -391,6 +398,14 @@ class TrainingDashboard:
     def __exit__(self, *args):
         self.stop()
 
+    # ── Helpers ────────────────────────────────────────────────────────
+
+    def _best_metric_value(self, data: EpochData) -> float:
+        """Extract the value used for best-checkpoint comparison."""
+        if self.best_metric == "msssim":
+            return data.val_components.get("msssim", float("nan"))
+        return data.val_psnr
+
     # ── Public API ───────────────────────────────────────────────────────
 
     def log(self, message: str, level: str = "INFO"):
@@ -401,26 +416,34 @@ class TrainingDashboard:
 
     def update(self, data: EpochData):
         """Record epoch results and refresh display."""
-        all_values = (
-            list(data.train_components.values())
-            + list(data.val_components.values())
-            + [data.train_psnr, data.val_psnr]
-        )
-        for v in all_values:
+        bad_keys: list[str] = []
+        for k, v in data.train_components.items():
             if math.isnan(v) or math.isinf(v):
-                self.log(
-                    f"NaN/Inf detected in epoch {data.epoch} metrics! "
-                    "Training should be stopped.", "ERROR"
-                )
-                self._fatal = True
-                break
+                bad_keys.append(f"train/{k}={v}")
+        for k, v in data.val_components.items():
+            if math.isnan(v) or math.isinf(v):
+                bad_keys.append(f"val/{k}={v}")
+        if math.isnan(data.train_psnr) or math.isinf(data.train_psnr):
+            bad_keys.append(f"train_psnr={data.train_psnr}")
+        if math.isnan(data.val_psnr) or math.isinf(data.val_psnr):
+            bad_keys.append(f"val_psnr={data.val_psnr}")
+        if bad_keys:
+            self.log(
+                f"NaN/Inf in epoch {data.epoch}: {', '.join(bad_keys)}. "
+                "Training should be stopped.", "ERROR"
+            )
+            self._fatal = True
 
         self.history.append(data)
 
-        if not math.isnan(data.val_psnr) and data.val_psnr > self.best_val_psnr:
-            self.best_val_psnr = data.val_psnr
+        metric_val = self._best_metric_value(data)
+        if not math.isnan(metric_val) and metric_val > self.best_val_psnr:
+            self.best_val_psnr = metric_val
             self.best_val_epoch = data.epoch
-            self.log(f"New best val ({data.val_psnr:.2f} dB)")
+            if self.best_metric == "msssim":
+                self.log(f"New best val MS-SSIM ({metric_val:.6f})")
+            else:
+                self.log(f"New best val ({metric_val:.2f} dB)")
 
         self._refresh()
 
@@ -437,8 +460,9 @@ class TrainingDashboard:
                     self._fatal = True
                     break
             self.history.append(data)
-            if not math.isnan(data.val_psnr) and data.val_psnr > self.best_val_psnr:
-                self.best_val_psnr = data.val_psnr
+            metric_val = self._best_metric_value(data)
+            if not math.isnan(metric_val) and metric_val > self.best_val_psnr:
+                self.best_val_psnr = metric_val
                 self.best_val_epoch = data.epoch
 
         if self.history:
@@ -448,9 +472,13 @@ class TrainingDashboard:
                 f"Loaded epochs {first}-{last} ({len(self.history)} total)",
             ))
             if self.best_val_epoch > 0:
+                if self.best_metric == "msssim":
+                    best_str = f"{self.best_val_psnr:.6f}"
+                else:
+                    best_str = f"{self.best_val_psnr:.2f} dB"
                 self.logs.append(LogEntry(
                     datetime.now(), "INFO",
-                    f"Best val: {self.best_val_psnr:.2f} dB (ep {self.best_val_epoch})",
+                    f"Best val {self._metric_label}: {best_str} (ep {self.best_val_epoch})",
                 ))
             if self._fatal:
                 self.logs.append(LogEntry(
@@ -531,7 +559,7 @@ class TrainingDashboard:
     def _render_general(self) -> Panel:
         parts: list = []
         current = self.history[-1] if self.history else None
-        n_done = current.epoch if current else self.start_epoch
+        n_done = max(current.epoch, self.start_epoch) if current else self.start_epoch
 
         # Progress bar
         pct = n_done / self.total_epochs if self.total_epochs > 0 else 0
@@ -776,10 +804,13 @@ class TrainingDashboard:
         if len(val_psnrs) >= 2:
             parts.append(self._psnr_delta_line(val_psnrs))
 
-        # Best
+        # Best (metric-aware)
         best = Text()
-        best.append("       Best: ", style="dim")
-        best.append(f"{self.best_val_psnr:.2f} dB", style="bold bright_green")
+        best.append(f"  Best {self._metric_label}: ", style="dim")
+        if self.best_metric == "msssim":
+            best.append(f"{self.best_val_psnr:.6f}", style="bold bright_green")
+        else:
+            best.append(f"{self.best_val_psnr:.2f} dB", style="bold bright_green")
         best.append(f" (ep {self.best_val_epoch})", style="dim")
         parts.append(best)
 
@@ -816,6 +847,7 @@ class TrainingDashboard:
         )
         table.add_column("", style="bold", no_wrap=True)
         table.add_column("Value", justify="right", no_wrap=True)
+        table.add_column("%", justify="right", no_wrap=True)
         table.add_column("Δ", justify="right", no_wrap=True)
         table.add_column(f"avg/{self.rolling_window}ep", justify="right", no_wrap=True)
 
@@ -829,6 +861,26 @@ class TrainingDashboard:
         current = self.history[-1]
         comps = current.train_components if is_train else current.val_components
 
+        # Compute contribution percentages from loss_weights
+        total_val = comps.get("total", 0.0)
+        contrib_pct: dict[str, float | None] = {}
+        if self.loss_weights and total_val and not math.isnan(total_val) and total_val > 0:
+            # Map component name → weight key
+            _COMP_TO_WEIGHT = {
+                "l1": "l1", "huber": "l1", "msssim": "msssim",
+                "gradient": "gradient", "chroma": "chroma", "fft": "fft",
+                "texture": "texture", "zipper": "zipper", "color_bias": "color_bias",
+            }
+            for comp_name, comp_val in comps.items():
+                wkey = _COMP_TO_WEIGHT.get(comp_name)
+                if wkey and not math.isnan(comp_val):
+                    w = self.loss_weights.get(wkey, 0.0)
+                    if comp_name == "msssim":
+                        wtd = w * (1.0 - comp_val)
+                    else:
+                        wtd = w * comp_val
+                    contrib_pct[comp_name] = wtd / total_val * 100.0
+
         for name, value in comps.items():
             if name == "total":
                 continue
@@ -839,11 +891,19 @@ class TrainingDashboard:
                     Text("NaN!", style="bold red"),
                     Text("─", style="dim"),
                     Text("─", style="dim"),
+                    Text("─", style="dim"),
                 )
                 continue
 
             val_str = f"{value:.4f}"
             invert = name not in HIGHER_IS_BETTER
+
+            # Contribution percentage
+            pct = contrib_pct.get(name)
+            if pct is not None:
+                pct_text = Text(f"{pct:.0f}%", style="dim")
+            else:
+                pct_text = Text("─", style="dim")
 
             # Instant delta
             if len(self.history) >= 2:
@@ -875,7 +935,7 @@ class TrainingDashboard:
             else:
                 rd_text = Text("─", style="dim")
 
-            table.add_row(name, val_str, d, rd_text)
+            table.add_row(name, val_str, pct_text, d, rd_text)
 
         return Panel(
             table,
@@ -909,7 +969,6 @@ class TrainingDashboard:
 # ── History loading helper ───────────────────────────────────────────────────
 
 def _load_history_entries(history_path: str) -> list[EpochData]:
-    import json
     with open(history_path) as f:
         history = json.load(f)
     return [
@@ -933,7 +992,24 @@ def _load_history_entries(history_path: str) -> list[EpochData]:
 def replay_history(history_path: str, animate: bool = False):
     entries = _load_history_entries(history_path)
     total = len(entries)
-    dashboard = TrainingDashboard(total_epochs=total, rolling_window=10)
+
+    # Try to load loss weights from sibling config.json
+    loss_weights: dict[str, float] = {}
+    config_path = Path(history_path).parent / "config.json"
+    if config_path.exists():
+        try:
+            with open(config_path) as f:
+                cfg = json.load(f)
+            for key in ("l1", "msssim", "gradient", "chroma", "fft",
+                        "texture", "zipper", "color_bias"):
+                w = cfg.get(f"{key}_weight", 0.0)
+                if w:
+                    loss_weights[key] = w
+        except Exception:
+            pass
+
+    dashboard = TrainingDashboard(total_epochs=total, rolling_window=10,
+                                  loss_weights=loss_weights)
 
     if animate:
         with dashboard:

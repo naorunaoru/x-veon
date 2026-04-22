@@ -145,6 +145,7 @@ export function useProcessFile() {
           // GPU: inference (GPU buffer in → GPU buffer out)
           const { buffer: inferBuf, dispose } = await runBatchGpu(
             cfaType, inputBuf, count, PATCH_SIZE,
+            [wb[0], wb[1], wb[2]],
           );
 
           // GPU: accumulate inference output into blend buffer

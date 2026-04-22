@@ -125,25 +125,23 @@ class LinearDataset(Dataset):
         if not self.data_files:
             raise ValueError(f"No .npy files found")
 
-        # Load per-image WB multipliers from metadata
-        self.wb_multipliers = None
-        if apply_wb:
-            self.wb_multipliers = []
-            n_missing = 0
-            for npy_path in self.data_files:
-                stem = os.path.splitext(npy_path)[0]
-                meta_path = stem + "_meta.json"
-                try:
-                    with open(meta_path) as f:
-                        meta = json.load(f)
-                    wb = np.array(meta["camera_wb"][:3], dtype=np.float32)
-                    wb = wb / wb[1]  # Normalize to G=1
-                    self.wb_multipliers.append(wb)
-                except (FileNotFoundError, json.JSONDecodeError, KeyError):
-                    self.wb_multipliers.append(np.array([1.0, 1.0, 1.0], dtype=np.float32))
-                    n_missing += 1
-            if n_missing:
-                print(f"  WB: {n_missing}/{len(self.data_files)} images missing metadata, using identity WB")
+        # Load per-image WB multipliers from metadata (always needed for WB mask)
+        self.wb_multipliers = []
+        n_missing = 0
+        for npy_path in self.data_files:
+            stem = os.path.splitext(npy_path)[0]
+            meta_path = stem + "_meta.json"
+            try:
+                with open(meta_path) as f:
+                    meta = json.load(f)
+                wb = np.array(meta["camera_wb"][:3], dtype=np.float32)
+                wb = wb / wb[1]  # Normalize to G=1
+                self.wb_multipliers.append(wb)
+            except (FileNotFoundError, json.JSONDecodeError, KeyError):
+                self.wb_multipliers.append(np.array([1.0, 1.0, 1.0], dtype=np.float32))
+                n_missing += 1
+        if n_missing:
+            print(f"  WB: {n_missing}/{len(self.data_files)} images missing metadata, using identity WB")
 
         self.cfa = make_cfa_mask(patch_size, patch_size, self.pattern)
 
@@ -252,12 +250,12 @@ class LinearDataset(Dataset):
             img_idx: index into self.data_files / self.wb_multipliers
             rng: random.Random instance for this sample
         Returns:
-            (input_tensor, ref) — same as __getitem__
+            (input_tensor, ref, wb) — CFA mosaic, reference RGB, WB coefficients
         """
+        wb = torch.from_numpy(self.wb_multipliers[img_idx]).float()
+
         # Apply white balance before mosaicing (model learns WB'd data)
-        wb = torch.ones(3)
-        if self.wb_multipliers is not None:
-            wb = torch.from_numpy(self.wb_multipliers[img_idx]).float()
+        if self.apply_wb:
             # WB shift augmentation: perturb R and B gains in log space
             if self.augment and self.wb_aug_range > 0:
                 r_shift = math.exp(rng.uniform(-self.wb_aug_range, self.wb_aug_range))
@@ -308,7 +306,7 @@ class LinearDataset(Dataset):
             noise_var = shot_coeff * cfa_img.clamp(min=0) + read_sigma ** 2
             cfa_img = cfa_img + torch.randn_like(cfa_img) * noise_var.sqrt()
 
-        return cfa_img, ref  # (1, H, W), (3, H, W)
+        return cfa_img, ref, wb  # (1, H, W), (3, H, W), (3,)
 
     def __getitem__(self, idx):
         img_idx = idx // self.patches_per_image

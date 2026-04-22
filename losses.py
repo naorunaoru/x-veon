@@ -4,7 +4,7 @@
 Loss functions for X-Trans demosaicing.
 
 Components:
-- L1: pixel-level accuracy (drives PSNR)
+- L1: log-space pixel accuracy (shadow-aware, drives PSNR across full DR)
 - Gradient (Sobel): edge preservation
 - MS-SSIM: multi-scale structural similarity (texture/detail)
 - Chroma: penalizes false color artifacts
@@ -205,6 +205,7 @@ class SSIM(nn.Module):
         self.data_range = data_range
         self.register_buffer('kernel', _gaussian_kernel_2d(window_size, sigma, channels))
 
+    @torch.amp.custom_fwd(device_type="cuda", cast_inputs=torch.float32)
     def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         """Returns SSIM value (higher is better, max 1.0)."""
         C1 = (0.01 * self.data_range) ** 2
@@ -253,6 +254,7 @@ class MSSSIM(nn.Module):
         self.n_scales = len(self.weights)
         self.register_buffer('kernel', _gaussian_kernel_2d(window_size, sigma, channels))
 
+    @torch.amp.custom_fwd(device_type="cuda", cast_inputs=torch.float32)
     def _ssim_components(
         self, pred: torch.Tensor, target: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -319,7 +321,7 @@ class DemosaicLoss(nn.Module):
     Unified loss for X-Trans demosaicing training.
     
     Components:
-    - L1: pixel accuracy (PSNR)
+    - L1: log-space pixel accuracy (shadow-aware PSNR across full DR)
     - MS-SSIM: multi-scale structure (texture/detail)
     - Gradient: edge preservation
     - Chroma: false color penalty
@@ -377,40 +379,20 @@ class DemosaicLoss(nn.Module):
         self.fft = FFTLoss() if fft_weight > 0 else None
         self.texture = LocalVarianceLoss(window_size=texture_window) if texture_weight > 0 else None
 
-    @classmethod
-    def base(cls, data_range: float = 1.0) -> "DemosaicLoss":
-        """Preset for initial training: L1-focused for high PSNR."""
-        return cls(l1_weight=1.0, msssim_weight=0.0, gradient_weight=0.1, chroma_weight=0.05,
-                   zipper_weight=0.05, data_range=data_range)
-
-    @classmethod
-    def finetune(cls, msssim_weight: float = 0.3, gradient_weight: float = 0.2,
-                 data_range: float = 1.0) -> "DemosaicLoss":
-        """Preset for fine-tuning: MS-SSIM + gradient + texture for detail recovery."""
-        return cls(
-            l1_weight=0.5,
-            msssim_weight=msssim_weight,
-            gradient_weight=gradient_weight,
-            chroma_weight=0.02,
-            zipper_weight=0.1,
-            texture_weight=0.1,
-            data_range=data_range,
-        )
 
     def _masked_loss(
         self, pred: torch.Tensor, target: torch.Tensor,
         mask: torch.Tensor, loss_fn,
+        weight: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Compute mean loss over masked pixels only."""
         # mask may be (1, C, H, W) broadcasting over batch — scale denominator
         # to account for the batch dimension in the numerator's .sum()
         B = pred.shape[0]
         denom = mask.sum().clamp(min=1) * B
-        diff = (pred - target).abs() if loss_fn is F.l1_loss else None
-        if diff is not None:
-            return (diff * mask).sum() / denom
-        # Huber: element-wise then mask
-        elem = F.huber_loss(pred, target, delta=self.huber_delta, reduction='none')
+        elem = loss_fn(pred, target)
+        if weight is not None:
+            elem = elem * weight
         return (elem * mask).sum() / denom
 
     def forward(
@@ -427,28 +409,40 @@ class DemosaicLoss(nn.Module):
             known_mask = channel_masks  # (B, 3, H, W)
             unknown_mask = 1.0 - known_mask
 
-        # L1 or Huber (optionally per-channel normalized)
+        # Shadow-weighted L1 or Huber (optionally per-channel normalized)
+        # Weight = 1 / (1 + target/eps): shadows (target << eps) get weight ~1,
+        # highlights (target >> eps) get weight ~eps/target.  Raw range is
+        # [~0, 1] — no per-batch normalization, so the gradient scale is
+        # deterministic and doesn't spike on all-bright batches.
+        # Adjust l1_weight upward to compensate for the lower mean weight.
         if self.l1_weight > 0:
+            _SHADOW_EPS = 1e-3
+            with torch.amp.autocast(device_type=target.device.type, enabled=False):
+                shadow_w = 1.0 / (1.0 + target.float() / _SHADOW_EPS)
             loss_name = 'huber' if self.use_huber else 'l1'
-            loss_fn = (lambda p, t: F.huber_loss(p, t, delta=self.huber_delta)) if self.use_huber else F.l1_loss
+            if self.use_huber:
+                _delta = self.huber_delta
+                loss_fn = lambda p, t: F.huber_loss(p, t, delta=_delta, reduction='none')
+            else:
+                loss_fn = lambda p, t: (p - t).abs()
             if use_recon_mask:
                 # Loss on reconstructed (unknown) pixels
-                recon_loss = self._masked_loss(pred, target, unknown_mask, loss_fn)
+                recon_loss = self._masked_loss(pred, target, unknown_mask, loss_fn, weight=shadow_w)
                 # Small penalty to preserve known pixels
-                known_loss = self._masked_loss(pred, target, known_mask, loss_fn)
+                known_loss = self._masked_loss(pred, target, known_mask, loss_fn, weight=shadow_w)
                 pixel_loss = recon_loss + self.known_pixel_weight * known_loss
                 components[f'{loss_name}_recon'] = recon_loss.detach()
                 components[f'{loss_name}_known'] = known_loss.detach()
             elif self.per_channel_norm:
-                loss_r = loss_fn(pred[:, 0], target[:, 0])
-                loss_g = loss_fn(pred[:, 1], target[:, 1])
-                loss_b = loss_fn(pred[:, 2], target[:, 2])
+                loss_r = (shadow_w[:, 0] * loss_fn(pred[:, 0], target[:, 0])).mean()
+                loss_g = (shadow_w[:, 1] * loss_fn(pred[:, 1], target[:, 1])).mean()
+                loss_b = (shadow_w[:, 2] * loss_fn(pred[:, 2], target[:, 2])).mean()
                 pixel_loss = (loss_r + loss_g + loss_b) / 3
                 components[f'{loss_name}_r'] = loss_r.detach()
                 components[f'{loss_name}_g'] = loss_g.detach()
                 components[f'{loss_name}_b'] = loss_b.detach()
             else:
-                pixel_loss = loss_fn(pred, target)
+                pixel_loss = (shadow_w * loss_fn(pred, target)).mean()
             components[loss_name] = pixel_loss.detach()
             total = total + self.l1_weight * pixel_loss
 

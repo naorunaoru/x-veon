@@ -4,6 +4,9 @@ import type { CfaType, ModelSize } from './types';
 export interface ModelMeta {
   epoch?: number;
   base_width?: number;
+  cfa_type?: CfaType;
+  checkpoint_version?: string;
+  registry_status?: 'stable' | 'beta';
   hl_head?: boolean;
   param_count?: number;
   size_mb?: number;
@@ -23,7 +26,7 @@ interface ModelEntry {
   meta: ModelMeta;
 }
 
-// Sessions keyed by manifest key (e.g. "xtrans_w16_base")
+// Sessions keyed by manifest key (e.g. "xtrans-v6.1.4")
 const sessions = new Map<string, ModelEntry>();
 // Currently active model per CFA type
 const active = new Map<CfaType, string>();
@@ -93,16 +96,42 @@ async function createSession(modelUrl: string): Promise<ort.InferenceSession> {
   }
 }
 
-/** Find the best manifest key for a given CFA type and base width.
- *  Prefers _hl variant, falls back to _base. */
-function resolveModelKey(cfaType: CfaType, width: number): string | null {
-  const prefix = cfaType === 'xtrans' ? 'xtrans' : 'bayer';
-  // Prefer hl, then base
-  for (const suffix of ['hl', 'base']) {
-    const key = `${prefix}_w${width}_${suffix}`;
-    if (manifest[key]) return key;
+function versionSortKey(version?: string): [number, number, number, number] {
+  const m = version?.match(/^v(\d+)\.(\d+)\.(\d+)(?:-w(\d+))?$/);
+  if (!m) return [-1, -1, -1, -1];
+  return [Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4] ?? 0)];
+}
+
+function compareVersionKey(a: [number, number, number, number], b: [number, number, number, number]): number {
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return a[i] - b[i];
   }
-  return null;
+  return 0;
+}
+
+/** Find the best manifest key for a given CFA type and base width.
+ *  Prefers stable entries, then newest version. */
+function resolveModelKey(cfaType: CfaType, width: number): string | null {
+  let bestKey: string | null = null;
+  let bestStable = -1;
+  let bestVersion: [number, number, number, number] = [-1, -1, -1, -1];
+
+  for (const [key, meta] of Object.entries(manifest)) {
+    if ((meta.cfa_type ?? null) !== cfaType) continue;
+    if ((meta.base_width ?? 16) !== width) continue;
+
+    const stableScore = meta.registry_status === 'stable' ? 1 : 0;
+    const versionKey = versionSortKey(meta.checkpoint_version);
+    const better =
+      stableScore > bestStable ||
+      (stableScore === bestStable && compareVersionKey(versionKey, bestVersion) > 0);
+    if (better) {
+      bestStable = stableScore;
+      bestVersion = versionKey;
+      bestKey = key;
+    }
+  }
+  return bestKey;
 }
 
 /** Get or load a session for a manifest key. */
@@ -167,13 +196,18 @@ export async function switchModelSize(size: ModelSize): Promise<void> {
 
 export async function runBatch(
   cfaType: CfaType, batchInput: Float32Array, batchSize: number, patchSize: number,
+  wb: [number, number, number] = [1, 1, 1],
 ): Promise<Float32Array> {
   const key = active.get(cfaType);
   if (!key) throw new Error(`No active model for ${cfaType}`);
   const entry = sessions.get(key);
   if (!entry) throw new Error(`ONNX session not loaded for ${key}`);
   const tensor = new ort.Tensor('float32', batchInput, [batchSize, 1, patchSize, patchSize]);
-  const results = await entry.session.run({ input: tensor });
+  // WB coefficients: repeat per batch element
+  const wbData = new Float32Array(batchSize * 3);
+  for (let i = 0; i < batchSize; i++) { wbData[i * 3] = wb[0]; wbData[i * 3 + 1] = wb[1]; wbData[i * 3 + 2] = wb[2]; }
+  const wbTensor = new ort.Tensor('float32', wbData, [batchSize, 3]);
+  const results = await entry.session.run({ input: tensor, wb: wbTensor });
   return results.output.data as Float32Array;
 }
 
@@ -185,6 +219,7 @@ export async function runBatch(
  */
 export async function runBatchGpu(
   cfaType: CfaType, inputBuffer: GPUBuffer, batchSize: number, patchSize: number,
+  wb: [number, number, number] = [1, 1, 1],
 ): Promise<{ buffer: GPUBuffer; dispose: () => void }> {
   const key = active.get(cfaType);
   if (!key) throw new Error(`No active model for ${cfaType}`);
@@ -195,7 +230,11 @@ export async function runBatchGpu(
     dataType: 'float32' as const,
     dims: [batchSize, 1, patchSize, patchSize],
   });
-  const results = await entry.session.run({ input: inputTensor });
+  // WB coefficients: CPU tensor (small, not worth GPU upload)
+  const wbData = new Float32Array(batchSize * 3);
+  for (let i = 0; i < batchSize; i++) { wbData[i * 3] = wb[0]; wbData[i * 3 + 1] = wb[1]; wbData[i * 3 + 2] = wb[2]; }
+  const wbTensor = new ort.Tensor('float32', wbData, [batchSize, 3]);
+  const results = await entry.session.run({ input: inputTensor, wb: wbTensor });
   const outTensor = results.output;
   return {
     buffer: outTensor.gpuBuffer as GPUBuffer,

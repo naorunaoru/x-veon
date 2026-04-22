@@ -34,6 +34,7 @@ import math
 import random
 import time
 from dataclasses import dataclass, fields, asdict
+from typing import ClassVar
 from pathlib import Path
 
 import torch
@@ -42,7 +43,9 @@ from torch.utils.data import DataLoader
 from model import XTransUNet, count_parameters
 from dataset import LinearDataset, PatchCacheDataset, create_mixed_dataset, ImageGroupedSampler
 from losses import DemosaicLoss
-from checkpoint_registry import update_registry, promote_to_stable, REGISTRY_FILENAME
+from checkpoint_registry import (
+    update_registry, promote_to_stable, REGISTRY_FILENAME, infer_checkpoint_version,
+)
 from dashboard import TrainingDashboard, EpochData
 
 
@@ -50,13 +53,52 @@ from dashboard import TrainingDashboard, EpochData
 # Config
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Presets — mode-specific overrides layered on top of checkpoint config.
+# parse_config() layers: checkpoint config → preset overrides → CLI overrides.
+# TrainConfig field defaults are drawn from the "train" preset where applicable.
+# ---------------------------------------------------------------------------
+
+_PRESETS: dict[str, dict] = {
+    "train": {
+        "epochs": 200,
+        "lr": 1e-3,
+        "l1_weight": 1.0,
+        "msssim_weight": 0.1,
+        "gradient_weight": 0.1,
+        "chroma_weight": 0.1,
+        "fft_weight": 0.1,
+        "texture_weight": 0.1,
+        "recon_only": True,
+        "known_pixel_weight": 0.01,
+        "best_metric": "psnr",
+    },
+    "finetune": {
+        "epochs": 50,
+        "lr": 1e-4,
+        "l1_weight": 0.5,
+        "msssim_weight": 0.3,
+        "gradient_weight": 0.1,
+        "chroma_weight": 0.2,
+        "fft_weight": 0.1,
+        "texture_weight": 0.5,
+        "recon_only": True,
+        "known_pixel_weight": 0.01,
+        "best_metric": "msssim",
+    },
+}
+
+_T = _PRESETS["train"]
+
+
 @dataclass
 class TrainConfig:
     """Single source of truth for all training parameters.
 
-    Defaults match DemosaicLoss.base() for loss weights.
-    Use TrainConfig.finetune() for fine-tuning presets.
+    Mode presets are defined in _PRESETS (exposed as TrainConfig.PRESETS).
     """
+    PRESETS: ClassVar[dict[str, dict]] = _PRESETS
+
     # Data
     data_dir: list[str] | None = None
     cfa_type: str = "xtrans"
@@ -65,29 +107,30 @@ class TrainConfig:
 
     # Training
     mode: str = "train"
-    epochs: int = 200
+    epochs: int = _T["epochs"]
     batch_size: int = 32
     patch_size: int = 96
-    lr: float = 1e-3
+    lr: float = _T["lr"]
     warmup_epochs: int = 0
     val_split: float = 0.1
     patches_per_image: int = 16
 
-    # Loss (defaults = DemosaicLoss.base() preset)
-    l1_weight: float = 1.0
-    msssim_weight: float = 0.0
-    gradient_weight: float = 0.1
-    chroma_weight: float = 0.05
+    # Loss
+    l1_weight: float = _T["l1_weight"]
+    msssim_weight: float = _T["msssim_weight"]
+    gradient_weight: float = _T["gradient_weight"]
+    chroma_weight: float = _T["chroma_weight"]
     color_bias_weight: float = 0.0
-    zipper_weight: float = 0.05
-    fft_weight: float = 0.0
-    texture_weight: float = 0.0
+    zipper_weight: float = 0.0
+    fft_weight: float = _T["fft_weight"]
+    texture_weight: float = _T["texture_weight"]
     texture_window: int = 7
     huber: bool = False
     huber_delta: float = 1.0
     per_channel_norm: bool = False
-    recon_only: bool = False
-    known_pixel_weight: float = 0.1
+    recon_only: bool = _T["recon_only"]
+    known_pixel_weight: float = _T["known_pixel_weight"]
+    best_metric: str = _T["best_metric"]
     data_range: float | None = None
 
     # White balance
@@ -108,9 +151,12 @@ class TrainConfig:
 
     # Checkpoints
     output_dir: str = "./checkpoints"
+    checkpoint_version: str | None = None
+    checkpoint_major: int | None = None
+    architecture_tag: str | None = None
 
     # Model
-    base_width: int = 64
+    base_width: int = 16
 
     # Performance
     workers: int = 0
@@ -118,28 +164,6 @@ class TrainConfig:
     amp: bool = False
     cache_patches: bool = False
     cache_gb: float | None = None
-
-    # --- Presets ---------------------------------------------------------- #
-
-    @classmethod
-    def base(cls) -> "TrainConfig":
-        """Preset for initial training — matches DemosaicLoss.base()."""
-        return cls()
-
-    @classmethod
-    def finetune(cls) -> "TrainConfig":
-        """Preset for fine-tuning — matches DemosaicLoss.finetune()."""
-        return cls(
-            mode="finetune",
-            lr=1e-4,
-            epochs=50,
-            l1_weight=0.5,
-            msssim_weight=0.3,
-            gradient_weight=0.2,
-            chroma_weight=0.02,
-            zipper_weight=0.1,
-            texture_weight=0.1,
-        )
 
     # --- Serialization ---------------------------------------------------- #
 
@@ -229,36 +253,29 @@ def get_device():
 # Train / eval loops
 # ---------------------------------------------------------------------------
 
-def train_epoch(model, loader, optimizer, criterion, device, scaler=None):
+def train_epoch(model, loader, optimizer, criterion, device, use_amp=False):
     model.train()
     total_loss = torch.tensor(0.0, device=device)
     total_psnr = torch.tensor(0.0, device=device)
     component_sums: dict[str, torch.Tensor] = {}
     n_batches = 0
-    use_amp = scaler is not None
 
     for batch in loader:
-        inputs, targets = batch
+        inputs, targets, wb = batch
         inputs = inputs.to(device, non_blocking=True)
         targets = targets.to(device, non_blocking=True)
+        wb = wb.to(device, non_blocking=True)
 
         optimizer.zero_grad()
-        with torch.autocast(device.type, enabled=use_amp):
-            outputs = model(inputs)
+        with torch.autocast(device.type, dtype=torch.bfloat16, enabled=use_amp):
+            outputs = model(inputs, wb)
             channel_masks = model._make_masks(inputs.shape[2], inputs.shape[3]) if criterion.recon_only else None
             loss, components = criterion(outputs, targets,
                                          channel_masks=channel_masks)
 
-        if use_amp:
-            scaler.scale(loss).backward()
-            scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            scaler.step(optimizer)
-            scaler.update()
-        else:
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            optimizer.step()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        optimizer.step()
 
         # Accumulate on GPU — no .item() sync until epoch end
         total_loss = total_loss + loss.detach().squeeze()
@@ -273,6 +290,10 @@ def train_epoch(model, loader, optimizer, criterion, device, scaler=None):
         n_batches += 1
 
     # Single sync point at epoch end
+    if n_batches == 0:
+        # No batches processed — return NaN so dashboard flags it
+        avg_components = {k: float("nan") for k in component_sums}
+        return float("nan"), float("nan"), avg_components
     avg_components = {k: (v / n_batches).item() for k, v in component_sums.items()}
     return (total_loss / n_batches).item(), (total_psnr / n_batches).item(), avg_components
 
@@ -288,14 +309,15 @@ def evaluate(model, loader, criterion, device, use_amp=False, gpu_batches=None):
     source = gpu_batches if gpu_batches is not None else loader
     for batch in source:
         if gpu_batches is not None:
-            inputs, targets = batch
+            inputs, targets, wb = batch
         else:
-            inputs, targets = batch
+            inputs, targets, wb = batch
             inputs = inputs.to(device, non_blocking=True)
             targets = targets.to(device, non_blocking=True)
+            wb = wb.to(device, non_blocking=True)
 
-        with torch.autocast(device.type, enabled=use_amp):
-            outputs = model(inputs)
+        with torch.autocast(device.type, dtype=torch.bfloat16, enabled=use_amp):
+            outputs = model(inputs, wb)
             channel_masks = model._make_masks(inputs.shape[2], inputs.shape[3]) if criterion.recon_only else None
             loss, components = criterion(outputs, targets,
                                          channel_masks=channel_masks)
@@ -386,6 +408,8 @@ def parse_config() -> tuple[TrainConfig, str | None, str | None]:
                         help="Compute L1/Huber only on reconstructed (non-CFA) pixels")
     parser.add_argument("--known-pixel-weight", type=float, default=None,
                         help="Weight for known-pixel preservation when --recon-only (default: 0.1)")
+    parser.add_argument("--best-metric", type=str, choices=["psnr", "msssim"], default=None,
+                        help="Metric for best checkpoint selection (default: psnr)")
     parser.add_argument("--data-range", type=float, default=None,
                         help="Max pixel value for SSIM constants (auto-computed from metadata when --apply-wb)")
 
@@ -417,6 +441,10 @@ def parse_config() -> tuple[TrainConfig, str | None, str | None]:
 
     # Checkpoints
     parser.add_argument("--output-dir", type=str, default=None)
+    parser.add_argument("--checkpoint-version", type=str, default=None,
+                        help="Canonical checkpoint version, e.g. v6.1.4 or v6.1.4-w32")
+    parser.add_argument("--architecture-tag", type=str, default=None,
+                        help="Optional architecture/inference family label for metadata")
 
     # Model
     parser.add_argument("--base-width", type=int, default=None,
@@ -427,8 +455,8 @@ def parse_config() -> tuple[TrainConfig, str | None, str | None]:
                         help="DataLoader workers (0 for main process)")
     parser.add_argument("--seed", type=int, default=None,
                         help="Random seed for train/val split")
-    parser.add_argument("--amp", action="store_true", default=None,
-                        help="Enable automatic mixed precision (float16)")
+    parser.add_argument("--amp", action=argparse.BooleanOptionalAction, default=None,
+                        help="Enable automatic mixed precision (bfloat16)")
     parser.add_argument("--cache-patches", action="store_true", default=None,
                         help="Pre-extract patches into RAM (eliminates disk I/O during training)")
     parser.add_argument("--cache-gb", type=float, default=None,
@@ -453,6 +481,7 @@ def parse_config() -> tuple[TrainConfig, str | None, str | None]:
     # Step 1: Build base config from preset or checkpoint
     mode = overrides.get("mode", "train")
     if from_checkpoint:
+        # Load checkpoint config, then layer mode preset on top
         ckpt_dir = Path(from_checkpoint)
         if ckpt_dir.is_file():
             ckpt_dir = ckpt_dir.parent
@@ -460,12 +489,18 @@ def parse_config() -> tuple[TrainConfig, str | None, str | None]:
         if not config_path.exists():
             parser.error(f"No config.json found in {ckpt_dir}")
         cfg = TrainConfig.from_json(config_path)
-    elif mode == "finetune":
-        cfg = TrainConfig.finetune()
+        # Apply mode preset ONLY for keys not already in the checkpoint config
+        # AND not explicitly overridden on the CLI.  This prevents the preset
+        # from clobbering values that were saved from a previous run.
+        with open(config_path) as _f:
+            ckpt_keys = set(json.load(_f).keys())
+        for k, v in TrainConfig.PRESETS.get(mode, {}).items():
+            if k not in ckpt_keys and k not in overrides:
+                setattr(cfg, k, v)
     else:
-        cfg = TrainConfig.base()
+        cfg = TrainConfig(**TrainConfig.PRESETS.get(mode, TrainConfig.PRESETS["train"]))
 
-    # Step 2: Apply CLI overrides
+    # Step 2: Apply explicit CLI overrides (highest priority)
     for k, v in overrides.items():
         setattr(cfg, k, v)
 
@@ -487,6 +522,18 @@ def parse_config() -> tuple[TrainConfig, str | None, str | None]:
     if isinstance(cfg.data_dir, str):
         cfg.data_dir = [cfg.data_dir]
 
+    # Derive canonical checkpoint version from output dir when not set explicitly.
+    if cfg.checkpoint_version is None:
+        cfg.checkpoint_version = infer_checkpoint_version(
+            {"checkpoint_version": None, "base_width": cfg.base_width},
+            Path(cfg.output_dir),
+        )
+    if cfg.checkpoint_version and cfg.checkpoint_major is None:
+        try:
+            cfg.checkpoint_major = int(cfg.checkpoint_version.split(".", 1)[0][1:])
+        except (ValueError, IndexError):
+            pass
+
     return cfg, from_checkpoint, resume
 
 
@@ -498,7 +545,18 @@ def main():
     cfg, from_checkpoint, resume = parse_config()
 
     # Dashboard — start immediately so setup messages appear in the log panel
-    dash = TrainingDashboard(total_epochs=cfg.epochs, log_capacity=50)
+    dash = TrainingDashboard(total_epochs=cfg.epochs, log_capacity=50,
+                              best_metric=cfg.best_metric,
+                              loss_weights={
+                                  "l1": cfg.l1_weight,
+                                  "msssim": cfg.msssim_weight,
+                                  "gradient": cfg.gradient_weight,
+                                  "chroma": cfg.chroma_weight,
+                                  "fft": cfg.fft_weight,
+                                  "texture": cfg.texture_weight,
+                                  "zipper": cfg.zipper_weight,
+                                  "color_bias": cfg.color_bias_weight,
+                              })
     dash.start()
 
     if from_checkpoint:
@@ -667,32 +725,39 @@ def main():
 
     # Resume
     start_epoch = 0
-    best_val_psnr = 0.0
+    best_val_metric = 0.0
     same_run = False
     ckpt = None
+    metric_label = "PSNR" if cfg.best_metric == "psnr" else "MS-SSIM"
     if resume:
         dash.log(f"Loading checkpoint: {resume}")
         ckpt = torch.load(resume, map_location=device, weights_only=True)
         missing, unexpected = model.load_state_dict(ckpt["model"], strict=False)
         if missing:
-            dash.log(f"  Missing keys: {len(missing)}", "WARN")
+            dash.log(f"  Missing keys ({len(missing)}):", "WARN")
+            for k in missing:
+                dash.log(f"    - {k}", "WARN")
         if unexpected:
-            dash.log(f"  Unexpected keys (ignored): {len(unexpected)}", "WARN")
+            dash.log(f"  Unexpected keys ignored ({len(unexpected)}):", "WARN")
+            for k in unexpected:
+                dash.log(f"    - {k}", "WARN")
         if not missing and not unexpected:
             dash.log(f"  All weights loaded")
 
         # Only restore optimizer/scheduler if continuing same training
         if cfg.mode == "train":
-            # Only carry over epoch and best_val_psnr when resuming into
+            # Only carry over epoch and best_val_metric when resuming into
             # the same output dir (truly continuing a run). When --from-checkpoint
             # writes to a new dir, start fresh tracking and a fresh LR schedule.
             ckpt_dir = Path(resume).parent
             same_run = ckpt_dir.resolve() == Path(cfg.output_dir).resolve()
             if same_run:
                 start_epoch = ckpt.get("epoch", 0) + 1
-                best_val_psnr = ckpt.get("best_val_psnr", 0.0)
+                # Support loading old checkpoints that used best_val_psnr
+                best_val_metric = ckpt.get("best_val_metric", ckpt.get("best_val_psnr", 0.0))
             dash.log(f"  Resuming from epoch {start_epoch}"
-                     + (f", best PSNR: {best_val_psnr:.1f}" if same_run else " (fresh best PSNR tracking)"))
+                     + (f", best {metric_label}: {best_val_metric:.4f}" if same_run
+                        else f" (fresh {metric_label} tracking)"))
         else:
             dash.log(f"  Loaded model weights (fresh optimizer for fine-tuning)")
 
@@ -743,12 +808,8 @@ def main():
         if same_run:
             scheduler.load_state_dict(ckpt["scheduler"])
 
-    # AMP scaler (no-op on CPU, works on CUDA and MPS)
-    scaler = torch.amp.GradScaler(device.type, enabled=cfg.amp) if cfg.amp else None
     if cfg.amp:
-        if ckpt is not None and "scaler" in ckpt:
-            scaler.load_state_dict(ckpt["scaler"])
-        dash.log(f"AMP enabled (float16 mixed precision)")
+        dash.log("AMP enabled (bfloat16 mixed precision)")
 
     output_dir = Path(cfg.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -761,6 +822,9 @@ def main():
         "data_range": data_range,
         "from_checkpoint": from_checkpoint,
         "resume": resume,
+        "checkpoint_version": cfg.checkpoint_version,
+        "checkpoint_major": cfg.checkpoint_major,
+        "architecture_tag": cfg.architecture_tag,
     })
 
     # Pre-materialize validation batches on GPU to avoid CPU memory contention
@@ -776,14 +840,15 @@ def main():
         bpp = 2 if cfg.amp else 4
         est_bytes = n_val * ps * ps * (1 + 3) * bpp  # 1ch input + 3ch target
         if est_bytes < vram_budget:
-            store_dtype = torch.float16 if cfg.amp else torch.float32
+            store_dtype = torch.bfloat16 if cfg.amp else torch.float32
             dash.log(f"Pre-loading validation batches to GPU ({store_dtype})...")
             val_batches = []
             for batch in val_loader:
-                inputs, targets = batch
+                inputs, targets, wb = batch
                 val_batches.append((
                     inputs.to(device=device, dtype=store_dtype, non_blocking=True),
                     targets.to(device=device, dtype=store_dtype, non_blocking=True),
+                    wb.to(device=device, dtype=store_dtype, non_blocking=True),
                 ))
             val_vram_mb = sum(
                 t.nbytes for b in val_batches for t in b
@@ -824,7 +889,6 @@ def main():
 
     # Update dashboard with checkpoint info and start training
     dash.start_epoch = start_epoch
-    dash.best_val_psnr = best_val_psnr
     if history:
         dash.bulk_load([
             EpochData(
@@ -838,6 +902,8 @@ def main():
             )
             for h in history
         ])
+    else:
+        dash.best_val_psnr = best_val_metric
 
     interrupted = False
     fatal_exc = None
@@ -853,7 +919,7 @@ def main():
             t0 = time.time()
 
             train_loss, train_psnr, train_comp = train_epoch(
-                model, train_loader, optimizer, criterion, device, scaler=scaler
+                model, train_loader, optimizer, criterion, device, use_amp=cfg.amp
             )
             t_train = time.time() - t0
 
@@ -892,10 +958,13 @@ def main():
 
             if dash.has_fatal_error:
                 dash.log("Stopping training due to NaN/Inf detection.", "ERROR")
+                dash.log(f"  train components: {train_comp}", "ERROR")
+                dash.log(f"  val components:   {val_comp}", "ERROR")
+                dash.log(f"  train_psnr={train_psnr:.4f}  val_psnr={val_psnr:.4f}", "ERROR")
                 break
 
             entry = {
-                "epoch": epoch + 1,
+                "epoch": epoch,
                 "train_loss": train_loss,
                 "train_psnr": train_psnr,
                 "train_components": train_comp,
@@ -907,23 +976,34 @@ def main():
             }
             history.append(entry)
 
-            # Save best
-            if val_psnr > best_val_psnr:
-                best_val_psnr = val_psnr
+            # Save best (metric-aware: PSNR for base, MS-SSIM for finetune)
+            if cfg.best_metric == "msssim":
+                current_metric = val_comp.get("msssim", 0.0)
+                if isinstance(current_metric, torch.Tensor):
+                    current_metric = current_metric.item()
+            else:
+                current_metric = val_psnr
+            if current_metric > best_val_metric:
+                best_val_metric = current_metric
                 ckpt_data = {
                     "epoch": epoch,
                     "model": model.state_dict(),
                     "optimizer": optimizer.state_dict(),
                     "scheduler": scheduler.state_dict(),
-                    "best_val_psnr": best_val_psnr,
+                    "best_val_metric": best_val_metric,
+                    "best_metric_name": cfg.best_metric,
+                    "best_val_psnr": val_psnr,  # always store PSNR for reference
                     "base_width": cfg.base_width,
                     "cfa_type": cfg.cfa_type,
+                    "checkpoint_version": cfg.checkpoint_version,
+                    "checkpoint_major": cfg.checkpoint_major,
+                    "architecture_tag": cfg.architecture_tag,
                 }
-                if scaler is not None:
-                    ckpt_data["scaler"] = scaler.state_dict()
                 torch.save(ckpt_data, output_dir / "best.pt")
                 update_registry(
-                    registry_path, cfa_type=cfg.cfa_type, base_width=cfg.base_width,
+                    registry_path, cfa_type=cfg.cfa_type,
+                    checkpoint_version=cfg.checkpoint_version or "unversioned",
+                    base_width=cfg.base_width,
                     status="beta", slot="best",
                     path=str(output_dir / "best.pt"), epoch=epoch + 1,
                     train_psnr=train_psnr, val_psnr=val_psnr,
@@ -938,15 +1018,20 @@ def main():
                     "model": model.state_dict(),
                     "optimizer": optimizer.state_dict(),
                     "scheduler": scheduler.state_dict(),
-                    "best_val_psnr": best_val_psnr,
+                    "best_val_metric": best_val_metric,
+                    "best_metric_name": cfg.best_metric,
+                    "best_val_psnr": val_psnr,
                     "base_width": cfg.base_width,
                     "cfa_type": cfg.cfa_type,
+                    "checkpoint_version": cfg.checkpoint_version,
+                    "checkpoint_major": cfg.checkpoint_major,
+                    "architecture_tag": cfg.architecture_tag,
                 }
-                if scaler is not None:
-                    ckpt_data["scaler"] = scaler.state_dict()
                 torch.save(ckpt_data, output_dir / "latest.pt")
                 update_registry(
-                    registry_path, cfa_type=cfg.cfa_type, base_width=cfg.base_width,
+                    registry_path, cfa_type=cfg.cfa_type,
+                    checkpoint_version=cfg.checkpoint_version or "unversioned",
+                    base_width=cfg.base_width,
                     status="beta", slot="latest",
                     path=str(output_dir / "latest.pt"), epoch=epoch + 1,
                     train_psnr=train_psnr, val_psnr=val_psnr,
@@ -971,6 +1056,7 @@ def main():
     if not dash.has_fatal_error and not interrupted:
         promote_to_stable(
             registry_path, cfa_type=cfg.cfa_type,
+            checkpoint_version=cfg.checkpoint_version or "unversioned",
             base_width=cfg.base_width,
         )
 
@@ -992,7 +1078,8 @@ def main():
     print(f"  Avg epoch:     {avg_epoch:.1f}s")
     print(f"  Sensor:        {cfg.cfa_type}")
     print(f"  Model width:   {cfg.base_width}")
-    print(f"  Best PSNR:     {best_val_psnr:.2f} dB")
+    print(f"  Best {metric_label + ':':10s} {best_val_metric:.4f}" +
+          (f" dB" if cfg.best_metric == "psnr" else ""))
     print(f"  Data:          {data_dirs}")
     print(f"  Output:        {cfg.output_dir}")
     print("=" * 60)
@@ -1002,6 +1089,10 @@ def main():
 
     if dash.has_fatal_error:
         print(f"\n  Training stopped: NaN/Inf detected in loss.")
+        # Replay the dashboard logs that contain the detailed breakdown
+        for entry in dash.logs:
+            if entry.level == "ERROR":
+                print(f"  [{entry.level}] {entry.message}")
         raise SystemExit(1)
 
 
