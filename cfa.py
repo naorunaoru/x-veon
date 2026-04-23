@@ -48,7 +48,7 @@ CFA_REGISTRY: dict[str, np.ndarray] = {
 
 def cfa_period(pattern: np.ndarray) -> int:
     """Return the spatial period of a CFA pattern (6 for X-Trans, 2 for Bayer)."""
-    return pattern.shape[0]
+    return int(pattern.shape[0])
 
 
 def patch_alignment(pattern: np.ndarray) -> int:

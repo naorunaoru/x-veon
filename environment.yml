@@ -18,3 +18,4 @@ dependencies:
       - onnx
       - onnxconverter-common
       - onnxscript
+      - mypy

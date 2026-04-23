@@ -22,6 +22,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from typing import Any, ClassVar, cast
 
 # Make the repo importable when tests are run via `python -m unittest`.
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -224,7 +225,7 @@ class _SockClient:
     def send(self, obj):
         self.s.sendall((json.dumps(obj) + "\n").encode("utf-8"))
 
-    def recv_line(self, timeout: float = 3.0) -> dict:
+    def recv_line(self, timeout: float = 3.0) -> dict[str, Any]:
         deadline = time.monotonic() + timeout
         while b"\n" not in self._buf:
             remaining = deadline - time.monotonic()
@@ -238,7 +239,7 @@ class _SockClient:
         nl = self._buf.find(b"\n")
         line = bytes(self._buf[:nl])
         del self._buf[: nl + 1]
-        return json.loads(line.decode("utf-8"))
+        return cast(dict[str, Any], json.loads(line.decode("utf-8")))
 
     def close(self):
         try:
@@ -460,6 +461,10 @@ class StateServerIPCTests(unittest.TestCase):
 class StateClientCLITests(unittest.TestCase):
     """Exercise the public CLI to catch regressions in the protocol."""
 
+    tmp: ClassVar[tempfile.TemporaryDirectory[str]]
+    sock_path: ClassVar[Path]
+    server: ClassVar[StateServer]
+
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
@@ -505,6 +510,7 @@ class StateClientCLITests(unittest.TestCase):
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         )
         try:
+            assert proc.stdout is not None
             # Wait for the initial snapshot line to be flushed.
             initial = proc.stdout.readline()
             self.assertTrue(initial, "no initial snapshot line")

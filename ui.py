@@ -112,7 +112,6 @@ def plot_training_history(checkpoint_dir: str) -> tuple:
         if cfg.get("msssim_weight"): parts.append(f"MS-SSIM={cfg['msssim_weight']}")
         if cfg.get("per_channel_norm"): parts.append("per-ch-norm")
         if cfg.get("color_bias_weight"): parts.append(f"color_bias={cfg['color_bias_weight']}")
-        if cfg.get("torture_fraction"): parts.append(f"torture={cfg['torture_fraction']*100:.0f}%")
         if cfg.get("apply_wb"): parts.append("WB")
         config_str = ", ".join(parts)
 

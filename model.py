@@ -12,6 +12,7 @@ Architecture: encoder-decoder with skip connections.
 """
 
 import math
+from typing import cast
 
 import torch
 import torch.nn as nn
@@ -118,12 +119,16 @@ class XTransUNet(nn.Module):
         # Output
         self.out_conv = nn.Conv2d(w, out_channels, 1)
 
+    def _cfa_pattern_tensor(self) -> torch.Tensor:
+        return cast(torch.Tensor, self.cfa_pattern)
+
     def _tile_pattern(self, H: int, W: int) -> torch.Tensor:
         """Tile CFA pattern to (H, W). Cached by (H, W)."""
         if self._cached_hw == (H, W) and self._cached_tiled is not None:
             return self._cached_tiled
-        ph, pw = self.cfa_pattern.shape
-        tiled = self.cfa_pattern.repeat((H + ph - 1) // ph, (W + pw - 1) // pw)[:H, :W]
+        cfa_pattern = self._cfa_pattern_tensor()
+        ph, pw = cfa_pattern.shape
+        tiled = cfa_pattern.repeat((H + ph - 1) // ph, (W + pw - 1) // pw)[:H, :W]
         self._cached_tiled = tiled
         self._cached_hw = (H, W)
         return tiled
@@ -131,7 +136,7 @@ class XTransUNet(nn.Module):
     def _make_masks(self, H: int, W: int) -> torch.Tensor:
         """Tile CFA pattern to (1, 3, H, W) channel masks."""
         tiled = self._tile_pattern(H, W)
-        masks = torch.zeros(1, 3, H, W, device=self.cfa_pattern.device, dtype=torch.float32)
+        masks = torch.zeros(1, 3, H, W, device=self._cfa_pattern_tensor().device, dtype=torch.float32)
         masks[0, 0] = (tiled == 0).float()  # R
         masks[0, 1] = (tiled == 1).float()  # G
         masks[0, 2] = (tiled == 2).float()  # B

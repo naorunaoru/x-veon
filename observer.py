@@ -17,7 +17,7 @@ import time
 import traceback
 from collections import deque
 from dataclasses import asdict, dataclass, field
-from typing import Any, Iterable, Protocol, runtime_checkable
+from typing import Any, Iterable, Protocol, cast, runtime_checkable
 
 from dashboard import EpochData
 
@@ -102,7 +102,7 @@ class TrainingStateSnapshot:
     last_error: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        data = sanitize_for_json(asdict(self))
+        data = cast(dict[str, Any], sanitize_for_json(asdict(self)))
         if self.start_time is not None:
             data["elapsed_seconds"] = max(0.0, time.time() - self.start_time)
         return data
@@ -126,7 +126,7 @@ class TrainingObserver(Protocol):
 
 def epoch_data_to_dict(data: EpochData) -> dict[str, Any]:
     """Convert an EpochData to a JSON-safe dict snapshot entry."""
-    return sanitize_for_json({
+    return cast(dict[str, Any], sanitize_for_json({
         "epoch": data.epoch,
         "train_psnr": data.train_psnr,
         "val_psnr": data.val_psnr,
@@ -136,7 +136,7 @@ def epoch_data_to_dict(data: EpochData) -> dict[str, Any]:
         "epoch_time": data.epoch_time,
         "train_time": data.train_time,
         "val_time": data.val_time,
-    })
+    }))
 
 
 class TrainingStateStore:

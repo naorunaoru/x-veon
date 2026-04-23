@@ -51,7 +51,8 @@ def _version_sort_key(version: str | None) -> tuple[int, int, int, int]:
     m = re.match(r"^v(\d+)\.(\d+)\.(\d+)(?:-w(\d+))?$", version)
     if not m:
         return (-1, -1, -1, -1)
-    return tuple(int(x or 0) for x in m.groups())
+    major, minor, patch, width = m.groups()
+    return (int(major), int(minor), int(patch), int(width or 0))
 
 
 def _manifest_label(sensor: str, version: str, base_width: int) -> str:

@@ -25,7 +25,7 @@ import json
 from multiprocessing import Pool, cpu_count
 
 import numpy as np
-import rawpy
+import rawpy  # type: ignore[import-untyped]
 
 
 RAW_EXTENSIONS = {'.RAF', '.CR2', '.CR3', '.NEF', '.NRW', '.ARW', '.SRW',

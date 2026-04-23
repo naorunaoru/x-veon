@@ -22,9 +22,6 @@ Examples:
     python train.py --from-checkpoint checkpoints/ \
         --mode finetune --lr 1e-4 --epochs 50 --output-dir checkpoints_v2
 
-    # Fine-tune with torture pattern mixing
-    python train.py --data-dir /path/to/npy --resume checkpoints/best.pt \
-        --mode finetune --torture-fraction 0.05
 """
 
 import argparse
@@ -41,7 +38,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from model import XTransUNet, count_parameters
-from dataset import LinearDataset, PatchCacheDataset, create_mixed_dataset, ImageGroupedSampler
+from dataset import LinearDataset, PatchCacheDataset, ImageGroupedSampler
 from losses import DemosaicLoss
 from checkpoint_registry import (
     update_registry, promote_to_stable, REGISTRY_FILENAME, infer_checkpoint_version,
@@ -147,8 +144,6 @@ class TrainConfig:
     bright_spot_intensity_max: float = 5.0
     bright_spot_sigma_max: float = 20.0
     downscale_prob: float = 0.0
-    torture_fraction: float = 0.0
-    torture_patterns: int = 500
 
     # Checkpoints
     output_dir: str = "./checkpoints"
@@ -449,10 +444,6 @@ def parse_config() -> tuple[TrainConfig, str | None, str | None, RoutingOptions]
                         help="Max Gaussian sigma (pixels) for bright spots (min is 2.0)")
     parser.add_argument("--downscale-prob", type=float, default=None,
                         help="Probability of 2x area-average downscale (0-1)")
-    parser.add_argument("--torture-fraction", type=float, default=None,
-                        help="Fraction of training data from synthetic torture patterns")
-    parser.add_argument("--torture-patterns", type=int, default=None,
-                        help="Number of unique torture patterns")
 
     # Checkpoints
     parser.add_argument("--output-dir", type=str, default=None)
@@ -675,16 +666,7 @@ def main():
         **spot_kwargs,
     )
 
-    if cfg.torture_fraction > 0:
-        train_dataset = create_mixed_dataset(
-            data_dir=None,
-            files=train_files,
-            torture_fraction=cfg.torture_fraction,
-            torture_patterns=cfg.torture_patterns,
-            **train_augment_kwargs,
-            **shared_kwargs,
-        )
-    elif cfg.cache_patches:
+    if cfg.cache_patches:
         dash.log("Pre-extracting patches into RAM...")
         train_dataset = PatchCacheDataset(
             files=train_files,
@@ -909,8 +891,6 @@ def main():
     dash.log(f"  CFA: {cfg.cfa_type}")
     dash.log(f"  Batch: {cfg.batch_size}, Patch: {cfg.patch_size}px")
     dash.log(f"  Noise: read=[{cfg.noise_min}, {cfg.noise_max}], shot=[0, {cfg.shot_noise_max}]")
-    if cfg.torture_fraction > 0:
-        dash.log(f"  Torture mixing: {cfg.torture_fraction*100:.1f}%")
     if wb_aug > 0:
         dash.log(f"  WB augmentation: ±{(math.exp(wb_aug)-1)*100:.0f}% (log range {wb_aug:.2f})")
     if cfg.bright_spot_prob > 0:

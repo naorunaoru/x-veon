@@ -12,6 +12,7 @@ import json
 import re
 import tempfile
 from pathlib import Path
+from typing import Any, cast
 
 REGISTRY_FILENAME = "checkpoint_registry.json"
 
@@ -46,10 +47,10 @@ def _normalize_version(raw: str, *, base_width: int) -> str | None:
     return version
 
 
-def infer_checkpoint_version(config: dict, ckpt_dir: Path) -> str | None:
+def infer_checkpoint_version(config: dict[str, Any], ckpt_dir: Path) -> str | None:
     """Infer canonical checkpoint version from config or historical dirname."""
     version = config.get("checkpoint_version")
-    if version:
+    if isinstance(version, str) and version:
         return version
     return _normalize_version(ckpt_dir.name, base_width=int(config.get("base_width", 16)))
 
@@ -63,17 +64,23 @@ def _version_sort_key(version: str) -> tuple[int, int, int, int]:
     m = re.match(r"^v(\d+)\.(\d+)\.(\d+)(?:-w(\d+))?$", version)
     if not m:
         return (-1, -1, -1, -1)
-    return tuple(int(x or 0) for x in m.groups())
+    major, minor, patch, width = m.groups()
+    return (
+        int(major),
+        int(minor),
+        int(patch),
+        int(width or 0),
+    )
 
 
-def _load_registry(path: Path) -> dict:
+def _load_registry(path: Path) -> dict[str, Any]:
     if path.exists():
         with open(path) as f:
-            return json.load(f)
+            return cast(dict[str, Any], json.load(f))
     return {}
 
 
-def _save_registry(path: Path, data: dict):
+def _save_registry(path: Path, data: dict[str, Any]):
     # Atomic write via temp file + rename
     tmp = tempfile.NamedTemporaryFile(
         mode="w", dir=path.parent, suffix=".tmp", delete=False
@@ -154,13 +161,13 @@ def promote_to_stable(
         _save_registry(registry_path, reg)
 
 
-def build_registry(project_root: Path) -> dict:
+def build_registry(project_root: Path) -> dict[str, Any]:
     """Scan checkpoint dirs and rebuild the registry using canonical versions.
 
     Legacy pre-v6 families are skipped unless they declare an explicit
     checkpoint_version in config.json.
     """
-    reg = {}
+    reg: dict[str, Any] = {}
     registry_path = project_root / REGISTRY_FILENAME
 
     for config_path in sorted(project_root.glob("checkpoints/**/config.json")):

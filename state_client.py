@@ -19,9 +19,10 @@ import json
 import socket
 import sys
 from pathlib import Path
+from typing import Any, Callable, cast
 
 
-def _send_request(sock_path: str, request: dict) -> socket.socket:
+def _send_request(sock_path: str, request: dict[str, Any]) -> socket.socket:
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     s.connect(sock_path)
     line = json.dumps(request, separators=(",", ":")) + "\n"
@@ -74,8 +75,8 @@ def cmd_get_state(args) -> int:
     return 0
 
 
-def cmd_subscribe(args) -> int:
-    req: dict = {"cmd": "subscribe"}
+def cmd_subscribe(args: argparse.Namespace) -> int:
+    req: dict[str, Any] = {"cmd": "subscribe"}
     if args.events:
         req["events"] = [e.strip() for e in args.events.split(",") if e.strip()]
     sock = _send_request(args.socket, req)
@@ -129,7 +130,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
     try:
-        return args.func(args)
+        func = cast(Callable[[argparse.Namespace], int], args.func)
+        return func(args)
     except ConnectionRefusedError as e:
         print(json.dumps({"type": "error", "message": f"connection refused: {e}"}))
         return 2

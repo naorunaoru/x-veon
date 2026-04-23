@@ -6,7 +6,6 @@ Dataset for X-Trans demosaicing training.
 Supports:
 - Linear .npy files (from build_dataset_v4.py)
 - Direct JPEG loading with sRGB→linear conversion
-- Optional mixing of synthetic torture patterns
 """
 
 import colorsys
@@ -18,7 +17,7 @@ import random
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.utils.data import Dataset, ConcatDataset, Sampler
+from torch.utils.data import Dataset, Sampler
 
 from cfa import make_cfa_mask, CFA_REGISTRY, cfa_period, patch_alignment
 from losses import _gaussian_kernel_2d
@@ -614,97 +613,6 @@ class PatchCacheDataset(LinearDataset):
                 self._patch_data[physical].transpose(2, 0, 1)))
 
         return self._process_patch(rgb, img_idx, rng)
-
-
-class TortureDataset(Dataset):
-    """
-    Synthetic torture test patterns.
-    Import from torture for the actual pattern generation.
-    """
-
-    def __init__(self, patch_size: int = 96, num_patterns: int = 1000, cfa_type: str = "xtrans"):
-        from torture import TortureDatasetV2
-        self._inner = TortureDatasetV2(size=patch_size, num_patterns=num_patterns, cfa_type=cfa_type)
-
-    def __len__(self):
-        return len(self._inner)
-
-    def __getitem__(self, idx):
-        return self._inner[idx]
-
-
-def create_mixed_dataset(
-    data_dir: str | None = None,
-    patch_size: int = 96,
-    torture_fraction: float = 0.05,
-    torture_patterns: int = 500,
-    augment: bool = True,
-    noise_sigma: tuple[float, float] = (0.0, 0.005),
-    shot_noise: tuple[float, float] = (0.0, 0.0),
-    patches_per_image: int = 16,
-    max_images: int | None = None,
-    apply_wb: bool = False,
-    wb_aug_range: float = 0.0,
-    files: list[str] | None = None,
-    cfa_type: str = "xtrans",
-    olpf_sigma: tuple[float, float] = (0.0, 0.0),
-    bright_spot_prob: float = 0.0,
-    bright_spot_intensity: tuple[float, float] = (1.5, 5.0),
-    bright_spot_sigma: tuple[float, float] = (2.0, 20.0),
-    bright_spot_count: tuple[int, int] = (1, 5),
-    downscale_prob: float = 0.0,
-) -> Dataset:
-    """
-    Create a dataset mixing real images with synthetic torture patterns.
-    """
-    main_dataset = LinearDataset(
-        data_dir=data_dir,
-        patch_size=patch_size,
-        augment=augment,
-        noise_sigma=noise_sigma,
-        shot_noise=shot_noise,
-        patches_per_image=patches_per_image,
-        max_images=max_images,
-        apply_wb=apply_wb,
-        wb_aug_range=wb_aug_range,
-        files=files,
-        cfa_type=cfa_type,
-        olpf_sigma=olpf_sigma,
-        bright_spot_prob=bright_spot_prob,
-        bright_spot_intensity=bright_spot_intensity,
-        bright_spot_sigma=bright_spot_sigma,
-        bright_spot_count=bright_spot_count,
-        downscale_prob=downscale_prob,
-    )
-
-    if torture_fraction <= 0:
-        return main_dataset
-
-    # Calculate torture dataset size to achieve desired fraction
-    main_size = len(main_dataset)
-    torture_size = int(main_size * torture_fraction / (1 - torture_fraction))
-    torture_size = max(1, min(torture_size, torture_patterns * 10))  # Cap at 10x patterns
-
-    torture_dataset = TortureDataset(patch_size, torture_patterns, cfa_type=cfa_type)
-
-    # Repeat torture dataset to match size
-    class RepeatedDataset(Dataset):
-        def __init__(self, dataset, target_size):
-            self.dataset = dataset
-            self.target_size = target_size
-
-        def __len__(self):
-            return self.target_size
-
-        def __getitem__(self, idx):
-            return self.dataset[idx % len(self.dataset)]
-
-    repeated_torture = RepeatedDataset(torture_dataset, torture_size)
-
-    print(f"  Main dataset: {main_size} samples")
-    print(f"  Torture dataset: {torture_size} samples ({torture_fraction*100:.1f}% of total)")
-
-    return ConcatDataset([main_dataset, repeated_torture])
 
 
 class ImageGroupedSampler(Sampler):
