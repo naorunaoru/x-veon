@@ -1,0 +1,12 @@
+.xv-collapsible { display: flex; flex-direction: column; }
+.xv-collapsible__head {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  padding: 0; border: none; background: transparent; cursor: pointer; text-align: left;
+}
+.xv-collapsible__chevron { color: var(--xv-muted-foreground); transition: transform var(--xv-transition); }
+.xv-collapsible__chevron.is-open { transform: rotate(90deg); }
+.xv-collapsible__title {
+  flex: 1; font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px;
+  color: var(--xv-muted-foreground);
+}
+.xv-collapsible__body { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
