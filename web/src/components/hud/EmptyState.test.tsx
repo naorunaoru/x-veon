@@ -10,7 +10,10 @@ describe('EmptyState', () => {
   });
 
   it('adds dropped files', () => {
-    const spy = vi.spyOn(useAppStore.getState(), 'addFiles');
+    // Stub the implementation: we only assert the call, and the real addFiles
+    // kicks off a fire-and-forget OPFS write that calls File.arrayBuffer(),
+    // which jsdom's File doesn't implement (browser-only — irrelevant here).
+    const spy = vi.spyOn(useAppStore.getState(), 'addFiles').mockImplementation(() => {});
     render(<EmptyState />);
     const file = new File(['x'], 'shot.raf', { type: 'image/x-fuji-raf' });
     const zone = screen.getByTestId('empty-dropzone');
