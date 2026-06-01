@@ -20,8 +20,9 @@ function srgbOetf(v: number): number {
 /** Display code value (0..1) for a scene-linear achromatic input. */
 export function evalTonescale(sceneLinear: number, cfg: GradingConfig, ts: TonescaleParams): number {
   let v = compressHp(sceneLinear, ts.ts_s, cfg.tn_con);
-  v = compressToeQuad(v, cfg.tn_toe);
-  v = v * ts.ts_dsc;
+  v = v * ts.ts_m2;                       // normalization (shader opendrt.wgsl:439)
+  v = compressToeQuad(v, cfg.tn_toe);     // toe (opendrt.wgsl:440)
+  v = v * ts.ts_dsc;                      // display scale (opendrt.wgsl:441)
   return srgbOetf(v);
 }
 
