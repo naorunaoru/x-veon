@@ -1,6 +1,8 @@
 .xv-slider { display: flex; flex-direction: column; gap: 6px; font-family: var(--xv-font-sans); }
 
-.xv-slider__head { display: flex; justify-content: space-between; align-items: baseline; }
+/* center, not baseline: a baseline-aligned head reflows when the __delta span
+   appears/disappears (its flex baseline shifts), nudging the panel height. */
+.xv-slider__head { display: flex; justify-content: space-between; align-items: center; min-height: 16px; }
 .xv-slider__label { font-size: 12px; font-weight: 400; color: var(--xv-muted-foreground); }
 .xv-slider.is-modified .xv-slider__label { color: var(--xv-foreground); font-weight: 500; }
 

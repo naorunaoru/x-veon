@@ -2,7 +2,15 @@
   position: absolute; right: 60px; top: 50%; transform: translateY(-50%);
   width: 296px; max-height: 80vh; display: flex; flex-direction: column;
   border-radius: var(--xv-radius-sm); pointer-events: auto;
-  animation: v1panelIn 180ms ease-out;
+  animation: xv-panel-in 180ms ease-out;
+}
+
+/* Entrance that carries the resting translateY(-50%) centering. A bare
+   translateX keyframe (v1panelIn) would replace the transform and the panel
+   would render un-centered, then jump up when the animation settles. */
+@keyframes xv-panel-in {
+  from { transform: translate(8px, -50%); opacity: 0; }
+  to   { transform: translate(0, -50%);   opacity: 1; }
 }
 .xv-panel__header {
   display: flex; align-items: center; gap: 6px;
