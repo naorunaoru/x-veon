@@ -13,23 +13,24 @@ export function PhotoStage() {
     );
   }
 
-  const isReprocessing = selectedFile.status === 'processing' && !!selectedFile.result;
+  // One loading indicator for the whole "being worked on" window — covers fresh
+  // processing, restore re-queue, and reprocess-on-switch alike. Shown over the
+  // canvas (dimming it) when a prior result exists, or over the black stage.
+  const loading = selectedFile.status === 'queued' || selectedFile.status === 'processing';
+  const showError = selectedFile.status === 'error' && !selectedFile.result;
 
   return (
     <div className="xv-stage">
-      {selectedFile.result ? (
-        <>
-          <OutputCanvas key={selectedFile.id} fileId={selectedFile.id} result={selectedFile.result} />
-          {isReprocessing && (
-            <div className="xv-stage__overlay"><span className="xv-stage__spinner" /></div>
-          )}
-        </>
-      ) : (
+      {selectedFile.result && (
+        <OutputCanvas key={selectedFile.id} fileId={selectedFile.id} result={selectedFile.result} />
+      )}
+      {showError && (
         <div className="xv-stage__center">
-          {selectedFile.status === 'error'
-            ? <span className="xv-stage__error">{selectedFile.error}</span>
-            : <span className="xv-stage__spinner" />}
+          <span className="xv-stage__error">{selectedFile.error}</span>
         </div>
+      )}
+      {loading && (
+        <div className="xv-stage__overlay"><span className="xv-stage__spinner" /></div>
       )}
     </div>
   );
