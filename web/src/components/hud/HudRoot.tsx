@@ -4,6 +4,8 @@ import { TopBar } from './TopBar';
 import { Filmstrip } from './Filmstrip';
 import { ActionHud } from './ActionHud';
 import { EmptyState } from './EmptyState';
+import { ToolRail } from './ToolRail';
+import { PanelHost } from './PanelHost';
 import './HudRoot.css';
 
 export function HudRoot() {
@@ -21,6 +23,8 @@ export function HudRoot() {
           <TopBar />
           <Filmstrip />
           <ActionHud />
+          <ToolRail />
+          <PanelHost />
         </div>
       </div>
     );
