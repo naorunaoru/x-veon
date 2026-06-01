@@ -1,0 +1,6 @@
+.xv-hud-root {
+  position: relative; width: 100vw; height: 100vh; overflow: hidden;
+  background: var(--xv-background); color: var(--xv-foreground); font-family: var(--xv-font-sans);
+}
+.xv-hud-overlay { position: absolute; inset: 0; pointer-events: none; }
+.xv-hud-overlay > * { pointer-events: auto; }
