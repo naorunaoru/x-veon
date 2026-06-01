@@ -55,6 +55,7 @@ const GROUPS: Group[] = [
         { label: 'Range Low', key: 'pt_rng_low', min: 0, max: 1, step: 0.01 },
         { label: 'Range High', key: 'pt_rng_high', min: 0, max: 1, step: 0.01 },
       ] },
+      { subTitle: 'Compress Low', subEnableKey: 'ptl_enable', params: [] },
       { subTitle: 'Mid Purity', subEnableKey: 'ptm_enable', params: [
         { label: 'Low', key: 'ptm_low', min: -1, max: 1, step: 0.01 },
         { label: 'Low Strength', key: 'ptm_low_st', min: 0, max: 1, step: 0.01 },
