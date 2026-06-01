@@ -1,17 +1,48 @@
 import { FloatingPanel } from '../FloatingPanel';
-import { ScopeHistogram } from './ScopeHistogram';
 import { useAppStore } from '@/store';
+import type { HistogramChannel } from '@/gl/renderer';
 import './Scopes.css';
 import './Panels.css';
 
+type Source = 'scene' | 'display';
+const SOURCES: { id: Source; label: string }[] = [
+  { id: 'display', label: 'Display' },
+  { id: 'scene', label: 'Scene' },
+];
+const CHANNELS: { id: HistogramChannel; label: string }[] = [
+  { id: 'luma', label: 'L' },
+  { id: 'rgb', label: 'RGB' },
+  { id: 'ev', label: 'EV' },
+];
+
 export function ScopesPanel() {
   const setOpenPanel = useAppStore((s) => s.setOpenPanel);
+  const source = useAppStore((s) => s.histogramSource);
+  const channel = useAppStore((s) => s.histogramChannel);
+  const setSource = useAppStore((s) => s.setHistogramSource);
+  const setChannel = useAppStore((s) => s.setHistogramChannel);
   const showClipMask = useAppStore((s) => s.showClipMask);
   const setShowClipMask = useAppStore((s) => s.setShowClipMask);
 
   return (
     <FloatingPanel title="Scopes" onClose={() => setOpenPanel(null)}>
-      <ScopeHistogram />
+      <div className="xv-pgroup">
+        <span className="xv-pgroup__title">Histogram</span>
+        <div className="xv-modes">
+          <div className="xv-modes__grp">
+            {SOURCES.map((s) => (
+              <button key={s.id} className={`xv-modes__btn${source === s.id ? ' is-active' : ''}`}
+                onClick={() => setSource(s.id)}>{s.label}</button>
+            ))}
+          </div>
+          <div className="xv-modes__grp">
+            {CHANNELS.map((c) => (
+              <button key={c.id} className={`xv-modes__btn${channel === c.id ? ' is-active' : ''}`}
+                onClick={() => setChannel(c.id)}>{c.label}</button>
+            ))}
+          </div>
+        </div>
+      </div>
       <div className="xv-toggle-row">
         <span className="xv-toggle-row__label">Highlight clipping</span>
         <button
