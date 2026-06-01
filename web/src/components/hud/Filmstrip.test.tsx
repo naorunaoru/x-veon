@@ -24,15 +24,17 @@ describe('Filmstrip', () => {
   });
 
   it('selects a file on click', () => {
-    const spy = vi.spyOn(useAppStore.getState(), 'selectFile');
+    // Stub impl: assert the call, skip the real action's IDB/OPFS side effects
+    // (fire-and-forget, .catch-guarded, but noisy in jsdom).
+    const spy = vi.spyOn(useAppStore.getState(), 'selectFile').mockImplementation(() => {});
     render(<Filmstrip />);
     fireEvent.click(screen.getAllByTestId('filmstrip-thumb')[1]);
     expect(spy).toHaveBeenCalledWith('b');
   });
 
   it('removes a file via the hover-× without selecting it', () => {
-    const select = vi.spyOn(useAppStore.getState(), 'selectFile');
-    const remove = vi.spyOn(useAppStore.getState(), 'removeFile');
+    const select = vi.spyOn(useAppStore.getState(), 'selectFile').mockImplementation(() => {});
+    const remove = vi.spyOn(useAppStore.getState(), 'removeFile').mockImplementation(() => {});
     render(<Filmstrip />);
     const cellB = screen.getAllByTestId('filmstrip-thumb')[1];
     fireEvent.click(within(cellB).getByLabelText('Remove file'));

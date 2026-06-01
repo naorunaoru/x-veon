@@ -32,3 +32,8 @@
   from { transform: translateX(8px); opacity: 0; }
   to   { transform: translateX(0);   opacity: 1; }
 }
+
+/* Shared spinner rotation (status pill, photo stage). */
+@keyframes v1spin {
+  to { transform: rotate(360deg); }
+}
