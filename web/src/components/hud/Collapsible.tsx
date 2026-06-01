@@ -1,5 +1,4 @@
 import { useState, type ReactNode } from 'react';
-import { flushSync } from 'react-dom';
 import { ChevronRight } from 'lucide-react';
 import { Toggle } from './Toggle';
 import './Collapsible.css';
@@ -17,7 +16,7 @@ export function Collapsible({ title, defaultOpen = false, enabled, onToggle, chi
   const [open, setOpen] = useState(defaultOpen);
   return (
     <section className="xv-collapsible">
-      <button type="button" className="xv-collapsible__head" onClick={() => flushSync(() => setOpen((o) => !o))}>
+      <button type="button" className="xv-collapsible__head" onClick={() => setOpen((o) => !o)}>
         <ChevronRight size={12} className={`xv-collapsible__chevron${open ? ' is-open' : ''}`} />
         <span className="xv-collapsible__title">{title}</span>
         {enabled !== undefined && onToggle && (

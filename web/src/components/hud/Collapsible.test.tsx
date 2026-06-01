@@ -1,12 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { Collapsible } from './Collapsible';
 
 describe('Collapsible', () => {
   it('hides its body until the header is clicked', () => {
     render(<Collapsible title="Purity"><p>inner</p></Collapsible>);
     expect(screen.queryByText('inner')).toBeNull();
-    screen.getByRole('button', { name: /Purity/ }).click();
+    fireEvent.click(screen.getByRole('button', { name: /Purity/ }));
     expect(screen.getByText('inner')).toBeInTheDocument();
   });
   it('starts open when defaultOpen', () => {
@@ -20,7 +20,7 @@ describe('Collapsible', () => {
         <p>inner</p>
       </Collapsible>,
     );
-    screen.getByRole('switch', { name: 'Hue Contrast' }).click();
+    fireEvent.click(screen.getByRole('switch', { name: 'Hue Contrast' }));
     expect(onToggle).toHaveBeenCalledWith(true);
     expect(screen.queryByText('inner')).toBeNull();
   });
