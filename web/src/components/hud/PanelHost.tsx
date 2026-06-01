@@ -6,6 +6,7 @@ import { LooksPanel } from './panels/LooksPanel';
 import { SettingsPanel } from './panels/SettingsPanel';
 import { ScopesPanel } from './panels/ScopesPanel';
 import { ToneCurvePanel } from './panels/ToneCurvePanel';
+import { AdvancedPanel } from './panels/AdvancedPanel';
 
 /** Renders the single open floating panel (one at a time). */
 export function PanelHost() {
@@ -17,6 +18,7 @@ export function PanelHost() {
     case 'toneCurve': return <ToneCurvePanel />;
     case 'brilliance': return <BrilliancePanel />;
     case 'looks': return <LooksPanel />;
+    case 'advanced': return <AdvancedPanel />;
     case 'settings': return <SettingsPanel />;
     default: return null;
   }

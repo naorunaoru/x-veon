@@ -16,9 +16,9 @@ function fileWith(over: Partial<QueuedFile>): QueuedFile {
 describe('ToolRail', () => {
   beforeEach(() => useAppStore.setState({ openPanel: null, files: [fileWith({})], selectedFileId: 'a' }));
 
-  it('renders the 5 Phase-2 rail buttons', () => {
+  it('renders the rail buttons', () => {
     render(<ToolRail />);
-    ['Scopes', 'Exposure', 'White balance', 'Tone curve', 'Brilliance', 'Looks', 'Settings'].forEach((label) => {
+    ['Scopes', 'Exposure', 'White balance', 'Tone curve', 'Brilliance', 'Looks', 'Advanced', 'Settings'].forEach((label) => {
       expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
     });
   });

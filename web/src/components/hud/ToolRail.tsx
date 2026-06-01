@@ -1,12 +1,12 @@
 import type { ComponentType } from 'react';
-import { BarChart3, Sun, Droplet, Spline, Wand2, Layers, Settings } from 'lucide-react';
+import { BarChart3, Sun, Droplet, Spline, Wand2, Layers, Sliders, Settings } from 'lucide-react';
 import { useAppStore } from '@/store';
 import { isSectionModified, type PanelId } from '@/lib/grading/sections';
 import './ToolRail.css';
 
 interface RailItem { id: PanelId; label: string; Icon: ComponentType<{ size?: number }>; }
 
-// Visible rail buttons in spec order (advanced/crop still hidden until later phases).
+// Visible rail buttons in spec order (crop still hidden until its phase).
 const RAIL: RailItem[] = [
   { id: 'scopes', label: 'Scopes', Icon: BarChart3 },
   { id: 'exposure', label: 'Exposure', Icon: Sun },
@@ -14,6 +14,7 @@ const RAIL: RailItem[] = [
   { id: 'toneCurve', label: 'Tone curve', Icon: Spline },
   { id: 'brilliance', label: 'Brilliance', Icon: Wand2 },
   { id: 'looks', label: 'Looks', Icon: Layers },
+  { id: 'advanced', label: 'Advanced', Icon: Sliders },
   { id: 'settings', label: 'Settings', Icon: Settings },
 ];
 
