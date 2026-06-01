@@ -1,0 +1,9 @@
+.xv-filemeta {
+  display: inline-flex; align-items: baseline; gap: 5px;
+  padding: 5px 10px; border-radius: var(--xv-radius-chrome);
+  font-family: var(--xv-font-mono); font-size: 10px;
+  color: rgba(255, 255, 255, 0.78); pointer-events: auto; max-width: 60vw;
+}
+.xv-filemeta__name { color: #fff; }
+.xv-filemeta__sep { color: var(--xv-fg-dim); }
+.xv-filemeta__part { white-space: nowrap; }
