@@ -1,0 +1,15 @@
+.xv-stage { position: absolute; inset: 0; background: var(--xv-background); overflow: hidden; }
+.xv-stage__center {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  color: var(--xv-muted-foreground); font-size: 12px;
+}
+.xv-stage__error { color: var(--xv-destructive); max-width: 60ch; text-align: center; padding: 0 24px; }
+.xv-stage__spinner {
+  width: 32px; height: 32px; border-radius: 50%;
+  border: 3px solid var(--xv-primary); border-top-color: transparent;
+  animation: v1spin 0.8s linear infinite;
+}
+.xv-stage__overlay {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: rgba(10, 10, 10, 0.5); pointer-events: none;
+}
