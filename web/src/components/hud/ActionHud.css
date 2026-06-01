@@ -1,0 +1,14 @@
+.xv-actionhud {
+  position: absolute; right: 12px; bottom: 12px;
+  display: flex; align-items: center; gap: 4px; padding: 4px;
+  border-radius: var(--xv-radius-chrome); pointer-events: auto;
+}
+.xv-action-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--xv-font-sans); font-size: 12px; font-weight: 500;
+  padding: 6px 12px; border-radius: var(--xv-radius-md); border: none; cursor: pointer;
+  background: transparent; color: var(--xv-foreground);
+}
+.xv-action-btn:hover:not(:disabled) { background: var(--xv-bg-raised); }
+.xv-action-btn.is-primary { background: var(--xv-primary); color: var(--xv-primary-foreground); }
+.xv-action-btn:disabled { opacity: 0.5; cursor: default; }
