@@ -10,7 +10,9 @@
     "build:wasm:demosaic": "wasm-pack build wasm/demosaic --target web --release",
     "dev": "npm run build:wasm && vite",
     "build": "npm run build:wasm && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
@@ -36,10 +38,15 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@webgpu/types": "^0.1.69",
     "fast-xml-parser": "^5.3.6",
+    "jsdom": "^25.0.1",
     "vite": "^6.0.0",
     "vite-plugin-wasm": "^3.4.1",
-    "wasm-pack": "^0.14.0"
+    "vitest": "^3.2.6",
+    "wasm-pack": "^0.15.0"
   }
 }
