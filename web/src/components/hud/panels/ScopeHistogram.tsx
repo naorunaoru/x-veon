@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useAppStore } from '@/store';
 import type { HistogramChannel, HistogramMode } from '@/gl/renderer';
 import './Scopes.css';
+import './Panels.css';
 
 type Source = 'scene' | 'display';
 

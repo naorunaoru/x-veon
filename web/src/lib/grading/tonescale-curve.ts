@@ -1,6 +1,10 @@
-// 1:1 port of the achromatic tonescale from gl/shaders/opendrt.wgsl, for a
-// read-only Tone Curve visualization. (Purity/hue/lcon/hcon paths are omitted —
-// they don't shape the luminance transfer the Toe/Shoulder/Contrast controls do.)
+// Models the CORE OpenDRT tonescale (Contrast / Shoulder / Toe) from
+// gl/shaders/opendrt.wgsl, for a read-only Tone Curve visualization. It is
+// bit-exact for tn_con / tn_sh / tn_toe — the controls this panel exposes.
+// It intentionally omits the pre-tonescale local-contrast (tn_lcon), offset
+// (tn_off), and high-contrast (tn_hcon) steps and the purity/hue paths, so on
+// looks that enable lcon (e.g. 'default') the plotted curve is a close
+// approximation (within a few % code value), not the full achromatic transfer.
 import type { GradingConfig, TonescaleParams } from '@/gl/opendrt-params';
 
 function spowf(x: number, p: number): number {
