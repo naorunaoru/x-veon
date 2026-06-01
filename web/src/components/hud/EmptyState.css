@@ -1,0 +1,23 @@
+.xv-empty {
+  position: absolute; inset: 24px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 12px;
+  border: 1px dashed var(--xv-border); border-radius: var(--xv-radius);
+  color: var(--xv-muted-foreground); cursor: pointer;
+  transition: border-color var(--xv-transition), background var(--xv-transition);
+}
+.xv-empty.is-dragging { border: 2px dashed var(--xv-primary); background: color-mix(in oklch, var(--xv-primary) 4%, transparent); }
+.xv-empty__glyph {
+  width: 72px; height: 72px; border-radius: var(--xv-radius);
+  border: 1.5px dashed var(--xv-muted-foreground);
+  display: flex; align-items: center; justify-content: center;
+}
+.xv-empty.is-dragging .xv-empty__glyph { border-color: var(--xv-primary); color: var(--xv-primary); }
+.xv-empty__title { font-size: 16px; font-weight: 500; color: var(--xv-foreground); }
+.xv-empty__sub {
+  font-family: var(--xv-font-mono); font-size: 10px; letter-spacing: 0.3px; color: var(--xv-muted-foreground);
+}
+.xv-empty__browse {
+  font-size: 11px; padding: 4px 10px; border: 1px solid var(--xv-border);
+  border-radius: var(--xv-radius-chrome); color: var(--xv-foreground);
+}
+.xv-empty__browse b { color: var(--xv-primary); font-weight: 500; }
