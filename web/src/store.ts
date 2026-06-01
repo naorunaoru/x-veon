@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { CfaType, DemosaicMethod, ExportFormat, LookPreset, ModelSize, ProcessingResultMeta } from './pipeline/types';
 import { serializeResultMeta } from './pipeline/types';
 import type { OpenDrtConfig, PreProcessConfig } from './gl/opendrt-params';
+import type { PanelId } from './lib/grading/sections';
 import { deleteAllForFile, writeRaw, writeThumbnail } from './lib/opfs-storage';
 import { putFile, deleteFile as idbDeleteFile, debouncedPutFile, putSetting } from './lib/idb-storage';
 import type { PersistedFile } from './lib/idb-storage';
@@ -59,6 +60,9 @@ interface AppState {
   // Clip mask overlay
   showClipMask: boolean;
 
+  // Which floating grading panel is open (HUD)
+  openPanel: PanelId | null;
+
   // Canvas ref for WebCodecs AVIF export
   canvasRef: HTMLCanvasElement | null;
 
@@ -92,6 +96,10 @@ interface AppState {
   setDisplayHdr: (enabled: boolean, headroom: number) => void;
   setHdrPermissionNeeded: (needed: boolean) => void;
   setShowClipMask: (show: boolean) => void;
+  setOpenPanel: (panel: PanelId | null) => void;
+  togglePanel: (panel: PanelId) => void;
+  clearFileOpenDrtOverrides: (fileId: string, keys: (keyof OpenDrtConfig)[]) => void;
+  clearFilePreProcessOverrides: (fileId: string, keys: (keyof PreProcessConfig)[]) => void;
   setCanvasRef: (ref: HTMLCanvasElement | null) => void;
   setRendererRef: (ref: HdrRenderer | null) => void;
 
@@ -159,6 +167,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   hdrPermissionNeeded: false,
 
   showClipMask: false,
+  openPanel: null,
 
   canvasRef: null,
   rendererRef: null,
@@ -426,6 +435,33 @@ export const useAppStore = create<AppState>((set, get) => ({
   setDisplayHdr: (enabled, headroom) => set({ displayHdr: enabled, displayHdrHeadroom: headroom }),
   setHdrPermissionNeeded: (needed) => set({ hdrPermissionNeeded: needed }),
   setShowClipMask: (show) => set({ showClipMask: show }),
+  setOpenPanel: (panel) => set({ openPanel: panel }),
+  togglePanel: (panel) => set((s) => ({ openPanel: s.openPanel === panel ? null : panel })),
+
+  clearFileOpenDrtOverrides: (fileId, keys) =>
+    set((state) => ({
+      files: state.files.map((f) => {
+        if (f.id !== fileId) return f;
+        const openDrtOverrides = { ...f.openDrtOverrides };
+        for (const k of keys) delete openDrtOverrides[k];
+        const updated = { ...f, openDrtOverrides };
+        persistFile(updated);
+        return updated;
+      }),
+    })),
+
+  clearFilePreProcessOverrides: (fileId, keys) =>
+    set((state) => ({
+      files: state.files.map((f) => {
+        if (f.id !== fileId) return f;
+        const preProcessOverrides = { ...f.preProcessOverrides };
+        for (const k of keys) delete preProcessOverrides[k];
+        const updated = { ...f, preProcessOverrides };
+        persistFile(updated);
+        return updated;
+      }),
+    })),
+
   setCanvasRef: (ref) => set({ canvasRef: ref }),
   setRendererRef: (ref) => set({ rendererRef: ref }),
 
