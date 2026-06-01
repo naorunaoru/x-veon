@@ -22,7 +22,8 @@ describe('Slider', () => {
       <Slider label="Toe" value={0.003} defaultValue={0.003} min={0} max={0.02} step={0.001} onChange={() => {}} />,
     );
     expect(container.querySelector('.xv-slider.is-modified')).toBeNull();
-    expect(screen.getByText('0.00')).toBeInTheDocument();
+    expect(screen.getByText('0.003')).toBeInTheDocument();
+    expect(container.querySelector('.xv-slider__delta')).toBeNull();
   });
 
   it('positions the default tick at the default fraction of the range', () => {
