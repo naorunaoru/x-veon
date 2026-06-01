@@ -1,0 +1,15 @@
+.xv-zoompill {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 4px 8px; border-radius: var(--xv-radius-chrome); pointer-events: auto;
+}
+.xv-zoompill__fit {
+  font-size: 11px; padding: 2px 8px; border: none; background: transparent;
+  color: var(--xv-muted-foreground); cursor: pointer; border-radius: var(--xv-radius-sm);
+}
+.xv-zoompill__fit.is-fit { background: var(--xv-bg-raised); color: var(--xv-foreground); }
+.xv-zoompill__divider { width: 1px; height: 14px; background: var(--xv-border); }
+.xv-zoompill__slider { width: 110px; }
+.xv-zoompill__readout {
+  font-family: var(--xv-font-mono); font-size: 11px; font-variant-numeric: tabular-nums;
+  color: var(--xv-foreground); min-width: 34px; text-align: right;
+}
