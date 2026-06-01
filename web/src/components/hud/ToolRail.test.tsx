@@ -18,7 +18,7 @@ describe('ToolRail', () => {
 
   it('renders the 5 Phase-2 rail buttons', () => {
     render(<ToolRail />);
-    ['Exposure', 'White balance', 'Brilliance', 'Looks', 'Settings'].forEach((label) => {
+    ['Scopes', 'Exposure', 'White balance', 'Tone curve', 'Brilliance', 'Looks', 'Settings'].forEach((label) => {
       expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
     });
   });
