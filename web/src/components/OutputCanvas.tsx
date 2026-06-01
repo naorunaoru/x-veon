@@ -1,5 +1,4 @@
-import { useEffect, useRef, useMemo, useState, memo } from 'react';
-import { Loader2 } from 'lucide-react';
+import { useEffect, useRef, useMemo, memo } from 'react';
 import { useAppStore } from '@/store';
 import { usePanZoom } from '@/hooks/usePanZoom';
 import { takeGpuResult } from '@/lib/hwc-handoff';
@@ -21,7 +20,6 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<HdrRenderer | null>(null);
   const rendererKeyRef = useRef('');
-  const [loadingHwc, setLoadingHwc] = useState(true);
   const setCanvasRef = useAppStore((s) => s.setCanvasRef);
   const setRendererRef = useAppStore((s) => s.setRendererRef);
 
@@ -82,7 +80,6 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
       const renderer = rendererRef.current!;
       setCanvasRef(null);
       setRendererRef(null);
-      setLoadingHwc(true);
 
       const gpuResult = takeGpuResult(fileId);
       if (cancelled || !gpuResult) {
@@ -101,7 +98,6 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
       renderer.render();
       setCanvasRef(canvas);
       setRendererRef(renderer);
-      setLoadingHwc(false);
     })();
 
     return () => { cancelled = true; };
@@ -147,11 +143,6 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
           imageRendering: scale > 1 ? 'pixelated' : 'auto',
         }}
       />
-      {loadingHwc && (
-        <div className="absolute inset-0 flex items-center justify-center bg-background/50">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
-      )}
     </div>
   );
 });

@@ -8,7 +8,9 @@
   font-family: var(--xv-font-mono); font-size: 10px;
   color: var(--xv-muted-foreground); padding: 0 6px; white-space: nowrap;
 }
-.xv-filmstrip__scroll { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+/* 3px padding gives the selected thumb's outside outline room inside the
+   overflow clip (overflow-x:auto forces overflow-y to clip too). */
+.xv-filmstrip__scroll { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; padding: 3px; }
 .xv-filmstrip__scroll::-webkit-scrollbar { display: none; }
 
 .xv-thumb {
