@@ -1,0 +1,46 @@
+.xv-pgroup { display: flex; flex-direction: column; gap: 12px; }
+.xv-pgroup__title {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;
+  color: var(--xv-muted-foreground);
+}
+.xv-chiprow { display: flex; flex-wrap: wrap; gap: 4px; }
+.xv-chip {
+  font-size: 11px; padding: 4px 8px; border-radius: var(--xv-radius-sm);
+  border: 1px solid var(--xv-border); background: transparent;
+  color: var(--xv-muted-foreground); cursor: pointer;
+}
+.xv-chip:hover { color: var(--xv-foreground); }
+
+.xv-cardlist { display: flex; flex-direction: column; gap: 6px; }
+.xv-card {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border-radius: var(--xv-radius-sm);
+  border: 1px solid var(--xv-border); background: transparent;
+  color: var(--xv-muted-foreground); cursor: pointer; text-align: left;
+}
+.xv-card.is-selected {
+  border-color: var(--xv-primary);
+  background: color-mix(in oklch, var(--xv-primary) 8%, transparent);
+  color: var(--xv-foreground);
+}
+.xv-card__dot { width: 6px; height: 6px; border-radius: 50%; background: var(--xv-primary); margin-left: auto; }
+
+.xv-field { display: flex; flex-direction: column; gap: 6px; }
+.xv-field__label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--xv-muted-foreground);
+}
+.xv-select {
+  width: 100%; font-size: 12px; padding: 6px 8px; border-radius: var(--xv-radius-md);
+  border: 1px solid var(--xv-border); background: var(--xv-secondary); color: var(--xv-foreground);
+}
+.xv-seg { display: flex; background: var(--xv-secondary); border-radius: var(--xv-radius-md); padding: 2px; }
+.xv-seg__btn {
+  flex: 1; font-size: 12px; font-weight: 500; padding: 4px 8px;
+  border: none; background: transparent; color: var(--xv-muted-foreground);
+  border-radius: var(--xv-radius-sm); cursor: pointer;
+}
+.xv-seg__btn.is-active { background: var(--xv-card); color: var(--xv-foreground); box-shadow: 0 1px 2px rgba(0,0,0,0.4); }
+.xv-seg__btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.xv-readout { font-size: 11px; font-family: var(--xv-font-mono); color: var(--xv-muted-foreground); line-height: 1.6; }
+.xv-readout b { color: var(--xv-foreground); font-weight: 500; }
+.xv-readout .hdr { color: var(--xv-accent-hdr); }
