@@ -1,0 +1,25 @@
+.xv-curve { display: block; width: 100%; height: auto; border-radius: var(--xv-radius-sm); background: rgba(0, 0, 0, 0.25); }
+.xv-curve__grid { stroke: var(--xv-border); stroke-width: 1; opacity: 0.5; }
+.xv-curve__ref { stroke: var(--xv-fg-dim); stroke-width: 1; stroke-dasharray: 2 3; fill: none; }
+.xv-curve__line { stroke: var(--xv-primary); stroke-width: 1.5; fill: none; }
+
+.xv-scope-canvas {
+  display: block; width: 100%; height: 90px;
+  border-radius: var(--xv-radius-sm); border: 1px solid var(--xv-glass-border);
+  background: rgba(0, 0, 0, 0.3);
+}
+.xv-modes { display: flex; justify-content: space-between; gap: 6px; }
+.xv-modes__grp { display: flex; background: var(--xv-secondary); border-radius: var(--xv-radius-sm); padding: 2px; gap: 2px; }
+.xv-modes__btn {
+  font-size: 10px; font-weight: 500; padding: 2px 6px; border: none; cursor: pointer;
+  background: transparent; color: var(--xv-muted-foreground); border-radius: var(--xv-radius-sm);
+}
+.xv-modes__btn.is-active { background: var(--xv-card); color: var(--xv-foreground); box-shadow: 0 1px 2px rgba(0,0,0,0.4); }
+
+.xv-toggle-row { display: flex; align-items: center; justify-content: space-between; }
+.xv-toggle-row__label { font-size: 12px; color: var(--xv-muted-foreground); }
+.xv-toggle {
+  font-size: 11px; font-weight: 500; padding: 4px 10px; border-radius: var(--xv-radius-md);
+  border: 1px solid var(--xv-border); background: transparent; color: var(--xv-muted-foreground); cursor: pointer;
+}
+.xv-toggle.is-on { border-color: var(--xv-accent-hdr); color: var(--xv-accent-hdr); }
