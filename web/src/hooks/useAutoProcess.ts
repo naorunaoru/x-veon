@@ -1,0 +1,66 @@
+import { useEffect, useRef } from 'react';
+import { useAppStore } from '@/store';
+import { useProcessFile } from '@/hooks/useProcessFile';
+import type { FileStatus } from '@/store';
+import type { DemosaicMethod } from '@/pipeline/types';
+
+/** Pure decision: should the given file be auto-processed right now? */
+export function shouldAutoProcess(
+  file: { status: FileStatus } | undefined,
+  initialized: boolean,
+  isProcessing: boolean,
+): boolean {
+  return initialized && !isProcessing && file?.status === 'queued';
+}
+
+/**
+ * Owns the processing side-effects previously hosted in SettingsPanel:
+ *  - auto-process the selected file when it is queued (fresh drop / restore),
+ *  - reprocess the selected file when the demosaic method changes,
+ *  - fall back to neural-net if the current method is invalid for the file's CFA.
+ * Mount once, near the app root.
+ */
+export function useAutoProcess(): void {
+  const initialized = useAppStore((s) => s.initialized);
+  const demosaicMethod = useAppStore((s) => s.demosaicMethod);
+  const setDemosaicMethod = useAppStore((s) => s.setDemosaicMethod);
+  const selectedFile = useAppStore((s) => s.files.find((f) => f.id === s.selectedFileId));
+  const { processFile, isProcessing } = useProcessFile();
+
+  // CFA-aware method fallback: X-Trans-only / Bayer-only methods can't run on the other CFA.
+  const cfaType = selectedFile?.cfaType ?? null;
+  useEffect(() => {
+    if (!cfaType) return;
+    if (!isMethodValidForCfa(demosaicMethod, cfaType)) {
+      setDemosaicMethod('neural-net');
+    }
+  }, [cfaType, demosaicMethod, setDemosaicMethod]);
+
+  // Auto-process queued selected file.
+  useEffect(() => {
+    if (shouldAutoProcess(selectedFile, initialized, isProcessing)) {
+      processFile(selectedFile!.id);
+    }
+  }, [selectedFile?.id, selectedFile?.status, initialized, isProcessing, processFile, selectedFile]);
+
+  // Reprocess on method change.
+  const prevMethodRef = useRef(demosaicMethod);
+  useEffect(() => {
+    if (prevMethodRef.current === demosaicMethod) return;
+    prevMethodRef.current = demosaicMethod;
+    if (
+      initialized && selectedFile && !isProcessing &&
+      (selectedFile.status === 'done' || selectedFile.status === 'error')
+    ) {
+      processFile(selectedFile.id);
+    }
+  }, [demosaicMethod, initialized, selectedFile, isProcessing, processFile]);
+}
+
+/** X-Trans-only methods vs Bayer-only methods; 'neural-net' and 'bilinear' run on both. */
+function isMethodValidForCfa(method: DemosaicMethod, cfa: 'xtrans' | 'bayer'): boolean {
+  const xtransOnly: DemosaicMethod[] = ['markesteijn3', 'markesteijn1', 'dht'];
+  const bayerOnly: DemosaicMethod[] = ['ahd', 'ppg', 'mhc'];
+  if (cfa === 'bayer') return !xtransOnly.includes(method);
+  return !bayerOnly.includes(method);
+}
