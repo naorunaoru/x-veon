@@ -15,6 +15,7 @@ export interface SectionKeys {
 export const SECTION_KEYS: Partial<Record<PanelId, SectionKeys>> = {
   exposure: { drt: ['tn_con', 'tn_lcon', 'tn_lcon_enable'], pre: ['exposure'] },
   whiteBalance: { drt: [], pre: ['wb_temp', 'wb_tint'] },
+  toneCurve: { drt: ['tn_sh', 'tn_toe'], pre: [] },
   brilliance: { drt: ['brl_r', 'brl_g', 'brl_b', 'brl_enable'], pre: [] },
 };
 
