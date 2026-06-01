@@ -1,0 +1,23 @@
+.xv-panel {
+  position: absolute; right: 60px; top: 50%; transform: translateY(-50%);
+  width: 296px; max-height: 80vh; display: flex; flex-direction: column;
+  border-radius: var(--xv-radius-sm); pointer-events: auto;
+  animation: v1panelIn 180ms ease-out;
+}
+.xv-panel__header {
+  display: flex; align-items: center; gap: 6px;
+  padding: 10px 12px; border-bottom: 1px solid var(--xv-glass-border);
+}
+.xv-panel__title {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px;
+  color: var(--xv-foreground); font-weight: 500;
+}
+.xv-panel__dot { width: 4px; height: 4px; border-radius: 50%; background: var(--xv-primary); }
+.xv-panel__actions { margin-left: auto; display: flex; align-items: center; gap: 2px; }
+.xv-panel__icon {
+  display: flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border: none; background: transparent;
+  color: var(--xv-muted-foreground); cursor: pointer; border-radius: var(--xv-radius-sm);
+}
+.xv-panel__icon:hover { color: var(--xv-foreground); }
+.xv-panel__body { padding: 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
