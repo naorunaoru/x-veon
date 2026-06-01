@@ -1,0 +1,56 @@
+/* X-veon HUD design tokens — plain CSS custom properties.
+ * Additive: coexists with Tailwind's @theme during the redesign.
+ * Canonical source for all new HUD components. */
+:root {
+  /* Surfaces & text */
+  --xv-background: oklch(0.1 0 0);
+  --xv-foreground: oklch(0.93 0 0);
+  --xv-card: oklch(0.14 0 0);
+  --xv-bg-raised: oklch(0.18 0.005 260);
+  --xv-bg-lift: oklch(0.16 0.005 260);
+  --xv-secondary: oklch(0.2 0 0);
+  --xv-muted: oklch(0.2 0 0);
+  --xv-border: oklch(0.25 0 0);
+  --xv-border-dim: oklch(0.2 0 0);
+  --xv-muted-foreground: oklch(0.55 0 0);
+  --xv-fg-dim: oklch(0.4 0 0);
+
+  /* Accents */
+  --xv-primary: oklch(0.72 0.12 220);
+  --xv-primary-foreground: oklch(0.1 0 0);
+  --xv-accent-hdr: oklch(0.78 0.14 75);   /* amber — HDR + clip warnings only */
+  --xv-destructive: oklch(0.62 0.22 25);
+  --xv-success: oklch(0.72 0.18 150);
+
+  /* Channel colors */
+  --xv-chan-r: #E85A5A;
+  --xv-chan-g: #5EC26E;
+  --xv-chan-b: #5B8FC9;
+
+  /* Semantic gradients */
+  --xv-grad-temperature: linear-gradient(to right, #5B8FC9, #E8A438);
+  --xv-grad-tint: linear-gradient(to right, #C850C0, #4BA84D);
+
+  /* Glass (consumed by glass.css) */
+  --xv-glass-bg: rgba(22, 22, 22, 0.42);
+  --xv-glass-border: rgba(255, 255, 255, 0.08);
+  --xv-glass-heavy-bg: rgba(20, 20, 20, 0.72);
+  --xv-glass-heavy-border: rgba(255, 255, 255, 0.09);
+  --xv-glass-bg-opaque: rgba(22, 22, 22, 0.92);
+  --xv-glass-heavy-bg-opaque: rgba(20, 20, 20, 0.96);
+  --xv-text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+
+  /* Type */
+  --xv-font-sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --xv-font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Radii */
+  --xv-radius: 8px;
+  --xv-radius-md: 6px;
+  --xv-radius-sm: 4px;
+  --xv-radius-chrome: 3px;
+  --xv-radius-full: 9999px;
+
+  /* Motion */
+  --xv-transition: 150ms ease-in-out;
+}
