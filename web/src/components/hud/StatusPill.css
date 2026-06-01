@@ -1,0 +1,13 @@
+.xv-status-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 10px; border-radius: var(--xv-radius-chrome);
+  font-family: var(--xv-font-mono); font-size: 10px;
+  color: rgba(255, 255, 255, 0.78); pointer-events: auto;
+}
+.xv-status-pill__spinner {
+  width: 8px; height: 8px; border-radius: 50%;
+  border: 1.5px solid var(--xv-muted-foreground); border-top-color: transparent;
+  animation: v1spin 0.8s linear infinite;
+}
+.xv-status-pill.is-error { color: var(--xv-destructive); }
+@keyframes v1spin { to { transform: rotate(360deg); } }
