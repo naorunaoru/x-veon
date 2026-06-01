@@ -1,0 +1,14 @@
+.xv-histhud {
+  position: absolute; left: 12px; bottom: 12px;
+  width: 200px; padding: 8px; display: flex; flex-direction: column; gap: 6px;
+  border-radius: var(--xv-radius-chrome); pointer-events: auto;
+}
+.xv-histhud__head {
+  display: flex; align-items: center; justify-content: space-between;
+  font-family: var(--xv-font-mono); font-size: 10px; color: var(--xv-muted-foreground);
+}
+.xv-histhud__label { text-transform: uppercase; letter-spacing: 0.5px; }
+.xv-histhud__canvas {
+  display: block; width: 100%; height: 42px;
+  border-radius: var(--xv-radius-sm); background: rgba(0, 0, 0, 0.3);
+}

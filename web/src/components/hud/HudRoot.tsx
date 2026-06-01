@@ -6,6 +6,7 @@ import { ActionHud } from './ActionHud';
 import { EmptyState } from './EmptyState';
 import { ToolRail } from './ToolRail';
 import { PanelHost } from './PanelHost';
+import { HistogramHud } from './HistogramHud';
 import './HudRoot.css';
 
 export function HudRoot() {
@@ -25,6 +26,7 @@ export function HudRoot() {
           <ActionHud />
           <ToolRail />
           <PanelHost />
+          <HistogramHud />
         </div>
       </div>
     );
