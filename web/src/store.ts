@@ -6,7 +6,7 @@ import type { PanelId } from './lib/grading/sections';
 import { deleteAllForFile, writeRaw, writeThumbnail } from './lib/opfs-storage';
 import { putFile, deleteFile as idbDeleteFile, debouncedPutFile, putSetting } from './lib/idb-storage';
 import type { PersistedFile } from './lib/idb-storage';
-import type { HdrRenderer } from './gl/renderer';
+import type { HdrRenderer, HistogramChannel } from './gl/renderer';
 import { extractRafThumbnail, extractRafQuickMetadata } from './pipeline/raf-thumbnail';
 import type { QuickMetadata } from './pipeline/raf-thumbnail';
 import { RAW_EXTENSIONS } from './pipeline/constants';
@@ -32,6 +32,11 @@ export interface QueuedFile {
   lookPreset: LookPreset;
   openDrtOverrides: Partial<OpenDrtConfig>;
   preProcessOverrides: Partial<PreProcessConfig>;
+}
+
+export interface ViewControls {
+  zoomTo: (scale: number) => void;
+  resetView: () => void;
 }
 
 interface AppState {
@@ -62,6 +67,15 @@ interface AppState {
 
   // Which floating grading panel is open (HUD)
   openPanel: PanelId | null;
+
+  // Histogram HUD mode (shared by the HUD + the Scopes controls)
+  histogramSource: 'scene' | 'display';
+  histogramChannel: HistogramChannel;
+
+  // Photo view-state, published by usePanZoom for the zoom pill
+  viewScale: number;
+  viewFitScale: number;
+  viewControls: ViewControls | null;
 
   // Canvas ref for WebCodecs AVIF export
   canvasRef: HTMLCanvasElement | null;
@@ -98,6 +112,11 @@ interface AppState {
   setShowClipMask: (show: boolean) => void;
   setOpenPanel: (panel: PanelId | null) => void;
   togglePanel: (panel: PanelId) => void;
+  setHistogramSource: (source: 'scene' | 'display') => void;
+  setHistogramChannel: (channel: HistogramChannel) => void;
+  setViewScale: (scale: number) => void;
+  setViewFitScale: (fitScale: number) => void;
+  setViewControls: (controls: ViewControls | null) => void;
   clearFileOpenDrtOverrides: (fileId: string, keys: (keyof OpenDrtConfig)[]) => void;
   clearFilePreProcessOverrides: (fileId: string, keys: (keyof PreProcessConfig)[]) => void;
   setCanvasRef: (ref: HTMLCanvasElement | null) => void;
@@ -168,6 +187,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   showClipMask: false,
   openPanel: null,
+
+  histogramSource: 'display',
+  histogramChannel: 'rgb',
+  viewScale: 1,
+  viewFitScale: 1,
+  viewControls: null,
 
   canvasRef: null,
   rendererRef: null,
@@ -437,6 +462,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   setShowClipMask: (show) => set({ showClipMask: show }),
   setOpenPanel: (panel) => set({ openPanel: panel }),
   togglePanel: (panel) => set((s) => ({ openPanel: s.openPanel === panel ? null : panel })),
+  setHistogramSource: (histogramSource) => set({ histogramSource }),
+  setHistogramChannel: (histogramChannel) => set({ histogramChannel }),
+  setViewScale: (viewScale) => set({ viewScale }),
+  setViewFitScale: (viewFitScale) => set({ viewFitScale }),
+  setViewControls: (viewControls) => set({ viewControls }),
 
   clearFileOpenDrtOverrides: (fileId, keys) =>
     set((state) => ({
