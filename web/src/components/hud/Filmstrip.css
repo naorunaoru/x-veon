@@ -1,0 +1,44 @@
+.xv-filmstrip {
+  position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 4px; padding: 4px;
+  border-radius: var(--xv-radius-chrome); max-width: 60vw;
+  pointer-events: auto;
+}
+.xv-filmstrip__count {
+  font-family: var(--xv-font-mono); font-size: 10px;
+  color: var(--xv-muted-foreground); padding: 0 6px; white-space: nowrap;
+}
+.xv-filmstrip__scroll { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+.xv-filmstrip__scroll::-webkit-scrollbar { display: none; }
+
+.xv-thumb {
+  position: relative; width: 60px; height: 40px; flex-shrink: 0;
+  border-radius: var(--xv-radius-sm); overflow: hidden; cursor: pointer;
+  background: var(--xv-muted); outline: 1.5px solid transparent; outline-offset: 1px;
+}
+.xv-thumb.is-selected { outline-color: var(--xv-primary); }
+.xv-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.xv-thumb__index {
+  position: absolute; left: 3px; bottom: 2px;
+  font-family: var(--xv-font-mono); font-size: 9px; color: #fff; text-shadow: var(--xv-text-shadow);
+}
+.xv-thumb__dot {
+  position: absolute; top: 3px; right: 3px; width: 6px; height: 6px; border-radius: 50%;
+}
+.xv-thumb__dot.queued { background: var(--xv-muted-foreground); }
+.xv-thumb__dot.processing { background: var(--xv-primary); }
+.xv-thumb__dot.done { background: var(--xv-success); }
+.xv-thumb__dot.error { background: var(--xv-destructive); }
+.xv-thumb__remove {
+  position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+  display: none; align-items: center; justify-content: center;
+  border: none; border-radius: 50%; background: rgba(0, 0, 0, 0.6); color: #fff; cursor: pointer; padding: 0;
+}
+.xv-thumb:hover .xv-thumb__remove { display: flex; }
+
+.xv-filmstrip__add {
+  width: 60px; height: 40px; flex-shrink: 0; border-radius: var(--xv-radius-sm);
+  border: 1px dashed var(--xv-border); background: transparent;
+  color: var(--xv-muted-foreground); cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.xv-filmstrip__add:hover { color: var(--xv-foreground); border-color: var(--xv-muted-foreground); }
