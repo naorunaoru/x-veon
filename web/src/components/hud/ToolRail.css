@@ -1,0 +1,17 @@
+.xv-toolrail {
+  position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+  display: flex; flex-direction: column; gap: 4px; padding: 4px;
+  border-radius: var(--xv-radius-chrome); pointer-events: auto;
+}
+.xv-rail-btn {
+  position: relative; width: 32px; height: 32px;
+  display: flex; align-items: center; justify-content: center;
+  border: none; background: transparent; color: var(--xv-muted-foreground);
+  border-radius: var(--xv-radius-chrome); cursor: pointer; transition: color var(--xv-transition), background var(--xv-transition);
+}
+.xv-rail-btn:hover { color: var(--xv-foreground); }
+.xv-rail-btn.is-active { background: var(--xv-primary); color: var(--xv-primary-foreground); }
+.xv-rail-btn__dot {
+  position: absolute; top: 5px; right: 5px; width: 4px; height: 4px;
+  border-radius: 50%; background: var(--xv-primary);
+}
