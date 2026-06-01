@@ -1,21 +1,16 @@
-import { Sidebar } from './components/Sidebar';
-import { OutputPanel } from './components/OutputPanel';
-import { GradingPanel } from './components/GradingPanel';
+import { HudRoot } from './components/hud/HudRoot';
 import { HdrPermissionDialog } from './components/HdrPermissionDialog';
 import { useInit } from './hooks/useInit';
-import { useAppStore } from './store';
+import { useAutoProcess } from './hooks/useAutoProcess';
 
 export default function App() {
   useInit();
-
-  const selectedFileId = useAppStore((s) => s.selectedFileId);
+  useAutoProcess();
 
   return (
-    <div className="flex h-screen bg-background text-foreground overflow-hidden">
-      <Sidebar />
-      {selectedFileId && <OutputPanel />}
-      {selectedFileId && <GradingPanel />}
+    <>
+      <HudRoot />
       <HdrPermissionDialog />
-    </div>
+    </>
   );
 }
