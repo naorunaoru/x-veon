@@ -14,6 +14,13 @@ export function HudRoot() {
   const hasFiles = useAppStore((s) => s.files.length > 0);
   const initialized = useAppStore((s) => s.initialized);
   const initError = useAppStore((s) => s.initError);
+  // Hide all chrome (everything but the filmstrip) until the selected photo is
+  // actually displayable — i.e. while loading, on a decode error, or with no
+  // result yet. The clusters fade+slide to their nearest edge (see HudRoot.css).
+  const chromeHidden = useAppStore((s) => {
+    const f = s.files.find((x) => x.id === s.selectedFileId);
+    return !f || f.status !== 'done' || !f.result;
+  });
 
   // With files: full shell. PhotoStage only mounts here, so its "Select a file"
   // placeholder can never bleed through the empty state.
@@ -21,7 +28,7 @@ export function HudRoot() {
     return (
       <div className="xv-hud-root">
         <PhotoStage />
-        <div className="xv-hud-overlay">
+        <div className="xv-hud-overlay" data-chrome-hidden={chromeHidden || undefined}>
           <TopBar />
           <Filmstrip />
           <ActionHud />
