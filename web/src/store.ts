@@ -37,6 +37,7 @@ export interface QueuedFile {
 export interface ViewControls {
   zoomTo: (scale: number) => void;
   resetView: () => void;
+  panTo: (pan: { x: number; y: number }) => void;
 }
 
 interface AppState {
@@ -72,10 +73,13 @@ interface AppState {
   histogramSource: 'scene' | 'display';
   histogramChannel: HistogramChannel;
 
-  // Photo view-state, published by usePanZoom for the zoom pill
+  // Photo view-state, published by usePanZoom for the zoom pill + minimap
   viewScale: number;
   viewFitScale: number;
   viewControls: ViewControls | null;
+  viewPan: { x: number; y: number };
+  viewContainerW: number;
+  viewContainerH: number;
 
   // Canvas ref for WebCodecs AVIF export
   canvasRef: HTMLCanvasElement | null;
@@ -117,6 +121,8 @@ interface AppState {
   setViewScale: (scale: number) => void;
   setViewFitScale: (fitScale: number) => void;
   setViewControls: (controls: ViewControls | null) => void;
+  setViewPan: (pan: { x: number; y: number }) => void;
+  setViewContainerSize: (w: number, h: number) => void;
   clearFileOpenDrtOverrides: (fileId: string, keys: (keyof OpenDrtConfig)[]) => void;
   clearFilePreProcessOverrides: (fileId: string, keys: (keyof PreProcessConfig)[]) => void;
   setCanvasRef: (ref: HTMLCanvasElement | null) => void;
@@ -193,6 +199,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   viewScale: 1,
   viewFitScale: 1,
   viewControls: null,
+  viewPan: { x: 0, y: 0 },
+  viewContainerW: 0,
+  viewContainerH: 0,
 
   canvasRef: null,
   rendererRef: null,
@@ -467,6 +476,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   setViewScale: (viewScale) => set({ viewScale }),
   setViewFitScale: (viewFitScale) => set({ viewFitScale }),
   setViewControls: (viewControls) => set({ viewControls }),
+  setViewPan: (viewPan) => set({ viewPan }),
+  setViewContainerSize: (viewContainerW, viewContainerH) => set({ viewContainerW, viewContainerH }),
 
   clearFileOpenDrtOverrides: (fileId, keys) =>
     set((state) => ({
