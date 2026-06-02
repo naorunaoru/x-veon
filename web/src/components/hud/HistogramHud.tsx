@@ -45,13 +45,10 @@ export function HistogramHud() {
     renderer.render();
   }, [renderer, lookPreset, overrides, preProcess, channel, source]);
 
-  const range = channel === 'ev' ? '-8 — +8' : '0 — 1.0';
-
   return (
     <div className="xv-histhud xv-glass">
       <div className="xv-histhud__head">
         <span className="xv-histhud__label">{CHANNEL_LABEL[channel]}</span>
-        <span>{range}</span>
       </div>
       <canvas ref={canvasRef} width={464} height={84} className="xv-histhud__canvas" />
     </div>
