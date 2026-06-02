@@ -29,6 +29,17 @@ describe('computeMinimap', () => {
     expect(m.rectX).toBeCloseTo(400 * 0.04, 3); // 16
     expect(m.rectY).toBeCloseTo(300 * 0.04, 3); // 12
   });
+  it('letterboxes when box aspect differs from content (production 160x106 box)', () => {
+    // 4000x3000 into a 160x106 box: k = min(160/4000, 106/3000) = 106/3000 = 0.035333.
+    // imgH fills 106, imgW = 141.33 → letterboxed horizontally, imgX = (160-141.33)/2 = 9.33.
+    const m = computeMinimap({ ...base, boxH: 106, scale: 1, panX: -400, panY: -300 });
+    const k = 106 / 3000;
+    expect(m.imgX).toBeCloseTo(9.333, 2);
+    expect(m.imgY).toBeCloseTo(0, 3);
+    // rectX must include the letterbox offset: imgX + visibleLeft * k.
+    expect(m.rectX).toBeCloseTo(9.333 + 400 * k, 2);
+    expect(m.rectY).toBeCloseTo(300 * k, 2);
+  });
   it('clamps the rect inside the displayed image', () => {
     const m = computeMinimap({ ...base, scale: 1, panX: 99999, panY: 99999 });
     expect(m.rectX).toBeGreaterThanOrEqual(m.imgX - 0.001);

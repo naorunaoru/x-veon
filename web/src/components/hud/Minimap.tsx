@@ -3,6 +3,8 @@ import { useAppStore } from '@/store';
 import { computeMinimap, minimapDragToPan } from '@/lib/minimap';
 import './Minimap.css';
 
+// Must match the .xv-minimap width/height in Minimap.css — the rect/img positions
+// are computed in JS pixels against this box.
 const BOX_W = 160;
 const BOX_H = 106;
 
@@ -28,6 +30,7 @@ export function Minimap() {
   });
 
   const onPointerDown = (e: React.PointerEvent) => {
+    if (!controls) return; // can't pan without the live control interface
     setDragging(true);
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     dragRef.current = { startX: e.clientX, startY: e.clientY, startPanX: pan.x, startPanY: pan.y };
