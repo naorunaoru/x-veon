@@ -20,7 +20,7 @@ describe('view state', () => {
     expect(useAppStore.getState().viewFitScale).toBe(0.2);
   });
   it('registers and clears view controls', () => {
-    const controls = { zoomTo: () => {}, resetView: () => {} };
+    const controls = { zoomTo: () => {}, resetView: () => {}, panTo: () => {} };
     useAppStore.getState().setViewControls(controls);
     expect(useAppStore.getState().viewControls).toBe(controls);
     useAppStore.getState().setViewControls(null);

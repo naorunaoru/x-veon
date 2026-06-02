@@ -19,7 +19,7 @@ describe('ZoomPill', () => {
 
   it('the Fit button calls resetView', () => {
     const resetView = vi.fn();
-    useAppStore.setState({ viewScale: 0.66, viewFitScale: 0.2, viewControls: { zoomTo: vi.fn(), resetView } });
+    useAppStore.setState({ viewScale: 0.66, viewFitScale: 0.2, viewControls: { zoomTo: vi.fn(), resetView, panTo: vi.fn() } });
     render(<ZoomPill />);
     screen.getByRole('button', { name: 'Fit' }).click();
     expect(resetView).toHaveBeenCalledTimes(1);

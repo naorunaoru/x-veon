@@ -43,6 +43,11 @@ export function usePanZoom(
   // Publish scale to the store for the zoom pill (selective subscribers only re-render on scale).
   useEffect(() => { useAppStore.getState().setViewScale(state.scale); }, [state.scale]);
 
+  // Publish pan for the minimap.
+  useEffect(() => {
+    useAppStore.getState().setViewPan({ x: state.offsetX, y: state.offsetY });
+  }, [state.offsetX, state.offsetY]);
+
   // Fit-to-view on mount / content change; preserve zoom + center-anchor on resize.
   useEffect(() => {
     const container = containerRef.current;
@@ -51,6 +56,7 @@ export function usePanZoom(
     const fs = computeFitScale(rect.width, rect.height, contentWidth, contentHeight);
     fitScaleRef.current = fs;
     useAppStore.getState().setViewFitScale(fs);
+    useAppStore.getState().setViewContainerSize(rect.width, rect.height);
     const c = centerOffset(rect.width, rect.height, contentWidth, contentHeight, fs);
     setState({ scale: fs, offsetX: c.x, offsetY: c.y });
     prevSizeRef.current = { w: rect.width, h: rect.height };
@@ -62,6 +68,7 @@ export function usePanZoom(
       const newFs = computeFitScale(r.width, r.height, contentWidth, contentHeight);
       fitScaleRef.current = newFs;
       useAppStore.getState().setViewFitScale(newFs);
+      useAppStore.getState().setViewContainerSize(r.width, r.height);
       setState((s) => {
         const scale = Math.max(newFs, s.scale);
         const cx = (oldW / 2 - s.offsetX) / s.scale;
@@ -133,11 +140,16 @@ export function usePanZoom(
     });
   }, [containerRef]);
 
-  // Register the imperative control interface for the overlay zoom pill.
+  // Absolute pan (for the minimap drag).
+  const panTo = useCallback((pan: { x: number; y: number }) => {
+    setState((prev) => ({ ...prev, offsetX: pan.x, offsetY: pan.y }));
+  }, []);
+
+  // Register the imperative control interface for the overlay zoom pill + minimap.
   useEffect(() => {
-    useAppStore.getState().setViewControls({ zoomTo, resetView });
+    useAppStore.getState().setViewControls({ zoomTo, resetView, panTo });
     return () => useAppStore.getState().setViewControls(null);
-  }, [zoomTo, resetView]);
+  }, [zoomTo, resetView, panTo]);
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     setIsDragging(true);
