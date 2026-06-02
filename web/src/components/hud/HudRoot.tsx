@@ -7,6 +7,7 @@ import { EmptyState } from './EmptyState';
 import { ToolRail } from './ToolRail';
 import { PanelHost } from './PanelHost';
 import { HistogramHud } from './HistogramHud';
+import { Minimap } from './Minimap';
 import './HudRoot.css';
 
 export function HudRoot() {
@@ -27,6 +28,7 @@ export function HudRoot() {
           <ToolRail />
           <PanelHost />
           <HistogramHud />
+          <Minimap />
         </div>
       </div>
     );
