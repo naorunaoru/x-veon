@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react';
-import { BarChart3, Sun, Droplet, Spline, Wand2, Layers, Sliders, Settings } from 'lucide-react';
+import { BarChart3, Sun, Droplet, Sliders, Focus, Settings } from 'lucide-react';
 import { useAppStore } from '@/store';
 import { isSectionModified, type PanelId } from '@/lib/grading/sections';
 import './ToolRail.css';
@@ -11,10 +11,8 @@ const RAIL: RailItem[] = [
   { id: 'scopes', label: 'Scopes', Icon: BarChart3 },
   { id: 'exposure', label: 'Exposure', Icon: Sun },
   { id: 'whiteBalance', label: 'White balance', Icon: Droplet },
-  { id: 'toneCurve', label: 'Tone curve', Icon: Spline },
-  { id: 'brilliance', label: 'Brilliance', Icon: Wand2 },
-  { id: 'looks', label: 'Looks', Icon: Layers },
-  { id: 'advanced', label: 'Advanced', Icon: Sliders },
+  { id: 'advanced', label: 'Rendering', Icon: Sliders },
+  { id: 'detail', label: 'Detail', Icon: Focus },
   { id: 'settings', label: 'Settings', Icon: Settings },
 ];
 

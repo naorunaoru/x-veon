@@ -15,15 +15,14 @@ describe('isSectionModified', () => {
     expect(isSectionModified('whiteBalance', {}, { wb_tint: -0.2 })).toBe(true);
     expect(isSectionModified('whiteBalance', {}, { exposure: 1 })).toBe(false);
   });
-  it('brilliance tracks brl_* keys', () => {
-    expect(isSectionModified('brilliance', { brl_g: -0.1 }, {})).toBe(true);
+  it('advanced (Rendering) tracks the OpenDRT keys it owns', () => {
+    expect(isSectionModified('advanced', { brl_g: -0.1 }, {})).toBe(true);
   });
-  it('sections without a key map (looks, settings) are never modified here', () => {
-    expect(isSectionModified('looks', { tn_con: 1 }, {})).toBe(false);
+  it('sections without a key map (settings) are never modified here', () => {
     expect(isSectionModified('settings', {}, { exposure: 1 })).toBe(false);
   });
   it('exposes the key map for reset', () => {
     expect(SECTION_KEYS.exposure?.pre).toContain('exposure');
-    expect(SECTION_KEYS.brilliance?.drt).toEqual(expect.arrayContaining(['brl_r', 'brl_g', 'brl_b']));
+    expect(SECTION_KEYS.advanced?.drt).toEqual(expect.arrayContaining(['brl_r', 'brl_g', 'brl_b']));
   });
 });

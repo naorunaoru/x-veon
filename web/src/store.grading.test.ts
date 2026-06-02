@@ -27,7 +27,7 @@ describe('openPanel', () => {
     expect(useAppStore.getState().openPanel).toBe('exposure');
     togglePanel('exposure');
     expect(useAppStore.getState().openPanel).toBeNull();
-    togglePanel('looks');
+    togglePanel('scopes');
     togglePanel('settings');
     expect(useAppStore.getState().openPanel).toBe('settings');
   });

@@ -1,12 +1,10 @@
 import { useAppStore } from '@/store';
 import { ExposurePanel } from './panels/ExposurePanel';
 import { WhiteBalancePanel } from './panels/WhiteBalancePanel';
-import { BrilliancePanel } from './panels/BrilliancePanel';
-import { LooksPanel } from './panels/LooksPanel';
 import { SettingsPanel } from './panels/SettingsPanel';
 import { ScopesPanel } from './panels/ScopesPanel';
-import { ToneCurvePanel } from './panels/ToneCurvePanel';
-import { AdvancedPanel } from './panels/AdvancedPanel';
+import { RenderingPanel } from './panels/RenderingPanel';
+import { DetailPanel } from './panels/DetailPanel';
 
 /** Renders the single open floating panel (one at a time). */
 export function PanelHost() {
@@ -15,10 +13,8 @@ export function PanelHost() {
     case 'scopes': return <ScopesPanel />;
     case 'exposure': return <ExposurePanel />;
     case 'whiteBalance': return <WhiteBalancePanel />;
-    case 'toneCurve': return <ToneCurvePanel />;
-    case 'brilliance': return <BrilliancePanel />;
-    case 'looks': return <LooksPanel />;
-    case 'advanced': return <AdvancedPanel />;
+    case 'advanced': return <RenderingPanel />;
+    case 'detail': return <DetailPanel />;
     case 'settings': return <SettingsPanel />;
     default: return null;
   }

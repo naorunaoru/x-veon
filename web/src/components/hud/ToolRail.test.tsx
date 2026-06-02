@@ -18,7 +18,7 @@ describe('ToolRail', () => {
 
   it('renders the rail buttons', () => {
     render(<ToolRail />);
-    ['Scopes', 'Exposure', 'White balance', 'Tone curve', 'Brilliance', 'Looks', 'Advanced', 'Settings'].forEach((label) => {
+    ['Scopes', 'Exposure', 'White balance', 'Rendering', 'Detail', 'Settings'].forEach((label) => {
       expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
     });
   });
@@ -31,9 +31,9 @@ describe('ToolRail', () => {
   });
 
   it('marks the active button pressed', () => {
-    useAppStore.setState({ openPanel: 'looks' });
+    useAppStore.setState({ openPanel: 'advanced' });
     render(<ToolRail />);
-    expect(screen.getByRole('button', { name: 'Looks' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Rendering' })).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('shows a modified dot on a section with overrides', () => {
