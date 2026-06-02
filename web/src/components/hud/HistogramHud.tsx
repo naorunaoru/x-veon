@@ -1,9 +1,17 @@
 import { useEffect, useRef } from 'react';
 import { useAppStore } from '@/store';
+import { useHistogramCanvas } from '@/hooks/useHistogramCanvas';
 import type { HistogramChannel, HistogramMode } from '@/gl/renderer';
+import type { OpenDrtConfig, PreProcessConfig } from '@/gl/opendrt-params';
 import './HistogramHud.css';
 
 type Source = 'scene' | 'display';
+
+// Stable fallbacks so an ungraded file keeps the same override refs across renders —
+// otherwise `?? {}` makes fresh objects that needlessly re-fire the render effect
+// (and now each render() fans out to every histogram canvas). Mirrors OutputCanvas.
+const EMPTY_OVERRIDES: Partial<OpenDrtConfig> = {};
+const EMPTY_PREPROCESS: Partial<PreProcessConfig> = {};
 
 export function toRendererMode(channel: HistogramChannel, source: Source): HistogramMode {
   const isLog = channel === 'ev';
@@ -19,16 +27,17 @@ export function HistogramHud() {
   const source = useAppStore((s) => s.histogramSource);
   const channel = useAppStore((s) => s.histogramChannel);
   const selectedFile = useAppStore((s) => s.files.find((f) => f.id === s.selectedFileId));
-  const overrides = selectedFile?.openDrtOverrides ?? {};
-  const preProcess = selectedFile?.preProcessOverrides ?? {};
+  const overrides = selectedFile?.openDrtOverrides ?? EMPTY_OVERRIDES;
+  const preProcess = selectedFile?.preProcessOverrides ?? EMPTY_PREPROCESS;
   const lookPreset = selectedFile?.lookPreset ?? 'default';
 
-  useEffect(() => {
-    if (!renderer || !canvasRef.current) return;
-    renderer.setHistogramCanvas(canvasRef.current);
-    return () => { renderer.setHistogramCanvas(null); };
-  }, [renderer]);
+  useHistogramCanvas(canvasRef);
 
+  // The always-mounted widget owns mode/channel sync + re-render on grade change;
+  // render() fans out to every registered canvas (this widget + the Scopes panel).
+  // ScopesPanel relies on this: it lives beside this widget under HudRoot's hasFiles
+  // branch, so this effect drives the panel's live updates too (the panel only does
+  // its own initial paint, via useHistogramCanvas).
   useEffect(() => {
     if (!renderer) return;
     renderer.histogramMode = toRendererMode(channel, source);

@@ -134,12 +134,15 @@ export class HdrRenderer {
   private histReduceBindGroup!: GPUBindGroup;
   private histReduceResultBuf!: GPUBuffer;
   private histReduceFlagBuf!: GPUBuffer;
+  private histReduceFlagData = new Uint32Array(1);  // reused for the per-frame flag write
   private histVizPipeline!: GPURenderPipeline;
   private histVizBindGroup!: GPUBindGroup;
   private histVizConfigBuf!: GPUBuffer;
   private histVizConfigData = new Float32Array(4);  // canvas_w, canvas_h, mode, clip_bin
-  private histVizCanvas: HTMLCanvasElement | null = null;
-  private histVizContext: GPUCanvasContext | null = null;
+  // Multiple viz targets (e.g. the always-on HUD widget + the open Scopes panel).
+  // Each is GPU-rendered to in its own submission so the shared config buffer
+  // (per-canvas dimensions) can't race across targets.
+  private histVizTargets = new Map<HTMLCanvasElement, GPUCanvasContext>();
 
   // Saved display state for restore after export render
   private displayTs: TonescaleParams | null = null;
@@ -449,21 +452,22 @@ export class HdrRenderer {
     this._histogramChannel = ch;
   }
 
-  setHistogramCanvas(canvas: HTMLCanvasElement | null): void {
-    if (canvas) {
-      const ctx = canvas.getContext('webgpu');
-      if (!ctx) return;
-      ctx.configure({
-        device: this.device,
-        format: navigator.gpu.getPreferredCanvasFormat(),
-        alphaMode: 'premultiplied',
-      });
-      this.histVizCanvas = canvas;
-      this.histVizContext = ctx;
-    } else {
-      this.histVizCanvas = null;
-      this.histVizContext = null;
-    }
+  /** Register a canvas as a histogram visualization target. Idempotent. */
+  addHistogramCanvas(canvas: HTMLCanvasElement): void {
+    if (this.histVizTargets.has(canvas)) return;
+    const ctx = canvas.getContext('webgpu');
+    if (!ctx) return;
+    ctx.configure({
+      device: this.device,
+      format: navigator.gpu.getPreferredCanvasFormat(),
+      alphaMode: 'premultiplied',
+    });
+    this.histVizTargets.set(canvas, ctx);
+  }
+
+  /** Unregister a histogram visualization target (on component unmount). */
+  removeHistogramCanvas(canvas: HTMLCanvasElement): void {
+    this.histVizTargets.delete(canvas);
   }
 
   static isSupported(): boolean {
@@ -613,16 +617,15 @@ export class HdrRenderer {
       computePass.end();
     }
 
-    // ── Histogram reduce + viz (scene path only) ───────────────────
-    // Display path appends reduce+viz in renderDisplayHistogram after bins are computed
-    if (!isDisplay && this.histVizContext) {
-      this.encodeHistogramViz(encoder);
-    }
-
     this.device.queue.submit([encoder.finish()]);
 
-    // Display histogram: separate submission (needs exportMode=1 for display-linear output)
-    if (isDisplay && this.bindGroup) {
+    // ── Histogram visualization ────────────────────────────────────
+    // Drawn in separate per-canvas submissions, after the bins above are on the
+    // GPU. Scene bins were computed in the submission just finished; the display
+    // path computes its own bins + then vizzes inside renderDisplayHistogram.
+    if (!isDisplay) {
+      this.renderHistogramVizToTargets();
+    } else if (this.bindGroup) {
       this.renderDisplayHistogram(isLog);
     }
   }
@@ -742,8 +745,7 @@ export class HdrRenderer {
     this.exportBuf = null;
     this.bindGroup = null;
     this.hdrHistComputeBindGroup = null;
-    this.histVizCanvas = null;
-    this.histVizContext = null;
+    this.histVizTargets.clear();
   }
 
   // ── Private helpers ───────────────────────────────────────────────────
@@ -849,40 +851,64 @@ export class HdrRenderer {
     d[U_PREPROCESS + 3] = cfg.sharpen_amount;
   }
 
-  /** Append histogram reduce + visualization render passes to an encoder. */
-  private encodeHistogramViz(encoder: GPUCommandEncoder): void {
-    const forceZeroLo = this._histogramChannel !== 'ev' ? 1 : 0;
-    this.device.queue.writeBuffer(this.histReduceFlagBuf, 0, new Uint32Array([forceZeroLo]));
+  /**
+   * Draw the current histogram bins to every registered viz canvas.
+   *
+   * One submission per canvas: the shared config buffer carries that canvas's
+   * dimensions, so interleaving canvases within a single encoder would race
+   * (all passes would see the last canvas's config). Separate write→submit
+   * cycles keep each draw consistent. Must be called AFTER the bins for the
+   * current mode have been computed and submitted.
+   */
+  private renderHistogramVizToTargets(): void {
+    if (this.histVizTargets.size === 0) return;
 
-    const c = this.histVizConfigData;
-    const vizCanvas = this.histVizCanvas!;
-    c[0] = vizCanvas.width;
-    c[1] = vizCanvas.height;
-    c[2] = this._histogramChannel === 'rgb' ? 0.0 : this._histogramChannel === 'luma' ? 1.0 : 2.0;
-    c[3] = Math.floor((1.0 / 1.2) * 255);
-    this.device.queue.writeBuffer(this.histVizConfigBuf, 0, c);
+    this.histReduceFlagData[0] = this._histogramChannel !== 'ev' ? 1 : 0;
+    this.device.queue.writeBuffer(this.histReduceFlagBuf, 0, this.histReduceFlagData);
+    const channelCode = this._histogramChannel === 'rgb' ? 0.0 : this._histogramChannel === 'luma' ? 1.0 : 2.0;
+    const clipBin = Math.floor((1.0 / 1.2) * 255);
 
-    // Reduce pass: scan bins → range + max
-    const reducePass = encoder.beginComputePass();
-    reducePass.setPipeline(this.histReducePipeline);
-    reducePass.setBindGroup(0, this.histReduceBindGroup);
-    reducePass.dispatchWorkgroups(1);
-    reducePass.end();
+    for (const [canvas, ctx] of this.histVizTargets) {
+      // getCurrentTexture() throws if a target's context is no longer usable (canvas
+      // detached mid-frame, or device lost). Isolate each target so one bad canvas
+      // can't throw out of render() and starve the others — drop it and move on.
+      try {
+        const c = this.histVizConfigData;
+        c[0] = canvas.width;
+        c[1] = canvas.height;
+        c[2] = channelCode;
+        c[3] = clipBin;
+        this.device.queue.writeBuffer(this.histVizConfigBuf, 0, c);
 
-    // Viz render pass: draw histogram to viz canvas
-    const vizView = this.histVizContext!.getCurrentTexture().createView();
-    const vizPass = encoder.beginRenderPass({
-      colorAttachments: [{
-        view: vizView,
-        loadOp: 'clear',
-        storeOp: 'store',
-        clearValue: { r: 0, g: 0, b: 0, a: 0 },
-      }],
-    });
-    vizPass.setPipeline(this.histVizPipeline);
-    vizPass.setBindGroup(0, this.histVizBindGroup);
-    vizPass.draw(3);
-    vizPass.end();
+        const encoder = this.device.createCommandEncoder();
+
+        // Reduce pass: scan bins → range + max (cheap single workgroup, re-run per canvas).
+        const reducePass = encoder.beginComputePass();
+        reducePass.setPipeline(this.histReducePipeline);
+        reducePass.setBindGroup(0, this.histReduceBindGroup);
+        reducePass.dispatchWorkgroups(1);
+        reducePass.end();
+
+        // Viz render pass: draw histogram to this canvas.
+        const vizView = ctx.getCurrentTexture().createView();
+        const vizPass = encoder.beginRenderPass({
+          colorAttachments: [{
+            view: vizView,
+            loadOp: 'clear',
+            storeOp: 'store',
+            clearValue: { r: 0, g: 0, b: 0, a: 0 },
+          }],
+        });
+        vizPass.setPipeline(this.histVizPipeline);
+        vizPass.setBindGroup(0, this.histVizBindGroup);
+        vizPass.draw(3);
+        vizPass.end();
+
+        this.device.queue.submit([encoder.finish()]);
+      } catch {
+        this.histVizTargets.delete(canvas);
+      }
+    }
   }
 
   private renderDisplayHistogram(isLog: boolean): void {
@@ -926,11 +952,10 @@ export class HdrRenderer {
     );
     computePass.end();
 
-    if (this.histVizContext) {
-      this.encodeHistogramViz(encoder);
-    }
-
     this.device.queue.submit([encoder.finish()]);
+
+    // Display bins are now on the GPU → draw the viz to every registered canvas.
+    this.renderHistogramVizToTargets();
 
     // Restore exportMode in CPU-side data; GPU gets it on next render()'s full uniform write
     d[U_FLAGS + 2] = 0.0;

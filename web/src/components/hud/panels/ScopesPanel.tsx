@@ -1,5 +1,7 @@
+import { useRef } from 'react';
 import { FloatingPanel } from '../FloatingPanel';
 import { useAppStore } from '@/store';
+import { useHistogramCanvas } from '@/hooks/useHistogramCanvas';
 import type { HistogramChannel } from '@/gl/renderer';
 import './Scopes.css';
 import './Panels.css';
@@ -23,11 +25,14 @@ export function ScopesPanel() {
   const setChannel = useAppStore((s) => s.setHistogramChannel);
   const showClipMask = useAppStore((s) => s.showClipMask);
   const setShowClipMask = useAppStore((s) => s.setShowClipMask);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useHistogramCanvas(canvasRef);
 
   return (
     <FloatingPanel title="Scopes" onClose={() => setOpenPanel(null)}>
       <div className="xv-pgroup">
         <span className="xv-pgroup__title">Histogram</span>
+        <canvas ref={canvasRef} width={464} height={180} className="xv-scope-canvas" />
         <div className="xv-modes">
           <div className="xv-modes__grp">
             {SOURCES.map((s) => (
