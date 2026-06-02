@@ -3,7 +3,18 @@
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   color: var(--xv-muted-foreground); font-size: 12px;
 }
-.xv-stage__error { color: var(--xv-destructive); max-width: 60ch; text-align: center; padding: 0 24px; }
+.xv-stage__error {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  max-width: 44ch; text-align: center; padding: 24px 28px;
+  border-radius: var(--xv-radius-chrome);
+}
+.xv-stage__error-icon { color: var(--xv-destructive); margin-bottom: 2px; }
+.xv-stage__error-title { font-size: 14px; font-weight: 600; color: var(--xv-foreground); }
+.xv-stage__error-detail { font-size: 12px; color: var(--xv-muted-foreground); line-height: 1.5; }
+.xv-stage__error-file {
+  font-size: 11px; font-family: var(--xv-font-mono); color: var(--xv-fg-dim);
+  margin-top: 2px; word-break: break-all;
+}
 .xv-stage__spinner {
   width: 32px; height: 32px; border-radius: 50%;
   border: 3px solid var(--xv-primary); border-top-color: transparent;

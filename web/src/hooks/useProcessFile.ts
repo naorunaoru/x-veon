@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { useAppStore } from '@/store';
 import { decodeRaw } from '@/pipeline/raf-decoder';
+import type { RawImage } from '@/pipeline/types';
 import {
   cropToVisible,
   findPatternShift,
@@ -59,7 +60,15 @@ export function useProcessFile() {
         if (!raw) throw new Error('RAW file not found in storage. Please re-add this file.');
         arrayBuffer = raw;
       }
-      const raw = decodeRaw(arrayBuffer);
+      let raw: RawImage;
+      try {
+        raw = decodeRaw(arrayBuffer);
+      } catch (e) {
+        const detail = (e instanceof Error ? e.message : String(e)).trim();
+        throw new Error(
+          `Couldn't decode this RAW file. The camera or format may not be supported by this build of the decoder${detail ? ` — ${detail}` : ''}.`,
+        );
+      }
       arrayBuffer = null;
       console.log(`RAW: ${raw.make} ${raw.model} (${raw.width}x${raw.height}, cfa=${raw.cfaWidth}x${raw.cfaStr.length / raw.cfaWidth})`);
 
@@ -230,7 +239,8 @@ export function useProcessFile() {
 
       useAppStore.getState().setFileResult(fileId, resultMeta, method);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : typeof e === 'string' ? e : String(e);
+      const detail = e instanceof Error ? e.message : typeof e === 'string' ? e : String(e);
+      const msg = detail.trim() || 'This file could not be opened. It may be corrupt, or the camera or format may be unsupported by this build.';
       useAppStore.getState().updateFileStatus(fileId, 'error', msg);
       console.error(e);
     } finally {

@@ -1,3 +1,4 @@
+import { ImageOff } from 'lucide-react';
 import { useAppStore } from '@/store';
 import { OutputCanvas } from '@/components/OutputCanvas';
 import './PhotoStage.css';
@@ -26,7 +27,12 @@ export function PhotoStage() {
       )}
       {showError && (
         <div className="xv-stage__center">
-          <span className="xv-stage__error">{selectedFile.error}</span>
+          <div className="xv-stage__error xv-glass">
+            <ImageOff className="xv-stage__error-icon" size={30} strokeWidth={1.5} />
+            <span className="xv-stage__error-title">Couldn't open this photo</span>
+            <span className="xv-stage__error-detail">{selectedFile.error}</span>
+            <span className="xv-stage__error-file">{selectedFile.originalName}</span>
+          </div>
         </div>
       )}
       {loading && (
