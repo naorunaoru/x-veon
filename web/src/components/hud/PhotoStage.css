@@ -4,9 +4,12 @@
   color: var(--xv-muted-foreground); font-size: 12px;
 }
 .xv-stage__error {
+  position: relative; z-index: 2;
   display: flex; flex-direction: column; align-items: center; gap: 8px;
   max-width: 44ch; text-align: center; padding: 24px 28px;
   border-radius: var(--xv-radius-chrome);
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--xv-destructive) 30%, transparent),
+              var(--xv-shadow-lg, 0 16px 40px rgba(0, 0, 0, 0.5));
 }
 .xv-stage__error-icon { color: var(--xv-destructive); margin-bottom: 2px; }
 .xv-stage__error-title { font-size: 14px; font-weight: 600; color: var(--xv-foreground); }

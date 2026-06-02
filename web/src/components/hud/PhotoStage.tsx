@@ -18,7 +18,9 @@ export function PhotoStage() {
   // processing, restore re-queue, and reprocess-on-switch alike. Shown over the
   // canvas (dimming it) when a prior result exists, or over the black stage.
   const loading = selectedFile.status === 'queued' || selectedFile.status === 'processing';
-  const showError = selectedFile.status === 'error' && !selectedFile.result;
+  // Show the error whenever the file errored — don't gate on a missing result, or a
+  // stale/garbage result would leave a silent black canvas with no error shown.
+  const showError = selectedFile.status === 'error';
 
   return (
     <div className="xv-stage">
@@ -27,7 +29,7 @@ export function PhotoStage() {
       )}
       {showError && (
         <div className="xv-stage__center">
-          <div className="xv-stage__error xv-glass">
+          <div className="xv-stage__error xv-glass-heavy">
             <ImageOff className="xv-stage__error-icon" size={30} strokeWidth={1.5} />
             <span className="xv-stage__error-title">Couldn't open this photo</span>
             <span className="xv-stage__error-detail">{selectedFile.error}</span>

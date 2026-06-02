@@ -15,14 +15,16 @@
 .xv-hud-overlay .xv-histhud,
 .xv-hud-overlay .xv-toolrail,
 .xv-hud-overlay .xv-panel {
-  transition: transform 0.4s cubic-bezier(0.22, 0.61, 0.36, 1), opacity 0.3s ease;
+  transition: transform 0.3s ease, opacity 0.3s ease;
 }
-.xv-hud-overlay[data-chrome-hidden="true"] .xv-topbar   { transform: translateY(-130%); opacity: 0; pointer-events: none; }
-.xv-hud-overlay[data-chrome-hidden="true"] .xv-minimap  { transform: translateY(-180%); opacity: 0; pointer-events: none; }
-.xv-hud-overlay[data-chrome-hidden="true"] .xv-actionhud { transform: translateY(160%); opacity: 0; pointer-events: none; }
-.xv-hud-overlay[data-chrome-hidden="true"] .xv-histhud   { transform: translateY(160%); opacity: 0; pointer-events: none; }
-.xv-hud-overlay[data-chrome-hidden="true"] .xv-toolrail  { transform: translate(160%, -50%); opacity: 0; pointer-events: none; }
-.xv-hud-overlay[data-chrome-hidden="true"] .xv-panel     { transform: translate(160%, -50%); opacity: 0; pointer-events: none; }
+/* Small nudges only — the fade is the main effect; a large slide would whisk the
+   element out of view before the opacity transition is perceptible. */
+.xv-hud-overlay[data-chrome-hidden="true"] .xv-topbar   { transform: translateY(-14px); opacity: 0; pointer-events: none; }
+.xv-hud-overlay[data-chrome-hidden="true"] .xv-minimap  { transform: translateY(-14px); opacity: 0; pointer-events: none; }
+.xv-hud-overlay[data-chrome-hidden="true"] .xv-actionhud { transform: translateY(14px); opacity: 0; pointer-events: none; }
+.xv-hud-overlay[data-chrome-hidden="true"] .xv-histhud   { transform: translateY(14px); opacity: 0; pointer-events: none; }
+.xv-hud-overlay[data-chrome-hidden="true"] .xv-toolrail  { transform: translate(14px, -50%); opacity: 0; pointer-events: none; }
+.xv-hud-overlay[data-chrome-hidden="true"] .xv-panel     { transform: translate(14px, -50%); opacity: 0; pointer-events: none; }
 
 @media (prefers-reduced-motion: reduce) {
   .xv-hud-overlay .xv-topbar,
