@@ -153,7 +153,7 @@ impl Image {
 pub fn decode_image(arr: js_sys::Uint8Array) -> Result<Image, JsValue> {
     console_error_panic_hook::set_once();
     let vec = arr.to_vec();
-    let image = rawloader::decode_file_vec(&vec)
+    let image = rawloader::decode(&mut std::io::Cursor::new(&vec[..]))
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
     let cam_to_xyz = image.cam_to_xyz();
 
