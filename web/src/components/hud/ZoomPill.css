@@ -2,11 +2,14 @@
   display: inline-flex; align-items: center; gap: 8px;
   padding: 4px 8px; border-radius: var(--xv-radius-chrome); pointer-events: auto;
 }
-.xv-zoompill__fit {
+.xv-zoompill__presets { display: flex; align-items: center; gap: 2px; }
+.xv-zoompill__preset {
   font-size: 11px; padding: 2px 8px; border: none; background: transparent;
   color: var(--xv-muted-foreground); cursor: pointer; border-radius: var(--xv-radius-sm);
+  font-variant-numeric: tabular-nums;
 }
-.xv-zoompill__fit.is-fit { background: var(--xv-bg-raised); color: var(--xv-foreground); }
+.xv-zoompill__preset:hover { color: var(--xv-foreground); }
+.xv-zoompill__preset.is-active { background: var(--xv-bg-raised); color: var(--xv-foreground); }
 .xv-zoompill__divider { width: 1px; height: 14px; background: var(--xv-border); }
 .xv-zoompill__slider { width: 110px; }
 .xv-zoompill__readout {

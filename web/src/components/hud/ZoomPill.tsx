@@ -4,6 +4,11 @@ import { sliderToZoom, zoomToSlider, formatZoom } from '@/lib/zoom';
 import './Slider.css'; // reuse the .xv-slider__track/__range/__thumb skin for the Radix slider
 import './ZoomPill.css';
 
+const PRESETS: { label: string; zoom: number }[] = [
+  { label: '100%', zoom: 1 },
+  { label: '200%', zoom: 2 },
+];
+
 export function ZoomPill() {
   const scale = useAppStore((s) => s.viewScale);
   const fitScale = useAppStore((s) => s.viewFitScale);
@@ -14,12 +19,23 @@ export function ZoomPill() {
 
   return (
     <div className="xv-zoompill xv-glass">
-      <button
-        className={`xv-zoompill__fit${isFit ? ' is-fit' : ''}`}
-        onClick={() => controls?.resetView()}
-      >
-        Fit
-      </button>
+      <div className="xv-zoompill__presets">
+        <button
+          className={`xv-zoompill__preset${isFit ? ' is-active' : ''}`}
+          onClick={() => controls?.resetView()}
+        >
+          Fit
+        </button>
+        {PRESETS.map((p) => (
+          <button
+            key={p.label}
+            className={`xv-zoompill__preset${!isFit && Math.abs(scale - p.zoom) < p.zoom * 0.01 ? ' is-active' : ''}`}
+            onClick={() => controls?.zoomTo(p.zoom)}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
       <span className="xv-zoompill__divider" />
       <SliderPrimitive.Root
         className="xv-zoompill__slider xv-slider__root"
