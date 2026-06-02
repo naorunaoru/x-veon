@@ -1,0 +1,13 @@
+.xv-minimap {
+  position: absolute; top: 52px; right: 12px;
+  width: 160px; height: 106px; overflow: hidden;
+  border-radius: var(--xv-radius-chrome); pointer-events: auto; cursor: grab;
+}
+.xv-minimap.is-dragging { cursor: grabbing; }
+.xv-minimap__img {
+  position: absolute; opacity: 0.7; object-fit: cover;
+}
+.xv-minimap__rect {
+  position: absolute; border: 1px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5); box-sizing: border-box;
+}
