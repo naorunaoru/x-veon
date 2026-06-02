@@ -15,12 +15,9 @@ export interface MinimapLayout {
   k: number;
   /** Displayed image box within the minimap (letterboxed, centered). */
   imgX: number; imgY: number; imgW: number; imgH: number;
-  /** Viewport rectangle within the minimap (clamped to the displayed image). */
+  /** Viewport rectangle in minimap-box px; may be negative or exceed the box
+   *  (clipped by CSS overflow:hidden) so it keeps the true viewport aspect + pan. */
   rectX: number; rectY: number; rectW: number; rectH: number;
-}
-
-function clamp(v: number, lo: number, hi: number): number {
-  return Math.min(hi, Math.max(lo, v));
 }
 
 /** Map the current pan/zoom to the minimap's displayed-image box + viewport rect. */
@@ -37,15 +34,15 @@ export function computeMinimap(i: MinimapInput): MinimapLayout {
   const visW = i.containerW / i.scale;
   const visH = i.containerH / i.scale;
 
-  // Into box coords, clamped inside the displayed image.
-  let rectX = imgX + visLeft * k;
-  let rectY = imgY + visTop * k;
-  let rectW = visW * k;
-  let rectH = visH * k;
-  rectW = Math.min(rectW, imgW);
-  rectH = Math.min(rectH, imgH);
-  rectX = clamp(rectX, imgX, imgX + imgW - rectW);
-  rectY = clamp(rectY, imgY, imgY + imgH - rectH);
+  // Into box coords. NOT clamped to the image: when the viewport extends past the
+  // image (aspect mismatch, or panned off an edge onto empty stage) the rect must
+  // keep the viewport's aspect (rectW/rectH === containerW/containerH for all
+  // scale/pan) and its true position, simply overflowing the box — CSS
+  // overflow:hidden clips it and the box-shadow dim mask stays correct.
+  const rectX = imgX + visLeft * k;
+  const rectY = imgY + visTop * k;
+  const rectW = visW * k;
+  const rectH = visH * k;
 
   return { k, imgX, imgY, imgW, imgH, rectX, rectY, rectW, rectH };
 }

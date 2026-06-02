@@ -40,10 +40,53 @@ describe('computeMinimap', () => {
     expect(m.rectX).toBeCloseTo(9.333 + 400 * k, 2);
     expect(m.rectY).toBeCloseTo(300 * k, 2);
   });
-  it('clamps the rect inside the displayed image', () => {
+  it('does NOT clamp: a far-off pan drives the rect past the box (CSS clips it)', () => {
+    // Was the old "clamps the rect inside the displayed image" test. The rect now
+    // reports the true off-image position instead of pinning to the image edge.
     const m = computeMinimap({ ...base, scale: 1, panX: 99999, panY: 99999 });
-    expect(m.rectX).toBeGreaterThanOrEqual(m.imgX - 0.001);
-    expect(m.rectX + m.rectW).toBeLessThanOrEqual(m.imgX + m.imgW + 0.001);
+    // -99999/1 * k(0.04) = -3999.96, far outside [imgX, imgX+imgW].
+    expect(m.rectX).toBeCloseTo(-3999.96, 2);
+    expect(m.rectY).toBeCloseTo(-3999.96, 2);
+    expect(m.rectX).toBeLessThan(m.imgX);
+  });
+
+  it('keeps the VIEWPORT aspect (not the photo aspect) when the viewport overflows the image', () => {
+    // Regression for the reported bug. Square 1000x1000 viewport over a wide
+    // 6000x3000 (2:1) image, zoomed so the viewport spills above/below the image.
+    const m = computeMinimap({
+      contentW: 6000, contentH: 3000, containerW: 1000, containerH: 1000,
+      boxW: 160, boxH: 106, scale: 0.3, panX: -400, panY: 50,
+    });
+    // rect must be SQUARE (1:1 viewport aspect), NOT the image's 2:1.
+    expect(m.rectW / m.rectH).toBeCloseTo(1, 5);
+    expect(m.rectW).toBeCloseTo(88.889, 2);
+    expect(m.rectH).toBeCloseTo(88.889, 2);
+    // and it straddles the displayed image vertically (overflows top + bottom).
+    expect(m.rectY).toBeLessThan(m.imgY);
+    expect(m.rectY + m.rectH).toBeGreaterThan(m.imgY + m.imgH);
+  });
+
+  it('reflects the true pan when panned off the left edge (negative rectX, not pinned)', () => {
+    // Regression for "minimap does not reflect the actual pan position".
+    const m = computeMinimap({
+      contentW: 6000, contentH: 4000, containerW: 1200, containerH: 800,
+      boxW: 160, boxH: 106, scale: 4, panX: 800, panY: -2000,
+    });
+    // viewport extends left of the image → rectX negative (old code pinned to imgX).
+    expect(m.rectX).toBeCloseTo(-4.8, 2);
+    expect(m.rectX).toBeLessThan(m.imgX);
+    expect(m.rectW / m.rectH).toBeCloseTo(1200 / 800, 5);
+  });
+
+  it('rect aspect always equals the viewport aspect regardless of scale', () => {
+    // rectW/rectH = (containerW/scale·k)/(containerH/scale·k) = containerW/containerH.
+    for (const scale of [0.3, 0.5, 1, 2, 7]) {
+      const m = computeMinimap({
+        contentW: 6000, contentH: 4000, containerW: 1900, containerH: 1100,
+        boxW: 160, boxH: 106, scale, panX: 0, panY: 0,
+      });
+      expect(m.rectW / m.rectH).toBeCloseTo(1900 / 1100, 9);
+    }
   });
 });
 
