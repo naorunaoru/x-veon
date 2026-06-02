@@ -1,0 +1,89 @@
+/* DropSurface — empty state (solid canvas) + drag-over overlay (scrim).
+   One component, two variants. Tokens map 1:1 to the design handoff's OKLCH.
+   Keyframes v1dropIn / v1dropBob live in styles/glass.css. */
+.xv-drop {
+  position: absolute; inset: 0; z-index: 1;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--xv-background);
+  transition: background 200ms;
+}
+.xv-drop--empty { cursor: pointer; }
+.xv-drop--empty.is-active { background: oklch(0.12 0 0); }
+
+.xv-drop--overlay {
+  z-index: 60; pointer-events: none;
+  background: rgba(8, 8, 9, 0.66);
+  backdrop-filter: blur(8px) saturate(120%);
+  -webkit-backdrop-filter: blur(8px) saturate(120%);
+  animation: v1dropIn 140ms ease-out;
+}
+
+/* dashed frame, inset 16px */
+.xv-drop__frame {
+  position: absolute; inset: 16px;
+  border: 1px dashed var(--xv-muted-foreground);
+  border-radius: var(--xv-radius-md);
+  transition: all 200ms;
+}
+.xv-drop.is-active .xv-drop__frame {
+  border: 2px dashed var(--xv-primary);
+  background: color-mix(in oklch, var(--xv-primary) 5%, transparent);
+  box-shadow: inset 0 0 80px color-mix(in oklch, var(--xv-primary) 8%, transparent);
+}
+
+/* corner ticks — active only */
+.xv-drop__tick {
+  position: absolute; width: 18px; height: 18px;
+  border-style: solid; border-color: var(--xv-primary); border-width: 0;
+}
+.xv-drop__tick--tl { top: 24px; left: 24px; border-width: 2px 0 0 2px; }
+.xv-drop__tick--tr { top: 24px; right: 24px; border-width: 2px 2px 0 0; }
+.xv-drop__tick--bl { bottom: 24px; left: 24px; border-width: 0 0 2px 2px; }
+.xv-drop__tick--br { bottom: 24px; right: 24px; border-width: 0 2px 2px 0; }
+
+/* center stack */
+.xv-drop__center { position: relative; z-index: 1; text-align: center; transform: translateY(-4px); }
+
+.xv-drop__glyph {
+  width: 76px; height: 76px; margin: 0 auto 22px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1.5px dashed var(--xv-muted-foreground); border-radius: 10px;
+  color: var(--xv-muted-foreground);
+  transition: all 200ms;
+}
+.xv-drop.is-active .xv-drop__glyph {
+  border-color: var(--xv-primary); color: var(--xv-primary);
+  background: color-mix(in oklch, var(--xv-primary) 6%, transparent);
+  animation: v1dropBob 1.6s ease-in-out infinite;
+}
+
+.xv-drop__title { font-size: 17px; font-weight: 500; color: var(--xv-foreground); margin-bottom: 7px; }
+.xv-drop__format {
+  font-family: var(--xv-font-mono); font-size: 10px; letter-spacing: 0.3px;
+  color: var(--xv-muted-foreground); margin-bottom: 16px;
+}
+
+/* footer — empty: browse chip */
+.xv-drop__browse {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 7px 14px; border-radius: var(--xv-radius-chrome);
+  border: 1px solid var(--xv-border); background: rgba(255, 255, 255, 0.02);
+  font-size: 11px; color: var(--xv-foreground);
+}
+.xv-drop__browse-link { color: var(--xv-primary); }
+
+/* footer — overlay: appending pill */
+.xv-drop__pill {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 5px 11px; border-radius: var(--xv-radius-chrome);
+  background: rgba(20, 20, 20, 0.6); border: 1px solid rgba(255, 255, 255, 0.09);
+  font-family: var(--xv-font-mono); font-size: 10px; letter-spacing: 0.3px;
+  color: var(--xv-muted-foreground);
+}
+.xv-drop__dot { width: 5px; height: 5px; border-radius: var(--xv-radius-full); background: var(--xv-primary); }
+
+@media (prefers-reduced-motion: reduce) {
+  .xv-drop, .xv-drop__frame, .xv-drop__glyph { transition: none; }
+  .xv-drop--overlay { animation: none; }
+  .xv-drop.is-active .xv-drop__glyph { animation: none; }
+}

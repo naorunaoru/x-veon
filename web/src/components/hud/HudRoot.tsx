@@ -3,7 +3,8 @@ import { PhotoStage } from './PhotoStage';
 import { TopBar } from './TopBar';
 import { Filmstrip } from './Filmstrip';
 import { ActionHud } from './ActionHud';
-import { EmptyState } from './EmptyState';
+import { DropSurface } from './DropSurface';
+import { useFileDrag } from './useFileDrag';
 import { ToolRail } from './ToolRail';
 import { PanelHost } from './PanelHost';
 import { HistogramHud } from './HistogramHud';
@@ -12,8 +13,13 @@ import './HudRoot.css';
 
 export function HudRoot() {
   const hasFiles = useAppStore((s) => s.files.length > 0);
+  const fileCount = useAppStore((s) => s.files.length);
+  const addFiles = useAppStore((s) => s.addFiles);
   const initialized = useAppStore((s) => s.initialized);
   const initError = useAppStore((s) => s.initError);
+  // Window-level drag detection — restores drop-to-append while a photo is open,
+  // and lights the empty-state frame. Works in every state (loading / error too).
+  const dragging = useFileDrag(addFiles);
   // Hide all chrome (everything but the filmstrip) until the selected photo is
   // actually displayable — i.e. while loading, on a decode error, or with no
   // result yet. The clusters fade+slide to their nearest edge (see HudRoot.css).
@@ -37,6 +43,7 @@ export function HudRoot() {
           <HistogramHud />
           <Minimap />
         </div>
+        {dragging && <DropSurface overlay active fileCount={fileCount} />}
       </div>
     );
   }
@@ -49,7 +56,7 @@ export function HudRoot() {
       <div className="xv-hud-overlay">
         <TopBar />
       </div>
-      {(initialized || initError) && <EmptyState />}
+      {(initialized || initError) && <DropSurface active={dragging} />}
     </div>
   );
 }

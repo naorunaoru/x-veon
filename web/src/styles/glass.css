@@ -37,3 +37,14 @@
 @keyframes v1spin {
   to { transform: rotate(360deg); }
 }
+
+/* DropSurface — overlay fade-in + idle glyph bob. */
+@keyframes v1dropIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes v1dropBob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-5px); }
+}
