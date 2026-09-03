@@ -59,6 +59,12 @@ export default defineConfig(({ command, isPreview }) => {
         'Cross-Origin-Opener-Policy': 'same-origin',
       },
     },
+    preview: {
+      // GitHub Pages sends no COOP/COEP; mirror that so `vite preview` behaves like the deployed site
+      // (with the dev-server headers the page is cross-origin isolated and ONNX Runtime's worker
+      // threads try to load the app bundle and never initialise).
+      headers: {},
+    },
     build: {
       target: 'esnext',
     },

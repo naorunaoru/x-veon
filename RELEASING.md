@@ -64,6 +64,8 @@ gh run list --workflow=deploy.yml --limit 5
 
 `vite build` and `vite preview` need `XV_CHANNEL` (`stable`, `beta` or `dev`); the dev server defaults to `dev`.
 
+`vite preview` serves without the dev server's COOP/COEP headers, so it behaves like GitHub Pages (which sends neither); use it, not `npm run dev`, to check a channel build.
+
 ```bash
 cd web
 XV_CHANNEL=beta npm run build && XV_CHANNEL=beta npx vite preview   # http://localhost:4173/x-veon/beta/
