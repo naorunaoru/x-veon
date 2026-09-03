@@ -1,0 +1,3 @@
+[submodule "web/wasm/vendor/rawloader"]
+	path = web/wasm/vendor/rawloader
+	url = https://github.com/naorunaoru/rawloader.git

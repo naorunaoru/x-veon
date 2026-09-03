@@ -50,6 +50,19 @@ What it can't do yet:
 - passthrough full EXIF metadata
 - do batch operations
 
+### Development
+
+The RAW decoder is a git submodule (`web/wasm/vendor/rawloader`, a pinned fork of rawloader). Clone with `git clone --recurse-submodules`, or run `git submodule update --init` in an existing checkout. Then:
+
+```
+cd web
+npm run setup          # rust wasm target, npm install, wasm builds
+npm run build:lensfun  # lens-correction data (gitignored, needed once)
+npm run dev
+```
+
+`npm run build` and `npx vite preview` need `XV_CHANNEL` (`stable`, `beta` or `dev`); see `RELEASING.md`.
+
 ## License
 
 This project uses a multi-license structure:
