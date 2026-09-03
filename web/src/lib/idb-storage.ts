@@ -1,6 +1,7 @@
 import type { CfaType, DemosaicMethod, ExportFormat, LookPreset } from '@/pipeline/types';
 import type { SerializableResultMeta } from '@/pipeline/types';
 import type { LensProfile } from '@/lib/lensfun';
+import { BUILD, storageNames } from '@/lib/channel';
 
 // ── Schema ──────────────────────────────────────────────────────────────────
 
@@ -33,7 +34,8 @@ interface AppSetting {
 
 // ── Connection ──────────────────────────────────────────────────────────────
 
-const DB_NAME = 'xtrans-demosaic';
+/** Per-channel database name (see lib/channel.ts); the frozen app's `xtrans-demosaic` is left alone. */
+export const DB_NAME = storageNames(BUILD.channel).dbName;
 const DB_VERSION = 1;
 
 let dbPromise: Promise<IDBDatabase> | null = null;

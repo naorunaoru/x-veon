@@ -1,19 +1,35 @@
-// ── Directory handles (lazy-init singletons) ───────────────────────────────
+import { BUILD, storageNames } from '@/lib/channel';
 
+// ── Directory handles (lazy-init singletons) ───────────────────────────────
+// Everything lives under one per-channel folder so builds on the same origin
+// never share (or corrupt) each other's files. The frozen app's top-level
+// raw/, thumbnails/ and hwc-cache/ folders are never opened.
+
+/** Per-channel OPFS folder (see lib/channel.ts). */
+export const OPFS_ROOT = storageNames(BUILD.channel).opfsRoot;
+
+let channelDir: FileSystemDirectoryHandle | null = null;
 let rawDir: FileSystemDirectoryHandle | null = null;
 let thumbDir: FileSystemDirectoryHandle | null = null;
 
+async function getChannelDir(): Promise<FileSystemDirectoryHandle> {
+  if (channelDir) return channelDir;
+  const root = await navigator.storage.getDirectory();
+  channelDir = await root.getDirectoryHandle(OPFS_ROOT, { create: true });
+  return channelDir;
+}
+
 async function getRawDir(): Promise<FileSystemDirectoryHandle> {
   if (rawDir) return rawDir;
-  const root = await navigator.storage.getDirectory();
-  rawDir = await root.getDirectoryHandle('raw', { create: true });
+  const dir = await getChannelDir();
+  rawDir = await dir.getDirectoryHandle('raw', { create: true });
   return rawDir;
 }
 
 async function getThumbDir(): Promise<FileSystemDirectoryHandle> {
   if (thumbDir) return thumbDir;
-  const root = await navigator.storage.getDirectory();
-  thumbDir = await root.getDirectoryHandle('thumbnails', { create: true });
+  const dir = await getChannelDir();
+  thumbDir = await dir.getDirectoryHandle('thumbnails', { create: true });
   return thumbDir;
 }
 
