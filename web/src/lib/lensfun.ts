@@ -88,18 +88,29 @@ export interface LensProfile {
 let indexCache: LfIndexEntry[] | null = null;
 const dbFileCache = new Map<string, LfDbFile>();
 
+/** URL of a generated lens-data file (public/lensfun, built by `npm run build:lensfun`), relative to the deployed base path. */
+export function lensfunUrl(filename: string, base: string = import.meta.env.BASE_URL): string {
+  const prefix = base.endsWith('/') ? base : `${base}/`;
+  return `${prefix}lensfun/${filename}`;
+}
+
+async function fetchJson<T>(filename: string): Promise<T> {
+  const url = lensfunUrl(filename);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Lens data missing (${res.status}) at ${url}; run \`npm run build:lensfun\``);
+  return (await res.json()) as T;
+}
+
 async function fetchIndex(): Promise<LfIndexEntry[]> {
   if (indexCache) return indexCache;
-  const res = await fetch('/lensfun/index.json');
-  indexCache = await res.json();
-  return indexCache!;
+  indexCache = await fetchJson<LfIndexEntry[]>('index.json');
+  return indexCache;
 }
 
 async function fetchDbFile(filename: string): Promise<LfDbFile> {
   const cached = dbFileCache.get(filename);
   if (cached) return cached;
-  const res = await fetch(`/lensfun/${filename}`);
-  const data: LfDbFile = await res.json();
+  const data = await fetchJson<LfDbFile>(filename);
   dbFileCache.set(filename, data);
   return data;
 }

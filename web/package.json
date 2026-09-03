@@ -8,8 +8,9 @@
     "build:wasm:decoder": "wasm-pack build wasm/rawloader --target web --release",
     "build:wasm:encoder": "wasm-pack build wasm/encoder --target web --release",
     "build:wasm:demosaic": "wasm-pack build wasm/demosaic --target web --release",
+    "build:lensfun": "tsx scripts/convert-lensfun-db.ts",
     "dev": "npm run build:wasm && vite",
-    "build": "npm run build:wasm && vite build",
+    "build": "npm run build:wasm && npm run build:lensfun && vite build",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -44,6 +45,7 @@
     "@webgpu/types": "^0.1.69",
     "fast-xml-parser": "^5.3.6",
     "jsdom": "^25.0.1",
+    "tsx": "^4.23.13",
     "vite": "^6.0.0",
     "vite-plugin-wasm": "^3.4.1",
     "vitest": "^3.2.6",
