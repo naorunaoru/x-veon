@@ -18,7 +18,7 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   assemble:
@@ -38,7 +38,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)"
+          tag="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)" || { echo "::error::No GitHub Release found for ${GITHUB_REPOSITORY}; run promote.yml (or publish a stable/* release) first"; exit 1; }
           case "$tag" in
             stable/*) ;;
             *) echo "::error::Latest release '$tag' is not on a stable/* tag; refusing to deploy"; exit 1 ;;
