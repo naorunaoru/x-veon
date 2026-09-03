@@ -46,3 +46,5 @@
 .xv-readout { font-size: 11px; font-family: var(--xv-font-mono); color: var(--xv-muted-foreground); line-height: 1.6; }
 .xv-readout b { color: var(--xv-foreground); font-weight: 500; }
 .xv-readout .hdr { color: var(--xv-accent-hdr); }
+.xv-readout__link { color: var(--xv-primary); text-decoration: none; }
+.xv-readout__link:hover { text-decoration: underline; }

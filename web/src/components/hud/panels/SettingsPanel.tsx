@@ -3,6 +3,7 @@ import { useAppStore } from '@/store';
 import { useProcessFile } from '@/hooks/useProcessFile';
 import { getAvailableSizes, switchModelSize } from '@/pipeline/inference';
 import type { CfaType, DemosaicMethod, ModelSize } from '@/pipeline/types';
+import { BUILD, channelLabel, otherChannelLink } from '@/lib/channel';
 import './Panels.css';
 
 const DEMOSAIC_OPTIONS: { value: DemosaicMethod; label: string; cfa?: CfaType }[] = [
@@ -27,6 +28,7 @@ export function SettingsPanel() {
   const displayHdrHeadroom = useAppStore((s) => s.displayHdrHeadroom);
   const selectedFile = useAppStore((s) => s.files.find((f) => f.id === s.selectedFileId));
   const { processFile, isProcessing } = useProcessFile();
+  const other = otherChannelLink(BUILD.channel);
 
   const cfaType = selectedFile?.cfaType ?? null;
   const availableSizes = cfaType ? getAvailableSizes(cfaType) : new Set<ModelSize>(['S']);
@@ -78,6 +80,19 @@ export function SettingsPanel() {
           HDR preview <b className={displayHdr ? 'hdr' : undefined}>{displayHdr ? 'ON' : 'OFF'}</b>
           {displayHdr && <> · peak <b>{Math.round(displayHdrHeadroom * 100)} nits</b></>}<br />
           Tile <b>512</b> · Overlap <b>64</b>
+        </div>
+      </div>
+
+      <div className="xv-field">
+        <span className="xv-field__label">Build</span>
+        <div className="xv-readout" data-testid="xv-build">
+          <b>{channelLabel(BUILD.channel)}</b> · {BUILD.sha}{BUILD.date && <> · {BUILD.date}</>}
+          {other && (
+            <>
+              <br />
+              <a className="xv-readout__link" href={other.href}>Open {other.label}</a> · separate library
+            </>
+          )}
         </div>
       </div>
     </FloatingPanel>

@@ -40,4 +40,11 @@ describe('SettingsPanel', () => {
     screen.getByRole('button', { name: 'M' }).click();
     expect(spy).toHaveBeenCalledWith('M');
   });
+
+  it('shows the dev build stamp without a channel link', () => {
+    render(<SettingsPanel />);
+    expect(screen.getByTestId('xv-build')).toHaveTextContent('Dev');
+    expect(screen.getByTestId('xv-build')).toHaveTextContent('test');
+    expect(screen.queryByRole('link', { name: /^Open / })).toBeNull();
+  });
 });
