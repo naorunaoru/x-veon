@@ -67,6 +67,8 @@ npm run dev
 
 `npm run build` and `npx vite preview` need `XV_CHANNEL` (`stable`, `beta` or `dev`); see `RELEASING.md`.
 
+Source layout (`web/src`): `lib` (shared types and the method/format catalogue, no dependencies) ← `gpu` (the shared WebGPU device) ← `pipeline` (RAW → processed image, framework-free) and `renderer` (display, histogram, readback) ← `app` (store, services, hooks) ← `components` (React UI). Imports only go left; `src/test/layers.test.ts` fails the suite on a violation and names the file and line.
+
 ## License
 
 This project uses a multi-license structure:
