@@ -1,6 +1,6 @@
 import { useEffect, useRef, useMemo, memo } from 'react';
-import { useAppStore } from '@/store';
-import { usePanZoom } from '@/hooks/usePanZoom';
+import { useAppStore } from '@/app/store';
+import { usePanZoom } from '@/app/hooks/usePanZoom';
 import { takeGpuResult } from '@/lib/hwc-handoff';
 import { HdrRenderer } from '@/renderer/renderer';
 import { configFromPreset, configWithOverrides, computeTonescaleParams } from '@/renderer/grading/opendrt-params';

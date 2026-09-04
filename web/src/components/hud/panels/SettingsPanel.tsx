@@ -1,7 +1,7 @@
 import { FloatingPanel } from '../FloatingPanel';
-import { useAppStore } from '@/store';
-import { useProcessFile } from '@/hooks/useProcessFile';
-import { useModelSizes } from '@/hooks/useModelSizes';
+import { useAppStore } from '@/app/store';
+import { useProcessFile } from '@/app/hooks/useProcessFile';
+import { useModelSizes } from '@/app/hooks/useModelSizes';
 import { demosaicMethodsFor, MODEL_SIZES } from '@/lib/catalog';
 import type { DemosaicMethod, ModelSize } from '@/lib/types';
 import { BUILD, channelLabel, otherChannelLink } from '@/lib/channel';

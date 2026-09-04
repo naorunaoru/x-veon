@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { useAppStore } from '@/store';
+import { useAppStore } from '@/app/store';
 import { computeMinimap, minimapDragToPan } from '@/lib/minimap';
 import './Minimap.css';
 

@@ -1,4 +1,4 @@
-import { useAppStore } from '@/store';
+import { useAppStore } from '@/app/store';
 import { ExposurePanel } from './panels/ExposurePanel';
 import { WhiteBalancePanel } from './panels/WhiteBalancePanel';
 import { SettingsPanel } from './panels/SettingsPanel';

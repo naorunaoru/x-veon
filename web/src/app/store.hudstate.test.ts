@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useAppStore } from '@/store';
+import { useAppStore } from '@/app/store';
 
 describe('histogram mode state', () => {
   beforeEach(() => useAppStore.setState({ histogramSource: 'display', histogramChannel: 'rgb' }));

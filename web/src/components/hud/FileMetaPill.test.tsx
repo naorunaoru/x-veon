@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { FileMetaPill } from './FileMetaPill';
-import { useAppStore } from '@/store';
-import type { QueuedFile } from '@/store';
+import { useAppStore } from '@/app/store';
+import type { QueuedFile } from '@/app/store';
 
 function makeFile(over: Partial<QueuedFile>): QueuedFile {
   return {

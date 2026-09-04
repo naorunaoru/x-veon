@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useAppStore } from '@/store';
-import type { QueuedFile } from '@/store';
+import { useAppStore } from '@/app/store';
+import type { QueuedFile } from '@/app/store';
 
 function makeFile(id: string): QueuedFile {
   return {

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { RotateCcw, X } from 'lucide-react';
-import { useGrading } from '@/hooks/useGrading';
-import { useAppStore } from '@/store';
+import { useGrading } from '@/app/hooks/useGrading';
+import { useAppStore } from '@/app/store';
 import { configWithOverrides, type OpenDrtConfig } from '@/renderer/grading/opendrt-params';
 import { SECTION_KEYS, isSectionModified } from '@/renderer/grading/sections';
 import { RSection } from './rendering/RSection';

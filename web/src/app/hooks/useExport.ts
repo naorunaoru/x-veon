@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { useAppStore } from '@/store';
+import { useAppStore } from '@/app/store';
 import { encodeImage } from '@/pipeline/export/encoder';
 import { configFromPreset, configWithOverrides, deriveHdrConfig, computeTonescaleParams } from '@/renderer/grading/opendrt-params';
 import { exportFormatInfo } from '@/lib/catalog';

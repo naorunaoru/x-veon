@@ -1,7 +1,7 @@
 import { FloatingPanel } from '../FloatingPanel';
 import { Slider } from '../Slider';
-import { useGrading } from '@/hooks/useGrading';
-import { useAppStore } from '@/store';
+import { useGrading } from '@/app/hooks/useGrading';
+import { useAppStore } from '@/app/store';
 import { isSectionModified, SECTION_KEYS } from '@/renderer/grading/sections';
 import './Panels.css';
 

@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react';
-import { useAppStore } from '@/store';
+import { useAppStore } from '@/app/store';
 import {
   configFromPreset, DEFAULT_PREPROCESS,
   type OpenDrtConfig, type PreProcessConfig,

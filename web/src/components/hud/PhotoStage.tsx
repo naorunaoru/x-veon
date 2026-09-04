@@ -1,5 +1,5 @@
 import { ImageOff } from 'lucide-react';
-import { useAppStore } from '@/store';
+import { useAppStore } from '@/app/store';
 import { OutputCanvas } from '@/components/OutputCanvas';
 import './PhotoStage.css';
 

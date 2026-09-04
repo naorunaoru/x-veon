@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ScopesPanel } from './ScopesPanel';
-import { useAppStore } from '@/store';
+import { useAppStore } from '@/app/store';
 
 describe('ScopesPanel', () => {
   beforeEach(() => useAppStore.setState({

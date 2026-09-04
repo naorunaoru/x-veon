@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
-import { useAppStore } from '@/store';
+import { useAppStore } from '@/app/store';
 
 const MAX_SCALE = 32;
 const ZOOM_SENSITIVITY = 0.01;

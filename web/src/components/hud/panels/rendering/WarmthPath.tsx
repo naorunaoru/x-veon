@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useGrading } from '@/hooks/useGrading';
+import { useGrading } from '@/app/hooks/useGrading';
 import { useDrag, relPos, clamp } from './hooks';
 import { Readout } from './Readout';
 

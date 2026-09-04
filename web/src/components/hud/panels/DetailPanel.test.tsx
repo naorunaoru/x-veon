@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { DetailPanel } from './DetailPanel';
-import { useAppStore } from '@/store';
-import type { QueuedFile } from '@/store';
+import { useAppStore } from '@/app/store';
+import type { QueuedFile } from '@/app/store';
 
 function makeFile(): QueuedFile {
   return {

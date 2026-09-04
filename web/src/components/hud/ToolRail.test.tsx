@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { ToolRail } from './ToolRail';
-import { useAppStore } from '@/store';
-import type { QueuedFile } from '@/store';
+import { useAppStore } from '@/app/store';
+import type { QueuedFile } from '@/app/store';
 
 function fileWith(over: Partial<QueuedFile>): QueuedFile {
   return {

@@ -1,6 +1,6 @@
 import type { CfaType, DemosaicMethod, ExportFormat, LookPreset } from '@/lib/types';
 import type { SerializableResultMeta } from '@/lib/types';
-import type { LensProfile } from '@/lib/lensfun';
+import type { LensProfile } from '@/app/lens/lensfun';
 import { BUILD, storageNames } from '@/lib/channel';
 
 // ── Schema ──────────────────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 import { Loader2 } from 'lucide-react';
 import { Slider } from '@/components/hud/Slider';
 import { EXPORT_FORMATS } from '@/lib/catalog';
-import { useAppStore } from '@/store';
+import { useAppStore } from '@/app/store';
 import { Dialog, DialogContent } from './Dialog';
 
 const DEFAULT_QUALITY = 95;

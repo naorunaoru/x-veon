@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { SettingsPanel } from './SettingsPanel';
-import { useAppStore } from '@/store';
-import type { QueuedFile } from '@/store';
+import { useAppStore } from '@/app/store';
+import type { QueuedFile } from '@/app/store';
 
-vi.mock('@/hooks/useModelSizes', () => ({
+vi.mock('@/app/hooks/useModelSizes', () => ({
   useModelSizes: () => ({ available: new Set(['S', 'M', 'L']), switchTo: vi.fn().mockResolvedValue(undefined) }),
 }));
-vi.mock('@/hooks/useProcessFile', () => ({
+vi.mock('@/app/hooks/useProcessFile', () => ({
   useProcessFile: () => ({ processFile: vi.fn(), isProcessing: false }),
 }));
 

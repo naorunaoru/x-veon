@@ -1,4 +1,4 @@
-import { useAppStore } from '@/store';
+import { useAppStore } from '@/app/store';
 import { PhotoStage } from './PhotoStage';
 import { TopBar } from './TopBar';
 import { Filmstrip } from './Filmstrip';

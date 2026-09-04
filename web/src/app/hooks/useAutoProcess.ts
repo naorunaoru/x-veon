@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
-import { useAppStore } from '@/store';
-import { useProcessFile } from '@/hooks/useProcessFile';
-import type { FileStatus } from '@/store';
+import { useAppStore } from '@/app/store';
+import { useProcessFile } from '@/app/hooks/useProcessFile';
+import type { FileStatus } from '@/app/store';
 import { isMethodValidForCfa } from '@/lib/catalog';
 
 /** Pure decision: should the given file be auto-processed right now? */

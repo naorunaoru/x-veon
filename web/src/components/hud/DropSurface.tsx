@@ -1,6 +1,6 @@
 import { useCallback, useRef } from 'react';
 import { Upload } from 'lucide-react';
-import { useAppStore } from '@/store';
+import { useAppStore } from '@/app/store';
 import './DropSurface.css';
 
 const RAW_ACCEPT = '.raf,.cr2,.cr3,.nef,.nrw,.arw,.dng,.rw2,.orf,.pef,.srw,.erf,.kdc,.dcr,.mef';

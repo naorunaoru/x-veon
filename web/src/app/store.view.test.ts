@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useAppStore } from '@/store';
+import { useAppStore } from '@/app/store';
 
 describe('view pan + container state', () => {
   beforeEach(() => useAppStore.setState({ viewPan: { x: 0, y: 0 }, viewContainerW: 0, viewContainerH: 0 }));

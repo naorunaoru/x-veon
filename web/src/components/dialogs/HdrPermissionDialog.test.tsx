@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { HdrPermissionDialog } from './HdrPermissionDialog';
-import { useAppStore } from '@/store';
+import { useAppStore } from '@/app/store';
 
 vi.mock('@/renderer/hdr-display', () => ({
   requestWindowManagementHeadroom: vi.fn().mockResolvedValue(2.5),

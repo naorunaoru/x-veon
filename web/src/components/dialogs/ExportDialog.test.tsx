@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { ExportDialog } from './ExportDialog';
-import { useAppStore } from '@/store';
+import { useAppStore } from '@/app/store';
 
 describe('ExportDialog', () => {
   beforeEach(() => useAppStore.setState({

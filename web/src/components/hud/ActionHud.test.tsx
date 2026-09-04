@@ -1,16 +1,16 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { ActionHud } from './ActionHud';
-import { useAppStore } from '@/store';
-import type { QueuedFile } from '@/store';
+import { useAppStore } from '@/app/store';
+import type { QueuedFile } from '@/app/store';
 
 // ActionHud calls useProcessFile()/useExport(), whose modules import the WASM
 // pipeline. Mock them so the test renders without WASM; the real store still
 // drives the button disabled states.
-vi.mock('@/hooks/useProcessFile', () => ({
+vi.mock('@/app/hooks/useProcessFile', () => ({
   useProcessFile: () => ({ processFile: vi.fn(), isProcessing: false }),
 }));
-vi.mock('@/hooks/useExport', () => ({
+vi.mock('@/app/hooks/useExport', () => ({
   useExport: () => ({ exportFile: vi.fn(), isExporting: false }),
 }));
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { DropSurface } from './DropSurface';
-import { useAppStore } from '@/store';
+import { useAppStore } from '@/app/store';
 
 describe('DropSurface', () => {
   it('renders the empty-state prompt', () => {

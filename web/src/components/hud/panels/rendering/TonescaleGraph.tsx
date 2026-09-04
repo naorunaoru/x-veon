@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useGrading } from '@/hooks/useGrading';
+import { useGrading } from '@/app/hooks/useGrading';
 import { computeTonescaleParams, type GradingConfig, type OpenDrtConfig } from '@/renderer/grading/opendrt-params';
 import { evalTonescale } from '@/renderer/grading/tonescale-curve';
 import { isModified } from '@/renderer/grading/param-model';

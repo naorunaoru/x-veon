@@ -1,4 +1,4 @@
-import { useAppStore } from '@/store';
+import { useAppStore } from '@/app/store';
 import './FileMetaPill.css';
 
 /** Strip Fujifilm's redundant make prefix from the camera display. */

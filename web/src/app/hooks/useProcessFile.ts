@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
-import { useAppStore } from '@/store';
+import { useAppStore } from '@/app/store';
 import { decodeRaw } from '@/pipeline/decode/raf-decoder';
 import type { RawImage } from '@/pipeline/types';
 import {
@@ -21,7 +21,7 @@ import { getDevice } from '@/gpu/device';
 import { PATCH_SIZE, OVERLAP, TILE_BATCH } from '@/pipeline/constants';
 import type { DemosaicMethod, ProcessingResultMeta } from '@/lib/types';
 import { estimateColorTemperature } from '@/pipeline/color-temperature';
-import { readRaw } from '@/lib/opfs-storage';
+import { readRaw } from '@/app/storage/opfs-storage';
 import { setGpuResult } from '@/lib/hwc-handoff';
 
 /** Flatten a 2D pattern array into a Uint32Array for GPU/demosaic use */

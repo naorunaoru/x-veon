@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { useAppStore } from '@/store';
-import { useProcessFile } from '@/hooks/useProcessFile';
-import { useExport } from '@/hooks/useExport';
+import { useAppStore } from '@/app/store';
+import { useProcessFile } from '@/app/hooks/useProcessFile';
+import { useExport } from '@/app/hooks/useExport';
 import { ExportDialog } from '@/components/dialogs/ExportDialog';
 import './ActionHud.css';
 

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { requestWindowManagementHeadroom } from '@/renderer/hdr-display';
-import { useAppStore } from '@/store';
+import { useAppStore } from '@/app/store';
 import { Dialog, DialogContent } from './Dialog';
 
 export function HdrPermissionDialog() {

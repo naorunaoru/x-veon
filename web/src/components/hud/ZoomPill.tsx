@@ -1,5 +1,5 @@
 import * as SliderPrimitive from '@radix-ui/react-slider';
-import { useAppStore } from '@/store';
+import { useAppStore } from '@/app/store';
 import { sliderToZoom, zoomToSlider, formatZoom } from '@/lib/zoom';
 import './Slider.css'; // reuse the .xv-slider__track/__range/__thumb skin for the Radix slider
 import './ZoomPill.css';

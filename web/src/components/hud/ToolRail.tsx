@@ -1,6 +1,6 @@
 import type { ComponentType } from 'react';
 import { BarChart3, Sun, Droplet, Sliders, Focus, Settings } from 'lucide-react';
-import { useAppStore } from '@/store';
+import { useAppStore } from '@/app/store';
 import { isSectionModified, type PanelId } from '@/renderer/grading/sections';
 import './ToolRail.css';
 

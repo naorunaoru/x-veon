@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { ZoomPill } from './ZoomPill';
-import { useAppStore } from '@/store';
+import { useAppStore } from '@/app/store';
 
 describe('ZoomPill', () => {
   beforeEach(() => useAppStore.setState({ viewScale: 0.2, viewFitScale: 0.2, viewControls: null }));

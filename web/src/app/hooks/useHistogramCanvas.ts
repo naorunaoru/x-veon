@@ -1,5 +1,5 @@
 import { useEffect, type RefObject } from 'react';
-import { useAppStore } from '@/store';
+import { useAppStore } from '@/app/store';
 
 /**
  * Register a canvas as a histogram viz target on the GPU renderer and populate

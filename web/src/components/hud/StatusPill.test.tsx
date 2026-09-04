@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { StatusPill } from './StatusPill';
-import { useAppStore } from '@/store';
+import { useAppStore } from '@/app/store';
 
 function setStore(partial: Partial<ReturnType<typeof useAppStore.getState>>) {
   useAppStore.setState(partial);

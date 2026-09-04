@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useGrading } from '@/hooks/useGrading';
+import { useGrading } from '@/app/hooks/useGrading';
 import type { OpenDrtConfig } from '@/renderer/grading/opendrt-params';
 import { Slider } from '../../Slider';
 import { useDrag, relPos, clamp } from './hooks';
