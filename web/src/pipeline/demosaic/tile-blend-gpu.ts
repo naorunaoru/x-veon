@@ -313,58 +313,85 @@ export function createGpuNNPipeline(
   const extractTileStrideFloats = extractTileStride / 4;
   const paramStride = roundUp(16, BUF_ALIGN);
 
-  // --- One-time GPU uploads ---
-  const cfaBuf = buf(device, cfaW * cfaH * 4, S | D);
-  device.queue.writeBuffer(cfaBuf, 0, asGpu(cfa));
+  // --- Allocation tracking ---
+  // Every buffer this pipeline owns, so a partial construction failure releases what was
+  // already created (instead of leaking it — the pipeline object is never returned to the
+  // caller in that case), and so finalize()/destroy() each release a buffer at most once.
+  const owned = new Set<GPUBuffer>();
 
-  // Channel masks: pack R, G, B contiguously (3 × ps²)
-  const masksCpu = new Float32Array(3 * pp);
-  masksCpu.set(masks.r, 0);
-  masksCpu.set(masks.g, pp);
-  masksCpu.set(masks.b, 2 * pp);
-  const masksBuf = buf(device, 3 * pp * 4, S | D);
-  device.queue.writeBuffer(masksBuf, 0, asGpu(masksCpu));
-
-  // Tile positions: flat array of [x0, y0, x1, y1, ...]
-  const tilePosCpu = new Uint32Array(tiles.length * 2);
-  for (let i = 0; i < tiles.length; i++) {
-    tilePosCpu[i * 2] = tiles[i].x;
-    tilePosCpu[i * 2 + 1] = tiles[i].y;
+  function alloc(size: number, usage: GPUBufferUsageFlags): GPUBuffer {
+    const b = buf(device, size, usage);
+    owned.add(b);
+    return b;
   }
-  const tilePosBuf = buf(device, tilePosCpu.byteLength, S | D);
-  device.queue.writeBuffer(tilePosBuf, 0, asGpu(tilePosCpu));
 
-  // Clip thresholds
-  const clipsBuf = buf(device, 12, S | D);
-  device.queue.writeBuffer(clipsBuf, 0, asGpu(new Float32Array(clips)));
+  /** Destroy one tracked buffer and stop tracking it. No-op if already released. */
+  function release(b: GPUBuffer): void {
+    if (!owned.delete(b)) return;
+    try { b.destroy(); } catch { /* already destroyed */ }
+  }
 
-  // Extract params (uniform, rewritten per batch)
-  const extractParamBuf = buf(device, 32, U | D);
+  const {
+    cfaBuf, masksBuf, tilePosCpu, tilePosBuf, clipsBuf, extractParamBuf,
+    blendOutBuf, weightsBuf, w2dBuf, batchParamBuf, cropOutBuf,
+  } = (() => {
+    try {
+      // --- One-time GPU uploads ---
+      const cfaBuf = alloc(cfaW * cfaH * 4, S | D);
+      device.queue.writeBuffer(cfaBuf, 0, asGpu(cfa));
 
-  // --- Blend buffers ---
-  const blendOutBuf = buf(device, padPixels * 3 * 4, S);
-  const weightsBuf = buf(device, padPixels * 4, S);
-  const w2dBuf = buf(device, pp * 4, S | D);
-  device.queue.writeBuffer(w2dBuf, 0, asGpu(w2dCpu));
+      // Channel masks: pack R, G, B contiguously (3 × ps²)
+      const masksCpu = new Float32Array(3 * pp);
+      masksCpu.set(masks.r, 0);
+      masksCpu.set(masks.g, pp);
+      masksCpu.set(masks.b, 2 * pp);
+      const masksBuf = alloc(3 * pp * 4, S | D);
+      device.queue.writeBuffer(masksBuf, 0, asGpu(masksCpu));
 
-  const batchParamBuf = buf(device, maxBatch * paramStride, U | D);
-  const cropOutBuf = buf(device, hOrig * wOrig * 3 * 4, S);
+      // Tile positions: flat array of [x0, y0, x1, y1, ...]
+      const tilePosCpu = new Uint32Array(tiles.length * 2);
+      for (let i = 0; i < tiles.length; i++) {
+        tilePosCpu[i * 2] = tiles[i].x;
+        tilePosCpu[i * 2 + 1] = tiles[i].y;
+      }
+      const tilePosBuf = alloc(tilePosCpu.byteLength, S | D);
+      device.queue.writeBuffer(tilePosBuf, 0, asGpu(tilePosCpu));
+
+      // Clip thresholds
+      const clipsBuf = alloc(12, S | D);
+      device.queue.writeBuffer(clipsBuf, 0, asGpu(new Float32Array(clips)));
+
+      // Extract params (uniform, rewritten per batch)
+      const extractParamBuf = alloc(32, U | D);
+
+      // --- Blend buffers ---
+      const blendOutBuf = alloc(padPixels * 3 * 4, S);
+      const weightsBuf = alloc(padPixels * 4, S);
+      const w2dBuf = alloc(pp * 4, S | D);
+      device.queue.writeBuffer(w2dBuf, 0, asGpu(w2dCpu));
+
+      const batchParamBuf = alloc(maxBatch * paramStride, U | D);
+      const cropOutBuf = alloc(hOrig * wOrig * 3 * 4, S);
+
+      return {
+        cfaBuf, masksBuf, tilePosCpu, tilePosBuf, clipsBuf, extractParamBuf,
+        blendOutBuf, weightsBuf, w2dBuf, batchParamBuf, cropOutBuf,
+      };
+    } catch (e) {
+      for (const b of owned) {
+        try { b.destroy(); } catch { /* already destroyed */ }
+      }
+      owned.clear();
+      throw e;
+    }
+  })();
 
   const accWg = Math.ceil(patchSize / WG);
-
-  const allBufs = [
-    cfaBuf, masksBuf, tilePosBuf, clipsBuf, extractParamBuf,
-    blendOutBuf, weightsBuf, w2dBuf, batchParamBuf, cropOutBuf,
-  ];
-
-  // Reusable extract output buffers (double-buffered to allow overlap)
-  const extractBufs: GPUBuffer[] = [];
 
   return {
     extractBatch(startIdx: number, count: number): GPUBuffer {
       // Allocate output buffer with STORAGE | COPY_SRC (ORT requirement)
-      const extractOut = buf(device, count * extractTileStride, S | C);
-      extractBufs.push(extractOut);
+      const extractOut = alloc(count * extractTileStride, S | C);
 
       // Write extract params
       device.queue.writeBuffer(extractParamBuf, 0, asGpu(new Uint32Array([
@@ -374,9 +401,8 @@ export function createGpuNNPipeline(
       // Write tile positions for this batch (as an offset view into tilePosBuf)
       // The shader indexes tile_pos[tile_idx * 2], so we pass a view starting at startIdx
       const batchPosCpu = tilePosCpu.subarray(startIdx * 2, (startIdx + count) * 2);
-      const batchPosBuf = buf(device, batchPosCpu.byteLength, S | D);
+      const batchPosBuf = alloc(batchPosCpu.byteLength, S | D);
       device.queue.writeBuffer(batchPosBuf, 0, asGpu(batchPosCpu));
-      allBufs.push(batchPosBuf);
 
       const enc = device.createCommandEncoder();
       const pass = enc.beginComputePass();
@@ -433,16 +459,14 @@ export function createGpuNNPipeline(
 
     async finalize(): Promise<GPUBuffer> {
       // --- Finalize pass: divide by weights ---
-      const finParamBuf = buf(device, 8, U | D);
+      const finParamBuf = alloc(8, U | D);
       device.queue.writeBuffer(finParamBuf, 0, asGpu(new Uint32Array([wPad, hPad])));
-      allBufs.push(finParamBuf);
 
       // --- Crop pass: padded → original size ---
-      const cropParamBuf = buf(device, 24, U | D);
+      const cropParamBuf = alloc(24, U | D);
       device.queue.writeBuffer(cropParamBuf, 0, asGpu(new Uint32Array([
         wPad, padTop, padLeft, wOrig, hOrig, 0,
       ])));
-      allBufs.push(cropParamBuf);
 
       const enc = device.createCommandEncoder();
 
@@ -475,25 +499,22 @@ export function createGpuNNPipeline(
       device.queue.submit([enc.finish()]);
       await device.queue.onSubmittedWorkDone();
 
-      // Free intermediate buffers, keep cropOutBuf for caller
-      for (const b of allBufs) {
-        if (b !== cropOutBuf) {
-          try { b.destroy(); } catch { /* already destroyed */ }
-        }
+      // Free every tracked buffer except cropOutBuf, whose ownership transfers to the caller.
+      // Releasing removes each buffer from `owned` as it's freed, so a later destroy() call
+      // (e.g. from an unrelated failure elsewhere) finds nothing left to double-free.
+      for (const b of [...owned]) {
+        if (b !== cropOutBuf) release(b);
       }
-      for (const b of extractBufs) {
-        try { b.destroy(); } catch { /* already destroyed */ }
-      }
+      owned.delete(cropOutBuf);
 
       return cropOutBuf;
     },
 
     destroy(): void {
-      for (const b of [...allBufs, ...extractBufs]) {
-        if (!b.mapState || b.mapState === 'unmapped') {
-          try { b.destroy(); } catch { /* already destroyed */ }
-        }
+      for (const b of owned) {
+        try { b.destroy(); } catch { /* already destroyed */ }
       }
+      owned.clear();
     },
   };
 }

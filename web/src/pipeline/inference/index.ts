@@ -202,3 +202,26 @@ export function getInferenceDevice(): GPUDevice | null {
 export function getBackend(): string | null {
   return backend;
 }
+
+export interface ModelRegistry {
+  init(size: ModelSize): Promise<void>;
+  switchSize(size: ModelSize): Promise<void>;
+  availableSizes(cfaType: CfaType): Set<ModelSize>;
+  runBatchGpu(
+    cfaType: CfaType, inputBuffer: GPUBuffer, batchSize: number, patchSize: number,
+  ): Promise<{ buffer: GPUBuffer; dispose: () => void }>;
+  /** 'webgpu', 'wasm', 'wasm (single-threaded)' or null before init. */
+  readonly backend: string | null;
+  /** ORT's WebGPU device for buffer interop; null on the WASM backend. */
+  readonly device: GPUDevice | null;
+}
+
+/** The loaded ONNX models. One registry per page: ONNX Runtime is a singleton. */
+export const models: ModelRegistry = {
+  init: initModels,
+  switchSize: switchModelSize,
+  availableSizes: getAvailableSizes,
+  runBatchGpu,
+  get backend() { return backend; },
+  get device() { return gpuDevice; },
+};
