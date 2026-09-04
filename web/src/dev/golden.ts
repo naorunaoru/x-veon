@@ -6,7 +6,7 @@ import { configFromPreset, configWithOverrides, computeTonescaleParams, deriveHd
 import { BUILD } from '@/lib/channel';
 import { encodeImage } from '@/pipeline/encoder';
 import { switchModelSize } from '@/pipeline/inference';
-import type { CfaType, DemosaicMethod, ExportFormat, ModelSize } from '@/pipeline/types';
+import type { CfaType, DemosaicMethod, ExportFormat, ModelSize } from '@/lib/types';
 import { useAppStore } from '@/store';
 import {
   buildReport,

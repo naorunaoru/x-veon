@@ -1,4 +1,5 @@
-import type { ExportFormat } from './types';
+import type { ExportFormat } from '@/lib/types';
+import { exportFormatInfo } from '@/lib/catalog';
 
 let worker: Worker | null = null;
 
@@ -55,9 +56,7 @@ export async function encodeImage(
     orientation, format, quality, peakLuminance,
   );
 
-  const mimeTypes: Record<string, string> = { avif: 'image/avif', 'jpeg-hdr': 'image/jpeg', tiff: 'image/tiff' };
-  const extensions: Record<string, string> = { avif: 'avif', 'jpeg-hdr': 'jpg', tiff: 'tif' };
-
-  const blob = new Blob([encoded.buffer as ArrayBuffer], { type: mimeTypes[format] });
-  return { blob, ext: extensions[format] };
+  const info = exportFormatInfo(format);
+  const blob = new Blob([encoded.buffer as ArrayBuffer], { type: info.mime });
+  return { blob, ext: info.ext };
 }

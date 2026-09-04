@@ -5,7 +5,7 @@ import { takeGpuResult } from '@/lib/hwc-handoff';
 import { HdrRenderer } from '@/gl/renderer';
 import { configFromPreset, configWithOverrides, computeTonescaleParams } from '@/gl/opendrt-params';
 import type { OpenDrtConfig, PreProcessConfig } from '@/gl/opendrt-params';
-import type { ProcessingResultMeta } from '@/pipeline/types';
+import type { ProcessingResultMeta } from '@/lib/types';
 
 const EMPTY_OVERRIDES: Partial<OpenDrtConfig> = {};
 const EMPTY_PREPROCESS: Partial<PreProcessConfig> = {};

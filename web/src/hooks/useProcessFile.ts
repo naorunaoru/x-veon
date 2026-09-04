@@ -19,7 +19,7 @@ import { createGpuNNPipeline } from '@/pipeline/tile-blend-gpu';
 import { gpuPostprocess } from '@/pipeline/postprocess-gpu';
 import { getDevice } from '@/gpu/device';
 import { PATCH_SIZE, OVERLAP, TILE_BATCH } from '@/pipeline/constants';
-import type { DemosaicMethod, ProcessingResultMeta } from '@/pipeline/types';
+import type { DemosaicMethod, ProcessingResultMeta } from '@/lib/types';
 import { estimateColorTemperature } from '@/pipeline/color-temperature';
 import { readRaw } from '@/lib/opfs-storage';
 import { setGpuResult } from '@/lib/hwc-handoff';

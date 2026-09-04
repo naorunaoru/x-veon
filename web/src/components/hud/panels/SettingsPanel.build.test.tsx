@@ -3,9 +3,8 @@ import { render, screen } from '@testing-library/react';
 import { SettingsPanel } from './SettingsPanel';
 import { useAppStore } from '@/store';
 
-vi.mock('@/pipeline/inference', () => ({
-  getAvailableSizes: () => new Set(['S', 'M', 'L']),
-  switchModelSize: vi.fn().mockResolvedValue(undefined),
+vi.mock('@/hooks/useModelSizes', () => ({
+  useModelSizes: () => ({ available: new Set(['S', 'M', 'L']), switchTo: vi.fn().mockResolvedValue(undefined) }),
 }));
 vi.mock('@/hooks/useProcessFile', () => ({
   useProcessFile: () => ({ processFile: vi.fn(), isProcessing: false }),

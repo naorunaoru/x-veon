@@ -1,4 +1,4 @@
-import type { DemosaicMethod } from './types';
+import type { DemosaicMethod } from '@/lib/types';
 
 type Algorithm = Exclude<DemosaicMethod, 'neural-net'>;
 

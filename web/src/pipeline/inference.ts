@@ -1,5 +1,5 @@
 import * as ort from 'onnxruntime-web';
-import type { CfaType, ModelSize } from './types';
+import type { CfaType, ModelSize } from '@/lib/types';
 
 export interface ModelMeta {
   epoch?: number;

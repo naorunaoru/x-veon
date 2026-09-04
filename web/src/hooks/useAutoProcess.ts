@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useAppStore } from '@/store';
 import { useProcessFile } from '@/hooks/useProcessFile';
 import type { FileStatus } from '@/store';
-import type { DemosaicMethod } from '@/pipeline/types';
+import { isMethodValidForCfa } from '@/lib/catalog';
 
 /** Pure decision: should the given file be auto-processed right now? */
 export function shouldAutoProcess(
@@ -55,12 +55,4 @@ export function useAutoProcess(): void {
       processFile(selectedFile.id);
     }
   }, [demosaicMethod, initialized, selectedFile, isProcessing, processFile]);
-}
-
-/** X-Trans-only methods vs Bayer-only methods; 'neural-net' and 'bilinear' run on both. */
-function isMethodValidForCfa(method: DemosaicMethod, cfa: 'xtrans' | 'bayer'): boolean {
-  const xtransOnly: DemosaicMethod[] = ['markesteijn3', 'markesteijn1', 'dht'];
-  const bayerOnly: DemosaicMethod[] = ['ahd', 'ppg', 'mhc'];
-  if (cfa === 'bayer') return !xtransOnly.includes(method);
-  return !bayerOnly.includes(method);
 }

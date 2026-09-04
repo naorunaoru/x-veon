@@ -1,5 +1,5 @@
-import type { CfaType, DemosaicMethod, ExportFormat, LookPreset } from '@/pipeline/types';
-import type { SerializableResultMeta } from '@/pipeline/types';
+import type { CfaType, DemosaicMethod, ExportFormat, LookPreset } from '@/lib/types';
+import type { SerializableResultMeta } from '@/lib/types';
 import type { LensProfile } from '@/lib/lensfun';
 import { BUILD, storageNames } from '@/lib/channel';
 

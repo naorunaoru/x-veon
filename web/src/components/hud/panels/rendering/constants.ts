@@ -2,7 +2,7 @@
 // wheel modes, tonescale preset chips, base looks, and the Expert drawer schema.
 import type { OpenDrtConfig } from '@/gl/opendrt-params';
 import type { TonescalePreset } from '@/gl/opendrt-params';
-import type { LookPreset } from '@/pipeline/types';
+import type { LookPreset } from '@/lib/types';
 
 type DrtKey = keyof OpenDrtConfig;
 export type WheelMode = 'brl' | 'hue' | 'pur';

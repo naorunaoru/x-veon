@@ -9,8 +9,8 @@ import { probeHdrDisplay, hasWindowManagementApi } from '@/gl/hdr-display';
 import { getAllFiles, getSetting } from '@/lib/idb-storage';
 import type { PersistedFile } from '@/lib/idb-storage';
 import { listRawFileIds, deleteAllForFile, readThumbnail } from '@/lib/opfs-storage';
-import type { DemosaicMethod, ExportFormat } from '@/pipeline/types';
-import { deserializeResultMeta } from '@/pipeline/types';
+import type { DemosaicMethod, ExportFormat } from '@/lib/types';
+import { deserializeResultMeta } from '@/lib/types';
 import type { OpenDrtConfig, PreProcessConfig } from '@/gl/opendrt-params';
 import { matchLens } from '@/lib/lensfun';
 

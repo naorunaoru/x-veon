@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { useAppStore } from '@/store';
 import { encodeImage } from '@/pipeline/encoder';
 import { configFromPreset, configWithOverrides, deriveHdrConfig, computeTonescaleParams } from '@/gl/opendrt-params';
-import type { ExportFormat } from '@/pipeline/types';
+import { exportFormatInfo } from '@/lib/catalog';
 
 const HDR_PEAK_LUMINANCE = 1000;
 
@@ -48,7 +48,7 @@ export function useExport() {
       let hdrData: Float32Array | null = null;
       let peakLuminance = sdrConfig.peak_luminance;
 
-      if (needsHdr(exportFormat)) {
+      if (exportFormatInfo(exportFormat).needsHdr) {
         // JPEG-HDR and AVIF need HDR tonemapped data
         const hdrConfig = deriveHdrConfig(sdrConfig, HDR_PEAK_LUMINANCE);
         const hdrTs = computeTonescaleParams(hdrConfig);
@@ -88,8 +88,4 @@ export function useExport() {
   }, []);
 
   return { exportFile, isExporting };
-}
-
-function needsHdr(format: ExportFormat): boolean {
-  return format === 'jpeg-hdr' || format === 'avif';
 }

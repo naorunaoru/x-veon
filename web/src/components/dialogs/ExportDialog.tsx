@@ -1,14 +1,9 @@
 import { Loader2 } from 'lucide-react';
 import { Slider } from '@/components/hud/Slider';
-import type { ExportFormat } from '@/pipeline/types';
+import { EXPORT_FORMATS } from '@/lib/catalog';
 import { useAppStore } from '@/store';
 import { Dialog, DialogContent } from './Dialog';
 
-const FORMAT_OPTIONS: { value: ExportFormat; label: string }[] = [
-  { value: 'jpeg-hdr', label: 'Ultra HDR JPEG' },
-  { value: 'avif', label: 'AVIF (BT.2020 / HLG)' },
-  { value: 'tiff', label: 'TIFF (Linear sRGB)' },
-];
 const DEFAULT_QUALITY = 95;
 
 interface ExportDialogProps {
@@ -54,17 +49,17 @@ export function ExportDialog({ open, onOpenChange, onExport, isExporting }: Expo
         <fieldset className="xv-dialog__field">
           <legend className="xv-dialog__label">Format</legend>
           <div className="xv-format-list">
-            {FORMAT_OPTIONS.map((option) => (
+            {EXPORT_FORMATS.map((option) => (
               <label
-                key={option.value}
-                className={`xv-format${exportFormat === option.value ? ' is-selected' : ''}`}
+                key={option.id}
+                className={`xv-format${exportFormat === option.id ? ' is-selected' : ''}`}
               >
                 <input
                   type="radio"
                   name="export-format"
-                  value={option.value}
-                  checked={exportFormat === option.value}
-                  onChange={() => setExportFormat(option.value)}
+                  value={option.id}
+                  checked={exportFormat === option.id}
+                  onChange={() => setExportFormat(option.id)}
                 />
                 {option.label}
               </label>

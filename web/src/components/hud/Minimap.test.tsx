@@ -3,7 +3,7 @@ import { render } from '@testing-library/react';
 import { Minimap } from './Minimap';
 import { useAppStore } from '@/store';
 import type { QueuedFile } from '@/store';
-import type { ProcessingResultMeta } from '@/pipeline/types';
+import type { ProcessingResultMeta } from '@/lib/types';
 
 function fileWithResult(): QueuedFile {
   const result = {

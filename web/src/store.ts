@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import type { CfaType, DemosaicMethod, ExportFormat, LookPreset, ModelSize, ProcessingResultMeta } from './pipeline/types';
-import { serializeResultMeta } from './pipeline/types';
+import type { CfaType, DemosaicMethod, ExportFormat, LookPreset, ModelSize, ProcessingResultMeta } from './lib/types';
+import { serializeResultMeta } from './lib/types';
 import type { OpenDrtConfig, PreProcessConfig } from './gl/opendrt-params';
 import type { PanelId } from './lib/grading/sections';
 import { deleteAllForFile, writeRaw, writeThumbnail } from './lib/opfs-storage';

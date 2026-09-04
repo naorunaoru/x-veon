@@ -1,7 +1,7 @@
 // TypeScript port of OpenDrtConfig presets and TonescaleParams from opendrt.rs.
 // Only config values + precomputed tonescale constants — process_pixel runs in the shader.
 
-import type { LookPreset } from '@/pipeline/types';
+import type { LookPreset } from '@/lib/types';
 
 export interface OpenDrtConfig {
   tn_lg: number;

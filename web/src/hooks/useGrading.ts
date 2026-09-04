@@ -5,7 +5,7 @@ import {
   type OpenDrtConfig, type PreProcessConfig,
 } from '@/gl/opendrt-params';
 import { estimateColorTemperature, findWbTempForCct, findWbTintForTint } from '@/pipeline/color-temperature';
-import type { LookPreset } from '@/pipeline/types';
+import type { LookPreset } from '@/lib/types';
 
 const EMPTY_DRT: Partial<OpenDrtConfig> = {};
 const EMPTY_PRE: Partial<PreProcessConfig> = {};

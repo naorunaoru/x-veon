@@ -1,6 +1,6 @@
 import { initDemosaicGpu, gpuAvailable, runBilinearGpu, runDhtGpu } from './demosaic-gpu';
 import { DemosaicPool } from './demosaic-pool';
-import type { DemosaicMethod } from './types';
+import type { DemosaicMethod } from '@/lib/types';
 
 type TraditionalMethod = Exclude<DemosaicMethod, 'neural-net'>;
 

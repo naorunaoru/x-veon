@@ -1,22 +1,11 @@
 import { FloatingPanel } from '../FloatingPanel';
 import { useAppStore } from '@/store';
 import { useProcessFile } from '@/hooks/useProcessFile';
-import { getAvailableSizes, switchModelSize } from '@/pipeline/inference';
-import type { CfaType, DemosaicMethod, ModelSize } from '@/pipeline/types';
+import { useModelSizes } from '@/hooks/useModelSizes';
+import { demosaicMethodsFor, MODEL_SIZES } from '@/lib/catalog';
+import type { DemosaicMethod, ModelSize } from '@/lib/types';
 import { BUILD, channelLabel, otherChannelLink } from '@/lib/channel';
 import './Panels.css';
-
-const DEMOSAIC_OPTIONS: { value: DemosaicMethod; label: string; cfa?: CfaType }[] = [
-  { value: 'neural-net', label: 'X-veon' },
-  { value: 'markesteijn3', label: 'Markesteijn (3-pass)', cfa: 'xtrans' },
-  { value: 'markesteijn1', label: 'Markesteijn (1-pass)', cfa: 'xtrans' },
-  { value: 'dht', label: 'DHT', cfa: 'xtrans' },
-  { value: 'ahd', label: 'AHD', cfa: 'bayer' },
-  { value: 'ppg', label: 'PPG', cfa: 'bayer' },
-  { value: 'mhc', label: 'MHC', cfa: 'bayer' },
-  { value: 'bilinear', label: 'Bilinear' },
-];
-const MODEL_SIZES: ModelSize[] = ['S', 'M', 'L'];
 
 export function SettingsPanel() {
   const setOpenPanel = useAppStore((s) => s.setOpenPanel);
@@ -31,13 +20,13 @@ export function SettingsPanel() {
   const other = otherChannelLink(BUILD.channel);
 
   const cfaType = selectedFile?.cfaType ?? null;
-  const availableSizes = cfaType ? getAvailableSizes(cfaType) : new Set<ModelSize>(['S']);
-  const availableMethods = DEMOSAIC_OPTIONS.filter((o) => !o.cfa || !cfaType || o.cfa === cfaType);
+  const { available: availableSizes, switchTo } = useModelSizes(cfaType);
+  const availableMethods = demosaicMethodsFor(cfaType);
 
   const onModelClick = async (size: ModelSize) => {
     if (size === modelSize || !availableSizes.has(size)) return;
     setModelSize(size);
-    await switchModelSize(size);
+    await switchTo(size);
     const file = useAppStore.getState().files.find((f) => f.id === useAppStore.getState().selectedFileId);
     if (file && (file.status === 'done' || file.status === 'error') && !isProcessing && demosaicMethod === 'neural-net') {
       processFile(file.id);
@@ -54,7 +43,7 @@ export function SettingsPanel() {
           value={demosaicMethod}
           onChange={(e) => setDemosaicMethod(e.target.value as DemosaicMethod)}
         >
-          {availableMethods.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          {availableMethods.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
         </select>
       </div>
 
