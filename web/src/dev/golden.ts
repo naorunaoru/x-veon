@@ -4,7 +4,7 @@
  */
 import { configFromPreset, configWithOverrides, computeTonescaleParams, deriveHdrConfig } from '@/gl/opendrt-params';
 import { BUILD } from '@/lib/channel';
-import { encodeImage } from '@/pipeline/encoder';
+import { encodeImage } from '@/pipeline/export/encoder';
 import { switchModelSize } from '@/pipeline/inference';
 import type { CfaType, DemosaicMethod, ExportFormat, ModelSize } from '@/lib/types';
 import { useAppStore } from '@/store';

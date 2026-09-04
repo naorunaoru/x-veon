@@ -1,4 +1,4 @@
-import { XYZ_TO_SRGB } from './constants';
+import { XYZ_TO_SRGB } from '../constants';
 
 export function cropToHWC(
   output: Float32Array, hPad: number, wPad: number,

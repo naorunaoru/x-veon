@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { useAppStore } from '@/store';
-import { decodeRaw } from '@/pipeline/raf-decoder';
+import { decodeRaw } from '@/pipeline/decode/raf-decoder';
 import type { RawImage } from '@/pipeline/types';
 import {
   cropToVisible,
@@ -11,12 +11,12 @@ import {
   padToAlignment,
   generateTiles,
   makeChannelMasks,
-} from '@/pipeline/preprocessor';
+} from '@/pipeline/preprocess/preprocessor';
 import { runBatchGpu, getBackend, getInferenceDevice } from '@/pipeline/inference';
-import { runDemosaic, destroyDemosaicPool } from '@/pipeline/demosaic';
-import { cropToHWC, buildColorMatrix } from '@/pipeline/postprocessor';
-import { createGpuNNPipeline } from '@/pipeline/tile-blend-gpu';
-import { gpuPostprocess } from '@/pipeline/postprocess-gpu';
+import { runDemosaic, destroyDemosaicPool } from '@/pipeline/demosaic/demosaic';
+import { cropToHWC, buildColorMatrix } from '@/pipeline/postprocess/postprocessor';
+import { createGpuNNPipeline } from '@/pipeline/demosaic/tile-blend-gpu';
+import { gpuPostprocess } from '@/pipeline/postprocess/postprocess-gpu';
 import { getDevice } from '@/gpu/device';
 import { PATCH_SIZE, OVERLAP, TILE_BATCH } from '@/pipeline/constants';
 import type { DemosaicMethod, ProcessingResultMeta } from '@/lib/types';
@@ -117,7 +117,7 @@ export function useProcessFile() {
 
       // 9. Demosaic
       const startTime = Date.now();
-      let gpuResult: import('@/pipeline/postprocess-gpu').PostprocessResult;
+      let gpuResult: import('@/pipeline/postprocess/postprocess-gpu').PostprocessResult;
       let hPad: number;
       let wPad: number;
       let tileCount: number;

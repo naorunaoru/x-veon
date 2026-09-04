@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { useAppStore } from '@/store';
-import { encodeImage } from '@/pipeline/encoder';
+import { encodeImage } from '@/pipeline/export/encoder';
 import { configFromPreset, configWithOverrides, deriveHdrConfig, computeTonescaleParams } from '@/gl/opendrt-params';
 import { exportFormatInfo } from '@/lib/catalog';
 

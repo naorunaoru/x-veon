@@ -1,5 +1,5 @@
-import { XTRANS_PATTERN, BAYER_PATTERN } from './constants';
-import type { CfaInfo, CroppedImage, PaddedImage, TileGrid, ChannelMasks } from './types';
+import { XTRANS_PATTERN, BAYER_PATTERN } from '../constants';
+import type { CfaInfo, CroppedImage, PaddedImage, TileGrid, ChannelMasks } from '../types';
 
 /** darktable's clip threshold factor (0.987 × white level). */
 // lowered because huh

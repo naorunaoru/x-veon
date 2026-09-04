@@ -1,10 +1,10 @@
 import { useEffect } from 'react';
 import { useAppStore } from '@/store';
 import type { QueuedFile } from '@/store';
-import { initWasm } from '@/pipeline/raf-decoder';
+import { initWasm } from '@/pipeline/decode/raf-decoder';
 import { initModels, getBackend, getInferenceDevice } from '@/pipeline/inference';
 import { setSharedDevice } from '@/gpu/device';
-import { initDemosaicGpuSafe } from '@/pipeline/demosaic';
+import { initDemosaicGpuSafe } from '@/pipeline/demosaic/demosaic';
 import { probeHdrDisplay, hasWindowManagementApi } from '@/gl/hdr-display';
 import { getAllFiles, getSetting } from '@/lib/idb-storage';
 import type { PersistedFile } from '@/lib/idb-storage';
