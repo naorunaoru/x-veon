@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { useAppStore } from '@/app/store';
-import { encodeImage } from '@/pipeline/export/encoder';
+import { encoderFor } from '@/pipeline/export';
 import { configFromPreset, configWithOverrides, deriveHdrConfig, computeTonescaleParams } from '@/renderer/grading/opendrt-params';
 import { exportFormatInfo } from '@/lib/catalog';
 
@@ -67,16 +67,10 @@ export function useExport() {
         data = await renderer.renderForExport(sdrConfig, sdrTs, 'rec709');
       }
 
-      const { blob, ext } = await encodeImage(
-        data,
-        hdrData,
-        exportData.width,
-        exportData.height,
-        exportData.orientation,
-        exportFormat,
-        exportQuality,
-        peakLuminance,
+      const blob = await encoderFor(exportFormat).encode(
+        data, hdrData, exportData.width, exportData.height, exportData.orientation, exportQuality, peakLuminance,
       );
+      const ext = exportFormatInfo(exportFormat).ext;
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       console.log(`Exported ${exportFormat.toUpperCase()} - ${(blob.size / 1024 / 1024).toFixed(1)} MB in ${elapsed}s`);
       triggerDownload(blob, `${file.name}.${ext}`);

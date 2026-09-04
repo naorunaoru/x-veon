@@ -1,5 +1,4 @@
 import type { ExportFormat } from '@/lib/types';
-import { exportFormatInfo } from '@/lib/catalog';
 
 let worker: Worker | null = null;
 
@@ -10,10 +9,10 @@ function getWorker(): Worker {
   return worker;
 }
 
-function encodeViaWorker(
+export function encodeViaWorker(
   data: Float32Array, hdrData: Float32Array,
   width: number, height: number,
-  orientation: string, format: string,
+  orientation: string, format: ExportFormat,
   quality: number, peakLuminance: number,
 ): Promise<Uint8Array> {
   return new Promise((resolve, reject) => {
@@ -39,24 +38,4 @@ function encodeViaWorker(
       peakLuminance,
     }, [dataCopy.buffer, hdrCopy.buffer]);
   });
-}
-
-export async function encodeImage(
-  data: Float32Array,
-  hdrData: Float32Array | null,
-  width: number, height: number,
-  orientation: string,
-  format: ExportFormat,
-  quality: number,
-  peakLuminance: number,
-): Promise<{ blob: Blob; ext: string }> {
-  const encoded = await encodeViaWorker(
-    data, hdrData ?? new Float32Array(0),
-    width, height,
-    orientation, format, quality, peakLuminance,
-  );
-
-  const info = exportFormatInfo(format);
-  const blob = new Blob([encoded.buffer as ArrayBuffer], { type: info.mime });
-  return { blob, ext: info.ext };
 }

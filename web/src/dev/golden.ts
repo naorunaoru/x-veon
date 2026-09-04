@@ -4,7 +4,7 @@
  */
 import { configFromPreset, configWithOverrides, computeTonescaleParams, deriveHdrConfig } from '@/renderer/grading/opendrt-params';
 import { BUILD } from '@/lib/channel';
-import { encodeImage } from '@/pipeline/export/encoder';
+import { encoderFor } from '@/pipeline/export';
 import { switchModelSize } from '@/pipeline/inference';
 import type { CfaType, DemosaicMethod, ExportFormat, ModelSize } from '@/lib/types';
 import { useAppStore } from '@/app/store';
@@ -152,15 +152,8 @@ async function exportOnce(id: string, format: ExportFormat): Promise<{ bytes: nu
     data = await renderer.renderForExport(sdrConfig, sdrTonescale, 'rec709');
   }
 
-  const { blob } = await encodeImage(
-    data,
-    hdrData,
-    exportData.width,
-    exportData.height,
-    exportData.orientation,
-    format,
-    state.exportQuality,
-    peakLuminance,
+  const blob = await encoderFor(format).encode(
+    data, hdrData, exportData.width, exportData.height, exportData.orientation, state.exportQuality, peakLuminance,
   );
   const bytes = new Uint8Array(await blob.arrayBuffer());
   return { bytes: bytes.byteLength, sha256: await hashBytes(bytes) };
