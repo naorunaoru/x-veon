@@ -9,3 +9,4 @@ wasm/rawloader/target/
 
 .lensfun-db
 public/lensfun
+public/samples

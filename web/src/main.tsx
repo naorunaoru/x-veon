@@ -10,3 +10,9 @@ createRoot(document.getElementById('root')!).render(
     <App />
   </StrictMode>,
 );
+
+if (__XV_GOLDEN__ && new URLSearchParams(location.search).has('golden')) {
+  import('./dev/golden')
+    .then((module) => module.runGolden())
+    .catch((error) => console.error('[golden] failed:', error));
+}

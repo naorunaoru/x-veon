@@ -42,6 +42,7 @@ export default defineConfig(({ command, isPreview }) => {
     base: basePath(channel),
     define: {
       __XV_BUILD__: JSON.stringify(build),
+      __XV_GOLDEN__: JSON.stringify(command === 'serve' || process.env.XV_GOLDEN === '1'),
     },
     plugins: [react(), wasm(), tailwindcss()],
     resolve: {
