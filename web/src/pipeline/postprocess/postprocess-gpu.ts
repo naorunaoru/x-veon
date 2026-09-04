@@ -203,34 +203,25 @@ struct Params {
   lo_clip_r: f32,
   lo_clip_g: f32,
   lo_clip_b: f32,
-  _pad0: f32,
-  _pad1: f32,
+  workgroups_x: u32,
+  _pad: u32,
 }
 
 @group(0) @binding(0) var<storage, read> input: array<f32>;
 @group(0) @binding(1) var<storage, read> refavg: array<f32>;
 @group(0) @binding(2) var<storage, read> clip_mask: array<u32>;
 @group(0) @binding(3) var<storage, read> dilated_ds: array<u32>;
-@group(0) @binding(4) var<storage, read_write> chroma_buf: array<atomic<u32>>;
+@group(0) @binding(4) var<storage, read_write> partials: array<f32>;
 @group(0) @binding(5) var<uniform> params: Params;
 
 var<workgroup> sh_sum: array<f32, ${WG * WG * 3}>;
 var<workgroup> sh_cnt: array<u32, ${WG * WG * 3}>;
 
-fn atomicAddF32(p: ptr<storage, atomic<u32>, read_write>, val: f32) {
-  var old_bits = atomicLoad(p);
-  loop {
-    let new_bits = bitcast<u32>(bitcast<f32>(old_bits) + val);
-    let result = atomicCompareExchangeWeak(p, old_bits, new_bits);
-    if (result.exchanged) { break; }
-    old_bits = result.old_value;
-  }
-}
-
 @compute @workgroup_size(${WG}, ${WG})
 fn main(
   @builtin(global_invocation_id) gid: vec3<u32>,
   @builtin(local_invocation_index) lid: u32,
+  @builtin(workgroup_id) wid: vec3<u32>,
 ) {
   for (var c: u32 = 0u; c < 3u; c++) {
     sh_sum[lid * 3u + c] = 0.0;
@@ -275,12 +266,40 @@ fn main(
   }
 
   if (lid == 0u) {
+    let base = (wid.y * params.workgroups_x + wid.x) * 6u;
     for (var c: u32 = 0u; c < 3u; c++) {
-      if (sh_cnt[c] > 0u) {
-        atomicAddF32(&chroma_buf[c], sh_sum[c]);
-        atomicAdd(&chroma_buf[3u + c], sh_cnt[c]);
-      }
+      partials[base + c] = sh_sum[c];
+      partials[base + 3u + c] = f32(sh_cnt[c]);
     }
+  }
+}
+`;
+
+/** Fold per-workgroup chroma totals in a fixed order for reproducible output. */
+const SHADER_CHROMA_REDUCE = /* wgsl */ `
+struct Params {
+  group_count: u32,
+  _pad0: u32,
+  _pad1: u32,
+  _pad2: u32,
+}
+
+@group(0) @binding(0) var<storage, read> partials: array<f32>;
+@group(0) @binding(1) var<storage, read_write> chroma_buf: array<f32>;
+@group(0) @binding(2) var<uniform> params: Params;
+
+@compute @workgroup_size(1)
+fn main() {
+  for (var c: u32 = 0u; c < 3u; c++) {
+    var sum = 0.0;
+    var count = 0.0;
+    for (var group: u32 = 0u; group < params.group_count; group++) {
+      let base = group * 6u;
+      sum += partials[base + c];
+      count += partials[base + 3u + c];
+    }
+    chroma_buf[c] = sum;
+    chroma_buf[3u + c] = count;
   }
 }
 `;
@@ -304,7 +323,7 @@ struct Params {
 @group(0) @binding(0) var<storage, read> data: array<f32>;
 @group(0) @binding(1) var<storage, read> refavg: array<f32>;
 @group(0) @binding(2) var<storage, read> clip_mask: array<u32>;
-@group(0) @binding(3) var<storage, read> chroma_buf: array<u32>;
+@group(0) @binding(3) var<storage, read> chroma_buf: array<f32>;
 @group(0) @binding(4) var<storage, read_write> output: array<f32>;
 @group(0) @binding(5) var<uniform> params: Params;
 
@@ -314,11 +333,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let y = gid.y;
   if (x >= params.width || y >= params.height) { return; }
 
-  // Decode chroma means from atomic accumulation buffer
+  // Decode chroma means from deterministic reduction buffer
   var chroma: array<f32, 3>;
   for (var c: u32 = 0u; c < 3u; c++) {
-    let s = bitcast<f32>(chroma_buf[c]);
-    let n = f32(chroma_buf[3u + c]);
+    let s = chroma_buf[c];
+    let n = chroma_buf[3u + c];
     chroma[c] = select(0.0, s / n, n > 100.0);
   }
 
@@ -424,6 +443,7 @@ interface Pipelines {
   downsampleClip: GPUComputePipeline;
   dilate: GPUComputePipeline;
   chroma: GPUComputePipeline;
+  chromaReduce: GPUComputePipeline;
   finalize: GPUComputePipeline;
   finalizeSimple: GPUComputePipeline;
 }
@@ -446,6 +466,7 @@ function getPipelines(device: GPUDevice): Pipelines {
     downsampleClip: makePipeline(device, SHADER_DOWNSAMPLE_CLIP),
     dilate: makePipeline(device, SHADER_DILATE),
     chroma: makePipeline(device, SHADER_CHROMA),
+    chromaReduce: makePipeline(device, SHADER_CHROMA_REDUCE),
     finalize: makePipeline(device, SHADER_FINALIZE),
     finalizeSimple: makePipeline(device, SHADER_FINALIZE_SIMPLE),
   };
@@ -634,9 +655,9 @@ export async function gpuPostprocess(
     const clipMaskBuf = buf(device, n * 4, S);
     const maskDsBuf = buf(device, dsW * dsH * 4, S);
     const dilatedDsBuf = buf(device, dsW * dsH * 4, S);
-    const chromaBuf = buf(device, 6 * 4, S | D);
-    device.queue.writeBuffer(chromaBuf, 0, asGpu(new Uint32Array(6)));
-    hlBufs.push(refavgBuf, clipMaskBuf, maskDsBuf, dilatedDsBuf, chromaBuf);
+    const chromaPartialsBuf = buf(device, wgX * wgY * 6 * 4, S);
+    const chromaBuf = buf(device, 6 * 4, S);
+    hlBufs.push(refavgBuf, clipMaskBuf, maskDsBuf, dilatedDsBuf, chromaPartialsBuf, chromaBuf);
 
     // Refavg + clip mask params
     const rcParamBuf = buf(device, 24, U | D);
@@ -712,6 +733,7 @@ export async function gpuPostprocess(
       const ab = new ArrayBuffer(48);
       new Uint32Array(ab, 0, 4).set([width, height, dsW, dsH]);
       new Float32Array(ab, 16, 6).set([...clips, ...loClips]);
+      new Uint32Array(ab, 40, 2).set([wgX, 0]);
       device.queue.writeBuffer(chromaParamBuf, 0, asGpu(new Uint8Array(ab)));
     }
     hlBufs.push(chromaParamBuf);
@@ -725,14 +747,36 @@ export async function gpuPostprocess(
         { binding: 1, resource: { buffer: refavgBuf } },
         { binding: 2, resource: { buffer: clipMaskBuf } },
         { binding: 3, resource: { buffer: dilatedDsBuf } },
-        { binding: 4, resource: { buffer: chromaBuf } },
+        { binding: 4, resource: { buffer: chromaPartialsBuf } },
         { binding: 5, resource: { buffer: chromaParamBuf } },
       ],
     }));
     pass.dispatchWorkgroups(wgX, wgY);
     pass.end();
 
-    // ── Pass 6: Finalize (HL extend + CC + DR → RGBA) ────────────────────
+    // Fold workgroup totals serially so floating-point addition order is stable.
+    const chromaReduceParamBuf = buf(device, 16, U | D);
+    device.queue.writeBuffer(
+      chromaReduceParamBuf,
+      0,
+      asGpu(new Uint32Array([wgX * wgY, 0, 0, 0])),
+    );
+    hlBufs.push(chromaReduceParamBuf);
+
+    pass = enc.beginComputePass();
+    pass.setPipeline(pipes.chromaReduce);
+    pass.setBindGroup(0, device.createBindGroup({
+      layout: pipes.chromaReduce.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: chromaPartialsBuf } },
+        { binding: 1, resource: { buffer: chromaBuf } },
+        { binding: 2, resource: { buffer: chromaReduceParamBuf } },
+      ],
+    }));
+    pass.dispatchWorkgroups(1);
+    pass.end();
+
+    // ── Pass 7: Finalize (HL extend + CC + DR → RGBA) ────────────────────
 
     pass = enc.beginComputePass();
     pass.setPipeline(pipes.finalize);
