@@ -37,7 +37,7 @@ interface Manifest {
 const STEP_TIMEOUT_MS = 240_000;
 const HDR_PEAK_LUMINANCE = 1000;
 const SAMPLE_CONTRACT: readonly ManifestSample[] = [
-  { file: 'DSCF3561.RAF', cfa: 'xtrans', traditional: 'dht' },
+  { file: 'DSCF3332.RAF', cfa: 'xtrans', traditional: 'dht' },
   { file: 'sony_a6400_21.arw', cfa: 'bayer', traditional: 'ahd' },
 ];
 const TRADITIONAL: Record<CfaType, DemosaicMethod[]> = {

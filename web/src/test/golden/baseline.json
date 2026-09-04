@@ -1,0 +1,76 @@
+{
+  "adapter": {
+    "vendor": "apple",
+    "architecture": "metal-3"
+  },
+  "commit": "5b064b4",
+  "recordedAt": "2026-09-04T18:02:34.933Z",
+  "entries": {
+    "DSCF3332.RAF|neural-net:S": {
+      "display": "994b8168f7ccef51aaf16f39870f456283d209fd913c5b4371021d99f08e15de",
+      "displayDark": "4aeb788b593e4c35d480878f466a6db8364fc058dcaabc9b9f883364d0af0ed1"
+    },
+    "DSCF3332.RAF|markesteijn3": {
+      "display": "cab2f9e3b7fb5d2395577b57cf038f6886e1a06a888c96f2be41d8f25926ed6c",
+      "displayDark": "a2a58ca04bc921a38e8e70c79fa382eb04ba46192b07e94f0908203e193b6ecc"
+    },
+    "DSCF3332.RAF|markesteijn1": {
+      "display": "9751e3c50872127bc4d1bcba4c48113cbc25f7d37f8d11ae4385c09693ec8955",
+      "displayDark": "17031a2361d2ebd222850bc9c84d499ddf447abbfc9cde05bb0564a964d65365"
+    },
+    "DSCF3332.RAF|dht": {
+      "display": "d03a96b7f3bc01e3abd074a68f86f9f054a421a674b116bcd3f5e47f67ca62b6",
+      "displayDark": "45a426312e4d845e51b0535869f840b51053e968231833a35e521cb1ab492736"
+    },
+    "DSCF3332.RAF|bilinear": {
+      "display": "97c72bb4d179c3c0c54e8e4aeda09d7c32db8e743dd1eecd27752761330e6018",
+      "displayDark": "d2c9178ffa21356c43d8580850f6b50abfcb8ddb8146524975e5b22db3435fa4"
+    },
+    "sony_a6400_21.arw|neural-net:S": {
+      "display": "d8b1130ce010ba7eb50f03d2bf42633f6f5fe3f707db1716242471ffad4fa4c1",
+      "displayDark": "b9718e72e661c65e83e32b62b4a1b698c1039cf43ffaec94c79ddc31bb08eafc"
+    },
+    "sony_a6400_21.arw|ahd": {
+      "display": "7fc767c7810e6af16bb4af61e57d5f26e4a3ee1cefdc86cd95c3f2408334edb3",
+      "displayDark": "645ae3231edfa14a6f2a027bc3601b472e131dfb50dd0c191198422a9e8b418f"
+    },
+    "sony_a6400_21.arw|ppg": {
+      "display": "241ab8aa0335f29209c62bd3d3863e1e682868422672252a06dafa36df24f727",
+      "displayDark": "8a5c1410737400350b7109e64cf7d096d08568eea6740c7c6c032b42252b4b0e"
+    },
+    "sony_a6400_21.arw|mhc": {
+      "display": "8d2fa7138e3f85c466e8b5186e83a273148f2860d4359182cfe9401d2690d50e",
+      "displayDark": "77398eb78cd4307516c59ab92a421b17c1eff40ecbdb0b54138033f58987ddac"
+    },
+    "sony_a6400_21.arw|bilinear": {
+      "display": "576db64f93825c9e22cbf159b146c76ae8900073743da4e4c9ed6f29699dfbfc",
+      "displayDark": "7f9c251f23c43acc8da364c0841047ed2a3842163aede5c70b07df149a2c93ce"
+    }
+  },
+  "exports": {
+    "DSCF3332.RAF|jpeg-hdr": {
+      "bytes": 2417665,
+      "sha256": "d7cabc961455b26bcc2637d83f72621a774bb0b5f89f1764f034291caa83a712"
+    },
+    "DSCF3332.RAF|avif": {
+      "bytes": 797319,
+      "sha256": "cb410291b882d5a0ed3cec105f86f96499b17b9266ab0d0122c2eeda21a03d76"
+    },
+    "DSCF3332.RAF|tiff": {
+      "bytes": 97615310,
+      "sha256": "02876e1874ed57a41ef726d089f17bafb09e9e20f9a98f834bc5268c260577bf"
+    },
+    "sony_a6400_21.arw|jpeg-hdr": {
+      "bytes": 8215543,
+      "sha256": "c66b8d16a3e1c865ba2ec4fb9928384a3e250d14a8d3bee253d17b82cb541307"
+    },
+    "sony_a6400_21.arw|avif": {
+      "bytes": 4788975,
+      "sha256": "247685b6b8ebd6b067c6b1b2eddbeae1e13cc71ecee479936f6c769815ae185c"
+    },
+    "sony_a6400_21.arw|tiff": {
+      "bytes": 145444806,
+      "sha256": "1a8aa58ad0378c6362fe4aecd31f49eb5257c803126ff88f3376bcaaade6e756"
+    }
+  }
+}
