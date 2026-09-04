@@ -1,6 +1,4 @@
-/* X-veon HUD design tokens — plain CSS custom properties.
- * Additive: coexists with Tailwind's @theme during the redesign.
- * Canonical source for all new HUD components. */
+/* X-veon HUD design tokens — canonical plain-CSS custom properties. */
 :root {
   /* Surfaces & text */
   --xv-background: oklch(0.1 0 0);

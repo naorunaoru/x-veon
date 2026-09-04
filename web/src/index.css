@@ -1,29 +1,37 @@
-@import "tailwindcss";
-
-@theme {
-  --color-background: oklch(0.1 0 0);
-  --color-foreground: oklch(0.93 0 0);
-  --color-card: oklch(0.14 0 0);
-  --color-card-foreground: oklch(0.93 0 0);
-  --color-popover: oklch(0.14 0 0);
-  --color-popover-foreground: oklch(0.93 0 0);
-  --color-primary: oklch(0.72 0.12 220);
-  --color-primary-foreground: oklch(0.1 0 0);
-  --color-secondary: oklch(0.2 0 0);
-  --color-secondary-foreground: oklch(0.93 0 0);
-  --color-muted: oklch(0.2 0 0);
-  --color-muted-foreground: oklch(0.55 0 0);
-  --color-accent: oklch(0.18 0.005 260);
-  --color-accent-foreground: oklch(0.93 0 0);
-  --color-destructive: oklch(0.55 0.2 25);
-  --color-destructive-foreground: oklch(0.93 0 0);
-  --color-border: oklch(0.25 0 0);
-  --color-input: oklch(0.25 0 0);
-  --color-ring: oklch(0.72 0.12 220);
-  --radius: 0.5rem;
+/* Minimal base reset plus document defaults. */
+*, ::before, ::after {
+  box-sizing: border-box;
+  border-width: 0;
+  border-style: solid;
+  border-color: var(--xv-border);
 }
 
-html, body {
+html {
+  line-height: 1.5;
+  -webkit-text-size-adjust: 100%;
   font-family: system-ui, -apple-system, sans-serif;
-  overscroll-behavior: none;
 }
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  overscroll-behavior: none;
+  background: var(--xv-background);
+  color: var(--xv-foreground);
+}
+
+h1, h2, h3, h4, p, fieldset, figure { margin: 0; }
+fieldset, legend { padding: 0; }
+button, input, select, textarea {
+  margin: 0;
+  padding: 0;
+  color: inherit;
+  font-family: inherit;
+  font-size: 100%;
+  line-height: inherit;
+}
+
+button, [role="button"] { cursor: pointer; }
+button { background-color: transparent; background-image: none; }
+img, svg, video, canvas { display: block; vertical-align: middle; }
+img, video { max-width: 100%; height: auto; }

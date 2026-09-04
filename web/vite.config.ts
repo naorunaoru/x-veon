@@ -1,7 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import wasm from 'vite-plugin-wasm';
-import tailwindcss from '@tailwindcss/vite';
 import path from 'path';
 import { execSync } from 'node:child_process';
 import { basePath, isChannel, CHANNELS, type Channel } from './src/lib/channel';
@@ -44,7 +43,7 @@ export default defineConfig(({ command, isPreview }) => {
       __XV_BUILD__: JSON.stringify(build),
       __XV_GOLDEN__: JSON.stringify(command === 'serve' || process.env.XV_GOLDEN === '1'),
     },
-    plugins: [react(), wasm(), tailwindcss()],
+    plugins: [react(), wasm()],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),

@@ -121,7 +121,7 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
   return (
     <div
       ref={containerRef}
-      className="w-full h-full overflow-hidden relative"
+      className="xv-canvas-host"
       style={{ cursor: isDragging ? 'grabbing' : 'grab', touchAction: 'none' }}
       {...handlers}
     >
