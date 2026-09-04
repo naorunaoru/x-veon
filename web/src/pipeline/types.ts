@@ -1,3 +1,5 @@
+import type { CfaType } from '@/lib/types';
+
 export interface RawImage {
   data: Uint16Array;
   width: number;
@@ -59,4 +61,3 @@ export interface ChannelMasks {
   b: Float32Array;
 }
 
-import type { CfaType } from '@/lib/types';

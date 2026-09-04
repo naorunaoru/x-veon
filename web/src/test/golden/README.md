@@ -1,0 +1,50 @@
+# Golden baseline
+
+`baseline.json` holds SHA-256 hashes of the app's graded readbacks and encoded exports for two
+sample RAWs, produced by the `?golden` route in `src/dev/golden.ts`. The route is compiled in on
+the dev server and in builds made with `XV_GOLDEN=1`; normal builds do not contain it.
+
+## Provenance of the current baseline
+
+Recorded 2026-09-04 on Apple `metal-3` at commit `5b064b4`, which is the pre-consolidation tree
+(`develop` at `3ecf71e`) plus the golden harness (`6e5b215`) plus the deterministic chroma
+reduction (`2593aa0` on the feature branch is the cherry-pick of that fix). `5b064b4` is on no
+branch; rebuild the baseline tree with:
+
+```bash
+git checkout 6e5b215 && git cherry-pick 2593aa0
+```
+
+Hashes are adapter-specific. A mismatch on another GPU is expected; a mismatch on the recording
+adapter is a defect to explain, never a tolerance to widen.
+
+## Running
+
+```bash
+cd web
+XV_GOLDEN=1 XV_CHANNEL=dev npx vite build
+XV_CHANNEL=dev npx vite preview --port 4190
+```
+
+Then open `http://localhost:4190/?golden` (quick: neural S plus one traditional method per
+sample, two runs, no exports) or `http://localhost:4190/?golden=full` (every applicable method
+once, plus Ultra HDR JPEG, AVIF and TIFF exports of the neural S result). The page title ends
+in the overall status; the report is printed at the bottom of the page and stored in
+`window.__golden` as `{ status, results, report, expected }`.
+
+Samples live in the gitignored `public/samples/` with a `manifest.json` that must match the
+contract in `golden.ts` exactly:
+
+```json
+{ "samples": [
+  { "file": "DSCF3332.RAF", "cfa": "xtrans", "traditional": "dht" },
+  { "file": "sony_a6400_21.arw", "cfa": "bayer", "traditional": "ahd" }
+] }
+```
+
+## Recording a new baseline
+
+Only when the pipeline's output is meant to change. Delete `baseline.json`, run the full route
+twice, and accept only if every hash agrees between the two runs (status `RECORDED` both times,
+identical `report.entries` and `report.exports`). Write those two maps into `baseline.json`
+together with `adapter`, `commit` and `recordedAt` from the report, and note the reason here.
