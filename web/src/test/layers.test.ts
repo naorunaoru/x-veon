@@ -24,12 +24,12 @@ const ALLOWED: Record<Layer, readonly Layer[]> = {
   root: ['root', 'components', 'app', 'renderer', 'lib', 'dev'],
 };
 
-const UI_PACKAGES = /^(react|react-dom|zustand|@radix-ui\/|lucide-react)(\/|$)/;
+const UI_PACKAGES = /^(react|react-dom|zustand|lucide-react)(\/|$)|^@radix-ui\//;
 const FRAMEWORK_FREE: readonly Layer[] = ['lib', 'gpu', 'pipeline', 'renderer'];
 
-function layerOf(absFile: string): Layer {
-  const parts = relative(SRC, absFile).split(sep);
-  const top = parts.length > 1 ? parts[0] : 'root';
+/** Layer of a file or directory under src: its first path segment, or `root` for src itself. */
+function layerOf(absPath: string): Layer {
+  const top = relative(SRC, absPath).split(sep)[0];
   return (LAYER_DIRS as readonly string[]).includes(top) ? (top as Layer) : 'root';
 }
 
@@ -48,8 +48,8 @@ function walk(dir: string, out: string[] = []): string[] {
 
 interface Ref { spec: string; line: number }
 
-function refsOf(file: string): Ref[] {
-  const source = readFileSync(file, 'utf8');
+/** Every module specifier in `source`: static and dynamic imports, re-exports, and `new URL(...)`. */
+function refsOf(file: string, source: string): Ref[] {
   const sourceFile = ts.createSourceFile(
     file,
     source,
@@ -105,45 +105,103 @@ function resolveTarget(file: string, spec: string): Target {
   return { kind: 'package', name: spec };
 }
 
+interface SourceText { file: string; source: string }
+
+/** Rule violations for the given sources, each as `path:line (from) → spec [target]`. */
+function violationsIn(files: SourceText[]): string[] {
+  const violations: string[] = [];
+  for (const { file, source } of files) {
+    const from = layerOf(file);
+    for (const { spec, line } of refsOf(file, source)) {
+      const target = resolveTarget(file, spec);
+      const where = `${relative(SRC, file)}:${line} (${from}) → ${spec}`;
+      if (target.kind === 'layer' && !ALLOWED[from].includes(target.layer)) {
+        violations.push(`${where} [${target.layer}]`);
+      }
+      if (target.kind === 'package' && FRAMEWORK_FREE.includes(from) && UI_PACKAGES.test(target.name)) {
+        violations.push(`${where} [package]`);
+      }
+    }
+  }
+  return violations;
+}
+
+/** A file that exists only for the test, addressed by its would-be path under src. */
+const fixture = (path: string, source: string): SourceText => ({ file: join(SRC, path), source });
+
 describe('layer dependency rule', () => {
-  const files = walk(SRC);
+  const files = walk(SRC).map((file) => ({ file, source: readFileSync(file, 'utf8') }));
 
   it('sees the source tree', () => {
     expect(files.length).toBeGreaterThan(50);
   });
 
   it('has no violations', () => {
-    const violations: string[] = [];
-    for (const file of files) {
-      const from = layerOf(file);
-      for (const { spec, line } of refsOf(file)) {
-        const target = resolveTarget(file, spec);
-        const where = `${relative(SRC, file)}:${line} (${from}) → ${spec}`;
-        if (target.kind === 'layer' && !ALLOWED[from].includes(target.layer)) {
-          violations.push(`${where} [${target.layer}]`);
-        }
-        if (target.kind === 'package' && FRAMEWORK_FREE.includes(from) && UI_PACKAGES.test(target.name)) {
-          violations.push(`${where} [package]`);
-        }
-      }
-    }
-    expect(violations).toEqual([]);
+    expect(violationsIn(files)).toEqual([]);
   });
 
-  it('catches a side-effect import across layers', () => {
-    const sourceFile = ts.createSourceFile(
-      'x.ts',
-      "import '@/app/store';",
-      ts.ScriptTarget.Latest,
-      true,
-    );
-    let spec = '';
-    ts.forEachChild(sourceFile, (node) => {
-      if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
-        spec = node.moduleSpecifier.text;
-      }
-    });
-    expect(spec).toBe('@/app/store');
-    expect(ALLOWED.lib.includes(layerOf(join(SRC, 'app/store.ts')))).toBe(false);
+  it('flags every import form that crosses a layer boundary', () => {
+    expect(violationsIn([
+      fixture('lib/fixture.ts', "import '@/app/store';"),
+      fixture('pipeline/decode/fixture.ts', "export const load = () => import('../../renderer/renderer');"),
+      fixture('renderer/fixture.ts', "export { useAppStore } from '@/app/store';"),
+      fixture('gpu/fixture.ts', "export const w = new Worker(new URL('../pipeline/demosaic/demosaic-worker.ts', import.meta.url));"),
+      fixture('components/Fixture.tsx', "import { encodeImage } from '@/pipeline/export/encoder';"),
+    ])).toEqual([
+      'lib/fixture.ts:1 (lib) → @/app/store [app]',
+      'pipeline/decode/fixture.ts:1 (pipeline) → ../../renderer/renderer [renderer]',
+      'renderer/fixture.ts:1 (renderer) → @/app/store [app]',
+      'gpu/fixture.ts:1 (gpu) → ../pipeline/demosaic/demosaic-worker.ts [pipeline]',
+      'components/Fixture.tsx:1 (components) → @/pipeline/export/encoder [pipeline]',
+    ]);
+  });
+
+  it('treats a bare directory import as that layer', () => {
+    expect(violationsIn([
+      fixture('components/Fixture.tsx', "import { processRaw } from '@/pipeline';"),
+      fixture('Fixture.tsx', "import { processRaw } from '@/pipeline';"),
+      fixture('app/fixture.ts', "import { processRaw } from '@/pipeline';"),
+      fixture('app/hooks/fixture.ts', "import { processRaw } from '..';\nimport { processRaw as again } from '../../pipeline';"),
+    ])).toEqual([
+      'components/Fixture.tsx:1 (components) → @/pipeline [pipeline]',
+      'Fixture.tsx:1 (root) → @/pipeline [pipeline]',
+    ]);
+  });
+
+  it('keeps UI packages out of the framework-free layers', () => {
+    expect(violationsIn([
+      fixture('pipeline/fixture.ts', "import { useState } from 'react';"),
+      fixture('renderer/fixture.ts', "import { create } from 'zustand';"),
+      fixture('lib/fixture.ts', "import * as Dialog from '@radix-ui/react-dialog';"),
+      fixture('gpu/fixture.ts', "import { createRoot } from 'react-dom/client';"),
+      fixture('app/fixture.ts', "import { useState } from 'react';"),
+      fixture('components/Fixture.tsx', "import { X } from 'lucide-react';"),
+    ])).toEqual([
+      'pipeline/fixture.ts:1 (pipeline) → react [package]',
+      'renderer/fixture.ts:1 (renderer) → zustand [package]',
+      'lib/fixture.ts:1 (lib) → @radix-ui/react-dialog [package]',
+      'gpu/fixture.ts:1 (gpu) → react-dom/client [package]',
+    ]);
+  });
+
+  it('ignores assets and modules outside src', () => {
+    expect(violationsIn([
+      fixture('lib/fixture.ts', [
+        "import './fixture.css';",
+        "import shader from '@/renderer/shaders/opendrt.wgsl?raw';",
+        "import data from '../test/golden/baseline.json';",
+      ].join('\n')),
+      fixture('pipeline/decode/fixture.ts', "export const load = () => import('../../../wasm/rawloader/pkg/rawloader_wasm.js');"),
+    ])).toEqual([]);
+  });
+
+  it('reports the line of the offending statement', () => {
+    expect(violationsIn([
+      fixture('lib/fixture.ts', [
+        "import type { CfaType } from './types';",
+        '',
+        "import { useAppStore } from '@/app/store';",
+      ].join('\n')),
+    ])).toEqual(['lib/fixture.ts:3 (lib) → @/app/store [app]']);
   });
 });
