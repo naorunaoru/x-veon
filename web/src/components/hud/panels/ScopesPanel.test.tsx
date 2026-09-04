@@ -5,7 +5,7 @@ import { useAppStore } from '@/store';
 
 describe('ScopesPanel', () => {
   beforeEach(() => useAppStore.setState({
-    openPanel: 'scopes', showClipMask: false, histogramSource: 'display', histogramChannel: 'rgb',
+    openPanel: 'scopes', histogramSource: 'display', histogramChannel: 'rgb',
   }));
 
   it('renders the histogram mode buttons', () => {
@@ -22,12 +22,5 @@ describe('ScopesPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'EV' }));
     expect(src).toHaveBeenCalledWith('scene');
     expect(ch).toHaveBeenCalledWith('ev');
-  });
-
-  it('toggles the highlight-clip overlay', () => {
-    const spy = vi.spyOn(useAppStore.getState(), 'setShowClipMask');
-    render(<ScopesPanel />);
-    fireEvent.click(screen.getByRole('button', { name: /clipping/i }));
-    expect(spy).toHaveBeenCalledWith(true);
   });
 });

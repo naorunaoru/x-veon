@@ -562,10 +562,6 @@ export class HdrRenderer {
     this.applyOpenDrtUniforms(ts, cfg);
   }
 
-  setClipMaskOverlay(enabled: boolean): void {
-    this.uniformData[U_TEXEL + 2] = enabled ? 1.0 : 0.0;
-  }
-
   render(): void {
     if (!this.imageTex || !this.bindGroup) return;
 

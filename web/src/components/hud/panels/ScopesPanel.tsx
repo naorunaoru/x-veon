@@ -23,8 +23,6 @@ export function ScopesPanel() {
   const channel = useAppStore((s) => s.histogramChannel);
   const setSource = useAppStore((s) => s.setHistogramSource);
   const setChannel = useAppStore((s) => s.setHistogramChannel);
-  const showClipMask = useAppStore((s) => s.showClipMask);
-  const setShowClipMask = useAppStore((s) => s.setShowClipMask);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   useHistogramCanvas(canvasRef);
 
@@ -47,17 +45,6 @@ export function ScopesPanel() {
             ))}
           </div>
         </div>
-      </div>
-      <div className="xv-toggle-row">
-        <span className="xv-toggle-row__label">Highlight clipping</span>
-        <button
-          className={`xv-toggle${showClipMask ? ' is-on' : ''}`}
-          aria-pressed={showClipMask}
-          aria-label="Toggle highlight clipping overlay"
-          onClick={() => setShowClipMask(!showClipMask)}
-        >
-          {showClipMask ? 'On' : 'Off'}
-        </button>
       </div>
     </FloatingPanel>
   );

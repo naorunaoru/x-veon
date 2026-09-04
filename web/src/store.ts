@@ -63,9 +63,6 @@ interface AppState {
   displayHdrHeadroom: number;
   hdrPermissionNeeded: boolean;
 
-  // Clip mask overlay
-  showClipMask: boolean;
-
   // Which floating grading panel is open (HUD)
   openPanel: PanelId | null;
 
@@ -113,7 +110,6 @@ interface AppState {
 
   setDisplayHdr: (enabled: boolean, headroom: number) => void;
   setHdrPermissionNeeded: (needed: boolean) => void;
-  setShowClipMask: (show: boolean) => void;
   setOpenPanel: (panel: PanelId | null) => void;
   togglePanel: (panel: PanelId) => void;
   setHistogramSource: (source: 'scene' | 'display') => void;
@@ -191,7 +187,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   displayHdrHeadroom: 1.0,
   hdrPermissionNeeded: false,
 
-  showClipMask: false,
   openPanel: null,
 
   histogramSource: 'display',
@@ -468,7 +463,6 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setDisplayHdr: (enabled, headroom) => set({ displayHdr: enabled, displayHdrHeadroom: headroom }),
   setHdrPermissionNeeded: (needed) => set({ hdrPermissionNeeded: needed }),
-  setShowClipMask: (show) => set({ showClipMask: show }),
   setOpenPanel: (panel) => set({ openPanel: panel }),
   togglePanel: (panel) => set((s) => ({ openPanel: s.openPanel === panel ? null : panel })),
   setHistogramSource: (histogramSource) => set({ histogramSource }),

@@ -30,7 +30,6 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
 
   const displayHdr = useAppStore((s) => s.displayHdr);
   const displayHdrHeadroom = useAppStore((s) => s.displayHdrHeadroom);
-  const showClipMask = useAppStore((s) => s.showClipMask);
 
   const imgW = result.metadata.width;
   const imgH = result.metadata.height;
@@ -89,7 +88,6 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
       }
 
       renderer.uploadImageFromBuffer(gpuResult.buffer, hwcW, hwcH, gpuResult.bytesPerRow);
-      renderer.setClipMaskOverlay(useAppStore.getState().showClipMask);
       const file = useAppStore.getState().files.find((f) => f.id === fileId);
       const preset = file?.lookPreset ?? 'default';
       const overrides = file?.openDrtOverrides ?? {};
@@ -119,14 +117,6 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
     applyOpenDrt(renderer, lookPreset, openDrtOverrides, preProcessOverrides, renderer.isHdrDisplay ? renderer.hdrHeadroom : undefined);
     renderer.render();
   }, [lookPreset, openDrtOverrides, preProcessOverrides]);
-
-  // Re-render when clip mask overlay is toggled (uniform update + draw)
-  useEffect(() => {
-    const renderer = rendererRef.current;
-    if (!renderer) return;
-    renderer.setClipMaskOverlay(showClipMask);
-    renderer.render();
-  }, [showClipMask]);
 
   return (
     <div
