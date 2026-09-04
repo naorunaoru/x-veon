@@ -1,12 +1,12 @@
 import * as React from 'react';
 import { useGrading } from '@/hooks/useGrading';
-import { computeTonescaleParams, type GradingConfig, type OpenDrtConfig } from '@/gl/opendrt-params';
-import { evalTonescale } from '@/lib/grading/tonescale-curve';
-import { isModified } from '@/lib/grading/param-model';
+import { computeTonescaleParams, type GradingConfig, type OpenDrtConfig } from '@/renderer/grading/opendrt-params';
+import { evalTonescale } from '@/renderer/grading/tonescale-curve';
+import { isModified } from '@/renderer/grading/param-model';
 import { useDrag, relPos, clamp, lerp } from './hooks';
 import { Readout } from './Readout';
 import { TS_PRESET_CHIPS } from './constants';
-import { TONESCALE_PRESETS } from '@/gl/opendrt-params';
+import { TONESCALE_PRESETS } from '@/renderer/grading/opendrt-params';
 
 type Grading = ReturnType<typeof useGrading>;
 

@@ -1,6 +1,6 @@
 // WebGPU HDR preview renderer with OpenDRT tone mapping in a fragment shader.
 
-import type { GradingConfig, TonescaleParams } from './opendrt-params';
+import type { GradingConfig, TonescaleParams } from './grading/opendrt-params';
 import { SRGB_TO_P3D65, P3D65_TO_REC709, P3D65_TO_REC2020, IDENTITY_3X3, computeCwpAdaptMatrix } from './color-matrices';
 import WGSL_SRC from './shaders/opendrt.wgsl?raw';
 import HDR_HISTOGRAM_WGSL from './shaders/histogram-hdr.wgsl?raw';

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { requestWindowManagementHeadroom } from '@/gl/hdr-display';
+import { requestWindowManagementHeadroom } from '@/renderer/hdr-display';
 import { useAppStore } from '@/store';
 import { Dialog, DialogContent } from './Dialog';
 

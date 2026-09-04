@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { HdrPermissionDialog } from './HdrPermissionDialog';
 import { useAppStore } from '@/store';
 
-vi.mock('@/gl/hdr-display', () => ({
+vi.mock('@/renderer/hdr-display', () => ({
   requestWindowManagementHeadroom: vi.fn().mockResolvedValue(2.5),
 }));
 

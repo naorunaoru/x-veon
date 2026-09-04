@@ -3,7 +3,7 @@ import { useAppStore } from '@/store';
 import {
   configFromPreset, DEFAULT_PREPROCESS,
   type OpenDrtConfig, type PreProcessConfig,
-} from '@/gl/opendrt-params';
+} from '@/renderer/grading/opendrt-params';
 import { estimateColorTemperature, findWbTempForCct, findWbTintForTint } from '@/pipeline/color-temperature';
 import type { LookPreset } from '@/lib/types';
 

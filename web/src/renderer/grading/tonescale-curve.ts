@@ -5,7 +5,7 @@
 // (tn_off), and high-contrast (tn_hcon) steps and the purity/hue paths, so on
 // looks that enable lcon (e.g. 'default') the plotted curve is a close
 // approximation (within a few % code value), not the full achromatic transfer.
-import type { GradingConfig, TonescaleParams } from '@/gl/opendrt-params';
+import type { GradingConfig, TonescaleParams } from '@/renderer/grading/opendrt-params';
 
 function spowf(x: number, p: number): number {
   return x <= 0 ? x : Math.pow(x, p);

@@ -1,6 +1,6 @@
 import * as React from 'react';
 import * as SliderPrimitive from '@radix-ui/react-slider';
-import { isModified, formatDelta } from '@/lib/grading/param-model';
+import { isModified, formatDelta } from '@/renderer/grading/param-model';
 import './Slider.css';
 
 export interface SliderProps {

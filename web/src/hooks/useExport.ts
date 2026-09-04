@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { useAppStore } from '@/store';
 import { encodeImage } from '@/pipeline/export/encoder';
-import { configFromPreset, configWithOverrides, deriveHdrConfig, computeTonescaleParams } from '@/gl/opendrt-params';
+import { configFromPreset, configWithOverrides, deriveHdrConfig, computeTonescaleParams } from '@/renderer/grading/opendrt-params';
 import { exportFormatInfo } from '@/lib/catalog';
 
 const HDR_PEAK_LUMINANCE = 1000;

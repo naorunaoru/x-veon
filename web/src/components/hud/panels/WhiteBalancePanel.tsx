@@ -2,7 +2,7 @@ import { FloatingPanel } from '../FloatingPanel';
 import { Slider } from '../Slider';
 import { useGrading } from '@/hooks/useGrading';
 import { useAppStore } from '@/store';
-import { isSectionModified, SECTION_KEYS } from '@/lib/grading/sections';
+import { isSectionModified, SECTION_KEYS } from '@/renderer/grading/sections';
 import './Panels.css';
 
 const TEMP_GRADIENT = 'linear-gradient(to right, #5B8FC9, #E8A438)';

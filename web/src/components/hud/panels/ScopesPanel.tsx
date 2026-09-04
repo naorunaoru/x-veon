@@ -2,7 +2,7 @@ import { useRef } from 'react';
 import { FloatingPanel } from '../FloatingPanel';
 import { useAppStore } from '@/store';
 import { useHistogramCanvas } from '@/hooks/useHistogramCanvas';
-import type { HistogramChannel } from '@/gl/renderer';
+import type { HistogramChannel } from '@/renderer/renderer';
 import './Scopes.css';
 import './Panels.css';
 

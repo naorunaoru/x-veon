@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { useAppStore } from '@/store';
 import { useHistogramCanvas } from '@/hooks/useHistogramCanvas';
-import type { HistogramChannel, HistogramMode } from '@/gl/renderer';
-import type { OpenDrtConfig, PreProcessConfig } from '@/gl/opendrt-params';
+import type { HistogramChannel, HistogramMode } from '@/renderer/renderer';
+import type { OpenDrtConfig, PreProcessConfig } from '@/renderer/grading/opendrt-params';
 import './HistogramHud.css';
 
 type Source = 'scene' | 'display';

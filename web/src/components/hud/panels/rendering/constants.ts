@@ -1,7 +1,7 @@
 // Static data for the Rendering panel: hue geometry + per-mode key maps,
 // wheel modes, tonescale preset chips, base looks, and the Expert drawer schema.
-import type { OpenDrtConfig } from '@/gl/opendrt-params';
-import type { TonescalePreset } from '@/gl/opendrt-params';
+import type { OpenDrtConfig } from '@/renderer/grading/opendrt-params';
+import type { TonescalePreset } from '@/renderer/grading/opendrt-params';
 import type { LookPreset } from '@/lib/types';
 
 type DrtKey = keyof OpenDrtConfig;

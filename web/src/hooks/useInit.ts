@@ -5,13 +5,13 @@ import { initWasm } from '@/pipeline/decode/raf-decoder';
 import { initModels, getBackend, getInferenceDevice } from '@/pipeline/inference';
 import { setSharedDevice } from '@/gpu/device';
 import { initDemosaicGpuSafe } from '@/pipeline/demosaic/demosaic';
-import { probeHdrDisplay, hasWindowManagementApi } from '@/gl/hdr-display';
+import { probeHdrDisplay, hasWindowManagementApi } from '@/renderer/hdr-display';
 import { getAllFiles, getSetting } from '@/lib/idb-storage';
 import type { PersistedFile } from '@/lib/idb-storage';
 import { listRawFileIds, deleteAllForFile, readThumbnail } from '@/lib/opfs-storage';
 import type { DemosaicMethod, ExportFormat } from '@/lib/types';
 import { deserializeResultMeta } from '@/lib/types';
-import type { OpenDrtConfig, PreProcessConfig } from '@/gl/opendrt-params';
+import type { OpenDrtConfig, PreProcessConfig } from '@/renderer/grading/opendrt-params';
 import { matchLens } from '@/lib/lensfun';
 
 async function persistedToQueued(p: PersistedFile): Promise<QueuedFile> {

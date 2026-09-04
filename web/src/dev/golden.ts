@@ -2,7 +2,7 @@
  * Browser-only golden harness. It drives the real application through the store and hashes
  * renderer readbacks for a fixed pair of representative RAW files. Normal builds exclude it.
  */
-import { configFromPreset, configWithOverrides, computeTonescaleParams, deriveHdrConfig } from '@/gl/opendrt-params';
+import { configFromPreset, configWithOverrides, computeTonescaleParams, deriveHdrConfig } from '@/renderer/grading/opendrt-params';
 import { BUILD } from '@/lib/channel';
 import { encodeImage } from '@/pipeline/export/encoder';
 import { switchModelSize } from '@/pipeline/inference';

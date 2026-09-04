@@ -1,12 +1,12 @@
 import { create } from 'zustand';
 import type { CfaType, DemosaicMethod, ExportFormat, LookPreset, ModelSize, ProcessingResultMeta } from './lib/types';
 import { serializeResultMeta } from './lib/types';
-import type { OpenDrtConfig, PreProcessConfig } from './gl/opendrt-params';
-import type { PanelId } from './lib/grading/sections';
+import type { OpenDrtConfig, PreProcessConfig } from '@/renderer/grading/opendrt-params';
+import type { PanelId } from '@/renderer/grading/sections';
 import { deleteAllForFile, writeRaw, writeThumbnail } from './lib/opfs-storage';
 import { putFile, deleteFile as idbDeleteFile, debouncedPutFile, putSetting } from './lib/idb-storage';
 import type { PersistedFile } from './lib/idb-storage';
-import type { HdrRenderer, HistogramChannel } from './gl/renderer';
+import type { HdrRenderer, HistogramChannel } from '@/renderer/renderer';
 import { extractRafThumbnail, extractRafQuickMetadata } from './pipeline/decode/raf-thumbnail';
 import type { QuickMetadata } from './pipeline/decode/raf-thumbnail';
 import { RAW_EXTENSIONS } from './pipeline/constants';

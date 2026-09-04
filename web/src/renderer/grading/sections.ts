@@ -1,4 +1,4 @@
-import type { OpenDrtConfig, PreProcessConfig } from '@/gl/opendrt-params';
+import type { OpenDrtConfig, PreProcessConfig } from '@/renderer/grading/opendrt-params';
 
 /** Every tool-rail panel id. Tone curve / brilliance / looks were folded into
  *  the Rendering panel ('advanced'); crop is reserved for a later phase. */

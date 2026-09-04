@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react';
 import { BarChart3, Sun, Droplet, Sliders, Focus, Settings } from 'lucide-react';
 import { useAppStore } from '@/store';
-import { isSectionModified, type PanelId } from '@/lib/grading/sections';
+import { isSectionModified, type PanelId } from '@/renderer/grading/sections';
 import './ToolRail.css';
 
 interface RailItem { id: PanelId; label: string; Icon: ComponentType<{ size?: number }>; }

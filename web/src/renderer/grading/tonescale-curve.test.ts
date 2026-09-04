@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { evalTonescale, sampleToneCurve } from './tonescale-curve';
-import { configFromPreset, configWithOverrides, computeTonescaleParams } from '@/gl/opendrt-params';
+import { configFromPreset, configWithOverrides, computeTonescaleParams } from '@/renderer/grading/opendrt-params';
 
 const base = configFromPreset('default');
 const cfg = configWithOverrides(base, {}, {});
