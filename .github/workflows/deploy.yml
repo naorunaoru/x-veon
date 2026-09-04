@@ -54,6 +54,10 @@ jobs:
         id: beta
         run: |
           set -euo pipefail
+          # actions/checkout fetches the triggering tag as a lightweight ref pointing at the
+          # commit, which discards the annotated tag object; re-fetch tags with --force so the
+          # annotated check and the tagger-date ordering below see the real tag objects.
+          git fetch --force --tags --quiet origin
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" && "${GITHUB_REF_NAME:-}" == beta/* ]]; then
             if [[ "$(git cat-file -t "refs/tags/${GITHUB_REF_NAME}")" != "tag" ]]; then
               echo "::error::${GITHUB_REF_NAME} is a lightweight tag; beta tags must be annotated (git tag -a)"
