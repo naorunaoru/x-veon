@@ -37,14 +37,14 @@ export const IDENTITY_3X3 = new Float32Array([
 // These convert P3-D65 to display gamut with D50 white point adaptation.
 
 // P3-D65 → Rec.709 with D50 adaptation
-export const P3D65_TO_REC709_D50 = new Float32Array([
+const P3D65_TO_REC709_D50 = new Float32Array([
    1.103807322,   -0.1103425121,  0.006531676079,
   -0.04079386701,  0.8704694227, -0.000180522628,
   -0.01854055914, -0.07857582481, 0.7105498861,
 ]);
 
 // P3-D65 → P3-D65 with D50 adaptation (for HDR P3 output)
-export const P3D65_TO_P3D65_D50 = new Float32Array([
+const P3D65_TO_P3D65_D50 = new Float32Array([
   0.9287127388,  0.06578032793, 0.005506708345,
  -0.002887159176, 0.8640709228,  4.3593718e-05,
  -0.001009551548,-0.01073503317, 0.6672692039,

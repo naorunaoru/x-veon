@@ -165,18 +165,6 @@ export async function switchModelSize(size: ModelSize): Promise<void> {
   }
 }
 
-export async function runBatch(
-  cfaType: CfaType, batchInput: Float32Array, batchSize: number, patchSize: number,
-): Promise<Float32Array> {
-  const key = active.get(cfaType);
-  if (!key) throw new Error(`No active model for ${cfaType}`);
-  const entry = sessions.get(key);
-  if (!entry) throw new Error(`ONNX session not loaded for ${key}`);
-  const tensor = new ort.Tensor('float32', batchInput, [batchSize, 5, patchSize, patchSize]);
-  const results = await entry.session.run({ input: tensor });
-  return results.output.data as Float32Array;
-}
-
 /**
  * GPU-resident batch inference: GPUBuffer in → GPUBuffer out.
  * The input buffer must be created on the same device shared via ort.env.webgpu.device
@@ -210,16 +198,4 @@ export function getInferenceDevice(): GPUDevice | null {
 
 export function getBackend(): string | null {
   return backend;
-}
-
-export function getModelMeta(cfaType?: CfaType): ModelMeta {
-  if (cfaType) {
-    const key = active.get(cfaType);
-    if (key) return sessions.get(key)?.meta ?? {};
-  }
-  return sessions.get(active.get('xtrans') ?? '')?.meta ?? {};
-}
-
-export function getCurrentModelSize(): ModelSize {
-  return currentSize;
 }

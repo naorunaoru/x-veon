@@ -58,7 +58,7 @@ export async function readRaw(fileId: string): Promise<ArrayBuffer | null> {
 }
 
 /** Delete the RAW file for a given file ID. */
-export async function deleteRawForFile(fileId: string): Promise<void> {
+async function deleteRawForFile(fileId: string): Promise<void> {
   try {
     const dir = await getRawDir();
     await dir.removeEntry(fileId);
