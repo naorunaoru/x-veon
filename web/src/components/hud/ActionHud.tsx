@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useAppStore } from '@/store';
 import { useProcessFile } from '@/hooks/useProcessFile';
 import { useExport } from '@/hooks/useExport';
-import { ExportDialog } from '@/components/ExportDialog';
+import { ExportDialog } from '@/components/dialogs/ExportDialog';
 import './ActionHud.css';
 
 export function ActionHud() {

@@ -21,6 +21,8 @@ export interface SliderProps {
   unit?: string;
   /** Optional override for the displayed readout (e.g. "5500K"). */
   infoLabel?: string;
+  /** Greys the control and ignores input. */
+  disabled?: boolean;
 }
 
 /** Decimal places implied by a slider step (e.g. 0.001 → 3, 1 → 0). */
@@ -35,7 +37,7 @@ const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 
 export function Slider({
   label, value, defaultValue, min, max, step, onChange,
-  format, gradientTrack, accentColor, unit = '', infoLabel,
+  format, gradientTrack, accentColor, unit = '', infoLabel, disabled = false,
 }: SliderProps) {
   // Default the readout precision to the step so a sub-0.01 step never shows a
   // "modified" delta of +0.00 (isModified uses a 1e-6 epsilon).
@@ -52,7 +54,7 @@ export function Slider({
   } as React.CSSProperties;
 
   return (
-    <div className={`xv-slider${modified ? ' is-modified' : ''}`} style={rootStyle}>
+    <div className={`xv-slider${modified ? ' is-modified' : ''}${disabled ? ' is-disabled' : ''}`} style={rootStyle}>
       <div className="xv-slider__head">
         <span className="xv-slider__label">{label}</span>
         <span className="xv-slider__readout">
@@ -64,7 +66,8 @@ export function Slider({
         className="xv-slider__root"
         min={min} max={max} step={step}
         value={[value]}
-        onValueChange={([v]) => onChange(v)}
+        disabled={disabled}
+        onValueChange={([v]) => { if (!disabled) onChange(v); }}
       >
         <SliderPrimitive.Track className="xv-slider__track">
           <SliderPrimitive.Range className="xv-slider__range" />

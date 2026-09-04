@@ -39,3 +39,6 @@
 }
 .xv-slider.is-modified .xv-slider__thumb { background: var(--xv-slider-accent, var(--xv-primary)); }
 .xv-slider__thumb:focus-visible { box-shadow: 0 0 0 2px var(--xv-primary); }
+.xv-slider.is-disabled { opacity: 0.4; }
+.xv-slider.is-disabled .xv-slider__thumb,
+.xv-slider.is-disabled .xv-slider__root { cursor: default; }

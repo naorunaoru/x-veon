@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { Slider } from './Slider';
 
 describe('Slider', () => {
@@ -38,5 +38,20 @@ describe('Slider', () => {
   it('forwards an aria-label from the label', () => {
     render(<Slider label="Shoulder" value={0.5} defaultValue={0.5} min={0} max={1} step={0.01} onChange={() => {}} />);
     expect(screen.getByRole('slider')).toHaveAttribute('aria-label', 'Shoulder');
+  });
+
+  it('marks a disabled control and swallows keyboard changes', () => {
+    const onChange = vi.fn();
+    render(
+      <Slider
+        label="Quality" value={50} defaultValue={95} min={1} max={100} step={1}
+        onChange={onChange} disabled
+      />,
+    );
+
+    expect(document.querySelector('.xv-slider')).toHaveClass('is-disabled');
+    expect(document.querySelector('.xv-slider__root')).toHaveAttribute('data-disabled');
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Quality' }), { key: 'ArrowRight' });
+    expect(onChange).not.toHaveBeenCalled();
   });
 });
