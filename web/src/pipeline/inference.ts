@@ -133,7 +133,10 @@ export async function initModels(size: ModelSize = 'S'): Promise<void> {
 
   currentSize = size;
   initPromise = (async () => {
-    ort.env.wasm.numThreads = navigator.hardwareConcurrency || 4;
+    // One WASM thread. Multithreading needs cross-origin isolation, which GitHub Pages does not
+    // provide, and under isolation ORT's pthread workers try to load the app bundle and hang
+    // (observed 2026-09-04). Revisit only with a verified isolated setup.
+    ort.env.wasm.numThreads = 1;
     manifest = await fetchManifest(`${CHECKPOINTS_DIR}/models.json`);
 
     const width = SIZE_TO_WIDTH[size];

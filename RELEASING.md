@@ -70,7 +70,7 @@ The decoder is the git submodule `web/wasm/vendor/rawloader` (the user's rawload
 
 `vite build` and `vite preview` need `XV_CHANNEL` (`stable`, `beta` or `dev`); the dev server defaults to `dev`.
 
-`vite preview` serves without the dev server's COOP/COEP headers, so it behaves like GitHub Pages (which sends neither); use it, not `npm run dev`, to check a channel build.
+`npm run dev` and `vite preview` both serve without cross-origin isolation, like GitHub Pages (which sends no COOP/COEP headers).
 
 ```bash
 cd web

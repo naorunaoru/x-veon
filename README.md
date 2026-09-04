@@ -63,6 +63,8 @@ npm run build:lensfun  # lens-correction data (gitignored, needed once)
 npm run dev
 ```
 
+`npm run dev` serves without cross-origin isolation, like GitHub Pages.
+
 `npm run build` and `npx vite preview` need `XV_CHANNEL` (`stable`, `beta` or `dev`); see `RELEASING.md`.
 
 ## License
