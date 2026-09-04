@@ -23,6 +23,7 @@ concurrency:
 jobs:
   assemble:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     outputs:
       stable_tag: ${{ steps.stable.outputs.tag }}
       beta_tag: ${{ steps.beta.outputs.tag }}
@@ -103,7 +104,9 @@ jobs:
         run: |
           set -euo pipefail
           npm ci
+          npm test
           npm run build
+          npx tsc --noEmit
           rm -rf ../../site/beta
           mv dist ../../site/beta
 
@@ -116,7 +119,8 @@ jobs:
           if [[ -n "$BETA_TAG" ]]; then
             test -f site/beta/index.html
             test -f site/beta/checkpoints/models.json
-            test -f site/beta/lensfun/index.json
+            test -s site/beta/lensfun/index.json
+            grep -q '"file"' site/beta/lensfun/index.json
             grep -q '/x-veon/beta/assets/' site/beta/index.html
           fi
           du -sh site site/beta 2>/dev/null || true
