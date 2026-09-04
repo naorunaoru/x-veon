@@ -1,9 +1,15 @@
-name: Deploy to GitHub Pages
+name: Deploy channels to GitHub Pages
+
+# Two channels, one Pages site:
+#   stable  /x-veon/       = the GitHub Release marked "Latest" (asset site-stable.zip), never rebuilt here
+#   beta    /x-veon/beta/  = the newest annotated beta/* tag, built from source
+# Nothing deploys on a branch push. See RELEASING.md.
 
 on:
   push:
-    branches: [main]
+    tags: ['beta/**']
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -12,60 +18,111 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
-  build:
+  assemble:
     runs-on: ubuntu-latest
+    outputs:
+      stable_tag: ${{ steps.stable.outputs.tag }}
+      beta_tag: ${{ steps.beta.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Resolve stable (latest release, must be on a stable/* tag)
+        id: stable
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)" || { echo "::error::No GitHub Release found for ${GITHUB_REPOSITORY}; run promote.yml (or publish a stable/* release) first"; exit 1; }
+          case "$tag" in
+            stable/*) ;;
+            *) echo "::error::Latest release '$tag' is not on a stable/* tag; refusing to deploy"; exit 1 ;;
+          esac
+          gh release download "$tag" --pattern site-stable.zip --dir "$RUNNER_TEMP"
+          mkdir -p site
+          unzip -q "$RUNNER_TEMP/site-stable.zip" -d site
+          test -f site/index.html || { echo "::error::site-stable.zip has no index.html at its root"; exit 1; }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "stable = $tag"
+
+      - name: Resolve beta (newest annotated beta/* tag)
+        id: beta
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" && "${GITHUB_REF_NAME:-}" == beta/* ]]; then
+            if [[ "$(git cat-file -t "refs/tags/${GITHUB_REF_NAME}")" != "tag" ]]; then
+              echo "::error::${GITHUB_REF_NAME} is a lightweight tag; beta tags must be annotated (git tag -a)"
+              exit 1
+            fi
+          fi
+          newest="$(git for-each-ref 'refs/tags/beta/*' --format='%(objecttype) %(taggerdate:unix) %(refname:short)' \
+            | awk '$1 == "tag"' | sort -k2,2nr | head -n1 | awk '{print $3}')"
+          if [[ -z "$newest" ]]; then
+            echo "::warning::No annotated beta/* tag found; deploying stable only"
+          fi
+          echo "tag=$newest" >> "$GITHUB_OUTPUT"
+          echo "beta = ${newest:-<none>}"
+
+      - name: Check out beta source
+        if: steps.beta.outputs.tag != ''
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.beta.outputs.tag }}
+          path: beta-src
+          submodules: true
           lfs: true
 
-      - uses: actions/checkout@v4
-        with:
-          repository: naorunaoru/rawloader
-          path: rawloader-wasm
-
-      - name: Symlink rawloader for Cargo path dep
-        run: ln -s $GITHUB_WORKSPACE/rawloader-wasm $GITHUB_WORKSPACE/../rawloader-wasm
-
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Rust toolchain
+        if: steps.beta.outputs.tag != ''
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
 
-      - uses: actions/setup-node@v4
+      - name: Node
+        if: steps.beta.outputs.tag != ''
+        uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: beta-src/web/package-lock.json
 
-      - name: Install dependencies
-        working-directory: web
-        run: npm ci
+      - name: Build beta
+        if: steps.beta.outputs.tag != ''
+        working-directory: beta-src/web
+        env:
+          XV_CHANNEL: beta
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+          rm -rf ../../site/beta
+          mv dist ../../site/beta
 
-      - name: Build WASM (decoder)
-        working-directory: web
-        run: npx wasm-pack build wasm/rawloader --target web --release
-
-      - name: Build WASM (demosaic)
-        working-directory: web
-        run: npx wasm-pack build wasm/demosaic --target web --release
-
-      - name: Build WASM (encoder)
-        working-directory: web
-        run: npx wasm-pack build wasm/encoder --target web --release
-
-      - name: Build
-        working-directory: web
-        run: npx vite build
+      - name: Sanity-check the assembled site
+        env:
+          BETA_TAG: ${{ steps.beta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          test -f site/index.html
+          if [[ -n "$BETA_TAG" ]]; then
+            test -f site/beta/index.html
+            test -f site/beta/checkpoints/models.json
+            test -f site/beta/lensfun/index.json
+            grep -q '/x-veon/beta/assets/' site/beta/index.html
+          fi
+          du -sh site site/beta 2>/dev/null || true
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: web/dist
+          path: site
 
   deploy:
-    needs: build
+    needs: assemble
     runs-on: ubuntu-latest
     environment:
       name: github-pages

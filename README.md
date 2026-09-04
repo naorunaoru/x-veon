@@ -34,7 +34,9 @@ A small, fully offline (as in all processing is done in the browser) web applica
 
 ### Live demo:
 
-https://naorunaoru.github.io/x-veon
+Stable: https://naorunaoru.github.io/x-veon
+
+Beta (new UI and pipeline, separate library): https://naorunaoru.github.io/x-veon/beta/
 
 What it can do:
 - open RAW files from different cameras, tested mainly on Fujifilm RAFs and Sony ARWs
