@@ -103,10 +103,11 @@ function armRendererRefresh(): { promise: Promise<void>; cancel: () => void } {
 const fileOf = (id: string) => useAppStore.getState().files.find((file) => file.id === id);
 const statusOf = (id: string) => fileOf(id)?.status;
 
-async function readbackHashes(): Promise<{ display: string; displayDark: string }> {
+async function readbackHashes(): Promise<{ scene: string; display: string; displayDark: string }> {
   const renderer = useAppStore.getState().rendererRef;
   if (!renderer) throw new Error('renderer not published');
 
+  const scene = await hashFloat32(await renderer.readbackImage());
   const base = configFromPreset('default');
   const config = configWithOverrides(base, {}, {});
   const display = await hashFloat32(
@@ -116,7 +117,7 @@ async function readbackHashes(): Promise<{ display: string; displayDark: string 
   const displayDark = await hashFloat32(
     await renderer.renderForExport(darkConfig, computeTonescaleParams(darkConfig), 'rec709'),
   );
-  return { display, displayDark };
+  return { scene, display, displayDark };
 }
 
 /** Mirrors useExport until Plan B introduces an export service. */
@@ -199,12 +200,13 @@ async function cycle(
       if (statusOf(id) === 'error') {
         const error = fileOf(id)?.error ?? 'error';
         runs.push({
-          key: neuralKey, run, display: '', displayDark: '', elapsedMs: 0, error,
+          key: neuralKey, run, scene: '', display: '', displayDark: '', elapsedMs: 0, error,
         });
         for (const method of traditional) {
           runs.push({
             key: methodKey(sample.file, method),
             run,
+            scene: '',
             display: '',
             displayDark: '',
             elapsedMs: 0,
@@ -261,6 +263,7 @@ async function cycle(
           runs.push({
             key,
             run,
+            scene: '',
             display: '',
             displayDark: '',
             elapsedMs: 0,

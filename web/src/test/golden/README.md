@@ -1,8 +1,9 @@
 # Golden baseline
 
-`baseline.json` holds SHA-256 hashes of the app's graded readbacks and encoded exports for two
-sample RAWs, produced by the `?golden` route in `src/dev/golden.ts`. The route is compiled in on
-the dev server and in builds made with `XV_GOLDEN=1`; normal builds do not contain it.
+`baseline.json` holds SHA-256 hashes of the renderer's scene texture, the app's graded readbacks
+and its encoded exports for two sample RAWs, produced by the `?golden` route in
+`src/dev/golden.ts`. The route is compiled in on the dev server and in builds made with
+`XV_GOLDEN=1`; normal builds do not contain it.
 
 ## Provenance of the current baseline
 
@@ -14,6 +15,11 @@ branch; rebuild the baseline tree with:
 ```bash
 git checkout 6e5b215 && git cherry-pick 2593aa0
 ```
+
+2026-09-04: `scene` hashes recorded from Plan A commit `526aab3` plus readback instrumentation,
+before the Plan B production refactor. Existing display/displayDark hashes matched and were left
+untouched. Scene equality covers Plan B; it does not retroactively prove scene equality across
+Plan A.
 
 Hashes are adapter-specific. A mismatch on another GPU is expected; a mismatch on the recording
 adapter is a defect to explain, never a tolerance to widen.

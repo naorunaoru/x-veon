@@ -3,6 +3,7 @@
 export interface RunEntry {
   key: string;
   run: number;
+  scene: string;
   display: string;
   displayDark: string;
   elapsedMs: number;
@@ -17,6 +18,7 @@ export interface ExportRun {
 }
 
 export interface GoldenEntry {
+  scene: string;
   display: string;
   displayDark: string;
   stable: boolean;
@@ -51,7 +53,7 @@ export interface GoldenBaseline {
   adapter: AdapterInfo;
   commit: string;
   recordedAt: string;
-  entries: Record<string, { display: string; displayDark: string }>;
+  entries: Record<string, { display: string; displayDark: string; scene?: string }>;
   exports: Record<string, { bytes: number; sha256: string }>;
 }
 
@@ -101,6 +103,7 @@ export function buildReport(
     const entry = entries[run.key];
     if (!entry) {
       entries[run.key] = {
+        scene: run.scene,
         display: run.display,
         displayDark: run.displayDark,
         stable: true,
@@ -114,7 +117,11 @@ export function buildReport(
     entry.runs += 1;
     entry.elapsedMs.push(run.elapsedMs);
     if (run.error) entry.error = run.error;
-    if (run.display !== entry.display || run.displayDark !== entry.displayDark) entry.stable = false;
+    if (
+      run.display !== entry.display
+      || run.displayDark !== entry.displayDark
+      || run.scene !== entry.scene
+    ) entry.stable = false;
   }
 
   const exportEntries: Record<string, GoldenExportEntry> = {};
@@ -170,6 +177,14 @@ export function compareToBaseline(
     }
     if (baselineEntry.displayDark !== entry.displayDark) {
       results.push({ key, status: 'FAIL', reason: 'displayDark differs' });
+      continue;
+    }
+    if (baselineEntry.scene === undefined) {
+      results.push({ key, status: 'FAIL', reason: 'scene missing from baseline' });
+      continue;
+    }
+    if (baselineEntry.scene !== entry.scene) {
+      results.push({ key, status: 'FAIL', reason: 'scene differs' });
       continue;
     }
     results.push({ key, status: 'PASS' });

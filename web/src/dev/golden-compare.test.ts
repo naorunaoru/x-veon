@@ -32,15 +32,15 @@ describe('golden hashing', () => {
 describe('golden reports', () => {
   it('groups repeated runs, detects instability, and carries errors', () => {
     const report = buildReport('quick', [
-      { key: 'a.raf|neural-net:S', run: 1, display: 'h1', displayDark: 'd1', elapsedMs: 10 },
-      { key: 'a.raf|neural-net:S', run: 2, display: 'h1', displayDark: 'd1', elapsedMs: 12 },
-      { key: 'a.raf|dht', run: 1, display: 'x1', displayDark: 'y1', elapsedMs: 2 },
-      { key: 'a.raf|dht', run: 2, display: 'x2', displayDark: 'y1', elapsedMs: 3 },
-      { key: 'a.raf|ppg', run: 1, display: '', displayDark: '', elapsedMs: 0, error: 'boom' },
+      { key: 'a.raf|neural-net:S', run: 1, display: 'h1', displayDark: 'd1', scene: 's1', elapsedMs: 10 },
+      { key: 'a.raf|neural-net:S', run: 2, display: 'h1', displayDark: 'd1', scene: 's1', elapsedMs: 12 },
+      { key: 'a.raf|dht', run: 1, display: 'x1', displayDark: 'y1', scene: 's2', elapsedMs: 2 },
+      { key: 'a.raf|dht', run: 2, display: 'x2', displayDark: 'y1', scene: 's2', elapsedMs: 3 },
+      { key: 'a.raf|ppg', run: 1, display: '', displayDark: '', scene: '', elapsedMs: 0, error: 'boom' },
     ], [{ key: 'a.raf|tiff', bytes: 10, sha256: 'ee' }], adapter, 'abc1234', recordedAt);
 
     expect(report.entries['a.raf|neural-net:S']).toMatchObject({
-      display: 'h1', displayDark: 'd1', stable: true, runs: 2, elapsedMs: [10, 12],
+      display: 'h1', displayDark: 'd1', scene: 's1', stable: true, runs: 2, elapsedMs: [10, 12],
     });
     expect(report.entries['a.raf|dht'].stable).toBe(false);
     expect(report.entries['a.raf|ppg'].error).toBe('boom');
@@ -56,18 +56,18 @@ describe('compareToBaseline', () => {
     runs: 2,
   };
   const good = buildReport('full', [
-    { key: 'a|neural-net:S', run: 1, display: 'h', displayDark: 'd', elapsedMs: 1 },
-    { key: 'a|neural-net:S', run: 2, display: 'h', displayDark: 'd', elapsedMs: 1 },
-    { key: 'a|dht', run: 1, display: 'q', displayDark: 'r', elapsedMs: 1 },
-    { key: 'a|dht', run: 2, display: 'q', displayDark: 'r', elapsedMs: 1 },
+    { key: 'a|neural-net:S', run: 1, display: 'h', displayDark: 'd', scene: 's', elapsedMs: 1 },
+    { key: 'a|neural-net:S', run: 2, display: 'h', displayDark: 'd', scene: 's', elapsedMs: 1 },
+    { key: 'a|dht', run: 1, display: 'q', displayDark: 'r', scene: 't', elapsedMs: 1 },
+    { key: 'a|dht', run: 2, display: 'q', displayDark: 'r', scene: 't', elapsedMs: 1 },
   ], [{ key: 'a|tiff', bytes: 100, sha256: 's1' }], adapter, 'x', recordedAt);
   const baseline: GoldenBaseline = {
     adapter,
     commit: 'x',
     recordedAt,
     entries: {
-      'a|neural-net:S': { display: 'h', displayDark: 'd' },
-      'a|dht': { display: 'q', displayDark: 'r' },
+      'a|neural-net:S': { display: 'h', displayDark: 'd', scene: 's' },
+      'a|dht': { display: 'q', displayDark: 'r', scene: 't' },
     },
     exports: { 'a|tiff': { bytes: 100, sha256: 's1' } },
   };
@@ -87,17 +87,49 @@ describe('compareToBaseline', () => {
   it('fails on a differing method hash', () => {
     const changed = {
       ...baseline,
-      entries: { ...baseline.entries, 'a|dht': { display: 'q', displayDark: 'WRONG' } },
+      entries: { ...baseline.entries, 'a|dht': { display: 'q', displayDark: 'WRONG', scene: 't' } },
     };
     expect(compareToBaseline(good, changed, expected).find((result) => result.key === 'a|dht')).toEqual({
       key: 'a|dht', status: 'FAIL', reason: 'displayDark differs',
     });
   });
 
+  it('fails when the baseline has no scene hash for a key', () => {
+    const noScene = {
+      ...baseline,
+      entries: { ...baseline.entries, 'a|dht': { display: 'q', displayDark: 'r' } },
+    };
+    expect(compareToBaseline(good, noScene, expected).find((result) => result.key === 'a|dht')).toEqual({
+      key: 'a|dht', status: 'FAIL', reason: 'scene missing from baseline',
+    });
+  });
+
+  it('fails on a differing scene hash', () => {
+    const changed = {
+      ...baseline,
+      entries: { ...baseline.entries, 'a|dht': { display: 'q', displayDark: 'r', scene: 'WRONG' } },
+    };
+    expect(compareToBaseline(good, changed, expected).find((result) => result.key === 'a|dht')).toEqual({
+      key: 'a|dht', status: 'FAIL', reason: 'scene differs',
+    });
+  });
+
+  it('treats a scene hash that changes between runs as unstable', () => {
+    const drifting = buildReport('quick', [
+      { key: 'a|dht', run: 1, display: 'q', displayDark: 'r', scene: 't', elapsedMs: 1 },
+      { key: 'a|dht', run: 2, display: 'q', displayDark: 'r', scene: 'DRIFTED', elapsedMs: 1 },
+    ], [], adapter, 'x', recordedAt);
+
+    expect(drifting.entries['a|dht'].stable).toBe(false);
+    expect(compareToBaseline(drifting, baseline, {
+      keys: ['a|dht'], exportKeys: [], runs: 2,
+    })).toEqual([{ key: 'a|dht', status: 'UNSTABLE' }]);
+  });
+
   it('fails when expected report or baseline entries are missing', () => {
     const partial = buildReport('quick', [
-      { key: 'a|neural-net:S', run: 1, display: 'h', displayDark: 'd', elapsedMs: 1 },
-      { key: 'a|neural-net:S', run: 2, display: 'h', displayDark: 'd', elapsedMs: 1 },
+      { key: 'a|neural-net:S', run: 1, display: 'h', displayDark: 'd', scene: 's', elapsedMs: 1 },
+      { key: 'a|neural-net:S', run: 2, display: 'h', displayDark: 'd', scene: 's', elapsedMs: 1 },
     ], [], adapter, 'x', recordedAt);
     const reportResults = compareToBaseline(partial, baseline, expected);
     expect(reportResults.find((result) => result.key === 'a|dht')).toEqual({
@@ -118,7 +150,7 @@ describe('compareToBaseline', () => {
 
   it('fails when a key has fewer runs than expected', () => {
     const oneRun = buildReport('quick', [
-      { key: 'a|neural-net:S', run: 1, display: 'h', displayDark: 'd', elapsedMs: 1 },
+      { key: 'a|neural-net:S', run: 1, display: 'h', displayDark: 'd', scene: 's', elapsedMs: 1 },
     ], [], adapter, 'x', recordedAt);
     expect(compareToBaseline(oneRun, null, {
       keys: ['a|neural-net:S'], exportKeys: [], runs: 2,
@@ -127,10 +159,10 @@ describe('compareToBaseline', () => {
 
   it('reports unstable runs and processing errors', () => {
     const report = buildReport('quick', [
-      { key: 'a|neural-net:S', run: 1, display: 'h', displayDark: 'd', elapsedMs: 1 },
-      { key: 'a|neural-net:S', run: 2, display: 'h2', displayDark: 'd', elapsedMs: 1 },
-      { key: 'a|dht', run: 1, display: '', displayDark: '', elapsedMs: 0, error: 'decode failed' },
-      { key: 'a|dht', run: 2, display: '', displayDark: '', elapsedMs: 0, error: 'decode failed' },
+      { key: 'a|neural-net:S', run: 1, display: 'h', displayDark: 'd', scene: 's', elapsedMs: 1 },
+      { key: 'a|neural-net:S', run: 2, display: 'h2', displayDark: 'd', scene: 's', elapsedMs: 1 },
+      { key: 'a|dht', run: 1, display: '', displayDark: '', scene: '', elapsedMs: 0, error: 'decode failed' },
+      { key: 'a|dht', run: 2, display: '', displayDark: '', scene: '', elapsedMs: 0, error: 'decode failed' },
     ], [], adapter, 'x', recordedAt);
     const results = compareToBaseline(report, null, {
       keys: ['a|neural-net:S', 'a|dht'], exportKeys: [], runs: 2,

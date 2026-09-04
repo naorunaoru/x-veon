@@ -6,6 +6,7 @@ import WGSL_SRC from './shaders/opendrt.wgsl?raw';
 import HDR_HISTOGRAM_WGSL from './shaders/histogram-hdr.wgsl?raw';
 import HISTOGRAM_REDUCE_WGSL from './shaders/histogram-reduce.wgsl?raw';
 import HISTOGRAM_VIZ_WGSL from './shaders/histogram-viz.wgsl?raw';
+import { padTo256, readTextureRgba } from './readback';
 import { getDevice } from '@/gpu/device';
 
 export type DisplayGamut = 'rec709' | 'rec2020';
@@ -482,7 +483,7 @@ export class HdrRenderer {
     this.imageTex = this.device.createTexture({
       size: [width, height],
       format: 'rgba32float',
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC,
     });
 
     this.uniformData[U_TEXEL]     = 1 / width;
@@ -671,6 +672,16 @@ export class HdrRenderer {
     this.restoreDisplayState();
 
     return hwc;
+  }
+
+  /**
+   * Read the uploaded image texture back verbatim (RGBA32F, width * height * 4, alpha =
+   * clip mask). Instrumentation for the golden route: it hashes the renderer's scene input
+   * independently of grading, and touches no display or export state.
+   */
+  async readbackImage(): Promise<Float32Array> {
+    if (!this.imageTex) throw new Error('No image uploaded');
+    return readTextureRgba(this.device, this.imageTex, this.imgW, this.imgH);
   }
 
   dispose(): void {
@@ -956,11 +967,6 @@ export class HdrRenderer {
 }
 
 // ── Utilities ────────────────────────────────────────────────────────────
-
-/** WebGPU requires bytesPerRow to be a multiple of 256. */
-function padTo256(bytes: number): number {
-  return Math.ceil(bytes / 256) * 256;
-}
 
 /** Decode a single IEEE 754 half-precision float (uint16) to float32. */
 function f16ToF32(h: number): number {

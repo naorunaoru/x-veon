@@ -8,43 +8,53 @@
   "entries": {
     "DSCF3332.RAF|neural-net:S": {
       "display": "994b8168f7ccef51aaf16f39870f456283d209fd913c5b4371021d99f08e15de",
-      "displayDark": "4aeb788b593e4c35d480878f466a6db8364fc058dcaabc9b9f883364d0af0ed1"
+      "displayDark": "4aeb788b593e4c35d480878f466a6db8364fc058dcaabc9b9f883364d0af0ed1",
+      "scene": "53b6f0cab94ecdfaedd45cf774b55c18a5be25f90cd6b87d377c057f968d92bd"
     },
     "DSCF3332.RAF|markesteijn3": {
       "display": "cab2f9e3b7fb5d2395577b57cf038f6886e1a06a888c96f2be41d8f25926ed6c",
-      "displayDark": "a2a58ca04bc921a38e8e70c79fa382eb04ba46192b07e94f0908203e193b6ecc"
+      "displayDark": "a2a58ca04bc921a38e8e70c79fa382eb04ba46192b07e94f0908203e193b6ecc",
+      "scene": "3bab4bdc43411aaaa56946b7a94368959d6ffffbff20244530a45cd1c0f95656"
     },
     "DSCF3332.RAF|markesteijn1": {
       "display": "9751e3c50872127bc4d1bcba4c48113cbc25f7d37f8d11ae4385c09693ec8955",
-      "displayDark": "17031a2361d2ebd222850bc9c84d499ddf447abbfc9cde05bb0564a964d65365"
+      "displayDark": "17031a2361d2ebd222850bc9c84d499ddf447abbfc9cde05bb0564a964d65365",
+      "scene": "0da1bde92d3b3a162351f25f81bde8453d006822f4b10aab417c5634bac97237"
     },
     "DSCF3332.RAF|dht": {
       "display": "d03a96b7f3bc01e3abd074a68f86f9f054a421a674b116bcd3f5e47f67ca62b6",
-      "displayDark": "45a426312e4d845e51b0535869f840b51053e968231833a35e521cb1ab492736"
+      "displayDark": "45a426312e4d845e51b0535869f840b51053e968231833a35e521cb1ab492736",
+      "scene": "3e8d750b3dffeb78a649184d7376538ff3ff3fa0dc95fb585b2934eeefe7d2e0"
     },
     "DSCF3332.RAF|bilinear": {
       "display": "97c72bb4d179c3c0c54e8e4aeda09d7c32db8e743dd1eecd27752761330e6018",
-      "displayDark": "d2c9178ffa21356c43d8580850f6b50abfcb8ddb8146524975e5b22db3435fa4"
+      "displayDark": "d2c9178ffa21356c43d8580850f6b50abfcb8ddb8146524975e5b22db3435fa4",
+      "scene": "515cf7ceb37cdd51cc95b6ffea8ad4baac6fdb73b07b9c52f1211449f38f61fd"
     },
     "sony_a6400_21.arw|neural-net:S": {
       "display": "d8b1130ce010ba7eb50f03d2bf42633f6f5fe3f707db1716242471ffad4fa4c1",
-      "displayDark": "b9718e72e661c65e83e32b62b4a1b698c1039cf43ffaec94c79ddc31bb08eafc"
+      "displayDark": "b9718e72e661c65e83e32b62b4a1b698c1039cf43ffaec94c79ddc31bb08eafc",
+      "scene": "f9ed7ac173af75e43ce1957ff47cddc7fb9caee6e0dc3fa94f804a529584e98a"
     },
     "sony_a6400_21.arw|ahd": {
       "display": "7fc767c7810e6af16bb4af61e57d5f26e4a3ee1cefdc86cd95c3f2408334edb3",
-      "displayDark": "645ae3231edfa14a6f2a027bc3601b472e131dfb50dd0c191198422a9e8b418f"
+      "displayDark": "645ae3231edfa14a6f2a027bc3601b472e131dfb50dd0c191198422a9e8b418f",
+      "scene": "1a95b6566f8d2d0d1e19f9d5a28a82adf2fdf8e6a3460c54e88d25f253b961cf"
     },
     "sony_a6400_21.arw|ppg": {
       "display": "241ab8aa0335f29209c62bd3d3863e1e682868422672252a06dafa36df24f727",
-      "displayDark": "8a5c1410737400350b7109e64cf7d096d08568eea6740c7c6c032b42252b4b0e"
+      "displayDark": "8a5c1410737400350b7109e64cf7d096d08568eea6740c7c6c032b42252b4b0e",
+      "scene": "479f710e28648a69eda19d555fb3afa0338cf511653f33a282d70eab03c5c57d"
     },
     "sony_a6400_21.arw|mhc": {
       "display": "8d2fa7138e3f85c466e8b5186e83a273148f2860d4359182cfe9401d2690d50e",
-      "displayDark": "77398eb78cd4307516c59ab92a421b17c1eff40ecbdb0b54138033f58987ddac"
+      "displayDark": "77398eb78cd4307516c59ab92a421b17c1eff40ecbdb0b54138033f58987ddac",
+      "scene": "3781040f11ea36b46b7adbc0550f686a3c112fffa52a2bcf0e3abb286079d5a2"
     },
     "sony_a6400_21.arw|bilinear": {
       "display": "576db64f93825c9e22cbf159b146c76ae8900073743da4e4c9ed6f29699dfbfc",
-      "displayDark": "7f9c251f23c43acc8da364c0841047ed2a3842163aede5c70b07df149a2c93ce"
+      "displayDark": "7f9c251f23c43acc8da364c0841047ed2a3842163aede5c70b07df149a2c93ce",
+      "scene": "c3692c519fa2688614e1edbf7f5aeac2201f9084d6a834e362e504e7515a4917"
     }
   },
   "exports": {
