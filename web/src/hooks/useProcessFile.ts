@@ -17,7 +17,7 @@ import { runDemosaic, destroyDemosaicPool } from '@/pipeline/demosaic';
 import { cropToHWC, buildColorMatrix } from '@/pipeline/postprocessor';
 import { createGpuNNPipeline } from '@/pipeline/tile-blend-gpu';
 import { gpuPostprocess } from '@/pipeline/postprocess-gpu';
-import { getDevice } from '@/gl/renderer';
+import { getDevice } from '@/gpu/device';
 import { PATCH_SIZE, OVERLAP, TILE_BATCH } from '@/pipeline/constants';
 import type { DemosaicMethod, ProcessingResultMeta } from '@/pipeline/types';
 import { estimateColorTemperature } from '@/pipeline/color-temperature';

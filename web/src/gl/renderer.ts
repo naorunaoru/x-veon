@@ -6,6 +6,7 @@ import WGSL_SRC from './shaders/opendrt.wgsl?raw';
 import HDR_HISTOGRAM_WGSL from './shaders/histogram-hdr.wgsl?raw';
 import HISTOGRAM_REDUCE_WGSL from './shaders/histogram-reduce.wgsl?raw';
 import HISTOGRAM_VIZ_WGSL from './shaders/histogram-viz.wgsl?raw';
+import { getDevice } from '@/gpu/device';
 
 export type DisplayGamut = 'rec709' | 'rec2020';
 export type HistogramMode = 'linear' | 'log' | 'display-linear' | 'display-log';
@@ -39,54 +40,6 @@ const U_ODRT_HS_CMY  = 84;  // vec4: hs_c, hs_m, hs_y, cwp_rng
 const U_CWP_C0       = 88;  // 3 × vec4: cwp adaptation matrix columns (offsets 88, 92, 96)
 const UNIFORM_FLOATS  = 100;
 const UNIFORM_BYTES   = UNIFORM_FLOATS * 4; // 400
-
-// ── Module-level device cache ────────────────────────────────────────────
-
-let devicePromise: Promise<GPUDevice> | null = null;
-
-/**
- * Override the module-level device with an externally-created one
- * (e.g. ORT's WebGPU device for zero-copy buffer interop).
- * Must be called before HdrRenderer.create().
- */
-export function setSharedDevice(device: GPUDevice): void {
-  devicePromise = Promise.resolve(device);
-}
-
-export function getDevice(): Promise<GPUDevice> {
-  if (!devicePromise) {
-    devicePromise = (async () => {
-      const adapter = await navigator.gpu.requestAdapter({
-        powerPreference: 'high-performance',
-      });
-      if (!adapter) throw new Error('WebGPU adapter not available');
-
-      // Request float32-blendable if supported (needed for rgba32float render target)
-      const features: GPUFeatureName[] = [];
-      if (adapter.features.has('float32-blendable')) {
-        features.push('float32-blendable');
-      }
-
-      // Request adapter's max buffer size (default 256 MB is too small for large
-      // RGBA32F images — a 6252×4176 photo needs ~398 MB for writeTexture staging).
-      const device = await adapter.requestDevice({
-        requiredFeatures: features.length > 0 ? features : undefined,
-        requiredLimits: {
-          maxBufferSize: adapter.limits.maxBufferSize,
-          maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
-        },
-      });
-
-      device.lost.then((info) => {
-        console.warn('WebGPU device lost:', info.message);
-        devicePromise = null;
-      });
-
-      return device;
-    })();
-  }
-  return devicePromise;
-}
 
 // ── Renderer class ───────────────────────────────────────────────────────
 

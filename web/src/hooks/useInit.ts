@@ -3,7 +3,7 @@ import { useAppStore } from '@/store';
 import type { QueuedFile } from '@/store';
 import { initWasm } from '@/pipeline/raf-decoder';
 import { initModels, getBackend, getInferenceDevice } from '@/pipeline/inference';
-import { setSharedDevice } from '@/gl/renderer';
+import { setSharedDevice } from '@/gpu/device';
 import { initDemosaicGpuSafe } from '@/pipeline/demosaic';
 import { probeHdrDisplay, hasWindowManagementApi } from '@/gl/hdr-display';
 import { getAllFiles, getSetting } from '@/lib/idb-storage';
