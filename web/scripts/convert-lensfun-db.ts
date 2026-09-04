@@ -19,23 +19,25 @@ const LENSFUN_DIR = join(import.meta.dirname, "..", ".lensfun-db");
 const DB_DIR = join(LENSFUN_DIR, "data", "db");
 const OUT_DIR = join(import.meta.dirname, "..", "public", "lensfun");
 
+// Pinned LensFun revision (override with LENSFUN_REF=<sha|tag>); bump deliberately so a rebuilt
+// tag ships the same lens data it shipped the first time.
+const LENSFUN_REF = process.env.LENSFUN_REF ?? "23e8cb8050d680c7a293edb3d48b600754665f05";
+
 // ── Clone or update ────────────────────────────────────────────────
 
 function ensureRepo() {
   if (!existsSync(DB_DIR)) {
-    console.log("Cloning LensFun database (shallow)...");
+    console.log(`Cloning LensFun database (sparse) at ${LENSFUN_REF}...`);
     execSync(
-      `git clone --depth 1 --filter=blob:none --sparse "${LENSFUN_REPO}" "${LENSFUN_DIR}"`,
+      `git clone --depth 1 --filter=blob:none --sparse --no-checkout "${LENSFUN_REPO}" "${LENSFUN_DIR}"`,
       { stdio: "inherit" },
     );
-    execSync("git sparse-checkout set data/db", {
-      cwd: LENSFUN_DIR,
-      stdio: "inherit",
-    });
+    execSync("git sparse-checkout set data/db", { cwd: LENSFUN_DIR, stdio: "inherit" });
   } else {
-    console.log("LensFun repo already present, pulling latest...");
-    execSync("git pull --ff-only", { cwd: LENSFUN_DIR, stdio: "inherit" });
+    console.log(`LensFun repo present, fetching ${LENSFUN_REF}...`);
   }
+  execSync(`git fetch --depth 1 origin "${LENSFUN_REF}"`, { cwd: LENSFUN_DIR, stdio: "inherit" });
+  execSync("git checkout -q --detach FETCH_HEAD", { cwd: LENSFUN_DIR, stdio: "inherit" });
 }
 
 // ── XML Parsing ────────────────────────────────────────────────────
@@ -290,6 +292,12 @@ function main() {
 
     console.log(
       `  ${jsonName}: ${result.cameras.length} cameras, ${result.lenses.length} lenses`,
+    );
+  }
+
+  if (index.length === 0 || totalLenses === 0) {
+    throw new Error(
+      `LensFun conversion produced no data (files=${index.length}, lenses=${totalLenses}); refusing to write an empty index. Check ${DB_DIR} and LENSFUN_REF=${LENSFUN_REF}.`,
     );
   }
 

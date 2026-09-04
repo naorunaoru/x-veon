@@ -24,6 +24,7 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
     steps:
@@ -52,9 +53,14 @@ jobs:
         run: |
           set -euo pipefail
           npm ci
+          npm test
           npm run build
+          npx tsc --noEmit
           test -f dist/index.html
           grep -q '/x-veon/assets/' dist/index.html
+          test -f dist/checkpoints/models.json
+          test -s dist/lensfun/index.json
+          grep -q '"file"' dist/lensfun/index.json
           (cd dist && find . -type f | sort | xargs sha256sum) > "$RUNNER_TEMP/MANIFEST.sha256"
           cp "$RUNNER_TEMP/MANIFEST.sha256" dist/MANIFEST.sha256
           (cd dist && zip -qr "$RUNNER_TEMP/site-stable.zip" .)

@@ -9,6 +9,8 @@ X-veon deploys to GitHub Pages as two channels on one site:
 
 Nothing deploys on a branch push. A deploy happens on a `beta/*` tag push, on promotion, or on a manual dispatch of `deploy.yml`, which simply re-assembles the current channels. Every deploy rebuilds the whole site (stable from its bundle, beta from source), because Pages serves one artifact per repo.
 
+Both workflow files must be identical on `develop` and `main`: a `beta/*` tag push runs the copy at the tag (develop's), while `gh workflow run … --ref main` and the promote chain run `main`'s copy. After changing a workflow on `develop`, mirror the same change to `main` in its own commit.
+
 The channels keep **separate libraries** in the browser (separate IndexedDB / OPFS namespaces). Switching channels shows an empty library.
 
 Tags are `beta/YYYY-MM-DD` and `stable/YYYY-MM-DD`; a second one on the same day appends `-2`, `-3`, … **Always annotated** (`git tag -a`). A lightweight `beta/*` tag fails its own deploy run and is otherwise ignored.
@@ -59,6 +61,10 @@ gh release view --json tagName --jq .tagName
 git fetch --tags && git for-each-ref 'refs/tags/beta/*' --sort=-taggerdate --format='%(refname:short)  %(taggerdate:short)' | head -3
 gh run list --workflow=deploy.yml --limit 5
 ```
+
+## Bump the RAW decoder
+
+The decoder is the git submodule `web/wasm/vendor/rawloader` (the user's rawloader fork). To move it: push the new commit to the fork, then in this repo run `git -C web/wasm/vendor/rawloader fetch origin && git -C web/wasm/vendor/rawloader checkout <sha>`, rebuild with `npm run build:wasm:decoder`, test with a RAF and an ARW, and commit the updated gitlink on `develop`. The next beta tag picks it up; CI needs nothing else because checkouts use `submodules: true`.
 
 ## Local builds
 

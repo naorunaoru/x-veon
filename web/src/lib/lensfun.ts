@@ -1,7 +1,7 @@
 /**
  * LensFun database client for the browser.
  *
- * Fetches the pre-converted JSON database from /lensfun/, matches EXIF
+ * Fetches the pre-converted JSON database from <base>/lensfun/ (see lensfunUrl), matches EXIF
  * camera + lens strings against it, and returns calibration profiles
  * (distortion, TCA, vignetting) for GPU lens correction.
  */
