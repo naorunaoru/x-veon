@@ -96,7 +96,7 @@ export async function processRaw(
     const { pattern, period, dy, dx, cfaType } = findPatternShift(raw.cfaStr, raw.cfaWidth, raw.crops);
     console.log(`CFA: ${cfaType} (period=${period}, shift=dy${dy} dx${dx})`);
 
-    // 7. Per-channel clip thresholds (all 0.987 after per-CFA-position normalization)
+    // 7. Per-channel clip thresholds (all 0.96 after per-CFA-position normalization)
     const clipNorm = channelClips();
     // WB-scaled clips for GPU postprocessor (HL recovery operates on WB'd data)
     const clipsWb: [number, number, number] = [

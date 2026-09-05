@@ -49,3 +49,10 @@ export function exportFormatInfo(id: ExportFormat): ExportFormatInfo {
 }
 
 export const MODEL_SIZES: readonly ModelSize[] = ['S', 'M', 'L'];
+
+/** RAW inputs accepted by file pickers and the library service. */
+export const RAW_EXTENSIONS = [
+  '.raf', '.cr2', '.cr3', '.nef', '.nrw', '.arw', '.dng',
+  '.rw2', '.orf', '.pef', '.srw', '.erf', '.kdc', '.dcr', '.mef',
+];
+export const RAW_ACCEPT = RAW_EXTENSIONS.join(',');

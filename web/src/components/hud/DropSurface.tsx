@@ -1,9 +1,9 @@
+import { RAW_ACCEPT } from '@/lib/catalog';
 import { importFiles } from '@/app/services/library';
 import { useCallback, useRef } from 'react';
 import { Upload } from 'lucide-react';
 import './DropSurface.css';
 
-const RAW_ACCEPT = '.raf,.cr2,.cr3,.nef,.nrw,.arw,.dng,.rw2,.orf,.pef,.srw,.erf,.kdc,.dcr,.mef';
 const FORMAT_LINE = 'RAF · NEF · ARW · CR3 · DNG';
 
 type DropSurfaceProps = {

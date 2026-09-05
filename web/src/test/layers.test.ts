@@ -146,7 +146,7 @@ describe('layer dependency rule', () => {
       fixture('pipeline/decode/fixture.ts', "export const load = () => import('../../renderer/renderer');"),
       fixture('renderer/fixture.ts', "export { useAppStore } from '@/app/store';"),
       fixture('gpu/fixture.ts', "export const w = new Worker(new URL('../pipeline/demosaic/demosaic-worker.ts', import.meta.url));"),
-      fixture('components/Fixture.tsx', "import { encodeImage } from '@/pipeline/export/encoder';"),
+      fixture('components/Fixture.tsx', "import { encodeViaWorker } from '@/pipeline/export/encoder';"),
     ])).toEqual([
       'lib/fixture.ts:1 (lib) → @/app/store [app]',
       'pipeline/decode/fixture.ts:1 (pipeline) → ../../renderer/renderer [renderer]',

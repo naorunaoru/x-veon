@@ -194,10 +194,6 @@ async function runBatchGpu(
   };
 }
 
-function getBackend(): string | null {
-  return backend;
-}
-
 export interface ModelRegistry {
   init(size: ModelSize): Promise<void>;
   switchSize(size: ModelSize): Promise<void>;

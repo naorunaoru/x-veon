@@ -1,4 +1,4 @@
-// Precomputed color space conversion matrices for WebGL preview.
+// Precomputed color space conversion matrices for WebGPU preview.
 // All matrices stored in row-major order as flat Float32Array (for gl.uniformMatrix3fv).
 
 // sRGB → P3-D65 = XYZ_TO_P3D65 * inv(XYZ_TO_SRGB)

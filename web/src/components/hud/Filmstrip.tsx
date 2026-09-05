@@ -1,10 +1,10 @@
+import { RAW_ACCEPT } from '@/lib/catalog';
 import { importFiles, removeFile } from '@/app/services/library';
 import { useCallback, useRef } from 'react';
 import { Plus, X } from 'lucide-react';
 import { useAppStore } from '@/app/store';
 import './Filmstrip.css';
 
-const RAW_ACCEPT = '.raf,.cr2,.cr3,.nef,.nrw,.arw,.dng,.rw2,.orf,.pef,.srw,.erf,.kdc,.dcr,.mef';
 
 export function Filmstrip() {
   const files = useAppStore((s) => s.files);

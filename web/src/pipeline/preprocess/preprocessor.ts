@@ -1,8 +1,7 @@
 import { XTRANS_PATTERN, BAYER_PATTERN } from '../constants';
 import type { CfaInfo, CroppedImage, PaddedImage, TileGrid, ChannelMasks } from '../types';
 
-/** darktable's clip threshold factor (0.987 × white level). */
-// lowered because huh
+/** Clip threshold as a fraction of the calibrated white level. */
 const CLIP_MAGIC = 0.96;
 
 export function cropToVisible(

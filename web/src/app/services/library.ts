@@ -1,7 +1,7 @@
 import { useAppStore } from '@/app/store';
 import type { QueuedFile } from '@/app/store';
 import type { CfaType } from '@/lib/types';
-import { RAW_EXTENSIONS } from '@/pipeline/constants';
+import { RAW_EXTENSIONS } from '@/lib/catalog';
 import { extractRafThumbnail, extractRafQuickMetadata } from '@/pipeline/decode/raf-thumbnail';
 import { writeRaw, writeThumbnail, deleteAllForFile, listRawFileIds } from '@/app/storage/opfs-storage';
 import { deleteFile as idbDeleteFile, cancelPendingPut } from '@/app/storage/idb-storage';

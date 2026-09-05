@@ -1,4 +1,3 @@
-import { matchLensFor } from './library';
 /**
  * Owns the pipeline context and every processed image that has not been displayed yet.
  * The canvas takes a result to display it (ownership passes with it); a result that is
@@ -7,6 +6,7 @@ import { matchLensFor } from './library';
 import { useAppStore } from '@/app/store';
 import { processRaw, type PipelineContext, type ProcessedImage } from '@/pipeline';
 import { readRaw } from '@/app/storage/opfs-storage';
+import { matchLensFor } from './library';
 
 let context: PipelineContext | null = null;
 const results = new Map<string, ProcessedImage>();

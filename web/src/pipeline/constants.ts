@@ -14,11 +14,6 @@ export const BAYER_PATTERN: readonly (readonly number[])[] = [
   [1, 2],
 ];
 
-export const RAW_EXTENSIONS = [
-  '.raf', '.cr2', '.cr3', '.nef', '.nrw', '.arw', '.dng',
-  '.rw2', '.orf', '.pef', '.srw', '.erf', '.kdc', '.dcr', '.mef',
-];
-
 // XYZ to sRGB (D65 whitepoint)
 export const XYZ_TO_SRGB = [
    3.2404542, -1.5371385, -0.4985314,
