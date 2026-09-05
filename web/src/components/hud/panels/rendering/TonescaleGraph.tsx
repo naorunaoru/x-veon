@@ -1,12 +1,11 @@
 import * as React from 'react';
 import { useGrading } from '@/app/hooks/useGrading';
-import { computeTonescaleParams, type GradingConfig, type OpenDrtConfig } from '@/renderer/grading/opendrt-params';
+import { computeTonescaleParams, type GradingConfig } from '@/renderer/grading/opendrt-params';
 import { evalTonescale } from '@/renderer/grading/tonescale-curve';
 import { isModified } from '@/renderer/grading/param-model';
 import { useDrag, relPos, clamp, lerp } from './hooks';
 import { Readout } from './Readout';
-import { TS_PRESET_CHIPS } from './constants';
-import { TONESCALE_PRESETS } from '@/renderer/grading/opendrt-params';
+import { Slider } from '../../Slider';
 
 type Grading = ReturnType<typeof useGrading>;
 
@@ -56,26 +55,18 @@ export function TonescaleGraph({ g, cfg }: Props) {
   const dragCon = useDrag((e) => {
     const { y } = relPos(e, svgRef.current!);
     const t = clamp(1 - (y - PADT) / GH, 0, 1);
-    g.setDrt('tn_con', +lerp(0.9, 2.1, t).toFixed(2));
+    g.setDrt('tn_con', +lerp(0.5, 2.5, t).toFixed(2));
   });
   const dragToe = useDrag((e) => {
     const { y } = relPos(e, svgRef.current!);
     const t = clamp((y - PADT) / GH, 0, 1);
-    g.setDrt('tn_toe', +lerp(0, 0.02, Math.pow(t, 1.4)).toFixed(4));
+    g.setDrt('tn_toe', +lerp(0, 0.1, Math.pow(t, 1.4)).toFixed(4));
   });
   const dragSh = useDrag((e) => {
     const { x } = relPos(e, svgRef.current!);
     const t = clamp((x - PADL) / GW, 0, 1);
     g.setDrt('tn_sh', +lerp(0.15, 0.95, t).toFixed(2));
   });
-
-  const applyPreset = (key: keyof typeof TONESCALE_PRESETS) => {
-    if (!g.fileId) return;
-    const preset = TONESCALE_PRESETS[key];
-    for (const [k, v] of Object.entries(preset.overrides) as [keyof OpenDrtConfig, number | boolean][]) {
-      g.setDrt(k, v as OpenDrtConfig[typeof k]);
-    }
-  };
 
   const Handle = ({ pt, on, axis, label }: {
     pt: { x: number; y: number };
@@ -123,26 +114,26 @@ export function TonescaleGraph({ g, cfg }: Props) {
         <Handle pt={spt} on={dragSh} axis="x" label={`sh ${tn_sh.toFixed(2)}`} />
       </svg>
 
-      <div className="xv-readout-grid">
+      <div className="xv-readout-grid xv-tone-readouts">
         <Readout label="Grey" value={tn_lg.toFixed(1)} accent={isModified(tn_lg, g.baseConfig.tn_lg) ? 'var(--xv-primary)' : undefined}
           scrub={{ get: () => g.effective('tn_lg'), set: (v) => g.setDrt('tn_lg', +v.toFixed(1)), min: 2, max: 30 }} />
-        <Readout label="Cntr" value={tn_con.toFixed(2)} accent={isModified(tn_con, g.baseConfig.tn_con) ? 'var(--xv-primary)' : undefined}
-          scrub={{ get: () => g.effective('tn_con'), set: (v) => g.setDrt('tn_con', +v.toFixed(2)), min: 0.9, max: 2.1 }} />
-        <Readout label="Shdw" value={tn_toe.toFixed(3)} accent={isModified(tn_toe, g.baseConfig.tn_toe) ? 'var(--xv-primary)' : undefined}
-          scrub={{ get: () => g.effective('tn_toe'), set: (v) => g.setDrt('tn_toe', +v.toFixed(4)), min: 0, max: 0.02 }} />
-        <Readout label="Hilt" value={tn_sh.toFixed(2)} accent={isModified(tn_sh, g.baseConfig.tn_sh) ? 'var(--xv-primary)' : undefined}
+        <Readout label="Shadows" value={tn_toe.toFixed(3)} accent={isModified(tn_toe, g.baseConfig.tn_toe) ? 'var(--xv-primary)' : undefined}
+          scrub={{ get: () => g.effective('tn_toe'), set: (v) => g.setDrt('tn_toe', +v.toFixed(4)), min: 0, max: 0.1 }} />
+        <Readout label="Highlights" value={tn_sh.toFixed(2)} accent={isModified(tn_sh, g.baseConfig.tn_sh) ? 'var(--xv-primary)' : undefined}
           scrub={{ get: () => g.effective('tn_sh'), set: (v) => g.setDrt('tn_sh', +v.toFixed(2)), min: 0.15, max: 0.95 }} />
       </div>
 
-      <div className="xv-ts-presets">
-        <div className="xv-rsection__sublabel">Tonescale preset</div>
-        <div className="xv-chiprow">
-          {TS_PRESET_CHIPS.map((ps) => (
-            <button key={ps.key} type="button" className="xv-chip" onClick={() => applyPreset(ps.key)}>
-              {ps.label}
-            </button>
-          ))}
-        </div>
+      <div className="xv-tone-sliders">
+        <Slider label="Contrast" min={0.5} max={2.5} step={0.01}
+          value={tn_con} defaultValue={g.baseConfig.tn_con}
+          onChange={(v) => g.setDrt('tn_con', v)} />
+        <Slider label="Local contrast" min={0} max={2} step={0.01}
+          value={cfg.tn_lcon_enable ? cfg.tn_lcon : 0}
+          defaultValue={g.baseConfig.tn_lcon_enable ? g.baseConfig.tn_lcon : 0}
+          onChange={(v) => {
+            g.setDrt('tn_lcon_enable', v !== 0);
+            g.setDrt('tn_lcon', v);
+          }} />
       </div>
     </div>
   );

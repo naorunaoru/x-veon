@@ -9,7 +9,8 @@ vi.mock('@/app/storage/opfs-storage', () => ({ readThumbnail: vi.fn().mockResolv
 
 import { useAppStore } from '@/app/store';
 import type { QueuedFile } from '@/app/store';
-import { startPersistence, restore } from './persistence';
+import { startPersistence, restore, fileToPersistedFile } from './persistence';
+import { configFromPreset, configWithOverrides, TONESCALE_PRESETS } from '@/renderer/grading/opendrt-params';
 
 function makeFile(id: string): QueuedFile {
   return {
@@ -73,6 +74,23 @@ describe('persistence service', () => {
     useAppStore.getState().setFileLookPreset('a', 'base');
     expect(idb.putSetting).not.toHaveBeenCalled();
     expect(idb.debouncedPutFile).not.toHaveBeenCalled();
+  });
+
+  it.each(['colorful', 'marvelous'] as const)('round-trips %s with its edits and appearance intact', async (lookPreset) => {
+    const original: QueuedFile = {
+      ...makeFile('r'), lookPreset,
+      openDrtOverrides: { ...TONESCALE_PRESETS['aces-2'].overrides, cwp: 0.4 },
+      preProcessOverrides: { exposure: 1, wb_temp: 0.2, sharpen_amount: 0.5 },
+      lookHistory: [{ lookPreset: 'umbra', openDrtOverrides: {} }],
+    };
+    const saved = fileToPersistedFile(original);
+    expect(saved).not.toHaveProperty('lookHistory');
+    idb.getAllFiles.mockResolvedValue([saved]);
+    idb.getSetting.mockResolvedValue(undefined);
+    const { files: [restored] } = await restore();
+    expect(restored).toMatchObject({ lookPreset, openDrtOverrides: original.openDrtOverrides, preProcessOverrides: original.preProcessOverrides });
+    expect(configWithOverrides(configFromPreset(restored.lookPreset), restored.openDrtOverrides, restored.preProcessOverrides))
+      .toEqual(configWithOverrides(configFromPreset(original.lookPreset), original.openDrtOverrides, original.preProcessOverrides));
   });
 
 });

@@ -31,16 +31,6 @@ export function ExposurePanel() {
         onChange={g.handleExposureChange}
         infoLabel={formatEv(exposureEv)}
       />
-      <Slider
-        label="Contrast" min={0.5} max={2.5} step={0.01}
-        value={g.effective('tn_con')} defaultValue={g.baseConfig.tn_con}
-        onChange={(v) => g.setDrt('tn_con', v)}
-      />
-      <Slider
-        label="Local contrast" min={0} max={2} step={0.01}
-        value={g.effective('tn_lcon')} defaultValue={g.baseConfig.tn_lcon}
-        onChange={(v) => g.setDrt('tn_lcon', v)}
-      />
     </FloatingPanel>
   );
 }

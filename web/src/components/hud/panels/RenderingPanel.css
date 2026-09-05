@@ -27,19 +27,24 @@
 .xv-rpanel__icon:hover { color: var(--xv-foreground); }
 .xv-rpanel__body { flex: 1; overflow-y: auto; overflow-x: hidden; }
 
-/* ── base look ── */
-.xv-baselook { padding: 12px 16px; border-bottom: 1px solid var(--xv-border); }
-.xv-baselook__chips { display: flex; gap: 4px; flex-wrap: wrap; }
-.xv-rchip {
-  padding: 4px 11px; font-size: 10.5px; border-radius: 3px; cursor: pointer;
-  border: 1px solid var(--xv-border); background: transparent;
-  color: var(--xv-muted-foreground); font-weight: 400;
+/* ── look selector ── */
+.xv-look { padding: 12px 16px; border-bottom: 1px solid var(--xv-border); }
+.xv-look > label { display: block; }
+.xv-look__actions { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+.xv-look__action {
+  display: inline-flex; align-items: center; gap: 5px; padding: 2px 0;
+  border: none; background: transparent; color: var(--xv-muted-foreground);
+  font: inherit; font-size: 10px; cursor: pointer;
 }
-.xv-rchip:hover { color: var(--xv-foreground); }
-.xv-rchip.is-selected {
-  border-color: var(--xv-primary); color: var(--xv-foreground); font-weight: 500;
-  background: oklch(0.72 0.12 220 / 0.10);
+.xv-look__action:hover { color: var(--xv-foreground); }
+.xv-look__reset { margin-left: auto; }
+.xv-look__action:focus-visible, .xv-look select:focus-visible {
+  outline: 2px solid var(--xv-primary); outline-offset: 3px;
 }
+.xv-readout-grid.xv-tone-readouts { grid-template-columns: repeat(3, 1fr); }
+.xv-tone-readouts .xv-readout-chip { flex-direction: column; align-items: flex-start; gap: 4px; }
+.xv-tone-sliders { display: flex; flex-direction: column; gap: 14px; margin-top: 16px; }
+.xv-colour-group { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--xv-border-dim); }
 
 /* ── section frame ── */
 .xv-rsection { padding: 14px 16px; border-bottom: 1px solid var(--xv-border); }
@@ -99,9 +104,6 @@
 .xv-huechip__dot { display: block; width: 7px; height: 7px; border-radius: 50%; margin: 0 auto 2px; }
 .xv-huechip__val { font-family: var(--xv-font-mono); font-size: 8.5px; color: var(--xv-fg-dim); font-variant-numeric: tabular-nums; }
 .xv-huechip__val.is-set { color: var(--xv-foreground); }
-
-/* ── tonescale presets ── */
-.xv-ts-presets { margin-top: 12px; }
 
 /* ── purity ── */
 .xv-purity-svg { margin-top: 10px; }

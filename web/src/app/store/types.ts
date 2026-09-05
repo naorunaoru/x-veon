@@ -12,6 +12,11 @@ import type { ViewSlice } from './view';
 
 export type FileStatus = 'queued' | 'processing' | 'done' | 'error';
 
+export interface LookSnapshot {
+  lookPreset: LookPreset;
+  openDrtOverrides: Partial<OpenDrtConfig>;
+}
+
 export interface QueuedFile {
   id: string;
   file: File | null;
@@ -29,6 +34,8 @@ export interface QueuedFile {
   lookPreset: LookPreset;
   openDrtOverrides: Partial<OpenDrtConfig>;
   preProcessOverrides: Partial<PreProcessConfig>;
+  /** Session-only history of look selections; never serialized with the photo. */
+  lookHistory?: LookSnapshot[];
 }
 
 export interface ViewControls {

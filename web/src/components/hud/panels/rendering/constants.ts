@@ -1,8 +1,6 @@
 // Static data for the Rendering panel: hue geometry + per-mode key maps,
-// wheel modes, tonescale preset chips, base looks, and the Expert drawer schema.
+// wheel modes and the Advanced drawer schema.
 import type { OpenDrtConfig } from '@/renderer/grading/opendrt-params';
-import type { TonescalePreset } from '@/renderer/grading/opendrt-params';
-import type { LookPreset } from '@/lib/types';
 
 type DrtKey = keyof OpenDrtConfig;
 export type WheelMode = 'brl' | 'hue' | 'pur';
@@ -59,24 +57,6 @@ export function wheelToPt(v: number, base: number): number {
   return +pt.toFixed(3);
 }
 
-// ── Tonescale preset chips → real TONESCALE_PRESETS keys ────────────────────
-export const TS_PRESET_CHIPS: { label: string; key: TonescalePreset }[] = [
-  { label: 'Low',    key: 'low-contrast' },
-  { label: 'Medium', key: 'medium-contrast' },
-  { label: 'High',   key: 'high-contrast' },
-  { label: 'ACES 2', key: 'aces-2' },
-  { label: 'Umbra',  key: 'umbra' },
-  { label: 'Marvel', key: 'marvelous' },
-];
-
-export const BASE_LOOKS: { id: LookPreset; label: string }[] = [
-  { id: 'default',  label: 'Default' },
-  { id: 'colorful', label: 'Colorful' },
-  { id: 'umbra',    label: 'Umbra' },
-  { id: 'base',     label: 'Base' },
-  { id: 'flat',     label: 'Flat' },
-];
-
 // ── Expert / stickshift schema ──────────────────────────────────────────────
 // Every underlying OpenDRT knob, by module. Generated coverage of the full
 // OpenDrtConfig so no parameter is unreachable from the UI.
@@ -93,7 +73,7 @@ export const EXPERT_GROUPS: { title: string; rows: ExpertRow[] }[] = [
     s('tn_lg', 'Middle grey', 3, 25, 0.1),
     s('tn_con', 'Contrast', 0.9, 2.1, 0.01),
     s('tn_sh', 'Shoulder', 0, 1, 0.01),
-    s('tn_toe', 'Toe', 0, 0.02, 0.001),
+    s('tn_toe', 'Toe', 0, 0.1, 0.001),
     s('tn_off', 'Offset', 0, 0.05, 0.001),
   ] },
   { title: 'Low contrast', rows: [

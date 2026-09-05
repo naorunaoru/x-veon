@@ -18,17 +18,15 @@ interface Props {
 export function ExpertDrawer({ g, open, setOpen }: Props) {
   return (
     <div className="xv-expert">
-      <button type="button" className="xv-expert__head" onClick={() => setOpen(!open)}>
+      <button type="button" className="xv-expert__head" aria-expanded={open} onClick={() => setOpen(!open)}>
         <ChevronDown size={13} className={`xv-expert__chevron${open ? ' is-open' : ''}`} />
-        <span className="xv-expert__title">Expert</span>
-        <span className="xv-expert__tag">stickshift</span>
-        <span className="xv-expert__aside">{open ? 'hide' : 'all params'}</span>
+        <span className="xv-expert__title">Advanced</span>
+        <span className="xv-expert__aside">{open ? 'hide' : 'OpenDRT'}</span>
       </button>
       {open && (
         <div className="xv-expert__body">
           <p className="xv-expert__explainer">
-            Every underlying OpenDRT knob, by its real name. Unwieldy by design — the
-            controls above drive these for you. Reach in only when you need to.
+            Fine-tune the selected look with the complete set of OpenDRT controls.
           </p>
           {EXPERT_GROUPS.map((grp) => (
             <div key={grp.title} className="xv-expert__group">

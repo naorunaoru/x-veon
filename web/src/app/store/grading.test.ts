@@ -50,3 +50,31 @@ describe('per-section override clears', () => {
     expect(f.preProcessOverrides.exposure).toBe(1.5);
   });
 });
+
+describe('look history', () => {
+  beforeEach(() => useAppStore.setState({ files: [makeFile('a'), makeFile('b')], selectedFileId: 'a' }));
+
+  it('keeps history per photo and preserves corrections made after choosing a look', () => {
+    const original = useAppStore.getState().files[0];
+    const { setFileLookPreset, undoFileLook, setFilePreProcessOverride } = useAppStore.getState();
+    setFileLookPreset('a', 'marvelous');
+    setFileLookPreset('b', 'umbra');
+    setFileLookPreset('a', 'aces-2');
+    setFilePreProcessOverride('a', 'exposure', 2);
+    undoFileLook('a');
+    expect(useAppStore.getState().files[0]).toMatchObject({ lookPreset: 'marvelous', openDrtOverrides: {} });
+    undoFileLook('a');
+    expect(useAppStore.getState().files[0]).toMatchObject({ lookPreset: original.lookPreset, openDrtOverrides: original.openDrtOverrides, preProcessOverrides: { exposure: 2, wb_temp: 0.3 }, lookHistory: [] });
+    expect(useAppStore.getState().files[1].lookPreset).toBe('umbra');
+  });
+
+  it('does not record a repeated unmodified selection or undo another photo', () => {
+    const { setFileLookPreset, undoFileLook } = useAppStore.getState();
+    setFileLookPreset('a', 'flat');
+    setFileLookPreset('a', 'flat');
+    expect(useAppStore.getState().files[0].lookHistory).toHaveLength(1);
+    const before = useAppStore.getState().files[0];
+    undoFileLook('b');
+    expect(useAppStore.getState().files[0]).toBe(before);
+  });
+});

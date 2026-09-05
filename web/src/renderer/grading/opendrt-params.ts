@@ -412,15 +412,26 @@ export const TONESCALE_PRESETS: Record<TonescalePreset, { label: string; overrid
   },
 };
 
+/** Every selectable look supplies a complete rendering baseline. Existing IDs and
+ * configurations stay stable so saved photos retain their original appearance. */
+export const LOOK_PRESETS: Record<LookPreset, { label: string; config: () => OpenDrtConfig }> = {
+  default: { label: 'Default', config: defaultSdr },
+  colorful: { label: 'Colorful', config: colorfulSdr },
+  umbra: { label: 'Umbra', config: umbraSdr },
+  base: { label: 'Base', config: baseSdr },
+  flat: { label: 'Flat', config: flatSdr },
+  'low-contrast': { label: 'Low Contrast', config: () => lookWithTone('low-contrast') },
+  'medium-contrast': { label: 'Medium Contrast', config: () => lookWithTone('medium-contrast') },
+  'aces-2': { label: 'ACES-inspired', config: () => lookWithTone('aces-2') },
+  marvelous: { label: 'Marvelous', config: () => lookWithTone('marvelous') },
+};
+
+function lookWithTone(tone: TonescalePreset): OpenDrtConfig {
+  return { ...defaultSdr(), ...TONESCALE_PRESETS[tone].overrides };
+}
+
 export function configFromPreset(preset: LookPreset, hdrHeadroom?: number): OpenDrtConfig {
-  const presetMap: Record<LookPreset, () => OpenDrtConfig> = {
-    default: defaultSdr,
-    colorful: colorfulSdr,
-    umbra: umbraSdr,
-    base: baseSdr,
-    flat: flatSdr,
-  };
-  const cfg = (presetMap[preset] ?? defaultSdr)();
+  const cfg = (LOOK_PRESETS[preset] ?? LOOK_PRESETS.default).config();
   if (hdrHeadroom != null && hdrHeadroom > 1.0) {
     cfg.peak_luminance = hdrHeadroom * 100;
   }

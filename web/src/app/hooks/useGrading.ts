@@ -19,6 +19,7 @@ const _baseWbBuf = new Float32Array(3);
 export function useGrading() {
   const file = useAppStore((s) => s.files.find((f) => f.id === s.selectedFileId));
   const setFileLookPreset = useAppStore((s) => s.setFileLookPreset);
+  const undoFileLook = useAppStore((s) => s.undoFileLook);
   const setFileOpenDrtOverride = useAppStore((s) => s.setFileOpenDrtOverride);
   const setFilePreProcessOverride = useAppStore((s) => s.setFilePreProcessOverride);
   const clearDrt = useAppStore((s) => s.clearFileOpenDrtOverrides);
@@ -62,6 +63,10 @@ export function useGrading() {
     (preset: LookPreset) => { if (fileId) setFileLookPreset(fileId, preset); },
     [fileId, setFileLookPreset],
   );
+
+  const undoLook = useCallback(() => {
+    if (fileId) undoFileLook(fileId);
+  }, [fileId, undoFileLook]);
 
   const handleExposureChange = useCallback(
     (absEv: number) => {
@@ -123,7 +128,7 @@ export function useGrading() {
   return {
     fileId,
     hasResult: file?.status === 'done',
-    lookPreset, setLook, baseConfig,
+    lookPreset, setLook, baseConfig, undoLook, canUndoLook: !!file?.lookHistory?.length,
     overrides, preOverrides,
     effective, effectivePre, setDrt, setPre,
     shootingInfo, handleExposureChange, handleTempChange, handleTintChange,

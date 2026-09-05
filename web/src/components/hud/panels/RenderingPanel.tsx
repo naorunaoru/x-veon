@@ -1,46 +1,35 @@
-import { useMemo, useState } from 'react';
-import { RotateCcw, X } from 'lucide-react';
+import { useId, useMemo, useState } from 'react';
+import { RotateCcw, Undo2, X } from 'lucide-react';
 import { useGrading } from '@/app/hooks/useGrading';
 import { useAppStore } from '@/app/store';
-import { configWithOverrides, type OpenDrtConfig } from '@/renderer/grading/opendrt-params';
-import { SECTION_KEYS, isSectionModified } from '@/renderer/grading/sections';
+import { configWithOverrides, LOOK_PRESETS, type OpenDrtConfig } from '@/renderer/grading/opendrt-params';
+import { RENDERING_KEYS, modifiedDrtKeys } from '@/renderer/grading/sections';
 import { RSection } from './rendering/RSection';
 import { TonescaleGraph } from './rendering/TonescaleGraph';
 import { ColorWheelControl } from './rendering/ColorWheelControl';
 import { WarmthPath } from './rendering/WarmthPath';
 import { PurityCurve } from './rendering/PurityCurve';
 import { ExpertDrawer } from './rendering/ExpertDrawer';
-import { BASE_LOOKS } from './rendering/constants';
+import type { LookPreset } from '@/lib/types';
 import './Panels.css';
 import './RenderingPanel.css';
 
 type DrtKey = keyof OpenDrtConfig;
 
-// Override keys owned by each in-panel section — drive its dot + reset scope.
-const SECTIONS = {
-  tonescale: ['tn_lg', 'tn_con', 'tn_toe', 'tn_sh', 'tn_off',
-    'tn_lcon_enable', 'tn_lcon', 'tn_lcon_w', 'tn_hcon_enable', 'tn_hcon', 'tn_hcon_pv', 'tn_hcon_st'] as DrtKey[],
-  color: ['brl_enable', 'brl_r', 'brl_g', 'brl_b', 'brl_c', 'brl_m', 'brl_y', 'brl_rng',
-    'hs_rgb_enable', 'hs_r', 'hs_g', 'hs_b', 'hs_rgb_rng', 'hs_cmy_enable', 'hs_c', 'hs_m', 'hs_y',
-    'hc_enable', 'hc_r', 'pt_r', 'pt_g', 'pt_b', 'pt_rng_low'] as DrtKey[],
-  whites: ['cwp', 'cwp_rng'] as DrtKey[],
-  purity: ['rs_sa', 'ptm_enable', 'ptm_low', 'pt_rng_high'] as DrtKey[],
-};
-
 export function RenderingPanel() {
   const g = useGrading();
   const setOpenPanel = useAppStore((s) => s.setOpenPanel);
   const [expert, setExpert] = useState(false);
-
-  const adv = SECTION_KEYS.advanced!;
-  const modified = isSectionModified('advanced', g.overrides, g.preOverrides);
+  const lookId = useId();
+  const changed = useMemo(() => modifiedDrtKeys(g.baseConfig, g.overrides), [g.baseConfig, g.overrides]);
+  const modified = changed.length > 0;
 
   const cfg = useMemo(
     () => configWithOverrides(g.baseConfig, g.overrides, g.preOverrides),
     [g.baseConfig, g.overrides, g.preOverrides],
   );
 
-  const isMod = (keys: DrtKey[]) => keys.some((k) => k in g.overrides);
+  const isMod = (keys: DrtKey[]) => keys.some((k) => changed.includes(k));
   const resetKeys = (keys: DrtKey[]) => g.resetSection(keys, []);
 
   return (
@@ -50,12 +39,6 @@ export function RenderingPanel() {
         <span className="xv-rpanel__tag">OpenDRT</span>
         {modified && <span className="xv-rpanel__dot" />}
         <div className="xv-rpanel__actions">
-          {modified && (
-            <button type="button" className="xv-rpanel__icon" aria-label="Reset to look"
-              onClick={() => g.resetSection(adv.drt, adv.pre)}>
-              <RotateCcw size={12} />
-            </button>
-          )}
           <button type="button" className="xv-rpanel__icon" aria-label="Close panel" onClick={() => setOpenPanel(null)}>
             <X size={12} />
           </button>
@@ -63,33 +46,46 @@ export function RenderingPanel() {
       </header>
 
       <div className="xv-rpanel__body">
-        <div className="xv-baselook">
-          <div className="xv-rsection__sublabel">Base look</div>
-          <div className="xv-baselook__chips">
-            {BASE_LOOKS.map((l) => (
-              <button key={l.id} type="button"
-                className={`xv-rchip${g.lookPreset === l.id ? ' is-selected' : ''}`}
-                onClick={() => g.setLook(l.id)}>
-                {l.label}
-              </button>
+        <div className="xv-look">
+          <label className="xv-rsection__sublabel" htmlFor={lookId}>Look</label>
+          <select id={lookId} className="xv-select" value={g.lookPreset} disabled={!g.fileId}
+            onChange={(e) => g.setLook(e.target.value as LookPreset)}>
+            {(Object.entries(LOOK_PRESETS) as [LookPreset, typeof LOOK_PRESETS[LookPreset]][]).map(([id, look]) => (
+              <option key={id} value={id}>
+                {look.label}{id === g.lookPreset && modified ? ' · Modified' : ''}
+              </option>
             ))}
-          </div>
+          </select>
+          {(modified || g.canUndoLook) && (
+            <div className="xv-look__actions">
+              {g.canUndoLook && (
+                <button type="button" className="xv-look__action" onClick={g.undoLook}>
+                  <Undo2 size={12} /> Undo look change
+                </button>
+              )}
+              {modified && (
+                <button type="button" className="xv-look__action xv-look__reset" onClick={() => g.setLook(g.lookPreset)}>
+                  <RotateCcw size={12} /> Reset look
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
-        <RSection title="Tonescale" modified={isMod(SECTIONS.tonescale)} onReset={() => resetKeys(SECTIONS.tonescale)}>
+        <RSection title="Tone" modified={isMod(RENDERING_KEYS.tone)} onReset={() => resetKeys(RENDERING_KEYS.tone)}>
           <TonescaleGraph g={g} cfg={cfg} />
         </RSection>
 
-        <RSection title="Color rendering" modified={isMod(SECTIONS.color)} onReset={() => resetKeys(SECTIONS.color)}>
+        <RSection title="Colour" modified={isMod(RENDERING_KEYS.colour)} onReset={() => resetKeys(RENDERING_KEYS.colour)}>
           <ColorWheelControl g={g} />
-        </RSection>
-
-        <RSection title="Whites" modified={isMod(SECTIONS.whites)} onReset={() => resetKeys(SECTIONS.whites)}>
-          <WarmthPath g={g} />
-        </RSection>
-
-        <RSection title="Purity" modified={isMod(SECTIONS.purity)} onReset={() => resetKeys(SECTIONS.purity)}>
-          <PurityCurve g={g} />
+          <div className="xv-colour-group">
+            <div className="xv-rsection__sublabel">Purity</div>
+            <PurityCurve g={g} />
+          </div>
+          <div className="xv-colour-group">
+            <div className="xv-rsection__sublabel">Highlight warmth</div>
+            <WarmthPath g={g} />
+          </div>
         </RSection>
 
         <ExpertDrawer g={g} open={expert} setOpen={setExpert} />

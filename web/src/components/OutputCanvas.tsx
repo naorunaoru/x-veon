@@ -5,7 +5,7 @@ import { takeResult } from '@/app/services/processing';
 import { createRenderer, isWebGpuSupported, type Renderer } from '@/renderer';
 import { configFromPreset, configWithOverrides, computeTonescaleParams } from '@/renderer/grading/opendrt-params';
 import type { OpenDrtConfig, PreProcessConfig } from '@/renderer/grading/opendrt-params';
-import type { ProcessingResultMeta } from '@/lib/types';
+import type { LookPreset, ProcessingResultMeta } from '@/lib/types';
 
 const EMPTY_OVERRIDES: Partial<OpenDrtConfig> = {};
 const EMPTY_PREPROCESS: Partial<PreProcessConfig> = {};
@@ -145,12 +145,12 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
 
 function applyOpenDrt(
   renderer: Renderer,
-  lookPreset: string,
+  lookPreset: LookPreset,
   overrides: Partial<OpenDrtConfig>,
   preProcess: Partial<PreProcessConfig>,
   hdrHeadroom?: number,
 ): void {
-  const base = configFromPreset(lookPreset as 'base' | 'default', hdrHeadroom);
+  const base = configFromPreset(lookPreset, hdrHeadroom);
   const cfg = configWithOverrides(base, overrides, preProcess);
   const ts = computeTonescaleParams(cfg);
   if (hdrHeadroom != null && hdrHeadroom > 1.0) {

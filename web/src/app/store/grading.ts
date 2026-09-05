@@ -4,6 +4,7 @@ import type { Slice } from './types';
 
 export interface GradingSlice {
   setFileLookPreset: (fileId: string, preset: LookPreset) => void;
+  undoFileLook: (fileId: string) => void;
   setFileOpenDrtOverride: <K extends keyof OpenDrtConfig>(fileId: string, key: K, value: OpenDrtConfig[K]) => void;
   resetFileOpenDrtOverrides: (fileId: string) => void;
   setFilePreProcessOverride: <K extends keyof PreProcessConfig>(fileId: string, key: K, value: PreProcessConfig[K]) => void;
@@ -16,8 +17,23 @@ export const createGradingSlice: Slice<GradingSlice> = (set) => ({
   setFileLookPreset: (fileId, preset) =>
     set((state) => ({
       files: state.files.map((f) => (
-        f.id === fileId ? { ...f, lookPreset: preset, openDrtOverrides: {} as Partial<OpenDrtConfig> } : f  // preProcessOverrides preserved
+        f.id !== fileId || (f.lookPreset === preset && Object.keys(f.openDrtOverrides).length === 0) ? f : {
+          ...f,
+          lookPreset: preset,
+          openDrtOverrides: {},
+          lookHistory: [...(f.lookHistory ?? []), {
+            lookPreset: f.lookPreset, openDrtOverrides: { ...f.openDrtOverrides },
+          }].slice(-20),
+        }
       )),
+    })),
+  undoFileLook: (fileId) =>
+    set((state) => ({
+      files: state.files.map((f) => {
+        if (f.id !== fileId || !f.lookHistory?.length) return f;
+        const previous = f.lookHistory[f.lookHistory.length - 1];
+        return { ...f, ...previous, lookHistory: f.lookHistory.slice(0, -1) };
+      }),
     })),
   setFileOpenDrtOverride: (fileId, key, value) =>
     set((state) => ({

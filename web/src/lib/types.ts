@@ -12,7 +12,8 @@ export type DemosaicMethod =
 
 export type ModelSize = 'S' | 'M' | 'L';
 export type ExportFormat = 'jpeg-hdr' | 'avif' | 'tiff';
-export type LookPreset = 'default' | 'colorful' | 'umbra' | 'base' | 'flat';
+export type LookPreset = 'default' | 'colorful' | 'umbra' | 'base' | 'flat'
+  | 'low-contrast' | 'medium-contrast' | 'aces-2' | 'marvelous';
 
 /** What the app stores and shows about a processed file (produced by the pipeline). */
 export interface ProcessingMetadata {
