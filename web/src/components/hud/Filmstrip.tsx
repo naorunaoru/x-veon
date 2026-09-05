@@ -1,3 +1,4 @@
+import { importFiles, removeFile } from '@/app/services/library';
 import { useCallback, useRef } from 'react';
 import { Plus, X } from 'lucide-react';
 import { useAppStore } from '@/app/store';
@@ -9,13 +10,11 @@ export function Filmstrip() {
   const files = useAppStore((s) => s.files);
   const selectedFileId = useAppStore((s) => s.selectedFileId);
   const selectFile = useAppStore((s) => s.selectFile);
-  const removeFile = useAppStore((s) => s.removeFile);
-  const addFiles = useAppStore((s) => s.addFiles);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const onPick = useCallback((list: FileList | null) => {
-    if (list) addFiles(Array.from(list));
-  }, [addFiles]);
+    if (list) importFiles(Array.from(list));
+  }, [importFiles]);
 
   return (
     <div className="xv-filmstrip xv-glass">

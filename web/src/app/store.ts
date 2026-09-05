@@ -3,14 +3,10 @@ import type { CfaType, DemosaicMethod, ExportFormat, LookPreset, ModelSize, Proc
 import { serializeResultMeta } from '@/lib/types';
 import type { OpenDrtConfig, PreProcessConfig } from '@/renderer/grading/opendrt-params';
 import type { PanelId } from '@/renderer/grading/sections';
-import { deleteAllForFile, writeRaw, writeThumbnail } from '@/app/storage/opfs-storage';
-import { putFile, deleteFile as idbDeleteFile, debouncedPutFile, putSetting } from '@/app/storage/idb-storage';
+import { putFile, debouncedPutFile, putSetting } from '@/app/storage/idb-storage';
 import type { PersistedFile } from '@/app/storage/idb-storage';
 import type { Renderer, HistogramChannel } from '@/renderer';
-import { extractRafThumbnail, extractRafQuickMetadata } from '@/pipeline/decode/raf-thumbnail';
 import type { QuickMetadata } from '@/pipeline/decode/raf-thumbnail';
-import { RAW_EXTENSIONS } from '@/pipeline/constants';
-import { matchLens } from '@/app/lens/lensfun';
 import type { LensProfile } from '@/app/lens/lensfun';
 
 export type FileStatus = 'queued' | 'processing' | 'done' | 'error';
@@ -86,7 +82,8 @@ interface AppState {
   // Actions
   setInitialized: (backend: string) => void;
   setInitError: (error: string) => void;
-  addFiles: (files: File[]) => void;
+  addFiles: (entries: QueuedFile[]) => void;
+  setFileThumbnail: (id: string, thumbnailUrl: string | null, metadata: QuickMetadata | null) => void;
   removeFile: (id: string) => void;
   selectFile: (id: string | null) => void;
   updateFileStatus: (id: string, status: FileStatus, error?: string) => void;
@@ -206,90 +203,22 @@ export const useAppStore = create<AppState>((set, get) => ({
   setInitError: (error) =>
     set({ initError: error }),
 
-  addFiles: (newFiles) => {
-    const entries: QueuedFile[] = newFiles
-      .filter((f) => {
-        const lower = f.name.toLowerCase();
-        return RAW_EXTENSIONS.some((ext) => lower.endsWith(ext));
-      })
-      .map((f) => ({
-        id: crypto.randomUUID(),
-        file: f,
-        name: f.name.replace(/\.[^.]+$/, ''),
-        originalName: f.name,
-        thumbnailUrl: null,
-        metadata: null,
-        cfaType: (f.name.toLowerCase().endsWith('.raf') ? 'xtrans' : 'bayer') as CfaType,
-        status: 'queued' as const,
-        error: null,
-        progress: null,
-        result: null,
-        resultMethod: null,
-        lensProfile: null,
-        lookPreset: 'default' as const,
-        openDrtOverrides: {},
-        preProcessOverrides: {},
-      }));
-
+  addFiles: (entries) => {
     if (entries.length === 0) return;
-
-    const currentFiles = get().files;
-
-    set({
-      files: [...currentFiles, ...entries],
-      selectedFileId: entries[0].id,
-    });
-
+    set({ files: [...get().files, ...entries], selectedFileId: entries[0].id });
     putSetting('selectedFileId', entries[0].id).catch(() => {});
-
-    // Write RAW to OPFS + persist to IDB, extract thumbnails
-    for (const entry of entries) {
-      entry.file!.arrayBuffer().then((buf) => {
-        // Write raw to OPFS
-        writeRaw(entry.id, buf).catch((e) => console.warn('OPFS raw write failed:', e));
-
-        // Extract thumbnail and metadata
-        const thumbBlob = extractRafThumbnail(buf);
-        const meta = extractRafQuickMetadata(buf);
-
-        // Write thumbnail to OPFS
-        if (thumbBlob) {
-          writeThumbnail(entry.id, thumbBlob).catch((e) => console.warn('OPFS thumbnail write failed:', e));
-        }
-
-        set((state) => ({
-          files: state.files.map((f) =>
-            f.id === entry.id
-              ? {
-                  ...f,
-                  thumbnailUrl: thumbBlob ? URL.createObjectURL(thumbBlob) : null,
-                  metadata: meta,
-                }
-              : f,
-          ),
-        }));
-
-        // Persist metadata to IDB
-        const updated = get().files.find((f) => f.id === entry.id);
-        if (updated) {
-          putFile(fileToPersistedFile(updated)).catch((e) => console.warn('IDB persist failed:', e));
-        }
-
-        // Match lens against LensFun database
-        if (meta?.lensModel) {
-          matchLens(meta.camera, meta.lensModel)
-            .then((profile) => {
-              if (profile) get().setFileLensProfile(entry.id, profile);
-            })
-            .catch((e) => console.warn('Lens match failed:', e));
-        }
-      });
-    }
   },
+  setFileThumbnail: (id, thumbnailUrl, metadata) =>
+    set((state) => ({
+      files: state.files.map((f) => {
+        if (f.id !== id) return f;
+        const updated = { ...f, thumbnailUrl, metadata };
+        persistFile(updated);
+        return updated;
+      }),
+    })),
 
   removeFile: (id) => {
-    deleteAllForFile(id).catch((e) => console.warn('OPFS cleanup failed:', e));
-    idbDeleteFile(id).catch((e) => console.warn('IDB cleanup failed:', e));
     set((state) => {
       const files = state.files.filter((f) => f.id !== id);
       const selectedFileId =
@@ -365,17 +294,6 @@ export const useAppStore = create<AppState>((set, get) => ({
           progress: null,
         };
         persistFile(updated);
-
-        // Match lens if not already matched and lens info is now available
-        if (!f.lensProfile && metadata.lensModel) {
-          queueMicrotask(() => {
-            matchLens(metadata.camera, metadata.lensModel)
-              .then((profile) => {
-                if (profile) get().setFileLensProfile(id, profile);
-              })
-              .catch((e) => console.warn('Lens match failed:', e));
-          });
-        }
 
         return updated;
       }),

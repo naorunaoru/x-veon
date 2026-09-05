@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { DropSurface } from './DropSurface';
-import { useAppStore } from '@/app/store';
+import { importFiles } from '@/app/services/library';
+vi.mock('@/app/services/library', () => ({ importFiles: vi.fn() }));
 
 describe('DropSurface', () => {
   it('renders the empty-state prompt', () => {
@@ -21,7 +22,7 @@ describe('DropSurface', () => {
 
   it('adds picked files via the input', () => {
     // addFiles kicks off a browser-only OPFS write (File.arrayBuffer), so stub it.
-    const spy = vi.spyOn(useAppStore.getState(), 'addFiles').mockImplementation(() => {});
+    const spy = vi.mocked(importFiles);
     render(<DropSurface />);
     const input = screen.getByTestId('empty-dropzone').querySelector('input[type="file"]')!;
     const file = new File(['x'], 'shot.raf', { type: 'image/x-fuji-raf' });

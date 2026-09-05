@@ -139,3 +139,10 @@ export function debouncedPutFile(file: PersistedFile, delayMs = 300): void {
     }, delayMs),
   );
 }
+
+/** Drop a pending debounced write, e.g. when the file is removed. */
+export function cancelPendingPut(id: string): void {
+  const existing = pendingTimers.get(id);
+  if (existing) clearTimeout(existing);
+  pendingTimers.delete(id);
+}

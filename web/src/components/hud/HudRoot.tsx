@@ -1,3 +1,4 @@
+import { importFiles } from '@/app/services/library';
 import { useAppStore } from '@/app/store';
 import { PhotoStage } from './PhotoStage';
 import { TopBar } from './TopBar';
@@ -14,12 +15,11 @@ import './HudRoot.css';
 export function HudRoot() {
   const hasFiles = useAppStore((s) => s.files.length > 0);
   const fileCount = useAppStore((s) => s.files.length);
-  const addFiles = useAppStore((s) => s.addFiles);
   const initialized = useAppStore((s) => s.initialized);
   const initError = useAppStore((s) => s.initError);
   // Window-level drag detection — restores drop-to-append while a photo is open,
   // and lights the empty-state frame. Works in every state (loading / error too).
-  const dragging = useFileDrag(addFiles);
+  const dragging = useFileDrag(importFiles);
   // Hide all chrome (everything but the filmstrip) until the selected photo is
   // actually displayable — i.e. while loading, on a decode error, or with no
   // result yet. The clusters fade+slide to their nearest edge (see HudRoot.css).

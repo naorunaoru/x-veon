@@ -1,3 +1,4 @@
+import { matchLensFor } from './library';
 /**
  * Owns the pipeline context and every processed image that has not been displayed yet.
  * The canvas takes a result to display it (ownership passes with it); a result that is
@@ -58,6 +59,7 @@ export async function processFile(fileId: string): Promise<void> {
     }
     results.set(fileId, image);
     useAppStore.getState().setFileResult(fileId, image.meta, method);
+    matchLensFor(fileId);
   } catch (e) {
     discardResult(fileId); // also release a published-but-unclaimed result if publication throws
     const detail = e instanceof Error ? e.message : typeof e === 'string' ? e : String(e);

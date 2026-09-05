@@ -12,7 +12,7 @@ vi.mock('@/app/storage/idb-storage', () => ({
   putFile: vi.fn().mockResolvedValue(undefined), putSetting: vi.fn().mockResolvedValue(undefined),
   debouncedPutFile: vi.fn(), deleteFile: vi.fn().mockResolvedValue(undefined),
 }));
-vi.mock('@/app/lens/lensfun', () => ({ matchLens: vi.fn().mockResolvedValue(null) }));
+vi.mock('@/app/services/library', () => ({ matchLensFor: vi.fn() }));
 
 import {
   processFile, setPipeline, takeResult, getResult, discardResult, isProcessing,

@@ -1,3 +1,5 @@
+import { removeFile } from '@/app/services/library';
+vi.mock('@/app/services/library', () => ({ importFiles: vi.fn(), removeFile: vi.fn() }));
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { Filmstrip } from './Filmstrip';
@@ -34,7 +36,7 @@ describe('Filmstrip', () => {
 
   it('removes a file via the hover-× without selecting it', () => {
     const select = vi.spyOn(useAppStore.getState(), 'selectFile').mockImplementation(() => {});
-    const remove = vi.spyOn(useAppStore.getState(), 'removeFile').mockImplementation(() => {});
+    const remove = vi.mocked(removeFile);
     render(<Filmstrip />);
     const cellB = screen.getAllByTestId('filmstrip-thumb')[1];
     fireEvent.click(within(cellB).getByLabelText('Remove file'));

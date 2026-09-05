@@ -1,3 +1,4 @@
+import { importFiles, removeFile } from '@/app/services/library';
 /**
  * Browser-only golden harness. It drives the real application through the store and hashes
  * renderer readbacks for a fixed pair of representative RAW files. Normal builds exclude it.
@@ -150,7 +151,7 @@ async function cycle(
   let rendererRefresh = armRendererRefresh();
   const startedAt = performance.now();
   try {
-    getStore().addFiles([file]);
+    importFiles([file]);
     const entry = getStore().files.find((candidate) => !previousIds.has(candidate.id));
     if (!entry) throw new Error('addFiles did not create an entry');
     const id = entry.id;
@@ -247,7 +248,7 @@ async function cycle(
         });
       }
     } finally {
-      getStore().removeFile(id);
+      removeFile(id);
       getStore().selectFile(null);
       getStore().setDemosaicMethod('neural-net');
     }
