@@ -2,7 +2,7 @@ import { useEffect, useRef, useMemo, memo } from 'react';
 import { useAppStore } from '@/app/store';
 import { usePanZoom } from '@/app/hooks/usePanZoom';
 import { takeResult } from '@/app/services/processing';
-import { HdrRenderer } from '@/renderer/renderer';
+import { createRenderer, isWebGpuSupported, type Renderer } from '@/renderer';
 import { configFromPreset, configWithOverrides, computeTonescaleParams } from '@/renderer/grading/opendrt-params';
 import type { OpenDrtConfig, PreProcessConfig } from '@/renderer/grading/opendrt-params';
 import type { ProcessingResultMeta } from '@/lib/types';
@@ -18,10 +18,9 @@ interface OutputCanvasProps {
 export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: OutputCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const rendererRef = useRef<HdrRenderer | null>(null);
+  const rendererRef = useRef<Renderer | null>(null);
   const rendererKeyRef = useRef('');
-  const setCanvasRef = useAppStore((s) => s.setCanvasRef);
-  const setRendererRef = useAppStore((s) => s.setRendererRef);
+  const setRenderer = useAppStore((s) => s.setRenderer);
 
   // Per-file grading — targeted primitive selectors to avoid re-renders from unrelated file changes
   const lookPreset = useAppStore((s) => s.files.find((f) => f.id === fileId)?.lookPreset ?? 'default');
@@ -55,7 +54,7 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
   // Method changes only reload the HWC texture — no renderer destruction, zoom preserved.
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !HdrRenderer.isSupported()) return;
+    if (!canvas || !isWebGpuSupported()) return;
 
     let cancelled = false;
     const rendererKey = `${fileId}:${hwcW}:${hwcH}:${displayHdr}:${displayHdrHeadroom}`;
@@ -68,7 +67,7 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
         rendererKeyRef.current = '';
         canvas.width = hwcW;
         canvas.height = hwcH;
-        const renderer = await HdrRenderer.create(canvas,
+        const renderer = await createRenderer(canvas,
           displayHdr ? { hdr: true, headroom: displayHdrHeadroom } : undefined,
         );
         if (cancelled) { renderer.dispose(); return; }
@@ -77,8 +76,7 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
       }
 
       const renderer = rendererRef.current!;
-      setCanvasRef(null);
-      setRendererRef(null);
+      setRenderer(null);
 
       if (cancelled) return;
       const image = takeResult(fileId);
@@ -89,7 +87,7 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
       }
 
       try {
-        renderer.uploadImageFromBuffer(image.gpu.buffer, hwcW, hwcH, image.gpu.bytesPerRow);
+        renderer.setImage(image.gpu);
       } finally {
         image.dispose();
       }
@@ -97,29 +95,27 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
       const preset = file?.lookPreset ?? 'default';
       const overrides = file?.openDrtOverrides ?? {};
       const preProcess = file?.preProcessOverrides ?? {};
-      applyOpenDrt(renderer, preset, overrides, preProcess, renderer.isHdrDisplay ? renderer.hdrHeadroom : undefined);
+      applyOpenDrt(renderer, preset, overrides, preProcess, renderer.display.hdr ? renderer.display.headroom : undefined);
       renderer.render();
-      setCanvasRef(canvas);
-      setRendererRef(renderer);
+      setRenderer(renderer);
     })();
 
     return () => { cancelled = true; };
-  }, [fileId, result, imgW, imgH, hwcW, hwcH, setCanvasRef, setRendererRef, displayHdr, displayHdrHeadroom]);
+  }, [fileId, result, imgW, imgH, hwcW, hwcH, setRenderer, displayHdr, displayHdrHeadroom]);
 
   // Dispose renderer on unmount only
   useEffect(() => () => {
     rendererRef.current?.dispose();
     rendererRef.current = null;
     rendererKeyRef.current = '';
-    useAppStore.getState().setCanvasRef(null);
-    useAppStore.getState().setRendererRef(null);
+    useAppStore.getState().setRenderer(null);
   }, []);
 
   // Re-render when look preset or overrides change (cheap: uniform update + draw)
   useEffect(() => {
     const renderer = rendererRef.current;
     if (!renderer) return;
-    applyOpenDrt(renderer, lookPreset, openDrtOverrides, preProcessOverrides, renderer.isHdrDisplay ? renderer.hdrHeadroom : undefined);
+    applyOpenDrt(renderer, lookPreset, openDrtOverrides, preProcessOverrides, renderer.display.hdr ? renderer.display.headroom : undefined);
     renderer.render();
   }, [lookPreset, openDrtOverrides, preProcessOverrides]);
 
@@ -143,7 +139,7 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
 });
 
 function applyOpenDrt(
-  renderer: HdrRenderer,
+  renderer: Renderer,
   lookPreset: string,
   overrides: Partial<OpenDrtConfig>,
   preProcess: Partial<PreProcessConfig>,
@@ -155,5 +151,5 @@ function applyOpenDrt(
   if (hdrHeadroom != null && hdrHeadroom > 1.0) {
     ts.ts_dsc = 1.0;
   }
-  renderer.setOpenDrtMode(ts, cfg);
+  renderer.setGrade(cfg, ts);
 }

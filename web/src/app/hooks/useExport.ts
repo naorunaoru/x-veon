@@ -20,7 +20,7 @@ export function useExport() {
     const state = useAppStore.getState();
     const file = state.files.find((f) => f.id === fileId);
     if (!file?.result) return;
-    if (!state.rendererRef) {
+    if (!state.renderer) {
       console.error('Export failed: renderer not available');
       return;
     }

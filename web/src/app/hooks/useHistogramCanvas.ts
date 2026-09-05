@@ -9,12 +9,12 @@ import { useAppStore } from '@/app/store';
  * HistogramHud, so this hook only handles registration + the initial paint.
  */
 export function useHistogramCanvas(canvasRef: RefObject<HTMLCanvasElement | null>) {
-  const renderer = useAppStore((s) => s.rendererRef);
+  const renderer = useAppStore((s) => s.renderer);
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!renderer || !canvas) return;
-    renderer.addHistogramCanvas(canvas);
+    renderer.histogram.attach(canvas);
     renderer.render(); // paint this target with the current bins immediately
-    return () => { renderer.removeHistogramCanvas(canvas); };
+    return () => { renderer.histogram.detach(canvas); };
   }, [renderer, canvasRef]);
 }

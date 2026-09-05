@@ -6,7 +6,7 @@ import type { PanelId } from '@/renderer/grading/sections';
 import { deleteAllForFile, writeRaw, writeThumbnail } from '@/app/storage/opfs-storage';
 import { putFile, deleteFile as idbDeleteFile, debouncedPutFile, putSetting } from '@/app/storage/idb-storage';
 import type { PersistedFile } from '@/app/storage/idb-storage';
-import type { HdrRenderer, HistogramChannel } from '@/renderer/renderer';
+import type { Renderer, HistogramChannel } from '@/renderer';
 import { extractRafThumbnail, extractRafQuickMetadata } from '@/pipeline/decode/raf-thumbnail';
 import type { QuickMetadata } from '@/pipeline/decode/raf-thumbnail';
 import { RAW_EXTENSIONS } from '@/pipeline/constants';
@@ -60,7 +60,7 @@ interface AppState {
   exportFormat: ExportFormat;
   exportQuality: number;
 
-  // HDR display output (WebGL2 extended range)
+  // HDR display output
   displayHdr: boolean;
   displayHdrHeadroom: number;
   hdrPermissionNeeded: boolean;
@@ -80,11 +80,8 @@ interface AppState {
   viewContainerW: number;
   viewContainerH: number;
 
-  // Canvas ref for WebCodecs AVIF export
-  canvasRef: HTMLCanvasElement | null;
-
   // Renderer ref for GPU export readback
-  rendererRef: HdrRenderer | null;
+  renderer: Renderer | null;
 
   // Actions
   setInitialized: (backend: string) => void;
@@ -123,8 +120,7 @@ interface AppState {
   setViewContainerSize: (w: number, h: number) => void;
   clearFileOpenDrtOverrides: (fileId: string, keys: (keyof OpenDrtConfig)[]) => void;
   clearFilePreProcessOverrides: (fileId: string, keys: (keyof PreProcessConfig)[]) => void;
-  setCanvasRef: (ref: HTMLCanvasElement | null) => void;
-  setRendererRef: (ref: HdrRenderer | null) => void;
+  setRenderer: (ref: Renderer | null) => void;
 
   // Restore from IndexedDB on startup
   restoreFromDb: (files: QueuedFile[], settings: {
@@ -202,8 +198,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   viewContainerW: 0,
   viewContainerH: 0,
 
-  canvasRef: null,
-  rendererRef: null,
+  renderer: null,
 
   setInitialized: (backend) =>
     set({ initialized: true, backend }),
@@ -501,8 +496,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }),
     })),
 
-  setCanvasRef: (ref) => set({ canvasRef: ref }),
-  setRendererRef: (ref) => set({ rendererRef: ref }),
+  setRenderer: (ref) => set({ renderer: ref }),
 
   restoreFromDb: (files, settings) => {
     const selectedFileId = settings.selectedFileId ?? (files.length > 0 ? files[0].id : null);

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useAppStore } from '@/app/store';
 import { useHistogramCanvas } from '@/app/hooks/useHistogramCanvas';
-import type { HistogramChannel, HistogramMode } from '@/renderer/renderer';
+import type { HistogramChannel, HistogramMode } from '@/renderer';
 import type { OpenDrtConfig, PreProcessConfig } from '@/renderer/grading/opendrt-params';
 import './HistogramHud.css';
 
@@ -23,7 +23,7 @@ const CHANNEL_LABEL: Record<HistogramChannel, string> = { rgb: 'RGB', luma: 'LUM
 
 export function HistogramHud() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const renderer = useAppStore((s) => s.rendererRef);
+  const renderer = useAppStore((s) => s.renderer);
   const source = useAppStore((s) => s.histogramSource);
   const channel = useAppStore((s) => s.histogramChannel);
   const selectedFile = useAppStore((s) => s.files.find((f) => f.id === s.selectedFileId));
@@ -40,8 +40,8 @@ export function HistogramHud() {
   // its own initial paint, via useHistogramCanvas).
   useEffect(() => {
     if (!renderer) return;
-    renderer.histogramMode = toRendererMode(channel, source);
-    renderer.histogramChannel = channel;
+    renderer.histogram.setMode(toRendererMode(channel, source));
+    renderer.histogram.setChannel(channel);
     renderer.render();
   }, [renderer, lookPreset, overrides, preProcess, channel, source]);
 

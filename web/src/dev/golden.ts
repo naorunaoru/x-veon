@@ -89,7 +89,7 @@ function armRendererRefresh(): { promise: Promise<void>; cancel: () => void } {
       STEP_TIMEOUT_MS,
     );
     unsubscribe = useAppStore.subscribe((state, previous) => {
-      if (previous.rendererRef === null && state.rendererRef !== null) finish();
+      if (previous.renderer === null && state.renderer !== null) finish();
     });
   });
 
@@ -103,18 +103,18 @@ const fileOf = (id: string) => useAppStore.getState().files.find((file) => file.
 const statusOf = (id: string) => fileOf(id)?.status;
 
 async function readbackHashes(): Promise<{ scene: string; display: string; displayDark: string }> {
-  const renderer = useAppStore.getState().rendererRef;
+  const renderer = useAppStore.getState().renderer;
   if (!renderer) throw new Error('renderer not published');
 
   const scene = await hashFloat32(await renderer.readbackImage());
   const base = configFromPreset('default');
   const config = configWithOverrides(base, {}, {});
   const display = await hashFloat32(
-    await renderer.renderForExport(config, computeTonescaleParams(config), 'rec709'),
+    await renderer.readback(config, computeTonescaleParams(config), 'rec709'),
   );
   const darkConfig = configWithOverrides(base, {}, { exposure: -4 });
   const displayDark = await hashFloat32(
-    await renderer.renderForExport(darkConfig, computeTonescaleParams(darkConfig), 'rec709'),
+    await renderer.readback(darkConfig, computeTonescaleParams(darkConfig), 'rec709'),
   );
   return { scene, display, displayDark };
 }
@@ -238,7 +238,7 @@ async function cycle(
           continue;
         }
 
-        await rendererRefresh.promise;
+      await rendererRefresh.promise;
         runs.push({
           key,
           run,

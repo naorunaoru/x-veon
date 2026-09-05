@@ -16,7 +16,7 @@ export async function renderExport(
 ): Promise<{ blob: Blob; ext: string }> {
   const state = useAppStore.getState();
   const file = state.files.find((f) => f.id === fileId);
-  const renderer = state.rendererRef;
+  const renderer = state.renderer;
   if (!file?.result || !renderer) throw new Error('nothing to export');
 
   const { exportData } = file.result;
@@ -38,15 +38,15 @@ export async function renderExport(
 
     if (format === 'jpeg-hdr') {
       // Dual render: SDR (Rec.709) + HDR (Rec.2020)
-      data = await renderer.renderForExport(sdrConfig, sdrTs, 'rec709');
-      hdrData = await renderer.renderForExport(hdrConfig, hdrTs, 'rec2020');
+      data = await renderer.readback(sdrConfig, sdrTs, 'rec709');
+      hdrData = await renderer.readback(hdrConfig, hdrTs, 'rec2020');
     } else {
       // AVIF: HDR only (Rec.2020)
-      data = await renderer.renderForExport(hdrConfig, hdrTs, 'rec2020');
+      data = await renderer.readback(hdrConfig, hdrTs, 'rec2020');
     }
   } else {
     // JPEG / TIFF: SDR (Rec.709)
-    data = await renderer.renderForExport(sdrConfig, sdrTs, 'rec709');
+    data = await renderer.readback(sdrConfig, sdrTs, 'rec709');
   }
 
   const blob = await encoderFor(format).encode(
