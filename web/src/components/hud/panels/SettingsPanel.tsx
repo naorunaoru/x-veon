@@ -1,6 +1,6 @@
 import { FloatingPanel } from '../FloatingPanel';
 import { useAppStore } from '@/app/store';
-import { useProcessFile } from '@/app/hooks/useProcessFile';
+import { useProcessing } from '@/app/hooks/useProcessing';
 import { useModelSizes } from '@/app/hooks/useModelSizes';
 import { demosaicMethodsFor, MODEL_SIZES } from '@/lib/catalog';
 import type { DemosaicMethod, ModelSize } from '@/lib/types';
@@ -16,7 +16,7 @@ export function SettingsPanel() {
   const displayHdr = useAppStore((s) => s.displayHdr);
   const displayHdrHeadroom = useAppStore((s) => s.displayHdrHeadroom);
   const selectedFile = useAppStore((s) => s.files.find((f) => f.id === s.selectedFileId));
-  const { processFile, isProcessing } = useProcessFile();
+  const { processFile, isProcessing } = useProcessing();
   const other = otherChannelLink(BUILD.channel);
 
   const cfaType = selectedFile?.cfaType ?? null;

@@ -457,7 +457,7 @@ export class HdrRenderer {
   /**
    * Upload image directly from a GPU buffer (RGBA32F, row-padded for 256-byte alignment).
    * Zero-copy path: avoids GPU→CPU readback + CPU→GPU re-upload.
-   * The buffer is destroyed after the copy completes.
+   * The caller keeps ownership of the buffer and may destroy it once this returns.
    */
   uploadImageFromBuffer(buffer: GPUBuffer, width: number, height: number, bytesPerRow: number): void {
     this.createImageTex(width, height);
@@ -470,8 +470,6 @@ export class HdrRenderer {
     );
     this.device.queue.submit([enc.finish()]);
 
-    // Buffer ownership transferred to us — destroy after copy is queued
-    buffer.destroy();
     this.rebuildBindGroups();
   }
 

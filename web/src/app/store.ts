@@ -49,6 +49,8 @@ interface AppState {
   // File management
   files: QueuedFile[];
   selectedFileId: string | null;
+  processingFileId: string | null;
+  setProcessingFileId: (id: string | null) => void;
 
   // Processing settings
   modelSize: ModelSize;
@@ -176,6 +178,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   files: [],
   selectedFileId: null,
+  processingFileId: null,
+  setProcessingFileId: (processingFileId) => set({ processingFileId }),
 
   modelSize: 'S' as ModelSize,
   demosaicMethod: 'neural-net',

@@ -120,7 +120,7 @@ async function getOrLoadSession(key: string): Promise<ModelEntry> {
 }
 
 /** Check which model sizes are available in the manifest for a CFA type. */
-export function getAvailableSizes(cfaType: CfaType): Set<ModelSize> {
+function getAvailableSizes(cfaType: CfaType): Set<ModelSize> {
   const sizes = new Set<ModelSize>();
   for (const [size, width] of Object.entries(SIZE_TO_WIDTH) as [ModelSize, number][]) {
     if (resolveModelKey(cfaType, width)) sizes.add(size);
@@ -128,7 +128,7 @@ export function getAvailableSizes(cfaType: CfaType): Set<ModelSize> {
   return sizes;
 }
 
-export async function initModels(size: ModelSize = 'S'): Promise<void> {
+async function initModels(size: ModelSize = 'S'): Promise<void> {
   if (initPromise) return initPromise;
 
   currentSize = size;
@@ -155,7 +155,7 @@ export async function initModels(size: ModelSize = 'S'): Promise<void> {
 }
 
 /** Switch to a different model size. Returns once the new models are loaded. */
-export async function switchModelSize(size: ModelSize): Promise<void> {
+async function switchModelSize(size: ModelSize): Promise<void> {
   if (size === currentSize) return;
   currentSize = size;
   const width = SIZE_TO_WIDTH[size];
@@ -174,7 +174,7 @@ export async function switchModelSize(size: ModelSize): Promise<void> {
  * with usage STORAGE | COPY_SRC. The returned GPUBuffer is owned by the caller
  * (dispose the tensor to release it when done with accumulation).
  */
-export async function runBatchGpu(
+async function runBatchGpu(
   cfaType: CfaType, inputBuffer: GPUBuffer, batchSize: number, patchSize: number,
 ): Promise<{ buffer: GPUBuffer; dispose: () => void }> {
   const key = active.get(cfaType);
@@ -194,12 +194,7 @@ export async function runBatchGpu(
   };
 }
 
-/** Get ORT's GPUDevice for compute shader interop (null if WASM backend). */
-export function getInferenceDevice(): GPUDevice | null {
-  return gpuDevice;
-}
-
-export function getBackend(): string | null {
+function getBackend(): string | null {
   return backend;
 }
 

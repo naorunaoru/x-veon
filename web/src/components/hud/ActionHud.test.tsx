@@ -4,11 +4,11 @@ import { ActionHud } from './ActionHud';
 import { useAppStore } from '@/app/store';
 import type { QueuedFile } from '@/app/store';
 
-// ActionHud calls useProcessFile()/useExport(), whose modules import the WASM
+// ActionHud calls useProcessing()/useExport(), whose modules import the WASM
 // pipeline. Mock them so the test renders without WASM; the real store still
 // drives the button disabled states.
-vi.mock('@/app/hooks/useProcessFile', () => ({
-  useProcessFile: () => ({ processFile: vi.fn(), isProcessing: false }),
+vi.mock('@/app/hooks/useProcessing', () => ({
+  useProcessing: () => ({ processFile: vi.fn(), isProcessing: false }),
 }));
 vi.mock('@/app/hooks/useExport', () => ({
   useExport: () => ({ exportFile: vi.fn(), isExporting: false }),

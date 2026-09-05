@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useAppStore } from '@/app/store';
-import { useProcessFile } from '@/app/hooks/useProcessFile';
+import { useProcessing } from '@/app/hooks/useProcessing';
 import type { FileStatus } from '@/app/store';
 import { isMethodValidForCfa } from '@/lib/catalog';
 
@@ -25,7 +25,7 @@ export function useAutoProcess(): void {
   const demosaicMethod = useAppStore((s) => s.demosaicMethod);
   const setDemosaicMethod = useAppStore((s) => s.setDemosaicMethod);
   const selectedFile = useAppStore((s) => s.files.find((f) => f.id === s.selectedFileId));
-  const { processFile, isProcessing } = useProcessFile();
+  const { processFile, isProcessing } = useProcessing();
 
   // CFA-aware method fallback: X-Trans-only / Bayer-only methods can't run on the other CFA.
   const cfaType = selectedFile?.cfaType ?? null;

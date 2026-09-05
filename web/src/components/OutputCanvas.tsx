@@ -1,7 +1,7 @@
 import { useEffect, useRef, useMemo, memo } from 'react';
 import { useAppStore } from '@/app/store';
 import { usePanZoom } from '@/app/hooks/usePanZoom';
-import { takeGpuResult } from '@/lib/hwc-handoff';
+import { takeResult } from '@/app/services/processing';
 import { HdrRenderer } from '@/renderer/renderer';
 import { configFromPreset, configWithOverrides, computeTonescaleParams } from '@/renderer/grading/opendrt-params';
 import type { OpenDrtConfig, PreProcessConfig } from '@/renderer/grading/opendrt-params';
@@ -80,14 +80,19 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
       setCanvasRef(null);
       setRendererRef(null);
 
-      const gpuResult = takeGpuResult(fileId);
-      if (cancelled || !gpuResult) {
-        // Handoff missed (e.g. restored session) → re-queue for processing
+      if (cancelled) return;
+      const image = takeResult(fileId);
+      if (!image) {
+        // No undisplayed result (e.g. restored session) → re-queue for processing
         useAppStore.getState().updateFileStatus(fileId, 'queued');
         return;
       }
 
-      renderer.uploadImageFromBuffer(gpuResult.buffer, hwcW, hwcH, gpuResult.bytesPerRow);
+      try {
+        renderer.uploadImageFromBuffer(image.gpu.buffer, hwcW, hwcH, image.gpu.bytesPerRow);
+      } finally {
+        image.dispose();
+      }
       const file = useAppStore.getState().files.find((f) => f.id === fileId);
       const preset = file?.lookPreset ?? 'default';
       const overrides = file?.openDrtOverrides ?? {};

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAppStore } from '@/app/store';
-import { useProcessFile } from '@/app/hooks/useProcessFile';
+import { useProcessing } from '@/app/hooks/useProcessing';
 import { useExport } from '@/app/hooks/useExport';
 import { ExportDialog } from '@/components/dialogs/ExportDialog';
 import './ActionHud.css';
@@ -8,7 +8,7 @@ import './ActionHud.css';
 export function ActionHud() {
   const initialized = useAppStore((s) => s.initialized);
   const selectedFile = useAppStore((s) => s.files.find((f) => f.id === s.selectedFileId));
-  const { processFile, isProcessing } = useProcessFile();
+  const { processFile, isProcessing } = useProcessing();
   const { exportFile, isExporting } = useExport();
   const [exportOpen, setExportOpen] = useState(false);
 

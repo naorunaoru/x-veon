@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 
 // Stub out WASM-backed modules so the pure predicate can be imported in isolation.
-vi.mock('@/app/hooks/useProcessFile', () => ({ useProcessFile: vi.fn() }));
+vi.mock('@/app/hooks/useProcessing', () => ({ useProcessing: vi.fn() }));
 vi.mock('@/app/store', () => ({ useAppStore: vi.fn() }));
 
 import { shouldAutoProcess } from './useAutoProcess';

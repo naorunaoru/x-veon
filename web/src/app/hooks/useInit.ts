@@ -1,10 +1,8 @@
 import { useEffect } from 'react';
 import { useAppStore } from '@/app/store';
 import type { QueuedFile } from '@/app/store';
-import { initWasm } from '@/pipeline/decode/raf-decoder';
-import { initModels, getBackend, getInferenceDevice } from '@/pipeline/inference';
-import { setSharedDevice } from '@/gpu/device';
-import { initDemosaicGpuSafe } from '@/pipeline/demosaic/demosaic';
+import { initPipeline } from '@/pipeline';
+import { setPipeline } from '@/app/services/processing';
 import { probeHdrDisplay, hasWindowManagementApi } from '@/renderer/hdr-display';
 import { getAllFiles, getSetting } from '@/app/storage/idb-storage';
 import type { PersistedFile } from '@/app/storage/idb-storage';
@@ -54,11 +52,9 @@ export function useInit() {
       try {
         // Initialize WASM, models, GPU demosaic in parallel
         // Restore from IndexedDB concurrently
-        const [,, , persistedFiles, demosaicMethod, exportFormat, exportQuality, selectedFileId] =
+        const [ctx, persistedFiles, demosaicMethod, exportFormat, exportQuality, selectedFileId] =
           await Promise.all([
-            initWasm(),
-            initModels(),
-            initDemosaicGpuSafe(),
+            initPipeline({ modelSize: 'S' }),
             getAllFiles().catch(() => [] as PersistedFile[]),
             getSetting<DemosaicMethod>('demosaicMethod').catch(() => undefined),
             getSetting<ExportFormat>('exportFormat').catch(() => undefined),
@@ -67,6 +63,7 @@ export function useInit() {
           ]);
 
         if (cancelled) return;
+        setPipeline(ctx);
 
         const files: QueuedFile[] = [];
         for (const p of persistedFiles) {
@@ -83,11 +80,7 @@ export function useInit() {
           });
         }
 
-        // Share ORT's WebGPU device with the renderer for zero-copy buffer interop
-        const ortDevice = getInferenceDevice();
-        if (ortDevice) setSharedDevice(ortDevice);
-
-        const backend = getBackend() ?? 'unknown';
+        const backend = ctx.models.backend ?? 'unknown';
 
         // Probe display HDR (headroom via Window Management API / screen API)
         const hdrDisplayInfo = await probeHdrDisplay();

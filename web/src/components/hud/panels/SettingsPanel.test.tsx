@@ -7,8 +7,8 @@ import type { QueuedFile } from '@/app/store';
 vi.mock('@/app/hooks/useModelSizes', () => ({
   useModelSizes: () => ({ available: new Set(['S', 'M', 'L']), switchTo: vi.fn().mockResolvedValue(undefined) }),
 }));
-vi.mock('@/app/hooks/useProcessFile', () => ({
-  useProcessFile: () => ({ processFile: vi.fn(), isProcessing: false }),
+vi.mock('@/app/hooks/useProcessing', () => ({
+  useProcessing: () => ({ processFile: vi.fn(), isProcessing: false }),
 }));
 
 function makeFile(): QueuedFile {
