@@ -45,4 +45,13 @@ describe('renderer ownership', () => {
     renderer.dispose();
     for (const r of f.resources) expect(r.destroy).toHaveBeenCalledTimes(1);
   });
+  it('does not retain a destroyed texture after replacement allocation fails', async () => {
+    const f = fixture(8); const renderer = await createRenderer(f.canvas);
+    const image = { buffer: {} as GPUBuffer, width: 1, height: 1, bytesPerRow: 256 };
+    renderer.setImage(image);
+    expect(() => renderer.setImage(image)).toThrow('allocation');
+    renderer.dispose();
+    for (const resource of f.resources) expect(resource.destroy).toHaveBeenCalledTimes(1);
+  });
+
 });

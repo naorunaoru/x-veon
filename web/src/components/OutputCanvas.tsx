@@ -98,7 +98,12 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
       applyOpenDrt(renderer, preset, overrides, preProcess, renderer.display.hdr ? renderer.display.headroom : undefined);
       renderer.render();
       setRenderer(renderer);
-    })();
+    })().catch((error: unknown) => {
+      if (cancelled) return;
+      const message = error instanceof Error ? error.message : String(error);
+      useAppStore.getState().updateFileStatus(fileId, 'error', message);
+      console.error('Display failed:', error);
+    });
 
     return () => { cancelled = true; };
   }, [fileId, result, imgW, imgH, hwcW, hwcH, setRenderer, displayHdr, displayHdrHeadroom]);

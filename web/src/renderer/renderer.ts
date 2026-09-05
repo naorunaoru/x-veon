@@ -146,13 +146,13 @@ export class HdrRenderer implements Renderer {
       addressModeV: 'clamp-to-edge',
     });
 
+    const uniformData = new Float32Array(UNIFORM_FLOATS);
+
     // Uniform buffer
     const uniformBuffer = device.createBuffer({
       size: UNIFORM_BYTES,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
-
-    const uniformData = new Float32Array(UNIFORM_FLOATS);
 
     try {
       const renderer = new HdrRenderer(
@@ -191,7 +191,8 @@ export class HdrRenderer implements Renderer {
   }
 
   private createImageTex(width: number, height: number): void {
-    if (this.imageTex) this.imageTex.destroy();
+    this.imageTex?.destroy();
+    this.imageTex = null;
     this.imgW = width;
     this.imgH = height;
 
