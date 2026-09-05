@@ -304,8 +304,24 @@ export function gpuAvailable(): boolean {
   return device !== null && pipeline !== null;
 }
 
-function createCfaPatternBuffer(cfaPattern: Uint32Array): GPUBuffer {
-  const buf = device!.createBuffer({
+/** Track each run allocation immediately, including buffers whose upload fails. */
+function runBuffers(device: GPUDevice) {
+  const owned: GPUBuffer[] = [];
+  return {
+    allocate(descriptor: GPUBufferDescriptor): GPUBuffer {
+      const buffer = device.createBuffer(descriptor);
+      owned.push(buffer);
+      return buffer;
+    },
+    dispose(): void {
+      for (const buffer of owned) if (buffer.mapState === 'mapped') buffer.unmap();
+      for (const buffer of owned) buffer.destroy();
+    },
+  };
+}
+
+function createCfaPatternBuffer(cfaPattern: Uint32Array, allocate: (descriptor: GPUBufferDescriptor) => GPUBuffer): GPUBuffer {
+  const buf = allocate({
     size: cfaPattern.byteLength,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
   });
@@ -332,63 +348,62 @@ export async function runBilinearGpu(
     throw new Error('Image too large for GPU storage buffer');
   }
 
-  const inputBuffer = device.createBuffer({
-    size: inputBytes,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-  });
-  device.queue.writeBuffer(inputBuffer, 0, cfa.buffer, cfa.byteOffset, cfa.byteLength);
+  const buffers = runBuffers(device);
+  try {
+    const inputBuffer = buffers.allocate({
+      size: inputBytes,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(inputBuffer, 0, cfa.buffer, cfa.byteOffset, cfa.byteLength);
 
-  const outputBuffer = device.createBuffer({
-    size: outputBytes,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
-  });
+    const outputBuffer = buffers.allocate({
+      size: outputBytes,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
 
-  const paramsBuffer = device.createBuffer({
-    size: 32,
-    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-  });
-  device.queue.writeBuffer(paramsBuffer, 0, new Uint32Array([width, height, dy, dx, period]));
+    const paramsBuffer = buffers.allocate({
+      size: 32,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(paramsBuffer, 0, new Uint32Array([width, height, dy, dx, period]));
 
-  const cfaPatternBuffer = createCfaPatternBuffer(cfaPattern);
+    const cfaPatternBuffer = createCfaPatternBuffer(cfaPattern, buffers.allocate);
 
-  const stagingBuffer = device.createBuffer({
-    size: outputBytes,
-    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-  });
+    const stagingBuffer = buffers.allocate({
+      size: outputBytes,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
 
-  const bindGroup = device.createBindGroup({
-    layout: pipeline.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: inputBuffer } },
-      { binding: 1, resource: { buffer: outputBuffer } },
-      { binding: 2, resource: { buffer: paramsBuffer } },
-      { binding: 3, resource: { buffer: cfaPatternBuffer } },
-    ],
-  });
+    const bindGroup = device.createBindGroup({
+      layout: pipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: inputBuffer } },
+        { binding: 1, resource: { buffer: outputBuffer } },
+        { binding: 2, resource: { buffer: paramsBuffer } },
+        { binding: 3, resource: { buffer: cfaPatternBuffer } },
+      ],
+    });
 
-  const encoder = device.createCommandEncoder();
-  const pass = encoder.beginComputePass();
-  pass.setPipeline(pipeline);
-  pass.setBindGroup(0, bindGroup);
-  pass.dispatchWorkgroups(
-    Math.ceil(width / 16),
-    Math.ceil(height / 16),
-  );
-  pass.end();
-  encoder.copyBufferToBuffer(outputBuffer, 0, stagingBuffer, 0, outputBytes);
-  device.queue.submit([encoder.finish()]);
+    const encoder = device.createCommandEncoder();
+    const pass = encoder.beginComputePass();
+    pass.setPipeline(pipeline);
+    pass.setBindGroup(0, bindGroup);
+    pass.dispatchWorkgroups(
+      Math.ceil(width / 16),
+      Math.ceil(height / 16),
+    );
+    pass.end();
+    encoder.copyBufferToBuffer(outputBuffer, 0, stagingBuffer, 0, outputBytes);
+    device.queue.submit([encoder.finish()]);
 
-  await stagingBuffer.mapAsync(GPUMapMode.READ);
-  const result = new Float32Array(new Float32Array(stagingBuffer.getMappedRange()));
-  stagingBuffer.unmap();
+    await stagingBuffer.mapAsync(GPUMapMode.READ);
+    const result = new Float32Array(new Float32Array(stagingBuffer.getMappedRange()));
 
-  inputBuffer.destroy();
-  outputBuffer.destroy();
-  paramsBuffer.destroy();
-  cfaPatternBuffer.destroy();
-  stagingBuffer.destroy();
 
-  return result;
+    return result;
+  } finally {
+    buffers.dispose();
+  }
 }
 
 export async function runDhtGpu(
@@ -415,90 +430,88 @@ export async function runDhtGpu(
   }
 
   // Shared buffers
-  const inputBuffer = device.createBuffer({
-    size: inputBytes,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-  });
-  device.queue.writeBuffer(inputBuffer, 0, cfa.buffer, cfa.byteOffset, cfa.byteLength);
+  const buffers = runBuffers(device);
+  try {
+    const inputBuffer = buffers.allocate({
+      size: inputBytes,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(inputBuffer, 0, cfa.buffer, cfa.byteOffset, cfa.byteLength);
 
-  const paramsBuffer = device.createBuffer({
-    size: 32,
-    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-  });
-  device.queue.writeBuffer(paramsBuffer, 0, new Uint32Array([width, height, dy, dx, period]));
+    const paramsBuffer = buffers.allocate({
+      size: 32,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(paramsBuffer, 0, new Uint32Array([width, height, dy, dx, period]));
 
-  const cfaPatternBuffer = createCfaPatternBuffer(cfaPattern);
+    const cfaPatternBuffer = createCfaPatternBuffer(cfaPattern, buffers.allocate);
 
-  // Intermediate green buffer (pass 1 output, pass 2 input)
-  const greenHvBuffer = device.createBuffer({
-    size: greenHvBytes,
-    usage: GPUBufferUsage.STORAGE,
-  });
+    // Intermediate green buffer (pass 1 output, pass 2 input)
+    const greenHvBuffer = buffers.allocate({
+      size: greenHvBytes,
+      usage: GPUBufferUsage.STORAGE,
+    });
 
-  // Final output
-  const outputBuffer = device.createBuffer({
-    size: outputBytes,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
-  });
+    // Final output
+    const outputBuffer = buffers.allocate({
+      size: outputBytes,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
 
-  const stagingBuffer = device.createBuffer({
-    size: outputBytes,
-    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-  });
+    const stagingBuffer = buffers.allocate({
+      size: outputBytes,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
 
-  const wgX = Math.ceil(width / 16);
-  const wgY = Math.ceil(height / 16);
+    const wgX = Math.ceil(width / 16);
+    const wgY = Math.ceil(height / 16);
 
-  // Pass 1: directional green interpolation
-  const greenBindGroup = device.createBindGroup({
-    layout: dhtGreenPipeline.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: inputBuffer } },
-      { binding: 1, resource: { buffer: greenHvBuffer } },
-      { binding: 2, resource: { buffer: paramsBuffer } },
-      { binding: 3, resource: { buffer: cfaPatternBuffer } },
-    ],
-  });
+    // Pass 1: directional green interpolation
+    const greenBindGroup = device.createBindGroup({
+      layout: dhtGreenPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: inputBuffer } },
+        { binding: 1, resource: { buffer: greenHvBuffer } },
+        { binding: 2, resource: { buffer: paramsBuffer } },
+        { binding: 3, resource: { buffer: cfaPatternBuffer } },
+      ],
+    });
 
-  // Pass 2: homogeneity selection + R/B color-difference
-  const resolveBindGroup = device.createBindGroup({
-    layout: dhtResolvePipeline.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: inputBuffer } },
-      { binding: 1, resource: { buffer: greenHvBuffer } },
-      { binding: 2, resource: { buffer: outputBuffer } },
-      { binding: 3, resource: { buffer: paramsBuffer } },
-      { binding: 4, resource: { buffer: cfaPatternBuffer } },
-    ],
-  });
+    // Pass 2: homogeneity selection + R/B color-difference
+    const resolveBindGroup = device.createBindGroup({
+      layout: dhtResolvePipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: inputBuffer } },
+        { binding: 1, resource: { buffer: greenHvBuffer } },
+        { binding: 2, resource: { buffer: outputBuffer } },
+        { binding: 3, resource: { buffer: paramsBuffer } },
+        { binding: 4, resource: { buffer: cfaPatternBuffer } },
+      ],
+    });
 
-  const encoder = device.createCommandEncoder();
+    const encoder = device.createCommandEncoder();
 
-  const pass1 = encoder.beginComputePass();
-  pass1.setPipeline(dhtGreenPipeline);
-  pass1.setBindGroup(0, greenBindGroup);
-  pass1.dispatchWorkgroups(wgX, wgY);
-  pass1.end();
+    const pass1 = encoder.beginComputePass();
+    pass1.setPipeline(dhtGreenPipeline);
+    pass1.setBindGroup(0, greenBindGroup);
+    pass1.dispatchWorkgroups(wgX, wgY);
+    pass1.end();
 
-  const pass2 = encoder.beginComputePass();
-  pass2.setPipeline(dhtResolvePipeline);
-  pass2.setBindGroup(0, resolveBindGroup);
-  pass2.dispatchWorkgroups(wgX, wgY);
-  pass2.end();
+    const pass2 = encoder.beginComputePass();
+    pass2.setPipeline(dhtResolvePipeline);
+    pass2.setBindGroup(0, resolveBindGroup);
+    pass2.dispatchWorkgroups(wgX, wgY);
+    pass2.end();
 
-  encoder.copyBufferToBuffer(outputBuffer, 0, stagingBuffer, 0, outputBytes);
-  device.queue.submit([encoder.finish()]);
+    encoder.copyBufferToBuffer(outputBuffer, 0, stagingBuffer, 0, outputBytes);
+    device.queue.submit([encoder.finish()]);
 
-  await stagingBuffer.mapAsync(GPUMapMode.READ);
-  const result = new Float32Array(new Float32Array(stagingBuffer.getMappedRange()));
-  stagingBuffer.unmap();
+    await stagingBuffer.mapAsync(GPUMapMode.READ);
+    const result = new Float32Array(new Float32Array(stagingBuffer.getMappedRange()));
 
-  inputBuffer.destroy();
-  paramsBuffer.destroy();
-  cfaPatternBuffer.destroy();
-  greenHvBuffer.destroy();
-  outputBuffer.destroy();
-  stagingBuffer.destroy();
 
-  return result;
+    return result;
+  } finally {
+    buffers.dispose();
+  }
 }
