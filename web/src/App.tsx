@@ -1,10 +1,10 @@
 import { HudRoot } from './components/hud/HudRoot';
 import { HdrPermissionDialog } from './components/dialogs/HdrPermissionDialog';
-import { useInit } from './app/hooks/useInit';
+import { useBootstrap } from './app/hooks/useBootstrap';
 import { useAutoProcess } from './app/hooks/useAutoProcess';
 
 export default function App() {
-  useInit();
+  useBootstrap();
   useAutoProcess();
 
   return (

@@ -1,6 +1,3 @@
-import { useEffect } from 'react';
-import { startPersistence } from '@/app/services/persistence';
-
 import { useAppStore } from '@/app/store';
 import { initPipeline } from '@/pipeline';
 import { setPipeline } from '@/app/services/processing';
@@ -9,11 +6,16 @@ import { matchLensFor, cleanupOrphans } from '@/app/services/library';
 import { probeHdrDisplay, hasWindowManagementApi } from '@/renderer/hdr-display';
 
 /** Initialise the pipeline and restore the library; `signal.cancelled` stops the store writes. */
-async function initApp(signal: { cancelled: boolean }): Promise<void> {
+export async function initApp(signal: { cancelled: boolean }): Promise<void> {
   const store = useAppStore.getState;
   try {
     const [ctx, restored] = await Promise.all([initPipeline({ modelSize: 'S' }), restore()]);
-    if (signal.cancelled) return;
+    if (signal.cancelled) {
+      for (const file of restored.files) {
+        if (file.thumbnailUrl) URL.revokeObjectURL(file.thumbnailUrl);
+      }
+      return;
+    }
     setPipeline(ctx);
 
     if (restored.files.length > 0) store().restoreFromDb(restored.files, restored.settings);
@@ -22,6 +24,7 @@ async function initApp(signal: { cancelled: boolean }): Promise<void> {
 
     // Probe display HDR (headroom via Window Management API / screen API)
     const hdrDisplayInfo = await probeHdrDisplay();
+    if (signal.cancelled) return;
     if (hdrDisplayInfo.supported) {
       store().setDisplayHdr(true, hdrDisplayInfo.headroom);
       // If headroom is a conservative fallback and the Window Management API
@@ -44,17 +47,4 @@ async function initApp(signal: { cancelled: boolean }): Promise<void> {
   } catch (e) {
     if (!signal.cancelled) store().setInitError((e as Error).message);
   }
-}
-
-/** Mount once near the root: starts persistence and the app initialisation. */
-export function useInit(): void {
-  useEffect(() => {
-    const stopPersistence = startPersistence();
-    const signal = { cancelled: false };
-    initApp(signal);
-    return () => {
-      signal.cancelled = true;
-      stopPersistence();
-    };
-  }, []);
 }
