@@ -1,5 +1,5 @@
-// TypeScript port of OpenDrtConfig presets and TonescaleParams from opendrt.rs.
-// Only config values + precomputed tonescale constants — process_pixel runs in the shader.
+// OpenDRT v1.0 configuration and tonescale constants; see tests/opendrt/README.md.
+// Pixel processing runs in the shader. Versioned upstream looks coexist with saved X-Veon looks.
 
 import type { LookPreset } from '@/lib/types';
 
@@ -412,13 +412,224 @@ export const TONESCALE_PRESETS: Record<TonescalePreset, { label: string; overrid
   },
 };
 
+// Exact look parameters from the official OpenDRT v1.0.0 StickShift release:
+// https://github.com/jedypod/open-display-transform/releases/tag/v1.0.0
+// Jed Smith, GPL-3.0. cwp D50 enum (3) maps to this app's D65→D50 amount (1).
+const UPSTREAM_V1_LOOKS: Record<'default' | 'colorful' | 'umbra' | 'base',
+  Omit<OpenDrtConfig, 'peak_luminance' | 'grey_boost' | 'pt_hdr'>> = {
+  'default': {
+    tn_lg: 11.1,
+    tn_con: 1.4,
+    tn_sh: 0.5,
+    tn_toe: 0.003,
+    tn_off: 0.005,
+    tn_hcon_enable: false,
+    tn_hcon: 0.0,
+    tn_hcon_pv: 1.0,
+    tn_hcon_st: 4.0,
+    tn_lcon_enable: true,
+    tn_lcon: 1.0,
+    tn_lcon_w: 0.5,
+    tn_lcon_pc: 1.0,
+    cwp: 0,
+    cwp_rng: 0.5,
+    rs_sa: 0.35,
+    rs_rw: 0.25,
+    rs_bw: 0.55,
+    pt_r: 0.5,
+    pt_g: 2.0,
+    pt_b: 2.0,
+    pt_rng_low: 0.2,
+    pt_rng_high: 0.8,
+    ptl_enable: true,
+    ptm_enable: true,
+    ptm_low: 0.2,
+    ptm_low_st: 0.5,
+    ptm_high: -0.8,
+    ptm_high_st: 0.3,
+    brl_enable: true,
+    brl_r: -0.5,
+    brl_g: -0.4,
+    brl_b: -0.2,
+    brl_c: 0.0,
+    brl_m: 0.0,
+    brl_y: 0.0,
+    brl_rng: 0.66,
+    hs_rgb_enable: true,
+    hs_r: 0.35,
+    hs_g: 0.25,
+    hs_b: 0.5,
+    hs_rgb_rng: 0.6,
+    hs_cmy_enable: true,
+    hs_c: 0.2,
+    hs_m: 0.2,
+    hs_y: 0.2,
+    hc_enable: true,
+    hc_r: 0.6,
+  },
+  'colorful': {
+    tn_lg: 11.1,
+    tn_con: 1.3,
+    tn_sh: 0.5,
+    tn_toe: 0.005,
+    tn_off: 0.005,
+    tn_hcon_enable: false,
+    tn_hcon: 0.0,
+    tn_hcon_pv: 1.0,
+    tn_hcon_st: 4.0,
+    tn_lcon_enable: true,
+    tn_lcon: 0.75,
+    tn_lcon_w: 1.0,
+    tn_lcon_pc: 1.0,
+    cwp: 0,
+    cwp_rng: 0.5,
+    rs_sa: 0.35,
+    rs_rw: 0.15,
+    rs_bw: 0.55,
+    pt_r: 0.5,
+    pt_g: 0.8,
+    pt_b: 0.5,
+    pt_rng_low: 0.25,
+    pt_rng_high: 0.5,
+    ptl_enable: true,
+    ptm_enable: true,
+    ptm_low: 0.5,
+    ptm_low_st: 0.5,
+    ptm_high: -0.8,
+    ptm_high_st: 0.3,
+    brl_enable: true,
+    brl_r: -0.55,
+    brl_g: -0.5,
+    brl_b: 0.0,
+    brl_c: 0.0,
+    brl_m: 0.0,
+    brl_y: 0.1,
+    brl_rng: 0.5,
+    hs_rgb_enable: true,
+    hs_r: 0.4,
+    hs_g: 0.6,
+    hs_b: 0.5,
+    hs_rgb_rng: 0.6,
+    hs_cmy_enable: true,
+    hs_c: 0.2,
+    hs_m: 0.1,
+    hs_y: 0.2,
+    hc_enable: true,
+    hc_r: 0.8,
+  },
+  'umbra': {
+    tn_lg: 6.0,
+    tn_con: 1.8,
+    tn_sh: 0.5,
+    tn_toe: 0.001,
+    tn_off: 0.015,
+    tn_hcon_enable: false,
+    tn_hcon: 0.0,
+    tn_hcon_pv: 1.0,
+    tn_hcon_st: 4.0,
+    tn_lcon_enable: true,
+    tn_lcon: 1.0,
+    tn_lcon_w: 1.0,
+    tn_lcon_pc: 1.0,
+    cwp: 1,
+    cwp_rng: 0.8,
+    rs_sa: 0.45,
+    rs_rw: 0.1,
+    rs_bw: 0.35,
+    pt_r: 0.1,
+    pt_g: 0.4,
+    pt_b: 2.5,
+    pt_rng_low: 0.2,
+    pt_rng_high: 0.8,
+    ptl_enable: true,
+    ptm_enable: true,
+    ptm_low: 0.4,
+    ptm_low_st: 0.5,
+    ptm_high: -0.8,
+    ptm_high_st: 0.3,
+    brl_enable: true,
+    brl_r: -0.7,
+    brl_g: -0.6,
+    brl_b: -0.2,
+    brl_c: 0.0,
+    brl_m: -0.25,
+    brl_y: 0.1,
+    brl_rng: 0.9,
+    hs_rgb_enable: true,
+    hs_r: 0.4,
+    hs_g: 0.8,
+    hs_b: 0.4,
+    hs_rgb_rng: 1.0,
+    hs_cmy_enable: true,
+    hs_c: 1.0,
+    hs_m: 0.6,
+    hs_y: 1.0,
+    hc_enable: true,
+    hc_r: 0.8,
+  },
+  'base': {
+    tn_lg: 11.1,
+    tn_con: 1.4,
+    tn_sh: 0.5,
+    tn_toe: 0.003,
+    tn_off: 0.0,
+    tn_hcon_enable: false,
+    tn_hcon: 0.0,
+    tn_hcon_pv: 1.0,
+    tn_hcon_st: 4.0,
+    tn_lcon_enable: false,
+    tn_lcon: 0.0,
+    tn_lcon_w: 0.5,
+    tn_lcon_pc: 1.0,
+    cwp: 0,
+    cwp_rng: 0.5,
+    rs_sa: 0.35,
+    rs_rw: 0.25,
+    rs_bw: 0.5,
+    pt_r: 1.0,
+    pt_g: 2.0,
+    pt_b: 2.5,
+    pt_rng_low: 0.25,
+    pt_rng_high: 0.25,
+    ptl_enable: true,
+    ptm_enable: false,
+    ptm_low: 0.0,
+    ptm_low_st: 0.5,
+    ptm_high: 0.0,
+    ptm_high_st: 0.3,
+    brl_enable: false,
+    brl_r: 0.0,
+    brl_g: 0.0,
+    brl_b: 0.0,
+    brl_c: 0.0,
+    brl_m: 0.0,
+    brl_y: 0.0,
+    brl_rng: 0.5,
+    hs_rgb_enable: false,
+    hs_r: 0.0,
+    hs_g: 0.0,
+    hs_b: 0.0,
+    hs_rgb_rng: 0.5,
+    hs_cmy_enable: false,
+    hs_c: 0.0,
+    hs_m: 0.0,
+    hs_y: 0.0,
+    hc_enable: false,
+    hc_r: 0.0,
+  },
+};
+
 /** Every selectable look supplies a complete rendering baseline. Existing IDs and
  * configurations stay stable so saved photos retain their original appearance. */
 export const LOOK_PRESETS: Record<LookPreset, { label: string; config: () => OpenDrtConfig }> = {
-  default: { label: 'Default', config: defaultSdr },
-  colorful: { label: 'Colorful', config: colorfulSdr },
-  umbra: { label: 'Umbra', config: umbraSdr },
-  base: { label: 'Base', config: baseSdr },
+  'opendrt-v1-default': { label: 'OpenDRT 1.0 · Default', config: () => ({ ...baseSdr(), ...UPSTREAM_V1_LOOKS.default }) },
+  'opendrt-v1-colorful': { label: 'OpenDRT 1.0 · Colorful', config: () => ({ ...baseSdr(), ...UPSTREAM_V1_LOOKS.colorful }) },
+  'opendrt-v1-umbra': { label: 'OpenDRT 1.0 · Umbra', config: () => ({ ...baseSdr(), ...UPSTREAM_V1_LOOKS.umbra }) },
+  'opendrt-v1-base': { label: 'OpenDRT 1.0 · Base', config: () => ({ ...baseSdr(), ...UPSTREAM_V1_LOOKS.base }) },
+  default: { label: 'Default (X-Veon)', config: defaultSdr },
+  colorful: { label: 'Colorful (X-Veon)', config: colorfulSdr },
+  umbra: { label: 'Umbra (X-Veon)', config: umbraSdr },
+  base: { label: 'Base (X-Veon)', config: baseSdr },
   flat: { label: 'Flat', config: flatSdr },
   'low-contrast': { label: 'Low Contrast', config: () => lookWithTone('low-contrast') },
   'medium-contrast': { label: 'Medium Contrast', config: () => lookWithTone('medium-contrast') },
@@ -434,6 +645,37 @@ export function configFromPreset(preset: LookPreset, hdrHeadroom?: number): Open
   const cfg = (LOOK_PRESETS[preset] ?? LOOK_PRESETS.default).config();
   if (hdrHeadroom != null && hdrHeadroom > 1.0) {
     cfg.peak_luminance = hdrHeadroom * 100;
+  }
+  return cfg;
+}
+
+/** Numerical domain shared by UI controls and render-time validation.
+ * Positive minima follow OpenDRT v1.0 StickShift; the project retains its wider
+ * nonsingular creative ranges. Saved overrides are normalized without rewriting storage. */
+export const OPENDRT_LIMITS = {
+  rs_sa: [0, 0.6],
+  pt_rng_low: [0.1, 1],
+  pt_rng_high: [0.25, 2],
+  ptm_low_st: [0.1, 1],
+  ptm_high_st: [0.2, 1],
+  hs_rgb_rng: [0.25, 4],
+  tn_lg: [3, 25], tn_con: [0.9, 2.1], tn_sh: [0, 1],
+  tn_toe: [0, 0.1], tn_off: [0, 0.05],
+  tn_lcon_w: [0, 2], cwp: [0, 1], cwp_rng: [0, 1],
+  peak_luminance: [100, 10000], grey_boost: [0, 0.5], pt_hdr: [0, 1],
+} as const;
+
+export function sanitizeOpenDrtConfig<T extends OpenDrtConfig>(config: T): T {
+  const cfg = { ...config };
+  const fallback = baseSdr();
+  for (const key of Object.keys(fallback) as (keyof OpenDrtConfig)[]) {
+    if (typeof fallback[key] === 'number' && !Number.isFinite(cfg[key])) {
+      Object.assign(cfg, { [key]: fallback[key] });
+    }
+  }
+  for (const key of Object.keys(OPENDRT_LIMITS) as (keyof typeof OPENDRT_LIMITS)[]) {
+    const [min, max] = OPENDRT_LIMITS[key];
+    cfg[key] = Math.min(max, Math.max(min, cfg[key]));
   }
   return cfg;
 }
@@ -465,7 +707,7 @@ export function configWithOverrides(
   if ('hc_r' in overrides && !('hc_enable' in overrides)) {
     cfg.hc_enable = cfg.hc_r !== 0;
   }
-  return cfg;
+  return sanitizeOpenDrtConfig(cfg);
 }
 
 /** Derive an HDR variant from an SDR config (for JPEG-HDR / AVIF export). */
@@ -476,6 +718,7 @@ export function deriveHdrConfig(sdrConfig: GradingConfig, peakLuminance = 1000):
 // ── TonescaleParams (matching opendrt.rs TonescaleParams::new, lines 209-230) ──
 
 export function computeTonescaleParams(cfg: OpenDrtConfig): TonescaleParams {
+  cfg = sanitizeOpenDrtConfig(cfg);
   const ts_x1 = Math.pow(2, 6.0 * cfg.tn_sh + 4.0);
   const ts_y1 = cfg.peak_luminance / 100.0;
   const ts_x0 = 0.18 + cfg.tn_off;

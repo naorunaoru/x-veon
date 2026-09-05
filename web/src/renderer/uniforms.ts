@@ -1,11 +1,11 @@
-import type { GradingConfig, TonescaleParams } from './grading/opendrt-params';
-import { IDENTITY_3X3, computeCwpAdaptMatrix } from './color-matrices';
+import { sanitizeOpenDrtConfig, type GradingConfig, type TonescaleParams } from './grading/opendrt-params';
+import { IDENTITY_3X3, P3D65_TO_REC709, P3D65_TO_REC2020, computeCwpAdaptMatrix } from './color-matrices';
 
 // Float offsets into the uniform buffer shadow array.
 export const U_TS           = 0;   // vec4: ts_s, ts_s1, ts_m2, ts_dsc
 export const U_FLAGS        = 4;   // vec4: ts_x0, hdrDisplay, exportMode, ptl_enable
 export const U_ODRT_TONE    = 8;   // vec4: tn_con, tn_sh, tn_toe, tn_off
-export const U_ODRT_RS      = 12;  // vec4: rs_sa, rs_rw, rs_bw, 0
+export const U_ODRT_RS      = 12;  // vec4: rs_sa, rs_rw, rs_bw, rec2020_output
 export const U_ODRT_PT      = 16;  // vec4: pt_r, pt_g, pt_b, pt_rng_low
 export const U_ODRT_PT2     = 20;  // vec4: pt_rng_high, ptm_high_st, 0, 0
 export const U_ODRT_LCON    = 24;  // vec4: enable, tn_lcon, tn_lcon_w, tn_lcon_pc
@@ -33,7 +33,10 @@ export function setMat3(d: Float32Array, offset: number, m: Float32Array): void 
   d[offset + 8] = m[2]; d[offset + 9] = m[5]; d[offset + 10] = m[8]; d[offset + 11] = 0;
 }
 
-export function applyOpenDrtUniforms(d: Float32Array, ts: TonescaleParams, cfg: GradingConfig, isHdrDisplay: boolean): void {
+export function applyOpenDrtUniforms(d: Float32Array, ts: TonescaleParams, cfg: GradingConfig, outputGamut: 'rec709' | 'p3' | 'rec2020'): void {
+
+  cfg = sanitizeOpenDrtConfig(cfg);
+  setMat3(d, U_P3_DSP_C0, outputGamut === 'rec709' ? P3D65_TO_REC709 : outputGamut === 'rec2020' ? P3D65_TO_REC2020 : IDENTITY_3X3);
 
   // Tonescale params
   d[U_TS]     = ts.ts_s;
@@ -54,7 +57,7 @@ export function applyOpenDrtUniforms(d: Float32Array, ts: TonescaleParams, cfg: 
   d[U_ODRT_RS]     = cfg.rs_sa;
   d[U_ODRT_RS + 1] = cfg.rs_rw;
   d[U_ODRT_RS + 2] = cfg.rs_bw;
-  d[U_ODRT_RS + 3] = 0;
+  d[U_ODRT_RS + 3] = outputGamut === 'rec2020' ? 1 : 0;
 
   d[U_ODRT_PT]     = cfg.pt_r;
   d[U_ODRT_PT + 1] = cfg.pt_g;
@@ -109,7 +112,7 @@ export function applyOpenDrtUniforms(d: Float32Array, ts: TonescaleParams, cfg: 
 
   // Creative white adaptation matrix (identity when cwp=0)
   if (cfg.cwp > 0) {
-    const cwpAdapt = computeCwpAdaptMatrix(isHdrDisplay);
+    const cwpAdapt = computeCwpAdaptMatrix(outputGamut !== 'rec709', cfg.cwp);
     setMat3(d, U_CWP_C0, cwpAdapt);
   } else {
     setMat3(d, U_CWP_C0, IDENTITY_3X3);

@@ -1,7 +1,7 @@
 // WebGPU display facade; histogram and readback resources have separate owners.
 import type { GradingConfig, TonescaleParams } from './grading/opendrt-params';
 import type { GpuImage } from '@/lib/types';
-import { SRGB_TO_P3D65, P3D65_TO_REC709, P3D65_TO_REC2020, IDENTITY_3X3 } from './color-matrices';
+import { SRGB_TO_P3D65, P3D65_TO_REC709, IDENTITY_3X3 } from './color-matrices';
 import WGSL_SRC from './shaders/opendrt.wgsl?raw';
 import { Histogram, type HistogramMode, type HistogramChannel } from './histogram';
 import { ExportTarget, readTextureRgba } from './readback';
@@ -222,7 +222,7 @@ export class HdrRenderer implements Renderer {
   setGrade(cfg: GradingConfig, ts: TonescaleParams): void {
     this.displayTs = ts;
     this.displayCfg = cfg;
-    applyOpenDrtUniforms(this.uniformData, ts, cfg, this._isHdrDisplay);
+    applyOpenDrtUniforms(this.uniformData, ts, cfg, this._isHdrDisplay ? 'p3' : 'rec709');
   }
 
   render(): void {
@@ -265,8 +265,7 @@ export class HdrRenderer implements Renderer {
       const d = this.uniformData;
       d[U_FLAGS + 1] = 0.0;  // hdrDisplay off (SDR clamp in opendrt())
       d[U_FLAGS + 2] = 1.0;  // exportMode on
-      setMat3(this.uniformData, U_P3_DSP_C0, gamut === 'rec2020' ? P3D65_TO_REC2020 : P3D65_TO_REC709);
-      applyOpenDrtUniforms(this.uniformData, ts, cfg, this._isHdrDisplay);
+      applyOpenDrtUniforms(this.uniformData, ts, cfg, gamut);
       this.device.queue.writeBuffer(this.uniformBuffer, 0, d as Float32Array<ArrayBuffer>);
 
       // Render to export texture
@@ -319,7 +318,7 @@ export class HdrRenderer implements Renderer {
 
     // Restore display OpenDRT config
     if (this.displayTs && this.displayCfg) {
-      applyOpenDrtUniforms(this.uniformData, this.displayTs, this.displayCfg, this._isHdrDisplay);
+      applyOpenDrtUniforms(this.uniformData, this.displayTs, this.displayCfg, this._isHdrDisplay ? 'p3' : 'rec709');
     }
 
     // Re-render to canvas

@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from 'react';
 import { useAppStore } from '@/app/store';
 import {
-  configFromPreset, DEFAULT_PREPROCESS,
+  configFromPreset, configWithOverrides, DEFAULT_PREPROCESS,
   type OpenDrtConfig, type PreProcessConfig,
 } from '@/renderer/grading/opendrt-params';
 import { estimateColorTemperature, findWbTempForCct, findWbTintForTint } from '@/pipeline/color-temperature';
@@ -37,10 +37,12 @@ export function useGrading() {
   const hdrHeadroom = displayHdr ? displayHdrHeadroom : undefined;
   const baseConfig = useMemo(() => configFromPreset(lookPreset, hdrHeadroom), [lookPreset, hdrHeadroom]);
 
+  const effectiveConfig = useMemo(() => configWithOverrides(baseConfig, overrides), [baseConfig, overrides]);
+
   const effective = useCallback(
     <K extends keyof OpenDrtConfig>(key: K): OpenDrtConfig[K] =>
-      (overrides[key] ?? baseConfig[key]) as OpenDrtConfig[K],
-    [overrides, baseConfig],
+      effectiveConfig[key] as OpenDrtConfig[K],
+    [effectiveConfig],
   );
   const effectivePre = useCallback(
     (key: keyof PreProcessConfig): number => preOverrides[key] ?? DEFAULT_PREPROCESS[key],

@@ -1,6 +1,6 @@
 // Static data for the Rendering panel: hue geometry + per-mode key maps,
 // wheel modes and the Advanced drawer schema.
-import type { OpenDrtConfig } from '@/renderer/grading/opendrt-params';
+import { OPENDRT_LIMITS, type OpenDrtConfig } from '@/renderer/grading/opendrt-params';
 
 type DrtKey = keyof OpenDrtConfig;
 export type WheelMode = 'brl' | 'hue' | 'pur';
@@ -38,8 +38,8 @@ export const WHEEL_MODES: { k: WheelMode; label: string }[] = [
 /** The OpenDRT key the wheel's "Intensity range" slider drives, per mode. */
 export const RANGE_KEY: Record<WheelMode, { key: DrtKey; min: number; max: number }> = {
   brl: { key: 'brl_rng', min: 0, max: 1 },
-  hue: { key: 'hs_rgb_rng', min: 0, max: 4 },
-  pur: { key: 'pt_rng_low', min: 0, max: 1 },
+  hue: { key: 'hs_rgb_rng', min: OPENDRT_LIMITS.hs_rgb_rng[0], max: OPENDRT_LIMITS.hs_rgb_rng[1] },
+  pur: { key: 'pt_rng_low', min: OPENDRT_LIMITS.pt_rng_low[0], max: OPENDRT_LIMITS.pt_rng_low[1] },
 };
 
 // ── Purity (pt_r/g/b) ↔ wheel transform ────────────────────────────────────
@@ -65,7 +65,9 @@ export type ExpertRow =
   | { kind: 'toggle'; key: DrtKey; label: string };
 
 const s = (key: DrtKey, label: string, min: number, max: number, step: number): ExpertRow =>
-  ({ kind: 'slider', key, label, min, max, step });
+  ({ kind: 'slider', key, label,
+    min: key in OPENDRT_LIMITS ? OPENDRT_LIMITS[key as keyof typeof OPENDRT_LIMITS][0] : min,
+    max: key in OPENDRT_LIMITS ? Math.min(max, OPENDRT_LIMITS[key as keyof typeof OPENDRT_LIMITS][1]) : max, step });
 const t = (key: DrtKey, label: string): ExpertRow => ({ kind: 'toggle', key, label });
 
 export const EXPERT_GROUPS: { title: string; rows: ExpertRow[] }[] = [
@@ -96,7 +98,7 @@ export const EXPERT_GROUPS: { title: string; rows: ExpertRow[] }[] = [
     s('pt_g', 'Compress G', 0, 5, 0.01),
     s('pt_b', 'Compress B', 0, 5, 0.01),
     s('pt_rng_low', 'Range low', 0, 1, 0.01),
-    s('pt_rng_high', 'Range high', 0, 1, 0.01),
+    s('pt_rng_high', 'Range high', 0.25, 2, 0.01),
     t('ptl_enable', 'Compress low'),
     t('ptm_enable', 'Mid purity'),
     s('ptm_low', 'Mid low', -1, 1, 0.01),

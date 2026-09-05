@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (c) 2024-present X-Veon contributors
-// OpenDRT tone mapping shader — WGSL port of frag.glsl + vert.glsl.
+// OpenDRT v1.0 tone mapping, based on the bundled ART CTL reference.
 // Combined vertex + fragment in a single module.
 
 // ── Uniforms ────────────────────────────────────────────────────────────
@@ -9,7 +9,7 @@ struct Uniforms {
   ts: vec4f,                  // (ts_s, ts_s1, ts_m2, ts_dsc)
   ts_x0_and_flags: vec4f,    // (ts_x0, hdrDisplay, exportMode, ptl_enable)
   odrt_tone: vec4f,           // (tn_con, tn_sh, tn_toe, tn_off)
-  odrt_rs: vec4f,             // (rs_sa, rs_rw, rs_bw, 0)
+  odrt_rs: vec4f,             // (rs_sa, rs_rw, rs_bw, rec2020_output)
   odrt_pt: vec4f,             // (pt_r, pt_g, pt_b, pt_rng_low)
   odrt_pt2: vec4f,            // (pt_rng_high, ptm_high_st, 0, 0)
   odrt_lcon: vec4f,           // (enable, tn_lcon, tn_lcon_w, tn_lcon_pc)
@@ -81,13 +81,13 @@ fn compress_toe_quadratic(x: f32, toe: f32) -> f32 {
 }
 
 fn compress_toe_cubic_fwd(x: f32, m: f32, w: f32) -> f32 {
-  if (m == 1.0) { return x; }
+  if (m == 1.0 || w == 0.0) { return x; }
   let x2 = x * x;
   return x * (x2 + m * w) / (x2 + w);
 }
 
 fn compress_toe_cubic_inv(x: f32, m: f32, w: f32) -> f32 {
-  if (m == 1.0) { return x; }
+  if (m == 1.0 || w == 0.0) { return x; }
   let x2 = x * x;
   let p0 = x2 - 3.0 * m * w;
   let p1 = 2.0 * x2 + 27.0 * w - 9.0 * m * w;
@@ -109,7 +109,7 @@ fn contrast_high(x: f32, p: f32, pv: f32, pv_lx: f32) -> f32 {
 }
 
 fn complement_power(x: f32, p: f32) -> f32 {
-  return 1.0 - spowf(1.0 - x, 1.0 / p);
+  return 1.0 - spowf(1.0 - x, 1.0 / max(p, 0.1));
 }
 
 fn sigmoid_cubic(x: f32, s: f32) -> f32 {
@@ -122,9 +122,9 @@ fn gauss_window(x: f32, w: f32) -> f32 {
   return exp(-y * y);
 }
 
-// GLSL mod(a, b) = a - b * floor(a / b) — WGSL has no float mod
+// Signed remainder, matching CTL fmod / DCTL _fmod (including negative inputs).
 fn fmod(a: f32, b: f32) -> f32 {
-  return a - b * floor(a / b);
+  return a - b * trunc(a / b);
 }
 
 fn hue_offset(h: f32, o: f32) -> f32 {
@@ -159,7 +159,7 @@ fn opendrt(rgb_in: vec3f) -> vec3f {
   let tn_con = u.odrt_tone.x;
   let tn_toe = u.odrt_tone.z;
   let tn_off = u.odrt_tone.w;
-  let rs_sa  = u.odrt_rs.x;
+  let rs_sa  = clamp(u.odrt_rs.x, 0.0, 0.6);
   let rs_rw  = u.odrt_rs.y;
   let rs_bw  = u.odrt_rs.z;
   let pt_r   = u.odrt_pt.x;
@@ -197,7 +197,7 @@ fn opendrt(rgb_in: vec3f) -> vec3f {
   b += tn_off;
 
   // Contrast Low
-  if (u.odrt_lcon.x > 0.5) {
+  if (u.odrt_lcon.x > 0.5 && u.odrt_lcon.z > 0.0) {
     let tn_lcon = u.odrt_lcon.y;
     let tn_lcon_w = u.odrt_lcon.z;
     let tn_lcon_pc = u.odrt_lcon.w;
@@ -275,7 +275,11 @@ fn opendrt(rgb_in: vec3f) -> vec3f {
   ach_d = 1.25 * compress_toe_quadratic(ach_d, 0.25);
 
   // Hue angle + RGB/CMY hue windows
-  let hue = fmod(atan2(opp_cy, opp_gm) + PI + 1.10714931, 2.0 * PI);
+  var hue = 0.0;
+  // Hue is irrelevant for neutrals; atan2(0, 0) is undefined in WGSL.
+  if (opp_cy != 0.0 || opp_gm != 0.0) {
+    hue = fmod(atan2(opp_cy, opp_gm) + PI + 1.10714931, 2.0 * PI);
+  }
 
   let ha_r = gauss_window(hue_offset(hue, 0.1), 0.9);
   let ha_g = gauss_window(hue_offset(hue, 4.3), 0.9);
@@ -285,7 +289,7 @@ fn opendrt(rgb_in: vec3f) -> vec3f {
   let ha_y = gauss_window(hue_offset(hue, -1.2), 0.6);
 
   // Purity compression range
-  var ts_pt_cmp = 1.0 - spowf(ts_pt, 1.0 / pt_rng_low);
+  var ts_pt_cmp = 1.0 - spowf(ts_pt, 1.0 / max(pt_rng_low, 0.1));
 
   var pt_rng_high_f = min(ach_d / 1.2, 1.0);
   pt_rng_high_f *= pt_rng_high_f;
@@ -355,7 +359,7 @@ fn opendrt(rgb_in: vec3f) -> vec3f {
   // Hue Shift RGB — shifts more as intensity increases
   if (u.odrt_hs_rgb.x > 0.5) {
     let hs_rgb_rng = u.odrt_hs_etc.x;
-    let hs_mod = ha_rgb_p * pow(ts_pt, 1.0 / hs_rgb_rng);
+    let hs_mod = ha_rgb_p * spowf(ts_pt, 1.0 / max(hs_rgb_rng, 0.25));
     let hsf = vec3f(
       hs_mod.x * u.odrt_hs_rgb.y,
       hs_mod.y * -u.odrt_hs_rgb.z,
@@ -394,27 +398,30 @@ fn opendrt(rgb_in: vec3f) -> vec3f {
 
   // Inverse rendering space
   let sat_l2 = r * rs_rw + g * rs_gw + b * rs_bw;
-  let inv_sa = 1.0 / (min(rs_sa, 0.999) - 1.0);
+  let inv_sa = 1.0 / (rs_sa - 1.0);
   r = (sat_l2 * rs_sa - r) * inv_sa;
   g = (sat_l2 * rs_sa - g) * inv_sa;
   b = (sat_l2 * rs_sa - b) * inv_sa;
 
   // Display gamut conversion (e. g. P3 -> Rec.709 for SDR)
-  let disp = p3_to_display * vec3f(r, g, b);
+  // Rec.2020 is P3-limited: defer conversion until after purity processing and clipping.
+  var disp = vec3f(r, g, b);
+  if (u.odrt_rs.w < 0.5) { disp = p3_to_display * disp; }
   r = disp.x;
   g = disp.y;
   b = disp.z;
 
   // Creative White — blend towards warm (D50) adaptation in highlights
   let cwp_rng = u.odrt_hs_cmy.w;
-  if (cwp_rng > 0.0) {
+  {
     let cwp_adapt = mat3x3f(
       u.cwp_adapt_col0.xyz,
       u.cwp_adapt_col1.xyz,
       u.cwp_adapt_col2.xyz,
     );
     let cwp_rgb = cwp_adapt * vec3f(r, g, b);
-    let cwp_f = pow(max(tsn, 0.0), 1.0 - cwp_rng);
+    var cwp_f = 1.0;
+    if (cwp_rng < 1.0) { cwp_f = spowf(tsn, 1.0 - cwp_rng); }
     r = cwp_rgb.x * cwp_f + r * (1.0 - cwp_f);
     g = cwp_rgb.y * cwp_f + g * (1.0 - cwp_f);
     b = cwp_rgb.z * cwp_f + b * (1.0 - cwp_f);
@@ -445,10 +452,12 @@ fn opendrt(rgb_in: vec3f) -> vec3f {
   g *= tsn;
   b *= tsn;
 
+  var result = max(vec3f(r, g, b), vec3f(0.0));
   if (u.ts_x0_and_flags.y < 0.5) {
-    return clamp(vec3f(r, g, b), vec3f(0.0), vec3f(1.0));
+    result = clamp(result, vec3f(0.0), vec3f(1.0));
   }
-  return max(vec3f(r, g, b), vec3f(0.0));
+  if (u.odrt_rs.w > 0.5) { result = p3_to_display * result; }
+  return result;
 }
 
 // ── Fragment ────────────────────────────────────────────────────────────

@@ -23,8 +23,8 @@ describe('RenderingPanel', () => {
   it('offers one look selector above Tone, Colour and collapsed Advanced controls', () => {
     render(<RenderingPanel />);
     expect(screen.getAllByRole('combobox')).toHaveLength(1);
-    expect(screen.getByRole('combobox', { name: 'Look' })).toHaveDisplayValue('Default');
-    expect(screen.getAllByRole('option', { name: 'Umbra' })).toHaveLength(1);
+    expect(screen.getByRole('combobox', { name: 'Look' })).toHaveDisplayValue('Default (X-Veon)');
+    expect(screen.getAllByRole('option', { name: 'Umbra (X-Veon)' })).toHaveLength(1);
     expect(screen.queryByText('Base look')).not.toBeInTheDocument();
     expect(screen.queryByText('Tonescale preset')).not.toBeInTheDocument();
     ['Tone', 'Colour', 'Highlight warmth'].forEach((label) => expect(screen.getByText(label)).toBeInTheDocument());
@@ -38,14 +38,14 @@ describe('RenderingPanel', () => {
     const original = makeFile({ lookPreset: 'umbra', openDrtOverrides: { tn_con: 1.7, brl_r: 0.2 }, preProcessOverrides: { exposure: 1, wb_temp: 0.3, sharpen_amount: 0.5 } });
     useAppStore.setState({ files: [original] });
     render(<RenderingPanel />);
-    expect(screen.getByRole('combobox', { name: 'Look' })).toHaveDisplayValue('Umbra · Modified');
+    expect(screen.getByRole('combobox', { name: 'Look' })).toHaveDisplayValue('Umbra (X-Veon) · Modified');
     selectLook('marvelous');
     expect(file()).toMatchObject({ lookPreset: 'marvelous', openDrtOverrides: {}, preProcessOverrides: original.preProcessOverrides });
     expect(screen.getByRole('combobox', { name: 'Look' })).toHaveDisplayValue('Marvelous');
     expect(screen.getByRole('slider', { name: 'Contrast' })).toHaveAttribute('aria-valuenow', '1.5');
     fireEvent.click(screen.getByRole('button', { name: 'Undo look change' }));
     expect(file()).toMatchObject(original);
-    expect(screen.getByRole('combobox', { name: 'Look' })).toHaveDisplayValue('Umbra · Modified');
+    expect(screen.getByRole('combobox', { name: 'Look' })).toHaveDisplayValue('Umbra (X-Veon) · Modified');
   });
 
   it('opens legacy look-plus-tonescale edits without changing any rendering values', () => {
@@ -53,7 +53,7 @@ describe('RenderingPanel', () => {
     const before = configWithOverrides(configFromPreset(original.lookPreset), original.openDrtOverrides);
     useAppStore.setState({ files: [original] });
     render(<RenderingPanel />);
-    expect(screen.getByRole('combobox', { name: 'Look' })).toHaveDisplayValue('Colorful · Modified');
+    expect(screen.getByRole('combobox', { name: 'Look' })).toHaveDisplayValue('Colorful (X-Veon) · Modified');
     expect(configWithOverrides(configFromPreset(file().lookPreset), file().openDrtOverrides)).toEqual(before);
   });
 
@@ -81,7 +81,7 @@ describe('RenderingPanel', () => {
     render(<RenderingPanel />);
     fireEvent.click(screen.getByRole('button', { name: 'Reset look' }));
     expect(file()).toMatchObject({ lookPreset: 'umbra', openDrtOverrides: {}, preProcessOverrides: original.preProcessOverrides });
-    expect(screen.getByRole('combobox', { name: 'Look' })).toHaveDisplayValue('Umbra');
+    expect(screen.getByRole('combobox', { name: 'Look' })).toHaveDisplayValue('Umbra (X-Veon)');
     fireEvent.click(screen.getByRole('button', { name: 'Undo look change' }));
     expect(file()).toMatchObject(original);
   });
@@ -90,9 +90,9 @@ describe('RenderingPanel', () => {
     render(<RenderingPanel />);
     const contrast = screen.getByRole('slider', { name: 'Contrast' });
     fireEvent.keyDown(contrast, { key: 'ArrowRight' });
-    expect(screen.getByRole('combobox', { name: 'Look' })).toHaveDisplayValue('Default · Modified');
+    expect(screen.getByRole('combobox', { name: 'Look' })).toHaveDisplayValue('Default (X-Veon) · Modified');
     fireEvent.keyDown(contrast, { key: 'ArrowLeft' });
-    expect(screen.getByRole('combobox', { name: 'Look' })).toHaveDisplayValue('Default');
+    expect(screen.getByRole('combobox', { name: 'Look' })).toHaveDisplayValue('Default (X-Veon)');
     expect(screen.queryByRole('button', { name: 'Reset Tone' })).not.toBeInTheDocument();
   });
 
@@ -124,4 +124,22 @@ describe('RenderingPanel', () => {
     expect(screen.getByRole('combobox', { name: 'Look' })).toBeDisabled();
     expect(screen.queryByRole('button', { name: 'Undo look change' })).not.toBeInTheDocument();
   });
+  it('offers versioned upstream looks without migrating existing saved looks', () => {
+    render(<RenderingPanel />);
+    expect(screen.getByRole('option', { name: 'OpenDRT 1.0 · Default' })).toBeInTheDocument();
+    selectLook('opendrt-v1-default');
+    expect(configFromPreset(file().lookPreset).tn_lg).toBe(11.1);
+    fireEvent.click(screen.getByRole('button', { name: 'Undo look change' }));
+    expect(file().lookPreset).toBe('default');
+    expect(configFromPreset(file().lookPreset).tn_lg).toBe(18);
+  });
+
+  it('shows safe effective values for legacy singular settings', () => {
+    useAppStore.setState({ files: [makeFile({ openDrtOverrides: { rs_sa: 1, pt_rng_low: 0 } })] });
+    render(<RenderingPanel />);
+    expect(screen.getByRole('slider', { name: 'Overall purity' })).toHaveAttribute('aria-valuemax', '0.6');
+    expect(screen.getByRole('slider', { name: 'Overall purity' })).toHaveAttribute('aria-valuenow', '0.6');
+    expect(file().openDrtOverrides).toEqual({ rs_sa: 1, pt_rng_low: 0 });
+  });
+
 });

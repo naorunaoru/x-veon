@@ -1,5 +1,5 @@
 // Precomputed color space conversion matrices for WebGPU preview.
-// All matrices stored in row-major order as flat Float32Array (for gl.uniformMatrix3fv).
+// All matrices stored in row-major order as flat Float32Array (packed as WGSL columns by setMat3).
 
 // sRGB → P3-D65 = XYZ_TO_P3D65 * inv(XYZ_TO_SRGB)
 // Since hwc data is already color-corrected to linear sRGB, this is needed
@@ -51,12 +51,15 @@ const P3D65_TO_P3D65_D50 = new Float32Array([
 ]);
 
 /** Compute CWP adaptation matrix: cwp_adapt = P3→display_cwp * inv(P3→display_D65).
- *  When applied to D65 display-referred RGB, gives the D50-adapted result. */
-export function computeCwpAdaptMatrix(isHdr: boolean): Float32Array {
-  const d65 = isHdr ? IDENTITY_3X3 : P3D65_TO_REC709;
-  const d50 = isHdr ? P3D65_TO_P3D65_D50 : P3D65_TO_REC709_D50;
+ *  Blend from identity to D50 by amount. Rec.2020 uses P3 here because its
+ *  output conversion happens after adaptation, purity processing and clipping. */
+export function computeCwpAdaptMatrix(isP3: boolean, amount = 1): Float32Array {
+  const d65 = isP3 ? IDENTITY_3X3 : P3D65_TO_REC709;
+  const d50 = isP3 ? P3D65_TO_P3D65_D50 : P3D65_TO_REC709_D50;
   const inv = invert3x3(d65);
-  return multiply3x3(d50, inv);
+  const adapted = multiply3x3(d50, inv);
+  const blend = Math.min(1, Math.max(0, amount));
+  return adapted.map((v, i) => IDENTITY_3X3[i] + blend * (v - IDENTITY_3X3[i]));
 }
 
 // ── 3×3 matrix math (row-major) ──────────────────────────────────────────

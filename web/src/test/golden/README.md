@@ -24,6 +24,18 @@ Plan A.
 Hashes are adapter-specific. A mismatch on another GPU is expected; a mismatch on the recording
 adapter is a defect to explain, never a tolerance to widen.
 
+## OpenDRT correction, 2026-09-05
+
+The OpenDRT conformance fixes intentionally change graded readbacks and encoded
+exports (hue remainder semantics, achromatic handling, and P3-limited Rec.2020
+processing). The hashes below remain the historical pre-fix baseline; they have
+not been regenerated because `public/samples/` is absent from this checkout.
+Scene texture hashes should remain unchanged. Re-record the graded/export hashes
+with the two required RAW samples using the procedure below before treating this
+browser suite as a current rendering baseline. Do not widen comparisons to hide
+the intended changes. The standalone `tests/opendrt/check_shader.py` checks the
+corrected shader against the complete CTL reference without those RAW samples.
+
 ## Running
 
 ```bash

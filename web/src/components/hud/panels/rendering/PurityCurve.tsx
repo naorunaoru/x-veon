@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { useGrading } from '@/app/hooks/useGrading';
+import { OPENDRT_LIMITS } from '@/renderer/grading/opendrt-params';
 import { Slider } from '../../Slider';
 import { useDrag, relPos, clamp } from './hooks';
 
@@ -42,16 +43,16 @@ export function PurityCurve({ g }: { g: Grading }) {
   });
   const dragHi = useDrag((e) => {
     const { x } = relPos(e, svgRef.current!);
-    g.setDrt('pt_rng_high', +clamp((x - PAD) / GW, 0, 1).toFixed(2));
+    g.setDrt('pt_rng_high', +(0.25 + clamp((x - PAD) / GW, 0, 1) * 1.75).toFixed(2));
   });
 
   const midPt = { x: xOf(0.45), y: yOf(yAt(0.45)) };
-  const hiX = clamp(hi, 0, 1);
+  const hiX = clamp((hi - 0.25) / 1.75, 0, 1);
   const hiPt = { x: xOf(hiX), y: yOf(yAt(hiX)) };
 
   return (
     <div>
-      <Slider label="Overall purity" min={0} max={1} step={0.01}
+      <Slider label="Overall purity" min={OPENDRT_LIMITS.rs_sa[0]} max={OPENDRT_LIMITS.rs_sa[1]} step={0.01}
         value={sat} defaultValue={g.baseConfig.rs_sa} onChange={(v) => g.setDrt('rs_sa', v)} />
       <svg ref={svgRef} className="xv-rsvg xv-purity-svg" width={W} height={H}>
         <g stroke="var(--xv-border)" strokeWidth={1} opacity={0.45}>

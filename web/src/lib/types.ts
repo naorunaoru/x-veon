@@ -12,7 +12,8 @@ export type DemosaicMethod =
 
 export type ModelSize = 'S' | 'M' | 'L';
 export type ExportFormat = 'jpeg-hdr' | 'avif' | 'tiff';
-export type LookPreset = 'default' | 'colorful' | 'umbra' | 'base' | 'flat'
+export type LookPreset = 'opendrt-v1-default' | 'opendrt-v1-colorful' | 'opendrt-v1-umbra' | 'opendrt-v1-base'
+  | 'default' | 'colorful' | 'umbra' | 'base' | 'flat'
   | 'low-contrast' | 'medium-contrast' | 'aces-2' | 'marvelous';
 
 /** What the app stores and shows about a processed file (produced by the pipeline). */

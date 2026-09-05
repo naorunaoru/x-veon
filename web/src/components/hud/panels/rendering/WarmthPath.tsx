@@ -60,7 +60,7 @@ export function WarmthPath({ g }: { g: Grading }) {
         <Readout label="Warmth" value={cwp === 0 ? 'D65' : cwp >= 0.99 ? 'D50' : cwp.toFixed(2)}
           accent={cwp > 0 ? AMBER : undefined}
           scrub={{ get: () => g.effective('cwp'), set: (v) => g.setDrt('cwp', +v.toFixed(2)), min: 0, max: 1 }} />
-        <Readout label="Onset" value={cwp_rng === 0 ? 'off' : `${Math.round((1 - onsetT) * 100)}%`}
+        <Readout label="Onset" value={cwp_rng === 0 ? 'highlights' : `${Math.round((1 - onsetT) * 100)}%`}
           accent={cwp_rng > 0 ? 'var(--xv-primary)' : undefined}
           scrub={{ get: () => g.effective('cwp_rng'), set: (v) => g.setDrt('cwp_rng', +v.toFixed(2)), min: 0, max: 1 }} />
       </div>

@@ -30,4 +30,14 @@ describe('complete look presets', () => {
     cfg.tn_con = 9;
     expect(configFromPreset('marvelous')).toMatchObject({ tn_con: 1.5, peak_luminance: 100 });
   });
+  // Independently transcribed from the official v1.0.0 release, not evolving main.
+  it.each([
+    ['opendrt-v1-default', { tn_lg: 11.1, hs_r: 0.35, hs_g: 0.25, hs_rgb_rng: 0.6, hc_r: 0.6 }],
+    ['opendrt-v1-colorful', { tn_lg: 11.1, tn_con: 1.3, tn_toe: 0.005, rs_rw: 0.15, pt_g: 0.8 }],
+    ['opendrt-v1-umbra', { tn_lg: 6, rs_sa: 0.45, rs_rw: 0.1, rs_bw: 0.35, cwp: 1, cwp_rng: 0.8 }],
+    ['opendrt-v1-base', { tn_lg: 11.1, tn_off: 0, hs_rgb_enable: false, brl_enable: false }],
+  ] as const)('preserves the official %s look parameters', (id, expected) => {
+    expect(configFromPreset(id)).toMatchObject(expected);
+  });
+
 });
