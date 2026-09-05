@@ -549,7 +549,8 @@ export interface PostprocessResult {
  * @param device   WebGPU device (shared with renderer via setSharedDevice)
  * @param rawHwc   Raw demosaic output in HWC layout (no WB applied).
  *                 Can be a Float32Array (uploaded to GPU) or a GPUBuffer
- *                 already on the GPU (e.g. from GPU tile blending).
+ *                 already on the GPU (e.g. from GPU tile blending). GPU input
+ *                 ownership transfers at entry, even if setup fails; CPU input is borrowed.
  * @param width    Image width
  * @param height   Image height
  * @param wb       White balance multipliers [R, G, B] normalized to G=1
@@ -567,257 +568,256 @@ export async function gpuPostprocess(
   ccMatrix: Float32Array | null,
   drGain: number,
 ): Promise<PostprocessResult> {
-  const n = width * height;
-  const pipes = getPipelines(device);
+  const gpuInput = !(rawHwc instanceof Float32Array);
+  const owned = new Set<GPUBuffer>();
+  if (gpuInput) owned.add(rawHwc as GPUBuffer);
+  const allocate = (size: number, usage: GPUBufferUsageFlags): GPUBuffer => {
+    const buffer = buf(device, size, usage);
+    owned.add(buffer);
+    return buffer;
+  };
+  try {
+    const n = width * height;
+    const pipes = getPipelines(device);
 
-  const S = GPUBufferUsage.STORAGE;
-  const D = GPUBufferUsage.COPY_DST;
-  const C = GPUBufferUsage.COPY_SRC;
-  const U = GPUBufferUsage.UNIFORM;
+    const S = GPUBufferUsage.STORAGE;
+    const D = GPUBufferUsage.COPY_DST;
+    const C = GPUBufferUsage.COPY_SRC;
+    const U = GPUBufferUsage.UNIFORM;
 
-  const gpuInput = rawHwc instanceof GPUBuffer;
 
-  // Check if anything will clip after WB (saves ~1 GB VRAM when nothing clips).
-  // When input is already a GPUBuffer we can't scan on CPU — conservatively
-  // assume clipping is possible (the HL recovery buffers cost ~1 GB but are
-  // only allocated for images that actually have clipped highlights).
-  let anyClipped = gpuInput;
-  if (!gpuInput) {
-    const cpuData = rawHwc as Float32Array;
-    for (let i = 0; i < n * 3; i += 3) {
-      if (cpuData[i] * wb[0] >= clips[0] ||
-          cpuData[i + 1] * wb[1] >= clips[1] ||
-          cpuData[i + 2] * wb[2] >= clips[2]) {
-        anyClipped = true;
-        break;
+    // Check if anything will clip after WB (saves ~1 GB VRAM when nothing clips).
+    // When input is already a GPUBuffer we can't scan on CPU — conservatively
+    // assume clipping is possible (the HL recovery buffers cost ~1 GB but are
+    // only allocated for images that actually have clipped highlights).
+    let anyClipped = gpuInput;
+    if (!gpuInput) {
+      const cpuData = rawHwc as Float32Array;
+      for (let i = 0; i < n * 3; i += 3) {
+        if (cpuData[i] * wb[0] >= clips[0] ||
+            cpuData[i + 1] * wb[1] >= clips[1] ||
+            cpuData[i + 2] * wb[2] >= clips[2]) {
+          anyClipped = true;
+          break;
+        }
       }
     }
-  }
 
-  // ── Buffers ─────────────────────────────────────────────────────────────
+    // ── Buffers ─────────────────────────────────────────────────────────────
 
-  let dataBuf: GPUBuffer;
-  if (gpuInput) {
-    dataBuf = rawHwc as GPUBuffer;
-  } else {
-    dataBuf = buf(device, n * 3 * 4, S | D);
-    device.queue.writeBuffer(dataBuf, 0, asGpu(rawHwc as Float32Array));
-  }
+    let dataBuf: GPUBuffer;
+    if (gpuInput) {
+      dataBuf = rawHwc as GPUBuffer;
+    } else {
+      dataBuf = allocate(n * 3 * 4, S | D);
+      device.queue.writeBuffer(dataBuf, 0, asGpu(rawHwc as Float32Array));
+    }
 
-  // Output buffer: RGBA32F with row padding for 256-byte bytesPerRow alignment
-  const paddedW = padWidth16(width);
-  const bytesPerRow = paddedW * 16;  // 4 channels × 4 bytes × paddedW pixels
-  const outputBuf = buf(device, bytesPerRow * height, S | C);
+    // Output buffer: RGBA32F with row padding for 256-byte bytesPerRow alignment
+    const paddedW = padWidth16(width);
+    const bytesPerRow = paddedW * 16;  // 4 channels × 4 bytes × paddedW pixels
+    const outputBuf = allocate(bytesPerRow * height, S | C);
 
-  // WB params
-  const wbParamBuf = buf(device, 24, U | D);
-  {
-    const ab = new ArrayBuffer(24);
-    new Uint32Array(ab, 0, 2).set([width, height]);
-    new Float32Array(ab, 8, 4).set([wb[0], wb[1], wb[2], 0]);
-    device.queue.writeBuffer(wbParamBuf, 0, asGpu(new Uint8Array(ab)));
-  }
-
-  // Finalize params (shared between both finalize variants)
-  const finalParamBuf = buf(device, 80, U | D);
-  writeFinalizeParams(device, finalParamBuf, width, height, paddedW, clips, ccMatrix, drGain);
-
-  // HL recovery buffers (only allocated when needed)
-  const hlBufs: GPUBuffer[] = [];
-
-  const enc = device.createCommandEncoder();
-  const wgX = Math.ceil(width / WG);
-  const wgY = Math.ceil(height / WG);
-
-  // ── Pass 1: White balance (in-place) ────────────────────────────────────
-
-  let pass = enc.beginComputePass();
-  pass.setPipeline(pipes.wb);
-  pass.setBindGroup(0, device.createBindGroup({
-    layout: pipes.wb.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: dataBuf } },
-      { binding: 1, resource: { buffer: wbParamBuf } },
-    ],
-  }));
-  pass.dispatchWorkgroups(wgX, wgY);
-  pass.end();
-
-  if (anyClipped) {
-    // ── Passes 2–5: Inpaint-opposed highlight recovery ──────────────────
-
-    const dsW = Math.floor(width / 3);
-    const dsH = Math.floor(height / 3);
-    const loClips: [number, number, number] = [clips[0] * 0.2, clips[1] * 0.2, clips[2] * 0.2];
-    const maxClip = Math.max(...clips);
-
-    const refavgBuf = buf(device, n * 3 * 4, S);
-    const clipMaskBuf = buf(device, n * 4, S);
-    const maskDsBuf = buf(device, dsW * dsH * 4, S);
-    const dilatedDsBuf = buf(device, dsW * dsH * 4, S);
-    const chromaPartialsBuf = buf(device, wgX * wgY * 6 * 4, S);
-    const chromaBuf = buf(device, 6 * 4, S);
-    hlBufs.push(refavgBuf, clipMaskBuf, maskDsBuf, dilatedDsBuf, chromaPartialsBuf, chromaBuf);
-
-    // Refavg + clip mask params
-    const rcParamBuf = buf(device, 24, U | D);
+    // WB params
+    const wbParamBuf = allocate(24, U | D);
     {
       const ab = new ArrayBuffer(24);
       new Uint32Array(ab, 0, 2).set([width, height]);
-      new Float32Array(ab, 8, 3).set(clips);
-      device.queue.writeBuffer(rcParamBuf, 0, asGpu(new Uint8Array(ab)));
+      new Float32Array(ab, 8, 4).set([wb[0], wb[1], wb[2], 0]);
+      device.queue.writeBuffer(wbParamBuf, 0, asGpu(new Uint8Array(ab)));
     }
-    hlBufs.push(rcParamBuf);
 
-    // Pass 2: REFAVG_CLIP
-    pass = enc.beginComputePass();
-    pass.setPipeline(pipes.refavgClip);
+    // Finalize params (shared between both finalize variants)
+    const finalParamBuf = allocate(80, U | D);
+    writeFinalizeParams(device, finalParamBuf, width, height, paddedW, clips, ccMatrix, drGain);
+
+    const enc = device.createCommandEncoder();
+    const wgX = Math.ceil(width / WG);
+    const wgY = Math.ceil(height / WG);
+
+    // ── Pass 1: White balance (in-place) ────────────────────────────────────
+
+    let pass = enc.beginComputePass();
+    pass.setPipeline(pipes.wb);
     pass.setBindGroup(0, device.createBindGroup({
-      layout: pipes.refavgClip.getBindGroupLayout(0),
+      layout: pipes.wb.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: dataBuf } },
-        { binding: 1, resource: { buffer: refavgBuf } },
-        { binding: 2, resource: { buffer: clipMaskBuf } },
-        { binding: 3, resource: { buffer: rcParamBuf } },
+        { binding: 1, resource: { buffer: wbParamBuf } },
       ],
     }));
     pass.dispatchWorkgroups(wgX, wgY);
     pass.end();
 
-    // Pass 3: DOWNSAMPLE_CLIP
-    const dsParamBuf = buf(device, 16, U | D);
-    device.queue.writeBuffer(dsParamBuf, 0, asGpu(new Uint32Array([width, height, dsW, dsH])));
-    hlBufs.push(dsParamBuf);
+    if (anyClipped) {
+      // ── Passes 2–5: Inpaint-opposed highlight recovery ──────────────────
 
-    const dsWgX = Math.ceil(dsW / WG);
-    const dsWgY = Math.ceil(dsH / WG);
+      const dsW = Math.floor(width / 3);
+      const dsH = Math.floor(height / 3);
+      const loClips: [number, number, number] = [clips[0] * 0.2, clips[1] * 0.2, clips[2] * 0.2];
+      const maxClip = Math.max(...clips);
 
-    pass = enc.beginComputePass();
-    pass.setPipeline(pipes.downsampleClip);
-    pass.setBindGroup(0, device.createBindGroup({
-      layout: pipes.downsampleClip.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: clipMaskBuf } },
-        { binding: 1, resource: { buffer: maskDsBuf } },
-        { binding: 2, resource: { buffer: dsParamBuf } },
-      ],
-    }));
-    pass.dispatchWorkgroups(dsWgX, dsWgY);
-    pass.end();
+      const refavgBuf = allocate(n * 3 * 4, S);
+      const clipMaskBuf = allocate(n * 4, S);
+      const maskDsBuf = allocate(dsW * dsH * 4, S);
+      const dilatedDsBuf = allocate(dsW * dsH * 4, S);
+      const chromaPartialsBuf = allocate(wgX * wgY * 6 * 4, S);
+      const chromaBuf = allocate(6 * 4, S);
 
-    // Pass 4: DILATE
-    const dilRadii = clips.map(c => {
-      const ratio = maxClip / Math.max(c, 1e-6);
-      return ((Math.min(21, Math.max(7, Math.floor(7 * ratio))) | 1) - 1) >> 1;
-    });
-    const dilParamBuf = buf(device, 24, U | D);
-    device.queue.writeBuffer(dilParamBuf, 0, asGpu(new Uint32Array([dsW, dsH, ...dilRadii, 0])));
-    hlBufs.push(dilParamBuf);
+      // Refavg + clip mask params
+      const rcParamBuf = allocate(24, U | D);
+      {
+        const ab = new ArrayBuffer(24);
+        new Uint32Array(ab, 0, 2).set([width, height]);
+        new Float32Array(ab, 8, 3).set(clips);
+        device.queue.writeBuffer(rcParamBuf, 0, asGpu(new Uint8Array(ab)));
+      }
 
-    pass = enc.beginComputePass();
-    pass.setPipeline(pipes.dilate);
-    pass.setBindGroup(0, device.createBindGroup({
-      layout: pipes.dilate.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: maskDsBuf } },
-        { binding: 1, resource: { buffer: dilatedDsBuf } },
-        { binding: 2, resource: { buffer: dilParamBuf } },
-      ],
-    }));
-    pass.dispatchWorkgroups(dsWgX, dsWgY);
-    pass.end();
+      // Pass 2: REFAVG_CLIP
+      pass = enc.beginComputePass();
+      pass.setPipeline(pipes.refavgClip);
+      pass.setBindGroup(0, device.createBindGroup({
+        layout: pipes.refavgClip.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: dataBuf } },
+          { binding: 1, resource: { buffer: refavgBuf } },
+          { binding: 2, resource: { buffer: clipMaskBuf } },
+          { binding: 3, resource: { buffer: rcParamBuf } },
+        ],
+      }));
+      pass.dispatchWorkgroups(wgX, wgY);
+      pass.end();
 
-    // Pass 5: CHROMA
-    const chromaParamBuf = buf(device, 48, U | D);
-    {
-      const ab = new ArrayBuffer(48);
-      new Uint32Array(ab, 0, 4).set([width, height, dsW, dsH]);
-      new Float32Array(ab, 16, 6).set([...clips, ...loClips]);
-      new Uint32Array(ab, 40, 2).set([wgX, 0]);
-      device.queue.writeBuffer(chromaParamBuf, 0, asGpu(new Uint8Array(ab)));
+      // Pass 3: DOWNSAMPLE_CLIP
+      const dsParamBuf = allocate(16, U | D);
+      device.queue.writeBuffer(dsParamBuf, 0, asGpu(new Uint32Array([width, height, dsW, dsH])));
+
+      const dsWgX = Math.ceil(dsW / WG);
+      const dsWgY = Math.ceil(dsH / WG);
+
+      pass = enc.beginComputePass();
+      pass.setPipeline(pipes.downsampleClip);
+      pass.setBindGroup(0, device.createBindGroup({
+        layout: pipes.downsampleClip.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: clipMaskBuf } },
+          { binding: 1, resource: { buffer: maskDsBuf } },
+          { binding: 2, resource: { buffer: dsParamBuf } },
+        ],
+      }));
+      pass.dispatchWorkgroups(dsWgX, dsWgY);
+      pass.end();
+
+      // Pass 4: DILATE
+      const dilRadii = clips.map(c => {
+        const ratio = maxClip / Math.max(c, 1e-6);
+        return ((Math.min(21, Math.max(7, Math.floor(7 * ratio))) | 1) - 1) >> 1;
+      });
+      const dilParamBuf = allocate(24, U | D);
+      device.queue.writeBuffer(dilParamBuf, 0, asGpu(new Uint32Array([dsW, dsH, ...dilRadii, 0])));
+
+      pass = enc.beginComputePass();
+      pass.setPipeline(pipes.dilate);
+      pass.setBindGroup(0, device.createBindGroup({
+        layout: pipes.dilate.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: maskDsBuf } },
+          { binding: 1, resource: { buffer: dilatedDsBuf } },
+          { binding: 2, resource: { buffer: dilParamBuf } },
+        ],
+      }));
+      pass.dispatchWorkgroups(dsWgX, dsWgY);
+      pass.end();
+
+      // Pass 5: CHROMA
+      const chromaParamBuf = allocate(48, U | D);
+      {
+        const ab = new ArrayBuffer(48);
+        new Uint32Array(ab, 0, 4).set([width, height, dsW, dsH]);
+        new Float32Array(ab, 16, 6).set([...clips, ...loClips]);
+        new Uint32Array(ab, 40, 2).set([wgX, 0]);
+        device.queue.writeBuffer(chromaParamBuf, 0, asGpu(new Uint8Array(ab)));
+      }
+
+      pass = enc.beginComputePass();
+      pass.setPipeline(pipes.chroma);
+      pass.setBindGroup(0, device.createBindGroup({
+        layout: pipes.chroma.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: dataBuf } },
+          { binding: 1, resource: { buffer: refavgBuf } },
+          { binding: 2, resource: { buffer: clipMaskBuf } },
+          { binding: 3, resource: { buffer: dilatedDsBuf } },
+          { binding: 4, resource: { buffer: chromaPartialsBuf } },
+          { binding: 5, resource: { buffer: chromaParamBuf } },
+        ],
+      }));
+      pass.dispatchWorkgroups(wgX, wgY);
+      pass.end();
+
+      // Fold workgroup totals serially so floating-point addition order is stable.
+      const chromaReduceParamBuf = allocate(16, U | D);
+      device.queue.writeBuffer(
+        chromaReduceParamBuf,
+        0,
+        asGpu(new Uint32Array([wgX * wgY, 0, 0, 0])),
+      );
+
+      pass = enc.beginComputePass();
+      pass.setPipeline(pipes.chromaReduce);
+      pass.setBindGroup(0, device.createBindGroup({
+        layout: pipes.chromaReduce.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: chromaPartialsBuf } },
+          { binding: 1, resource: { buffer: chromaBuf } },
+          { binding: 2, resource: { buffer: chromaReduceParamBuf } },
+        ],
+      }));
+      pass.dispatchWorkgroups(1);
+      pass.end();
+
+      // ── Pass 7: Finalize (HL extend + CC + DR → RGBA) ────────────────────
+
+      pass = enc.beginComputePass();
+      pass.setPipeline(pipes.finalize);
+      pass.setBindGroup(0, device.createBindGroup({
+        layout: pipes.finalize.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: dataBuf } },
+          { binding: 1, resource: { buffer: refavgBuf } },
+          { binding: 2, resource: { buffer: clipMaskBuf } },
+          { binding: 3, resource: { buffer: chromaBuf } },
+          { binding: 4, resource: { buffer: outputBuf } },
+          { binding: 5, resource: { buffer: finalParamBuf } },
+        ],
+      }));
+      pass.dispatchWorkgroups(wgX, wgY);
+      pass.end();
+    } else {
+      // ── No clipping: simple finalize (CC + DR → RGBA) ─────────────────
+
+      pass = enc.beginComputePass();
+      pass.setPipeline(pipes.finalizeSimple);
+      pass.setBindGroup(0, device.createBindGroup({
+        layout: pipes.finalizeSimple.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: dataBuf } },
+          { binding: 1, resource: { buffer: outputBuf } },
+          { binding: 2, resource: { buffer: finalParamBuf } },
+        ],
+      }));
+      pass.dispatchWorkgroups(wgX, wgY);
+      pass.end();
     }
-    hlBufs.push(chromaParamBuf);
 
-    pass = enc.beginComputePass();
-    pass.setPipeline(pipes.chroma);
-    pass.setBindGroup(0, device.createBindGroup({
-      layout: pipes.chroma.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: dataBuf } },
-        { binding: 1, resource: { buffer: refavgBuf } },
-        { binding: 2, resource: { buffer: clipMaskBuf } },
-        { binding: 3, resource: { buffer: dilatedDsBuf } },
-        { binding: 4, resource: { buffer: chromaPartialsBuf } },
-        { binding: 5, resource: { buffer: chromaParamBuf } },
-      ],
-    }));
-    pass.dispatchWorkgroups(wgX, wgY);
-    pass.end();
+    // ── Submit & cleanup intermediates ──────────────────────────────────────
 
-    // Fold workgroup totals serially so floating-point addition order is stable.
-    const chromaReduceParamBuf = buf(device, 16, U | D);
-    device.queue.writeBuffer(
-      chromaReduceParamBuf,
-      0,
-      asGpu(new Uint32Array([wgX * wgY, 0, 0, 0])),
-    );
-    hlBufs.push(chromaReduceParamBuf);
+    device.queue.submit([enc.finish()]);
 
-    pass = enc.beginComputePass();
-    pass.setPipeline(pipes.chromaReduce);
-    pass.setBindGroup(0, device.createBindGroup({
-      layout: pipes.chromaReduce.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: chromaPartialsBuf } },
-        { binding: 1, resource: { buffer: chromaBuf } },
-        { binding: 2, resource: { buffer: chromaReduceParamBuf } },
-      ],
-    }));
-    pass.dispatchWorkgroups(1);
-    pass.end();
-
-    // ── Pass 7: Finalize (HL extend + CC + DR → RGBA) ────────────────────
-
-    pass = enc.beginComputePass();
-    pass.setPipeline(pipes.finalize);
-    pass.setBindGroup(0, device.createBindGroup({
-      layout: pipes.finalize.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: dataBuf } },
-        { binding: 1, resource: { buffer: refavgBuf } },
-        { binding: 2, resource: { buffer: clipMaskBuf } },
-        { binding: 3, resource: { buffer: chromaBuf } },
-        { binding: 4, resource: { buffer: outputBuf } },
-        { binding: 5, resource: { buffer: finalParamBuf } },
-      ],
-    }));
-    pass.dispatchWorkgroups(wgX, wgY);
-    pass.end();
-  } else {
-    // ── No clipping: simple finalize (CC + DR → RGBA) ─────────────────
-
-    pass = enc.beginComputePass();
-    pass.setPipeline(pipes.finalizeSimple);
-    pass.setBindGroup(0, device.createBindGroup({
-      layout: pipes.finalizeSimple.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: dataBuf } },
-        { binding: 1, resource: { buffer: outputBuf } },
-        { binding: 2, resource: { buffer: finalParamBuf } },
-      ],
-    }));
-    pass.dispatchWorkgroups(wgX, wgY);
-    pass.end();
+    // Transfer only the completed output; the finally block releases all intermediates.
+    owned.delete(outputBuf);
+    return { buffer: outputBuf, bytesPerRow };
+  } finally {
+    for (const buffer of owned) buffer.destroy();
   }
-
-  // ── Submit & cleanup intermediates ──────────────────────────────────────
-
-  device.queue.submit([enc.finish()]);
-
-  for (const b of [dataBuf, wbParamBuf, finalParamBuf, ...hlBufs]) {
-    b.destroy();
-  }
-
-  // outputBuf ownership transferred to caller
-  return { buffer: outputBuf, bytesPerRow };
 }

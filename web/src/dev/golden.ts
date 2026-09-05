@@ -5,7 +5,7 @@
 import { configFromPreset, configWithOverrides, computeTonescaleParams, deriveHdrConfig } from '@/renderer/grading/opendrt-params';
 import { BUILD } from '@/lib/channel';
 import { encoderFor } from '@/pipeline/export';
-import { switchModelSize } from '@/pipeline/inference';
+import { models } from '@/pipeline/inference';
 import type { CfaType, DemosaicMethod, ExportFormat, ModelSize } from '@/lib/types';
 import { useAppStore } from '@/app/store';
 import {
@@ -178,7 +178,7 @@ async function cycle(
   const getStore = useAppStore.getState;
   getStore().setDemosaicMethod('neural-net');
   getStore().setModelSize(size);
-  await switchModelSize(size);
+  await models.switchSize(size);
   const file = await fetchSample(sample.file);
   const previousIds = new Set(getStore().files.map((entry) => entry.id));
 
