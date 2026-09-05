@@ -2,9 +2,9 @@
  * Browser-only golden harness. It drives the real application through the store and hashes
  * renderer readbacks for a fixed pair of representative RAW files. Normal builds exclude it.
  */
-import { configFromPreset, configWithOverrides, computeTonescaleParams, deriveHdrConfig } from '@/renderer/grading/opendrt-params';
+import { configFromPreset, configWithOverrides, computeTonescaleParams } from '@/renderer/grading/opendrt-params';
 import { BUILD } from '@/lib/channel';
-import { encoderFor } from '@/pipeline/export';
+import { renderExport } from '@/app/services/export';
 import { models } from '@/pipeline/inference';
 import type { CfaType, DemosaicMethod, ExportFormat, ModelSize } from '@/lib/types';
 import { useAppStore } from '@/app/store';
@@ -35,7 +35,6 @@ interface Manifest {
 }
 
 const STEP_TIMEOUT_MS = 240_000;
-const HDR_PEAK_LUMINANCE = 1000;
 const SAMPLE_CONTRACT: readonly ManifestSample[] = [
   { file: 'DSCF3332.RAF', cfa: 'xtrans', traditional: 'dht' },
   { file: 'sony_a6400_21.arw', cfa: 'bayer', traditional: 'ahd' },
@@ -120,42 +119,8 @@ async function readbackHashes(): Promise<{ scene: string; display: string; displ
   return { scene, display, displayDark };
 }
 
-/** Mirrors useExport until Plan B introduces an export service. */
 async function exportOnce(id: string, format: ExportFormat): Promise<{ bytes: number; sha256: string }> {
-  const state = useAppStore.getState();
-  const file = fileOf(id);
-  const renderer = state.rendererRef;
-  if (!file?.result || !renderer) throw new Error('nothing to export');
-
-  const { exportData } = file.result;
-  const baseConfig = configFromPreset(file.lookPreset);
-  const sdrConfig = configWithOverrides(
-    baseConfig,
-    file.openDrtOverrides,
-    file.preProcessOverrides,
-  );
-  const sdrTonescale = computeTonescaleParams(sdrConfig);
-  let data: Float32Array;
-  let hdrData: Float32Array | null = null;
-  let peakLuminance = sdrConfig.peak_luminance;
-
-  if (format === 'jpeg-hdr' || format === 'avif') {
-    const hdrConfig = deriveHdrConfig(sdrConfig, HDR_PEAK_LUMINANCE);
-    const hdrTonescale = computeTonescaleParams(hdrConfig);
-    peakLuminance = HDR_PEAK_LUMINANCE;
-    if (format === 'jpeg-hdr') {
-      data = await renderer.renderForExport(sdrConfig, sdrTonescale, 'rec709');
-      hdrData = await renderer.renderForExport(hdrConfig, hdrTonescale, 'rec2020');
-    } else {
-      data = await renderer.renderForExport(hdrConfig, hdrTonescale, 'rec2020');
-    }
-  } else {
-    data = await renderer.renderForExport(sdrConfig, sdrTonescale, 'rec709');
-  }
-
-  const blob = await encoderFor(format).encode(
-    data, hdrData, exportData.width, exportData.height, exportData.orientation, state.exportQuality, peakLuminance,
-  );
+  const { blob } = await renderExport(id, format, useAppStore.getState().exportQuality);
   const bytes = new Uint8Array(await blob.arrayBuffer());
   return { bytes: bytes.byteLength, sha256: await hashBytes(bytes) };
 }

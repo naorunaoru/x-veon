@@ -1,10 +1,6 @@
 import { useCallback, useState } from 'react';
 import { useAppStore } from '@/app/store';
-import { encoderFor } from '@/pipeline/export';
-import { configFromPreset, configWithOverrides, deriveHdrConfig, computeTonescaleParams } from '@/renderer/grading/opendrt-params';
-import { exportFormatInfo } from '@/lib/catalog';
-
-const HDR_PEAK_LUMINANCE = 1000;
+import { renderExport } from '@/app/services/export';
 
 function triggerDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -24,55 +20,16 @@ export function useExport() {
     const state = useAppStore.getState();
     const file = state.files.find((f) => f.id === fileId);
     if (!file?.result) return;
-
-    const renderer = state.rendererRef;
-    if (!renderer) {
+    if (!state.rendererRef) {
       console.error('Export failed: renderer not available');
       return;
     }
-
-    const { exportFormat, exportQuality } = state;
-    const { exportData } = file.result;
-
-    // Compute merged OpenDRT config (per-file preset + overrides)
-    const baseConfig = configFromPreset(file.lookPreset);
-    const sdrConfig = configWithOverrides(baseConfig, file.openDrtOverrides, file.preProcessOverrides);
-    const sdrTs = computeTonescaleParams(sdrConfig);
-
     setIsExporting(true);
-
     try {
       const startTime = Date.now();
-
-      let data: Float32Array;
-      let hdrData: Float32Array | null = null;
-      let peakLuminance = sdrConfig.peak_luminance;
-
-      if (exportFormatInfo(exportFormat).needsHdr) {
-        // JPEG-HDR and AVIF need HDR tonemapped data
-        const hdrConfig = deriveHdrConfig(sdrConfig, HDR_PEAK_LUMINANCE);
-        const hdrTs = computeTonescaleParams(hdrConfig);
-        peakLuminance = HDR_PEAK_LUMINANCE;
-
-        if (exportFormat === 'jpeg-hdr') {
-          // Dual render: SDR (Rec.709) + HDR (Rec.2020)
-          data = await renderer.renderForExport(sdrConfig, sdrTs, 'rec709');
-          hdrData = await renderer.renderForExport(hdrConfig, hdrTs, 'rec2020');
-        } else {
-          // AVIF: HDR only (Rec.2020)
-          data = await renderer.renderForExport(hdrConfig, hdrTs, 'rec2020');
-        }
-      } else {
-        // JPEG / TIFF: SDR (Rec.709)
-        data = await renderer.renderForExport(sdrConfig, sdrTs, 'rec709');
-      }
-
-      const blob = await encoderFor(exportFormat).encode(
-        data, hdrData, exportData.width, exportData.height, exportData.orientation, exportQuality, peakLuminance,
-      );
-      const ext = exportFormatInfo(exportFormat).ext;
+      const { blob, ext } = await renderExport(fileId);
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-      console.log(`Exported ${exportFormat.toUpperCase()} - ${(blob.size / 1024 / 1024).toFixed(1)} MB in ${elapsed}s`);
+      console.log(`Exported ${state.exportFormat.toUpperCase()} - ${(blob.size / 1024 / 1024).toFixed(1)} MB in ${elapsed}s`);
       triggerDownload(blob, `${file.name}.${ext}`);
     } catch (e) {
       console.error('Export failed:', e);
