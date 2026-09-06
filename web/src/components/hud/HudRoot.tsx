@@ -1,3 +1,4 @@
+import { useLibraryShortcuts } from '@/app/hooks/useLibraryShortcuts';
 import { importFiles } from '@/app/services/library';
 import { useAppStore } from '@/app/store';
 import { PhotoStage } from './PhotoStage';
@@ -13,6 +14,7 @@ import { Minimap } from './Minimap';
 import './HudRoot.css';
 
 export function HudRoot() {
+  useLibraryShortcuts();
   const hasFiles = useAppStore((s) => s.files.length > 0);
   const fileCount = useAppStore((s) => s.files.length);
   const initialized = useAppStore((s) => s.initialized);

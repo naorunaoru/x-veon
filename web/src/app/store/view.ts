@@ -4,6 +4,8 @@ import type { Slice, ViewControls } from './types';
 
 export interface ViewSlice {
   openPanel: PanelId | null;
+  panelNavigationRevision: number;
+  setActiveAdjustment: (panel: PanelId) => void;
   histogramSource: 'scene' | 'display';
   histogramChannel: HistogramChannel;
   viewScale: number;
@@ -28,6 +30,8 @@ export interface ViewSlice {
 
 export const createViewSlice: Slice<ViewSlice> = (set) => ({
   openPanel: null,
+  panelNavigationRevision: 0,
+  setActiveAdjustment: (openPanel) => set({ openPanel }),
   histogramSource: 'display',
   histogramChannel: 'rgb',
   viewScale: 1,
@@ -37,7 +41,7 @@ export const createViewSlice: Slice<ViewSlice> = (set) => ({
   viewContainerW: 0,
   viewContainerH: 0,
   renderer: null,
-  setOpenPanel: (openPanel) => set({ openPanel }),
+  setOpenPanel: (openPanel) => set((s) => ({ openPanel, panelNavigationRevision: s.panelNavigationRevision + 1 })),
   togglePanel: (panel) => set((s) => ({ openPanel: s.openPanel === panel ? null : panel })),
   setHistogramSource: (histogramSource) => set({ histogramSource }),
   setHistogramChannel: (histogramChannel) => set({ histogramChannel }),

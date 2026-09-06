@@ -18,13 +18,13 @@ describe('ToolRail', () => {
 
   it('renders the rail buttons', () => {
     render(<ToolRail />);
-    ['Scopes', 'Exposure', 'White balance', 'Rendering', 'Detail', 'Settings'].forEach((label) => {
+    ['Exposure', 'White balance', 'Rendering', 'Detail', 'Settings'].forEach((label) => {
       expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
     });
   });
 
-  it('toggles a panel open on click', () => {
-    const spy = vi.spyOn(useAppStore.getState(), 'togglePanel');
+  it('opens the adjustment panel on click', () => {
+    const spy = vi.spyOn(useAppStore.getState(), 'setOpenPanel');
     render(<ToolRail />);
     screen.getByRole('button', { name: 'Exposure' }).click();
     expect(spy).toHaveBeenCalledWith('exposure');

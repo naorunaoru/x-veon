@@ -10,7 +10,7 @@ describe('ScopesPanel', () => {
 
   it('renders the histogram mode buttons', () => {
     render(<ScopesPanel />);
-    ['Display', 'Scene', 'L', 'RGB', 'EV'].forEach((m) =>
+    ['Display', 'Scene', 'Luminance', 'RGB', 'EV'].forEach((m) =>
       expect(screen.getByRole('button', { name: m })).toBeInTheDocument());
   });
 

@@ -39,11 +39,12 @@ export const createLibrarySlice: Slice<LibrarySlice> = (set, get) => ({
 
   removeFile: (id) =>
     set((state) => {
+      const removedIndex = state.files.findIndex((f) => f.id === id);
       const files = state.files.filter((f) => f.id !== id);
       const selectedFileId =
         state.selectedFileId === id
           ? files.length > 0
-            ? files[0].id
+            ? files[Math.min(removedIndex, files.length - 1)].id
             : null
           : state.selectedFileId;
       return { files, selectedFileId };

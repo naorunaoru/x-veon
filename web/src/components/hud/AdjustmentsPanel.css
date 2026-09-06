@@ -1,0 +1,30 @@
+.xv-panel.xv-adjustments {
+  width: min(388px, calc(100vw - 76px));
+  height: calc(100vh - 24px); max-height: calc(100vh - 24px);
+  padding: 1px; pointer-events: none;
+}
+.xv-adjustments[hidden] { display: none; }
+.xv-adjustments__surface {
+  position: absolute; top: var(--surface-top, 0px); left: 0; width: 100%;
+  height: var(--surface-height, 100%); max-height: 100%;
+  border-radius: inherit; pointer-events: none;
+}
+.xv-adjustments__close {
+  position: absolute; z-index: 3; right: 8px;
+  top: calc(var(--surface-top, 0px) + 10px); pointer-events: auto;
+}
+.xv-adjustments__body {
+  position: relative; flex: 1; min-height: 0;
+  overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain;
+  pointer-events: auto;
+  clip-path: inset(var(--visible-content-start, 0px) 0 max(0px, calc(100% - var(--visible-content-height, 100%))) 0 round 0 0 var(--xv-radius-sm) var(--xv-radius-sm));
+}
+.xv-adjustments__body::before { content: ''; display: block; height: var(--scroll-head, 0px); }
+.xv-adjustments__body::after { content: ''; display: block; height: var(--scroll-tail, 0px); }
+.xv-adjustment-group { border-bottom: 1px solid var(--xv-border); }
+.xv-adjustment-group > :is(.xv-panel__header, .xv-rpanel__header) {
+  position: sticky; top: 0; z-index: 2;
+  min-height: 40px; padding: 10px 40px 10px 12px;
+  background: var(--xv-glass-heavy-bg-opaque);
+}
+.xv-adjustment-group .xv-panel__body, .xv-adjustment-group .xv-rpanel__body { overflow: visible; }

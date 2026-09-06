@@ -2,18 +2,18 @@
 export const ZOOM_MIN = 0.1; // 10%
 export const ZOOM_MAX = 4.0; // 400%
 
-const LMIN = Math.log(ZOOM_MIN);
-const LMAX = Math.log(ZOOM_MAX);
+export const minimumZoom = (fitScale: number): number => fitScale * 0.75;
 
 /** Slider position [0,1] → zoom (log-scaled). */
-export function sliderToZoom(t: number): number {
+export function sliderToZoom(t: number, min = ZOOM_MIN, max = ZOOM_MAX): number {
   const c = Math.min(1, Math.max(0, t));
-  return Math.exp(LMIN + c * (LMAX - LMIN));
+  const low = Math.log(min);
+  return Math.exp(low + c * (Math.log(max) - low));
 }
 
 /** Zoom → slider position [0,1], clamped. */
-export function zoomToSlider(zoom: number): number {
-  const t = (Math.log(zoom) - LMIN) / (LMAX - LMIN);
+export function zoomToSlider(zoom: number, min = ZOOM_MIN, max = ZOOM_MAX): number {
+  const t = (Math.log(zoom) - Math.log(min)) / (Math.log(max) - Math.log(min));
   return Math.min(1, Math.max(0, t));
 }
 

@@ -13,7 +13,7 @@ const PRESETS: { label: string; cct: number }[] = [
   { label: 'Tungsten', cct: 3200 },
 ];
 
-export function WhiteBalancePanel() {
+export function WhiteBalancePanel({ embedded = false }: { embedded?: boolean }) {
   const g = useGrading();
   const setOpenPanel = useAppStore((s) => s.setOpenPanel);
   const keys = SECTION_KEYS.whiteBalance!;
@@ -27,6 +27,7 @@ export function WhiteBalancePanel() {
 
   return (
     <FloatingPanel
+      embedded={embedded}
       title="White balance"
       modified={modified}
       onReset={() => g.resetSection(keys.drt, keys.pre)}

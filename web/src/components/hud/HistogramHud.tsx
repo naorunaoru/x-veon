@@ -4,6 +4,7 @@ import { useHistogramCanvas } from '@/app/hooks/useHistogramCanvas';
 import type { HistogramChannel, HistogramMode } from '@/renderer';
 import type { OpenDrtConfig, PreProcessConfig } from '@/renderer/grading/opendrt-params';
 import './HistogramHud.css';
+import { ScopeControls } from './ScopeControls';
 
 type Source = 'scene' | 'display';
 
@@ -33,11 +34,7 @@ export function HistogramHud() {
 
   useHistogramCanvas(canvasRef);
 
-  // The always-mounted widget owns mode/channel sync + re-render on grade change;
-  // render() fans out to every registered canvas (this widget + the Scopes panel).
-  // ScopesPanel relies on this: it lives beside this widget under HudRoot's hasFiles
-  // branch, so this effect drives the panel's live updates too (the panel only does
-  // its own initial paint, via useHistogramCanvas).
+  // The widget owns histogram controls and redraws as the selected grade changes.
   useEffect(() => {
     if (!renderer) return;
     renderer.histogram.setMode(toRendererMode(channel, source));
@@ -51,6 +48,7 @@ export function HistogramHud() {
         <span className="xv-histhud__label">{CHANNEL_LABEL[channel]}</span>
       </div>
       <canvas ref={canvasRef} width={464} height={84} className="xv-histhud__canvas" />
+      <ScopeControls />
     </div>
   );
 }

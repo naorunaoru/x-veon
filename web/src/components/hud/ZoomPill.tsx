@@ -1,6 +1,6 @@
 import * as SliderPrimitive from '@radix-ui/react-slider';
 import { useAppStore } from '@/app/store';
-import { sliderToZoom, zoomToSlider, formatZoom } from '@/lib/zoom';
+import { sliderToZoom, zoomToSlider, formatZoom, minimumZoom, ZOOM_MAX } from '@/lib/zoom';
 import './Slider.css'; // reuse the .xv-slider__track/__range/__thumb skin for the Radix slider
 import './ZoomPill.css';
 
@@ -14,6 +14,8 @@ export function ZoomPill() {
   const fitScale = useAppStore((s) => s.viewFitScale);
   const controls = useAppStore((s) => s.viewControls);
 
+  const min = minimumZoom(fitScale);
+  const max = Math.max(ZOOM_MAX, fitScale * 2);
   const readout = formatZoom(scale, fitScale);
   const isFit = readout === 'Fit';
 
@@ -40,8 +42,8 @@ export function ZoomPill() {
       <SliderPrimitive.Root
         className="xv-zoompill__slider xv-slider__root"
         min={0} max={1} step={0.001}
-        value={[zoomToSlider(scale)]}
-        onValueChange={([t]) => controls?.zoomTo(sliderToZoom(t))}
+        value={[zoomToSlider(scale, min, max)]}
+        onValueChange={([t]) => controls?.zoomTo(sliderToZoom(t, min, max))}
         aria-label="Zoom"
       >
         <SliderPrimitive.Track className="xv-slider__track">

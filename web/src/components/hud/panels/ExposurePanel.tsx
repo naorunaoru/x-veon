@@ -9,7 +9,7 @@ function formatEv(ev: number): string {
   return `${ev >= 0 ? '+' : ''}${ev.toFixed(2)} EV`;
 }
 
-export function ExposurePanel() {
+export function ExposurePanel({ embedded = false }: { embedded?: boolean }) {
   const g = useGrading();
   const setOpenPanel = useAppStore((s) => s.setOpenPanel);
   const keys = SECTION_KEYS.exposure!;
@@ -20,6 +20,7 @@ export function ExposurePanel() {
 
   return (
     <FloatingPanel
+      embedded={embedded}
       title="Exposure"
       modified={modified}
       onReset={() => g.resetSection(keys.drt, keys.pre)}

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { useAppStore } from '@/app/store';
+import { minimumZoom } from '@/lib/zoom';
 
 const MAX_SCALE = 32;
 const ZOOM_SENSITIVITY = 0.01;
@@ -70,7 +71,7 @@ export function usePanZoom(
       useAppStore.getState().setViewFitScale(newFs);
       useAppStore.getState().setViewContainerSize(r.width, r.height);
       setState((s) => {
-        const scale = Math.max(newFs, s.scale);
+        const scale = s.scale;
         const cx = (oldW / 2 - s.offsetX) / s.scale;
         const cy = (oldH / 2 - s.offsetY) / s.scale;
         const ox = r.width / 2 - cx * scale;
@@ -96,7 +97,7 @@ export function usePanZoom(
       if (e.ctrlKey || e.metaKey) {
         setState((prev) => {
           const factor = Math.exp(-e.deltaY * ZOOM_SENSITIVITY);
-          const newScale = Math.max(fitScaleRef.current, Math.min(MAX_SCALE, prev.scale * factor));
+          const newScale = Math.max(minimumZoom(fitScaleRef.current), Math.min(MAX_SCALE, prev.scale * factor));
           const ratio = newScale / prev.scale;
           return {
             scale: newScale,
@@ -130,7 +131,7 @@ export function usePanZoom(
     const cx = rect.width / 2;
     const cy = rect.height / 2;
     setState((prev) => {
-      const newScale = Math.max(fitScaleRef.current, Math.min(MAX_SCALE, target));
+      const newScale = Math.max(minimumZoom(fitScaleRef.current), Math.min(MAX_SCALE, target));
       const ratio = newScale / prev.scale;
       return {
         scale: newScale,

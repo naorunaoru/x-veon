@@ -4,15 +4,16 @@ import './FloatingPanel.css';
 
 interface FloatingPanelProps {
   title: string;
+  embedded?: boolean;
   modified?: boolean;
   onReset?: () => void;
   onClose: () => void;
   children: ReactNode;
 }
 
-export function FloatingPanel({ title, modified = false, onReset, onClose, children }: FloatingPanelProps) {
+export function FloatingPanel({ title, embedded = false, modified = false, onReset, onClose, children }: FloatingPanelProps) {
   return (
-    <div className="xv-panel xv-glass-heavy">
+    <div className={embedded ? "xv-adjustment-group" : "xv-panel xv-glass-heavy"}>
       <div className="xv-panel__header">
         <span className="xv-panel__title">{title}</span>
         {modified && <span className="xv-panel__dot" />}
@@ -22,9 +23,9 @@ export function FloatingPanel({ title, modified = false, onReset, onClose, child
               <RotateCcw size={14} />
             </button>
           )}
-          <button className="xv-panel__icon" aria-label="Close panel" onClick={onClose}>
+          {!embedded && <button className="xv-panel__icon" aria-label="Close panel" onClick={onClose}>
             <X size={14} />
-          </button>
+          </button>}
         </div>
       </div>
       <div className="xv-panel__body">{children}</div>

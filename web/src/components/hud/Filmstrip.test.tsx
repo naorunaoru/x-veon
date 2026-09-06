@@ -49,3 +49,16 @@ describe('Filmstrip', () => {
     expect(screen.getAllByTestId('filmstrip-thumb')[0].className).toMatch(/is-selected/);
   });
 });
+
+it('maps a vertical wheel to horizontal scrolling without changing selection or intercepting pinch zoom', () => {
+  useAppStore.setState({ files: [], selectedFileId: 'selected' });
+  const { container } = render(<Filmstrip />);
+  const strip = container.querySelector('.xv-filmstrip__scroll') as HTMLElement;
+  Object.defineProperties(strip, { scrollWidth: { value: 1600 }, clientWidth: { value: 600 } });
+  fireEvent.wheel(strip, { deltaY: 100 });
+  expect(strip.scrollLeft).toBe(100);
+  expect(useAppStore.getState().selectedFileId).toBe('selected');
+  fireEvent.wheel(strip, { deltaY: 100, ctrlKey: true });
+  fireEvent.wheel(strip, { deltaX: 100 });
+  expect(strip.scrollLeft).toBe(100);
+});

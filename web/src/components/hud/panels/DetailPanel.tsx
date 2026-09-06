@@ -6,7 +6,7 @@ import { isSectionModified, SECTION_KEYS } from '@/renderer/grading/sections';
 import './Panels.css';
 
 /** Detail / sharpening. Minimal for now — richer detail controls land later. */
-export function DetailPanel() {
+export function DetailPanel({ embedded = false }: { embedded?: boolean }) {
   const g = useGrading();
   const setOpenPanel = useAppStore((s) => s.setOpenPanel);
   const keys = SECTION_KEYS.detail!;
@@ -14,6 +14,7 @@ export function DetailPanel() {
 
   return (
     <FloatingPanel
+      embedded={embedded}
       title="Detail"
       modified={modified}
       onReset={() => g.resetSection(keys.drt, keys.pre)}

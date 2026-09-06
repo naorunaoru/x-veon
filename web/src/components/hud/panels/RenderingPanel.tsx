@@ -16,7 +16,7 @@ import './RenderingPanel.css';
 
 type DrtKey = keyof OpenDrtConfig;
 
-export function RenderingPanel() {
+export function RenderingPanel({ embedded = false }: { embedded?: boolean }) {
   const g = useGrading();
   const setOpenPanel = useAppStore((s) => s.setOpenPanel);
   const [expert, setExpert] = useState(false);
@@ -33,15 +33,15 @@ export function RenderingPanel() {
   const resetKeys = (keys: DrtKey[]) => g.resetSection(keys, []);
 
   return (
-    <div className="xv-rpanel xv-glass-heavy">
+    <div className={embedded ? "xv-adjustment-group" : "xv-rpanel xv-glass-heavy"}>
       <header className="xv-rpanel__header">
         <span className="xv-rpanel__title">Rendering</span>
         <span className="xv-rpanel__tag">OpenDRT</span>
         {modified && <span className="xv-rpanel__dot" />}
         <div className="xv-rpanel__actions">
-          <button type="button" className="xv-rpanel__icon" aria-label="Close panel" onClick={() => setOpenPanel(null)}>
+          {!embedded && <button type="button" className="xv-rpanel__icon" aria-label="Close panel" onClick={() => setOpenPanel(null)}>
             <X size={12} />
-          </button>
+          </button>}
         </div>
       </header>
 
