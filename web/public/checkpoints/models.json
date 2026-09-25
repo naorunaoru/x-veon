@@ -12,32 +12,6 @@
     "train_loss": 0.004934,
     "val_loss": 0.004066
   },
-  "bayer_w32_base": {
-    "epoch": 577,
-    "base_width": 32,
-    "param_count": 7760739,
-    "size_mb": 29.7,
-    "dtype": "float32",
-    "file": "bayer_w32_base.onnx",
-    "source_sha256": "52cf2808fa11925a1a0b5fc3932cdf4f147c64276d40743f41df59c9a4325bf9",
-    "train_psnr": 46.252,
-    "val_psnr": 47.9975,
-    "train_loss": 0.004523,
-    "val_loss": 0.003709
-  },
-  "xtrans_w32_base": {
-    "epoch": 150,
-    "base_width": 32,
-    "param_count": 7760739,
-    "size_mb": 29.7,
-    "dtype": "float32",
-    "file": "xtrans_w32_base.onnx",
-    "source_sha256": "1b5a035c6a4087586115dbe7726d3f2f1d912bff06167a467d83e5b4ecccc81c",
-    "train_psnr": 33.6553,
-    "val_psnr": 41.9766,
-    "train_loss": 0.003627,
-    "val_loss": 0.002735
-  },
   "xtrans_w16_base": {
     "epoch": 568,
     "base_width": 16,
