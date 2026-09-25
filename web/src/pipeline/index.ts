@@ -73,30 +73,31 @@ export async function processRaw(
     const visWidth = visible.width;
     const visHeight = visible.height;
 
-    // 3. White-point calibration: detect actual sensor saturation
+    // 3. CFA pattern shift and type (the colour of every visible photosite)
+    const { pattern, period, dy, dx, cfaType } = findPatternShift(raw.cfaStr, raw.cfaWidth, raw.crops);
+    console.log(`CFA: ${cfaType} (period=${period}, shift=dy${dy} dx${dx})`);
+    const layout = { pattern, period, dy, dx };
+
+    // 4. White-point calibration: detect actual sensor saturation (per colour, RGBE order)
     const whiteLevels = calibrateWhiteLevels(
-      visible.data, visWidth, visHeight, raw.whiteLevels,
+      visible.data, visWidth, visHeight, raw.whiteLevels, layout,
     );
     console.log(`WP calibration: metadata=[${Array.from(raw.whiteLevels)}] calibrated=[${Array.from(whiteLevels)}] black=[${Array.from(raw.blackLevels)}]`);
 
-    // 4. Normalize (no WB — model trained on raw CFA data)
+    // 5. Normalize (no WB — model trained on raw CFA data)
     let cfa: Float32Array | null = normalizeRawCfa(
-      visible.data, visWidth, visHeight, raw.blackLevels, whiteLevels,
+      visible.data, visWidth, visHeight, raw.blackLevels, whiteLevels, layout,
     );
     visible = null!;
 
-    // 5. WB coefficients (normalize to G=1, applied post-demosaic on GPU)
+    // 6. WB coefficients (normalize to G=1, applied post-demosaic on GPU)
     const wb = new Float32Array([
       raw.wbCoeffs[0] / raw.wbCoeffs[1],
       1.0,
       raw.wbCoeffs[2] / raw.wbCoeffs[1],
     ]);
 
-    // 6. Find CFA pattern shift and type
-    const { pattern, period, dy, dx, cfaType } = findPatternShift(raw.cfaStr, raw.cfaWidth, raw.crops);
-    console.log(`CFA: ${cfaType} (period=${period}, shift=dy${dy} dx${dx})`);
-
-    // 7. Per-channel clip thresholds (all 0.96 after per-CFA-position normalization)
+    // 7. Per-channel clip thresholds (all 0.96 after per-colour normalization)
     const clipNorm = channelClips();
     // WB-scaled clips for GPU postprocessor (HL recovery operates on WB'd data)
     const clipsWb: [number, number, number] = [

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   cropToVisible, findPatternShift, channelClips, calibrateWhiteLevels,
-  normalizeRawCfa, padToAlignment, generateTiles, makeChannelMasks,
+  normalizeRawCfa, padToAlignment, generateTiles, makeChannelMasks, visibleColorLut,
 } from './preprocessor';
 import { XTRANS_PATTERN, BAYER_PATTERN } from '../constants';
 
@@ -54,30 +54,55 @@ describe('channelClips', () => {
   });
 });
 
+const RGGB = { pattern: [[0, 1], [1, 2]], period: 2, dy: 0, dx: 0 } as const;
+
+describe('visibleColorLut', () => {
+  it('maps every visible position of one period to its CFA colour', () => {
+    expect(Array.from(visibleColorLut(RGGB))).toEqual([0, 1, 1, 2]);
+    // GBRG as seen by findPatternShift: RGGB reference shifted by one row.
+    expect(Array.from(visibleColorLut(findPatternShift('GBRG', 2, new Uint16Array(4))))).toEqual([1, 2, 0, 1]);
+  });
+});
+
 describe('calibrateWhiteLevels', () => {
   it('adopts a measured saturation that sits below the metadata white level', () => {
-    // 200×200: position (0,0) saturates at 4000 on 10% of its pixels; the other three positions each
-    // have a single bright outlier (1 of 10000 pixels is not above the 0.01% threshold), so they keep
-    // the metadata level.
+    // 200×200 RGGB: red saturates at 4000 on 10% of its pixels; green and blue each have a single
+    // bright outlier (not above the 0.01% threshold), so they keep the metadata level.
     const w = 200, h = 200;
     const data = new Uint16Array(w * h).fill(100);
-    data[1] = 500; data[w] = 500; data[w + 1] = 500;
+    data[1] = 500; data[w + 1] = 500;
     for (let y = 0; y < h; y += 2) for (let x = 0; x < w; x += 20) data[y * w + x] = 4000;
-    const out = calibrateWhiteLevels(data, w, h, new Uint16Array([16383, 16383, 16383, 16383]));
+    const out = calibrateWhiteLevels(data, w, h, new Uint16Array([16383, 16383, 16383, 16383]), RGGB);
     expect(Array.from(out)).toEqual([4000, 16383, 16383, 16383]);
   });
   it('keeps the metadata level when the measured maximum is at or above it', () => {
     const data = new Uint16Array(16).fill(1000);
     data[0] = 1200;
-    expect(Array.from(calibrateWhiteLevels(data, 4, 4, new Uint16Array([1000])))).toEqual([1000, 1000, 1000, 1000]);
+    expect(Array.from(calibrateWhiteLevels(data, 4, 4, new Uint16Array([1000]), RGGB))).toEqual([1000, 1000, 1000, 1000]);
   });
 });
 
 describe('normalizeRawCfa', () => {
-  it('normalises each 2×2 position with its own black and white level', () => {
-    const data = new Uint16Array([110, 220, 330, 440]);
-    const out = normalizeRawCfa(data, 2, 2, new Uint16Array([10, 20, 30, 40]), new Uint16Array([210, 220, 230, 240]));
-    expect(Array.from(out)).toEqual([0.5, 1.0, 1.5, 2.0]);
+  it('normalises each photosite with the black and white level of its colour', () => {
+    // RGGB: R, G, G, B. Levels are in RGBE order, as rawloader reports them.
+    const data = new Uint16Array([110, 220, 220, 330]);
+    const out = normalizeRawCfa(data, 2, 2, new Uint16Array([10, 20, 30, 40]), new Uint16Array([210, 220, 230, 240]), RGGB);
+    expect(Array.from(out)).toEqual([0.5, 1.0, 1.0, 1.5]);
+  });
+  it('ignores the unused E slot (a Canon black level of 0 there must not reach blue)', () => {
+    // Canon masked-area blacks: [R, G, B, E=0]. A black frame must normalise to 0 everywhere.
+    const blacks = new Uint16Array([1024, 1027, 1030, 0]);
+    const whites = new Uint16Array([15600, 15600, 15600, 15600]);
+    const out = normalizeRawCfa(new Uint16Array([1024, 1027, 1027, 1030]), 2, 2, blacks, whites, RGGB);
+    expect(Array.from(out)).toEqual([0, 0, 0, 0]);
+  });
+  it('follows the X-Trans colour layout, not 2×2 positions', () => {
+    const cfa = findPatternShift(cfaString(XTRANS_PATTERN, 6, 0, 0), 6, new Uint16Array(4));
+    const lut = visibleColorLut(cfa);
+    const data = new Uint16Array(36);
+    for (let i = 0; i < 36; i++) data[i] = [100, 200, 300][lut[i]];
+    const out = normalizeRawCfa(data, 6, 6, new Uint16Array([100, 200, 300, 0]), new Uint16Array([1100, 1200, 1300, 0]), cfa);
+    expect(Array.from(out).every((v) => v === 0)).toBe(true);
   });
 });
 

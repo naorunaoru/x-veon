@@ -93,11 +93,28 @@ export function findPatternShift(cfaStr: string, cfaWidth: number, crops: Uint16
 
 /**
  * Per-channel normalized clip levels.
- * With per-CFA-position normalization in normalizeRawCfa, every channel
+ * With per-colour normalization in normalizeRawCfa, every channel
  * clips at exactly 1.0, so clips are simply CLIP_MAGIC for all channels.
  */
 export function channelClips(): [number, number, number] {
   return [CLIP_MAGIC, CLIP_MAGIC, CLIP_MAGIC];
+}
+
+/** The CFA colour (0=R, 1=G, 2=B) of every position in one period of the visible image, row-major. */
+export function visibleColorLut(cfa: Pick<CfaInfo, 'pattern' | 'period' | 'dy' | 'dx'>): Uint8Array {
+  const { pattern, period, dy, dx } = cfa;
+  const lut = new Uint8Array(period * period);
+  for (let y = 0; y < period; y++) {
+    for (let x = 0; x < period; x++) {
+      lut[y * period + x] = pattern[(y + dy) % period][(x + dx) % period];
+    }
+  }
+  return lut;
+}
+
+/** Level for a CFA colour. rawloader reports levels in RGBE order, not by photosite position. */
+function levelFor(levels: Uint16Array, color: number): number {
+  return color < levels.length ? levels[color] : levels[0];
 }
 
 /**
@@ -108,50 +125,48 @@ export function channelClips(): [number, number, number] {
  * which can be significantly lower.  RawSpeed's cameras.xml tends to have
  * empirically calibrated values, so darktable doesn't hit this problem.
  *
- * For each 2×2 CFA position we find the actual data maximum.  If a
- * meaningful number of pixels sit at that maximum (≥ 0.01 % of that
- * position's pixel count) — indicating real sensor clipping — AND the
- * maximum is below the metadata white level, we adopt the measured value
- * as the effective white point.
+ * For each CFA colour we find the actual data maximum.  If a meaningful
+ * number of pixels sit at that maximum (≥ 0.01 % of that colour's pixel
+ * count) — indicating real sensor clipping — AND the maximum is below the
+ * metadata white level, we adopt the measured value as the effective white
+ * point.  Returns levels in RGBE order, like the input.
  */
 export function calibrateWhiteLevels(
   rawData: Uint16Array, width: number, height: number,
-  whiteLevels: Uint16Array,
+  whiteLevels: Uint16Array, cfa: Pick<CfaInfo, 'pattern' | 'period' | 'dy' | 'dx'>,
 ): Uint16Array {
-  const max = [0, 0, 0, 0];
-  const cnt = [0, 0, 0, 0];
+  const lut = visibleColorLut(cfa);
+  const period = cfa.period;
+  const max = [0, 0, 0];
+  const cnt = [0, 0, 0];
 
   for (let y = 0; y < height; y++) {
     const row = y * width;
-    const yBit = (y & 1) << 1;
-    for (let x = 0; x < width; x++) {
-      const id = yBit | (x & 1);
+    const lutRow = (y % period) * period;
+    for (let x = 0, px = 0; x < width; x++, px = px + 1 === period ? 0 : px + 1) {
+      const c = lut[lutRow + px];
       const v = rawData[row + x];
-      if (v > max[id]) max[id] = v;
-      cnt[id]++;
+      if (v > max[c]) max[c] = v;
+      cnt[c]++;
     }
   }
 
   // Second pass: count pixels at the detected maximum (within 1 DN)
-  const atMax = [0, 0, 0, 0];
+  const atMax = [0, 0, 0];
   for (let y = 0; y < height; y++) {
     const row = y * width;
-    const yBit = (y & 1) << 1;
-    for (let x = 0; x < width; x++) {
-      const id = yBit | (x & 1);
-      if (rawData[row + x] >= max[id] - 1) atMax[id]++;
+    const lutRow = (y % period) * period;
+    for (let x = 0, px = 0; x < width; x++, px = px + 1 === period ? 0 : px + 1) {
+      const c = lut[lutRow + px];
+      if (rawData[row + x] >= max[c] - 1) atMax[c]++;
     }
   }
 
   const calibrated = new Uint16Array(4);
-  for (let i = 0; i < 4; i++) {
-    const wl = i < whiteLevels.length ? whiteLevels[i] : whiteLevels[0];
+  for (let c = 0; c < 4; c++) {
+    const wl = levelFor(whiteLevels, c);
     // Clipping detected AND actual saturation is below metadata white level
-    if (atMax[i] > cnt[i] * 1e-4 && max[i] < wl) {
-      calibrated[i] = max[i];
-    } else {
-      calibrated[i] = wl;
-    }
+    calibrated[c] = c < 3 && atMax[c] > cnt[c] * 1e-4 && max[c] < wl ? max[c] : wl;
   }
   return calibrated;
 }
@@ -159,26 +174,28 @@ export function calibrateWhiteLevels(
 export function normalizeRawCfa(
   rawData: Uint16Array, width: number, height: number,
   blackLevels: Uint16Array, whiteLevels: Uint16Array,
+  cfa: Pick<CfaInfo, 'pattern' | 'period' | 'dy' | 'dx'>,
 ): Float32Array {
-  // Per-CFA-position black/white calibration (matches darktable rawprepare).
-  // Each 2×2 photosite position gets its own black subtraction and range,
-  // so every channel clips at exactly 1.0 after normalization.
-  const sub = new Float32Array(4);
-  const div = new Float32Array(4);
-  for (let i = 0; i < 4; i++) {
-    const bl = i < blackLevels.length ? blackLevels[i] : blackLevels[0];
-    sub[i] = bl;
-    div[i] = whiteLevels[i] - bl;
+  // Per-colour black/white calibration, so every channel clips at exactly 1.0 after
+  // normalization. Levels are indexed by the photosite's CFA colour: rawloader reports
+  // them in RGBE order (for Canon, E is 0 because it averages masked areas per colour).
+  const sub = new Float32Array(3);
+  const div = new Float32Array(3);
+  for (let c = 0; c < 3; c++) {
+    sub[c] = levelFor(blackLevels, c);
+    div[c] = levelFor(whiteLevels, c) - sub[c];
   }
 
+  const lut = visibleColorLut(cfa);
+  const period = cfa.period;
   const n = width * height;
   const out = new Float32Array(n);
   for (let y = 0; y < height; y++) {
     const row = y * width;
-    const yBit = (y & 1) << 1;
-    for (let x = 0; x < width; x++) {
-      const id = yBit | (x & 1);
-      out[row + x] = (rawData[row + x] - sub[id]) / div[id];
+    const lutRow = (y % period) * period;
+    for (let x = 0, px = 0; x < width; x++, px = px + 1 === period ? 0 : px + 1) {
+      const c = lut[lutRow + px];
+      out[row + x] = (rawData[row + x] - sub[c]) / div[c];
     }
   }
   return out;
