@@ -72,8 +72,10 @@ export function PanelHost() {
       if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
       const rect = shell.getBoundingClientRect();
       if (event.clientX < rect.left || event.clientX >= rect.right) return;
+      if (event.clientY < rect.top || event.clientY >= rect.bottom) return;
       // Capture before the photo's wheel listener, including below the shortened
-      // glass surface and in the viewport margins above/below the panel.
+      // glass surface. The column stops short of the top bar and the bottom HUD row,
+      // so the filmstrip and zoom controls keep their own wheel handling.
       event.preventDefault();
       event.stopPropagation();
       const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? container.clientHeight : 1;

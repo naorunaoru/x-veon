@@ -72,32 +72,39 @@ it('allows centering Detail without painting the transparent scroll tail', () =>
   viewport.mockRestore();
 });
 
-it('keeps wheel input in the panel column across the full viewport, even over the photo below the surface', () => {
+it('keeps wheel input in the panel column, but not over the top bar or the bottom HUD row', () => {
   const { container } = render(<><div data-testid="photo" /><PanelHost /><ToolRail /></>);
   const panel = container.querySelector('.xv-adjustments') as HTMLElement;
   const body = container.querySelector('.xv-adjustments__body') as HTMLElement;
   const photo = screen.getByTestId('photo');
   const photoWheel = vi.fn();
   photo.addEventListener('wheel', photoWheel);
-  panel.getBoundingClientRect = () => ({ left: 800, right: 1188, top: 12, bottom: 708 }) as DOMRect;
+  // The column spans the height between the top bar and the filmstrip / Export row.
+  panel.getBoundingClientRect = () => ({ left: 800, right: 1188, top: 52, bottom: 828 }) as DOMRect;
   fireEvent.click(screen.getByRole('button', { name: 'Detail' }));
   body.scrollTop = 1000;
+  // Below the shortened glass surface but inside the column: the panel scrolls.
   const wheel = new WheelEvent('wheel', { bubbles: true, cancelable: true, clientX: 1000, clientY: 719, deltaY: -120 });
   fireEvent(photo, wheel);
   expect(body.scrollTop).toBe(880);
   expect(wheel.defaultPrevented).toBe(true);
   expect(photoWheel).not.toHaveBeenCalled();
-  fireEvent.wheel(photo, { clientX: 1000, clientY: 1, deltaY: -3, deltaMode: 1 });
+  fireEvent.wheel(photo, { clientX: 1000, clientY: 60, deltaY: -3, deltaMode: 1 });
   expect(body.scrollTop).toBe(832);
+  // Over the zoom controls and over the filmstrip / Export row: left to them.
+  fireEvent.wheel(photo, { clientX: 1000, clientY: 20, deltaY: -120 });
+  fireEvent.wheel(photo, { clientX: 1000, clientY: 860, deltaY: -120 });
+  expect(body.scrollTop).toBe(832);
+  expect(photoWheel).toHaveBeenCalledTimes(2);
   fireEvent.wheel(photo, { clientX: 400, clientY: 500, deltaY: -120 });
   expect(body.scrollTop).toBe(832);
-  expect(photoWheel).toHaveBeenCalledTimes(1);
+  expect(photoWheel).toHaveBeenCalledTimes(3);
   fireEvent.wheel(photo, { clientX: 1000, clientY: 719, deltaY: -120, ctrlKey: true });
-  expect(photoWheel).toHaveBeenCalledTimes(2);
+  expect(photoWheel).toHaveBeenCalledTimes(4);
   fireEvent.click(screen.getByRole('button', { name: 'Close panel' }));
   fireEvent.wheel(photo, { clientX: 1000, clientY: 719, deltaY: -120 });
   expect(body.scrollTop).toBe(832);
-  expect(photoWheel).toHaveBeenCalledTimes(3);
+  expect(photoWheel).toHaveBeenCalledTimes(5);
 });
 
 it('centers short groups including Exposure, and top-aligns groups taller than the viewport', () => {

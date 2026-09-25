@@ -11,3 +11,6 @@
   position: absolute; border: 1px solid rgba(255, 255, 255, 0.9);
   box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5); box-sizing: border-box;
 }
+/* Step left of an open panel instead of drawing over its header controls. */
+.xv-adjustments:not([hidden]) ~ .xv-minimap { right: calc(60px + min(388px, 100vw - 76px) + 8px); }
+.xv-panel:not(.xv-adjustments) ~ .xv-minimap { right: calc(60px + 296px + 8px); }

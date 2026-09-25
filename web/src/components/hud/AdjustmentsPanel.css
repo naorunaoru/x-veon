@@ -1,7 +1,14 @@
 .xv-panel.xv-adjustments {
   width: min(388px, calc(100vw - 76px));
-  height: calc(100vh - 24px); max-height: calc(100vh - 24px);
+  /* The column runs between the top bar and the bottom HUD row (filmstrip, Export/Process),
+     so neither its surface nor its scroll/wheel area ever covers them. */
+  top: 52px; bottom: 72px; height: auto; max-height: none; transform: none;
+  animation-name: xv-adjustments-in;
   padding: 1px; pointer-events: none;
+}
+@keyframes xv-adjustments-in {
+  from { transform: translateX(8px); opacity: 0; }
+  to   { transform: none;            opacity: 1; }
 }
 .xv-adjustments[hidden] { display: none; }
 .xv-adjustments__surface {
