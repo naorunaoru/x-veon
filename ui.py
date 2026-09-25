@@ -27,7 +27,7 @@ from model import XTransUNet
 def _ckpt_cfa_period(ckpt: dict) -> int:
     cfa_type = ckpt.get("cfa_type", "xtrans")
     return _cfa_period_fn(CFA_REGISTRY[cfa_type])
-from infer_hdr import apply_exif_rotation, process_raw, save_hdr_avif
+from infer_hdr import apply_exif_rotation, process_raw, save_hdr_avif, checkpoint_applies_wb
 
 
 # Global state
@@ -189,7 +189,7 @@ def load_model(checkpoint_path: str):
     ckpt = torch.load(checkpoint_path, map_location=_device, weights_only=True)
     _cfa_p = _ckpt_cfa_period(ckpt)
     _model = XTransUNet(base_width=ckpt.get("base_width", 64), cfa_period=_cfa_p).to(_device)
-    _model.load_state_dict(ckpt["model"], strict=False)
+    _model.load_state_dict(ckpt["model"])  # strict: a mismatched architecture must fail, not load partially
     _model.eval()
     _model_path = checkpoint_path
 
@@ -244,7 +244,7 @@ def run_inference(
     raf_name = Path(raf_path).stem
 
     rgb_linear, meta = process_raw(raf_path, model, str(device), patch_size=patch_size, overlap=overlap,
-                                    hlrecon=hlrecon)
+                                    apply_wb_to_cfa=checkpoint_applies_wb(checkpoint), hlrecon=hlrecon)
 
     progress(0.9, desc="Encoding HDR AVIF...")
 

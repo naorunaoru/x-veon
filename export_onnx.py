@@ -45,7 +45,7 @@ def export(checkpoint_path: str, output_path: str, patch_size: int = 288, opset:
     bw = base_width or ckpt.get("base_width", 64)
     cp = _ckpt_cfa_period(ckpt)
     model = XTransUNet(base_width=bw, cfa_period=cp)
-    model.load_state_dict(ckpt["model"], strict=False)
+    model.load_state_dict(ckpt["model"])  # strict: a mismatched architecture must fail, not load partially
     model.eval()
 
     dummy = torch.randn(1, 5, patch_size, patch_size)
@@ -98,7 +98,7 @@ def verify(checkpoint_path: str, onnx_path: str, patch_size: int = 288, base_wid
     bw = base_width or ckpt.get("base_width", 64)
     cp = _ckpt_cfa_period(ckpt)
     model = XTransUNet(base_width=bw, cfa_period=cp)
-    model.load_state_dict(ckpt["model"], strict=False)
+    model.load_state_dict(ckpt["model"])  # strict: a mismatched architecture must fail, not load partially
     model.eval()
 
     test_input = torch.randn(1, 5, patch_size, patch_size)
@@ -172,7 +172,8 @@ def main():
 
     # Single-checkpoint override (legacy)
     parser.add_argument("--checkpoint", default=None, help="Export a single checkpoint (skips registry)")
-    parser.add_argument("--output", default=None, help="Output path (only with --checkpoint)")
+    parser.add_argument("--output", default=None,
+                        help="Output path (only with --checkpoint; default: <output-dir>/<cfa>_w<width>_base.onnx)")
 
     # Export options
     parser.add_argument("--patch-size", type=int, default=288)
@@ -183,15 +184,22 @@ def main():
     args = parser.parse_args()
 
     if args.checkpoint:
-        # Legacy single-file mode
-        out = args.output or "web/public/model.onnx"
-        out_path = Path(out)
+        # Single-checkpoint mode. The web app loads models by manifest key
+        # ({cfa}_w{width}_base), so the default name follows that convention.
+        if args.output:
+            out_path = Path(args.output)
+        else:
+            ckpt = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
+            key = f"{ckpt.get('cfa_type', 'xtrans')}_w{ckpt.get('base_width', 64)}_base"
+            out_path = Path(args.output_dir) / f"{key}.onnx"
+        out = str(out_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         meta = export(args.checkpoint, out, args.patch_size, args.opset, args.fp16)
         meta["file"] = out_path.name
         meta["source_sha256"] = _file_sha256(args.checkpoint)
-        manifest = {out_path.stem: meta}
         manifest_path = out_path.parent / "models.json"
+        manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
+        manifest[out_path.stem] = meta  # update this model only; keep the others
         manifest_path.write_text(json.dumps(manifest, indent=2))
         print(f"Manifest: {manifest_path}")
         if args.verify:
@@ -233,7 +241,9 @@ def main():
 
     print(f"Exporting {len(entries)} checkpoint(s) to {out_dir}/\n")
 
-    manifest = {}
+    # Start from the existing manifest so a filtered export (--cfa-type, --base-width) only
+    # updates the models it exports instead of dropping the rest from the web app.
+    manifest = dict(old_manifest)
     n_skipped = 0
     for label, ckpt_path, reg_entry in entries:
         onnx_file = f"{label}.onnx"
@@ -265,7 +275,7 @@ def main():
         }
 
     manifest_path.write_text(json.dumps(manifest, indent=2))
-    n_exported = len(manifest) - n_skipped
+    n_exported = len(entries) - n_skipped
     print(f"Manifest: {manifest_path} ({n_exported} exported, {n_skipped} skipped)")
 
 
