@@ -76,7 +76,7 @@ def run():
         inputs = np.array([[v, v, v, 1] for v in [0, .001, .01, .18, 1, 10, 100]] + [[1, 0, 0, 1], [0, 1, 0, 1], [0, 0, 1, 1]], np.float32)
         inputs = np.concatenate([inputs, np.column_stack([10 ** rng.uniform(-4, 2, (4000, 3)), np.ones(4000)]).astype(np.float32)])
         ib = device.create_buffer_with_data(data=inputs, usage=wgpu.BufferUsage.STORAGE)
-        ub = device.create_buffer(size=400, usage=wgpu.BufferUsage.UNIFORM | wgpu.BufferUsage.COPY_DST)
+        ub = device.create_buffer(size=len(cases[0]['uniforms']) * 4, usage=wgpu.BufferUsage.UNIFORM | wgpu.BufferUsage.COPY_DST)
         ob = device.create_buffer(size=inputs.nbytes, usage=wgpu.BufferUsage.STORAGE | wgpu.BufferUsage.COPY_SRC)
         group = device.create_bind_group(layout=pipeline.get_bind_group_layout(0), entries=[{'binding': i, 'resource': {'buffer': b}} for i, b in [(0, ub), (3, ib), (4, ob)]])
         worst = 0.0

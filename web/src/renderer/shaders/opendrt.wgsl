@@ -31,6 +31,8 @@ struct Uniforms {
   cwp_adapt_col0: vec4f,
   cwp_adapt_col1: vec4f,
   cwp_adapt_col2: vec4f,
+  view_x: vec4f,
+  view_y: vec4f,
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -56,6 +58,21 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VertexOutput {
   var out: VertexOutput;
   out.position = vec4f(x, y, 0.0, 1.0);
   out.uv = vec2f((x + 1.0) * 0.5, 1.0 - (y + 1.0) * 0.5);
+  return out;
+}
+
+// Only the display uses the transformed image quad. Clipping limits shading to
+// visible image pixels; exports and scope sampling keep the full-image triangle.
+@vertex
+fn vs_display(@builtin(vertex_index) vid: u32) -> VertexOutput {
+  let corners = array<vec2f, 6>(
+    vec2f(0.0, 0.0), vec2f(1.0, 0.0), vec2f(0.0, 1.0),
+    vec2f(0.0, 1.0), vec2f(1.0, 0.0), vec2f(1.0, 1.0));
+  let uv = corners[vid];
+  let p = vec3f(uv, 1.0);
+  var out: VertexOutput;
+  out.position = vec4f(dot(u.view_x.xyz, p), dot(u.view_y.xyz, p), 0.0, 1.0);
+  out.uv = uv;
   return out;
 }
 
@@ -462,9 +479,23 @@ fn opendrt(rgb_in: vec3f) -> vec3f {
 
 // ── Fragment ────────────────────────────────────────────────────────────
 
-@fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4f {
-  let sample = textureSample(t_image, s_image, in.uv);
+// rgba32float is unfilterable on the shared device. Interpolate explicitly for
+// the preview while retaining exact texels for exports and pixel inspection.
+fn sample_image(uv: vec2f, filtered: bool) -> vec4f {
+  if (!filtered) { return textureSampleLevel(t_image, s_image, uv, 0.0); }
+  let size = vec2i(textureDimensions(t_image));
+  let p = uv * vec2f(size) - 0.5;
+  let lo = vec2i(floor(p));
+  let f = fract(p);
+  let a = textureLoad(t_image, clamp(lo, vec2i(0), size - 1), 0);
+  let b = textureLoad(t_image, clamp(lo + vec2i(1, 0), vec2i(0), size - 1), 0);
+  let c = textureLoad(t_image, clamp(lo + vec2i(0, 1), vec2i(0), size - 1), 0);
+  let d = textureLoad(t_image, clamp(lo + vec2i(1, 1), vec2i(0), size - 1), 0);
+  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+fn shade(uv: vec2f, filtered: bool) -> vec4f {
+  let sample = sample_image(uv, filtered);
   var linear = sample.rgb;
 
   let sharpen_amount = u.preprocess.w;
@@ -472,10 +503,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 
   // Unsharp mask sharpening
   if (sharpen_amount > 0.0) {
-    let t = textureSample(t_image, s_image, in.uv + vec2f(0.0, texel_size.y)).rgb;
-    let b = textureSample(t_image, s_image, in.uv - vec2f(0.0, texel_size.y)).rgb;
-    let l = textureSample(t_image, s_image, in.uv - vec2f(texel_size.x, 0.0)).rgb;
-    let r = textureSample(t_image, s_image, in.uv + vec2f(texel_size.x, 0.0)).rgb;
+    let t = sample_image(uv + vec2f(0.0, texel_size.y), filtered).rgb;
+    let b = sample_image(uv - vec2f(0.0, texel_size.y), filtered).rgb;
+    let l = sample_image(uv - vec2f(texel_size.x, 0.0), filtered).rgb;
+    let r = sample_image(uv + vec2f(texel_size.x, 0.0), filtered).rgb;
     let blur = (t + b + l + r) * 0.25;
     linear = max(linear + sharpen_amount * (linear - blur), vec3f(0.0));
   }
@@ -503,4 +534,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
   var out = vec3f(srgb_oetf(display.r), srgb_oetf(display.g), srgb_oetf(display.b));
 
   return vec4f(out, 1.0);
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4f {
+  return shade(in.uv, false);
+}
+
+@fragment
+fn fs_display(in: VertexOutput) -> @location(0) vec4f {
+  return shade(in.uv, u.view_x.w > 0.5);
 }

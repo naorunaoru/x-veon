@@ -1,5 +1,5 @@
 .xv-histhud {
-  position: absolute; left: 12px; bottom: 12px;
+  position: relative;
   width: 200px; padding: 8px; display: flex; flex-direction: column; gap: 6px;
   border-radius: var(--xv-radius-chrome); pointer-events: auto;
 }

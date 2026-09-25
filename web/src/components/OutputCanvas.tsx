@@ -1,5 +1,6 @@
-import { useEffect, useRef, useMemo, memo } from 'react';
+import { useEffect, useRef, useLayoutEffect, memo } from 'react';
 import { useAppStore } from '@/app/store';
+import { useViewportSize } from '@/app/hooks/useViewportSize';
 import { usePanZoom } from '@/app/hooks/usePanZoom';
 import { acquireResult } from '@/app/services/processing';
 import { createRenderer, isWebGpuSupported, type Renderer } from '@/renderer';
@@ -32,22 +33,18 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
 
   const imgW = result.metadata.width;
   const imgH = result.metadata.height;
-  const hwcW = result.exportData.width;
-  const hwcH = result.exportData.height;
 
-  const { transform, isDragging, handlers, scale } = usePanZoom(
+  const { isDragging, handlers, scale, offsetX, offsetY } = usePanZoom(
     containerRef, imgW, imgH,
   );
 
-  // CSS rotation correction: rotate canvas to match EXIF orientation.
-  // Canvas stays at unrotated (texture) dimensions; CSS handles visual rotation.
-  const rotationCss = useMemo(() => {
-    const o = result.exportData.orientation;
-    if (o === 'Rotate90') return `translate(${hwcH}px, 0px) rotate(90deg)`;
-    if (o === 'Rotate180') return `translate(${hwcW}px, ${hwcH}px) rotate(180deg)`;
-    if (o === 'Rotate270') return `translate(0px, ${hwcW}px) rotate(270deg)`;
-    return '';
-  }, [result.exportData.orientation, hwcW, hwcH]);
+  const size = useViewportSize(containerRef);
+  const viewport = { ...size, scale, offsetX, offsetY, orientation: result.exportData.orientation };
+  const viewportRef = useRef(viewport);
+  useLayoutEffect(() => {
+    viewportRef.current = viewport;
+    rendererRef.current?.setViewport(viewport);
+  }, [size, scale, offsetX, offsetY, result.exportData.orientation]);
 
   // Create the renderer once per canvas, then show the file's current result in it. The
   // result is borrowed, not taken: it stays cached for re-showing this photo, and a new result
@@ -77,10 +74,6 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
       }
 
       try {
-        if (canvas.width !== hwcW || canvas.height !== hwcH) {
-          canvas.width = hwcW;
-          canvas.height = hwcH;
-        }
         renderer.setImage(lease.image.gpu);
       } catch (error) {
         lease.release();
@@ -90,9 +83,10 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
       leaseRef.current?.release();
       leaseRef.current = lease;
 
+      renderer.setViewport(viewportRef.current);
       syncDisplay(renderer);
       applyFileGrade(renderer, fileId);
-      renderer.render();
+      renderer.requestRender();
       setRenderer(renderer);
     })().catch((error: unknown) => {
       if (cancelled) return;
@@ -102,14 +96,14 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
     });
 
     return () => { cancelled = true; };
-  }, [fileId, result, hwcW, hwcH, setRenderer]);
+  }, [fileId, result, setRenderer]);
 
   // HDR on/off or a new headroom: reconfigure the canvas in place — no reprocessing.
   useEffect(() => {
     const renderer = rendererRef.current;
     if (!renderer || !syncDisplay(renderer)) return;
     applyFileGrade(renderer, fileId);
-    renderer.render();
+    renderer.requestRender();
   }, [displayHdr, displayHdrHeadroom, fileId]);
 
   // Dispose the renderer and give the image back on unmount only
@@ -121,12 +115,12 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
     useAppStore.getState().setRenderer(null);
   }, []);
 
-  // Re-render when look preset or overrides change (cheap: uniform update + draw)
+  // Update the latest grade; the renderer coalesces draws into one animation frame.
   useEffect(() => {
     const renderer = rendererRef.current;
     if (!renderer) return;
     applyOpenDrt(renderer, lookPreset, openDrtOverrides, preProcessOverrides, renderer.display.hdr ? renderer.display.headroom : undefined);
-    renderer.render();
+    renderer.requestRender();
   }, [lookPreset, openDrtOverrides, preProcessOverrides]);
 
   return (
@@ -139,9 +133,11 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
       <canvas
         ref={canvasRef}
         style={{
-          transformOrigin: '0 0',
-          transform: rotationCss ? `${transform} ${rotationCss}` : transform,
-          imageRendering: scale > 1 ? 'pixelated' : 'auto',
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          display: 'block',
         }}
       />
     </div>

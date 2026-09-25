@@ -180,5 +180,7 @@ export function usePanZoom(
     handlers: { onPointerDown, onPointerMove, onPointerUp, onDoubleClick },
     resetView,
     scale: state.scale,
+    offsetX: state.offsetX,
+    offsetY: state.offsetY,
   };
 }

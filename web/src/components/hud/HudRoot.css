@@ -4,6 +4,11 @@
 }
 .xv-hud-overlay { position: absolute; inset: 0; pointer-events: none; }
 .xv-hud-overlay > * { pointer-events: auto; }
+.xv-bottom-left-hud {
+  position: absolute; left: 12px; bottom: 12px;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+  pointer-events: none;
+}
 
 /* Chrome choreography: every overlay cluster except the filmstrip fades + slides
    to its nearest edge when the selected photo isn't displayable (no result yet,
@@ -20,7 +25,7 @@
 /* Small nudges only — the fade is the main effect; a large slide would whisk the
    element out of view before the opacity transition is perceptible. */
 .xv-hud-overlay[data-chrome-hidden="true"] .xv-topbar   { transform: translateY(-14px); opacity: 0; pointer-events: none; }
-.xv-hud-overlay[data-chrome-hidden="true"] .xv-minimap  { transform: translateY(-14px); opacity: 0; pointer-events: none; }
+.xv-hud-overlay[data-chrome-hidden="true"] .xv-minimap  { transform: translateY(14px); opacity: 0; pointer-events: none; }
 .xv-hud-overlay[data-chrome-hidden="true"] .xv-actionhud { transform: translateY(14px); opacity: 0; pointer-events: none; }
 .xv-hud-overlay[data-chrome-hidden="true"] .xv-histhud   { transform: translateY(14px); opacity: 0; pointer-events: none; }
 .xv-hud-overlay[data-chrome-hidden="true"] .xv-toolrail  { transform: translate(14px, -50%); opacity: 0; pointer-events: none; }

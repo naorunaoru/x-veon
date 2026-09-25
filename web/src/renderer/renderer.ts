@@ -6,6 +6,7 @@ import WGSL_SRC from './shaders/opendrt.wgsl?raw';
 import { Histogram, type HistogramMode, type HistogramChannel } from './histogram';
 import { ExportTarget, readTextureRgba } from './readback';
 import { U_FLAGS, U_TEXEL, U_SRGB_P3_C0, U_P3_DSP_C0, UNIFORM_BYTES, UNIFORM_FLOATS, setMat3, applyOpenDrtUniforms } from './uniforms';
+import { applyViewport, type DisplayViewport } from './viewport';
 import { getDevice } from '@/gpu/device';
 
 /** Full float precision for exports; half floats would leave a "16-bit" TIFF with ~11 bits. */
@@ -24,7 +25,9 @@ export interface Renderer {
   /** Samples the image's texture directly; the caller keeps ownership and keeps it alive. */
   setImage(image: GpuImage): void;
   setGrade(cfg: GradingConfig, ts: TonescaleParams): void;
-  render(): void;
+  setViewport(viewport: DisplayViewport): void;
+  /** Coalesce display and histogram invalidations into one animation frame. */
+  requestRender(): void;
   readonly histogram: HistogramControls;
   readback(cfg: GradingConfig, ts: TonescaleParams, gamut: DisplayGamut): Promise<Float32Array>;
   readbackImage(): Promise<Float32Array>;
@@ -45,6 +48,9 @@ export class HdrRenderer implements Renderer {
   private uniformData: Float32Array;
   private imageTex: GPUTexture | null = null;
   private bindGroup: GPUBindGroup | null = null;
+  private frame: number | null = null;
+  private disposed = false;
+  private viewport: DisplayViewport | null = null;
   private imgW = 0;
   private imgH = 0;
   private _isHdrDisplay: boolean;
@@ -55,6 +61,7 @@ export class HdrRenderer implements Renderer {
   private displayTs: TonescaleParams | null = null;
   private displayCfg: GradingConfig | null = null;
   private constructor(
+    private readonly canvas: HTMLCanvasElement,
     device: GPUDevice,
     context: GPUCanvasContext,
     displayPipeline: GPURenderPipeline,
@@ -149,7 +156,7 @@ export class HdrRenderer implements Renderer {
 
     try {
       const renderer = new HdrRenderer(
-        device, context, displayPipeline, exportPipeline, bindGroupLayout,
+        canvas, device, context, displayPipeline, exportPipeline, bindGroupLayout,
         sampler, uniformBuffer, uniformData, wantHdr, headroom,
         shaderModule, pipelineLayout,
       );
@@ -210,8 +217,23 @@ export class HdrRenderer implements Renderer {
     applyOpenDrtUniforms(this.uniformData, ts, cfg, this._isHdrDisplay ? 'p3' : 'rec709');
   }
 
-  render(): void {
+  setViewport(viewport: DisplayViewport): void {
+    this.viewport = viewport;
+    this.requestRender();
+  }
+
+  requestRender(): void {
+    if (this.disposed || this.frame !== null) return;
+    this.frame = requestAnimationFrame(() => {
+      this.frame = null;
+      this.render();
+    });
+  }
+
+  private render(): void {
     if (!this.imageTex || !this.bindGroup) return;
+
+    applyViewport(this.canvas, this.uniformData, this.viewport, this.imgW, this.imgH, this.device.limits.maxTextureDimension2D);
 
     // Upload uniforms
     this.device.queue.writeBuffer(this.uniformBuffer, 0, this.uniformData as Float32Array<ArrayBuffer>);
@@ -225,12 +247,12 @@ export class HdrRenderer implements Renderer {
         view: textureView,
         loadOp: 'clear',
         storeOp: 'store',
-        clearValue: { r: 0, g: 0, b: 0, a: 1 },
+        clearValue: { r: 0, g: 0, b: 0, a: 0 },
       }],
     });
     pass.setPipeline(this.displayPipeline);
     pass.setBindGroup(0, this.bindGroup);
-    pass.draw(3);
+    pass.draw(6);
     pass.end();
 
     const isDisplay = this.histogram.isDisplayMode;
@@ -270,10 +292,12 @@ export class HdrRenderer implements Renderer {
 
       this.exportTarget.encodeCopy(encoder);
       this.device.queue.submit([encoder.finish()]);
-      return await this.exportTarget.readHwc();
     } finally {
+      // Restore CPU uniforms before yielding: a scheduled preview may run while
+      // the export buffer is being mapped. Queue ordering preserves export data.
       this.restoreDisplayState();
     }
+    return await this.exportTarget.readHwc();
   }
 
   async readbackImage(): Promise<Float32Array> {
@@ -282,6 +306,9 @@ export class HdrRenderer implements Renderer {
   }
 
   dispose(): void {
+    this.disposed = true;
+    if (this.frame !== null) cancelAnimationFrame(this.frame);
+    this.frame = null;
     // The image texture belongs to the processed result, not to the renderer.
     this.uniformBuffer.destroy();
     this.histogram.dispose();
@@ -308,7 +335,7 @@ export class HdrRenderer implements Renderer {
     }
 
     // Re-render to canvas
-    if (draw) this.render();
+    if (draw) this.requestRender();
   }
 }
 
@@ -320,7 +347,7 @@ function configureContext(context: GPUCanvasContext, device: GPUDevice, hdr: boo
   context.configure({
     device,
     format: displayFormat(hdr),
-    alphaMode: 'opaque',
+    alphaMode: 'premultiplied',
     colorSpace: hdr ? 'display-p3' : 'srgb',
     toneMapping: { mode: hdr ? 'extended' : 'standard' },
   });
@@ -331,8 +358,8 @@ function createDisplayPipeline(
 ): GPURenderPipeline {
   return device.createRenderPipeline({
     layout,
-    vertex: { module, entryPoint: 'vs_main' },
-    fragment: { module, entryPoint: 'fs_main', targets: [{ format }] },
+    vertex: { module, entryPoint: 'vs_display' },
+    fragment: { module, entryPoint: 'fs_display', targets: [{ format }] },
     primitive: { topology: 'triangle-list' },
   });
 }

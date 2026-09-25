@@ -21,8 +21,10 @@ export const U_ODRT_HS_RGB  = 76;  // vec4: enable, hs_r, hs_g, hs_b
 export const U_ODRT_HS_ETC  = 80;  // vec4: hs_rgb_rng, hs_cmy_enable, hc_enable, hc_r
 export const U_ODRT_HS_CMY  = 84;  // vec4: hs_c, hs_m, hs_y, cwp_rng
 export const U_CWP_C0       = 88;  // 3 × vec4: cwp adaptation matrix columns (offsets 88, 92, 96)
-export const UNIFORM_FLOATS  = 100;
-export const UNIFORM_BYTES   = UNIFORM_FLOATS * 4; // 400
+export const U_VIEW_X       = 100; // source UV → clip X; w = display filtering
+export const U_VIEW_Y       = 104; // source UV → clip Y
+export const UNIFORM_FLOATS  = 108;
+export const UNIFORM_BYTES   = UNIFORM_FLOATS * 4; // 432
 
 export function setMat3(d: Float32Array, offset: number, m: Float32Array): void {
   // Column 0: [r0c0, r1c0, r2c0, 0]

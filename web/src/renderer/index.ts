@@ -1,5 +1,6 @@
 import { HdrRenderer } from './renderer';
 import type { Renderer } from './renderer';
+export type { DisplayViewport } from './viewport';
 export type { Renderer, HistogramControls, DisplayGamut } from './renderer';
 export type { HistogramMode, HistogramChannel } from './histogram';
 export type { GradingConfig, TonescaleParams } from './grading/opendrt-params';

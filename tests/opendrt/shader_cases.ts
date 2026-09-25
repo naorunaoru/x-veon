@@ -1,6 +1,6 @@
 // Inputs for check_shader.py. Use production preset, validation and uniform packing.
 import { configFromPreset, configWithOverrides, computeTonescaleParams, LOOK_PRESETS } from '../../web/src/renderer/grading/opendrt-params';
-import { applyOpenDrtUniforms, setMat3 } from '../../web/src/renderer/uniforms';
+import { applyOpenDrtUniforms, setMat3, UNIFORM_FLOATS } from '../../web/src/renderer/uniforms';
 import { SRGB_TO_P3D65 } from '../../web/src/renderer/color-matrices';
 import { EXPERT_GROUPS } from '../../web/src/components/hud/panels/rendering/constants';
 import type { LookPreset } from '../../web/src/lib/types';
@@ -9,7 +9,7 @@ import type { OpenDrtConfig } from '../../web/src/renderer/grading/opendrt-param
 const cases: object[] = [];
 function add(name: string, overrides: Partial<OpenDrtConfig> = {}, preset: LookPreset = 'default', gamut: 'rec709' | 'p3' | 'rec2020' = 'rec709', compare = false) {
   const cfg = configWithOverrides(configFromPreset(preset), overrides);
-  const data = new Float32Array(100);
+  const data = new Float32Array(UNIFORM_FLOATS);
   applyOpenDrtUniforms(data, computeTonescaleParams(cfg), cfg, gamut);
   setMat3(data, 52, SRGB_TO_P3D65);
   data[6] = 1; // Linear output, normalized to display peak, as in export.

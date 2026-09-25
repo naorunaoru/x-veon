@@ -43,8 +43,10 @@ export function HudRoot() {
           <ActionHud />
           <ToolRail />
           <PanelHost />
-          <HistogramHud />
-          <Minimap />
+          <div className="xv-bottom-left-hud">
+            <Minimap />
+            <HistogramHud />
+          </div>
         </div>
         {dragging && <DropSurface overlay active fileCount={fileCount} />}
       </div>
