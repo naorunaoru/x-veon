@@ -1,6 +1,8 @@
-import type { RawImage } from '../types';
+import type { PreparedCfa, RawMeta } from '../types';
 
-type Reply = { type: 'done'; raw: RawImage } | { type: 'pong' } | { type: 'error'; message: string };
+type Reply =
+  | { type: 'done'; raw: RawMeta; prepared: PreparedCfa | null; prepareError: string | null }
+  | { type: 'pong' } | { type: 'error'; message: string };
 
 /** Factory for the decode worker; replaceable in tests. */
 export let createDecodeWorker = (): Worker =>
@@ -50,11 +52,15 @@ export async function initWasm(): Promise<void> {
 }
 
 /**
- * Decode a RAW file in the decoder worker. `bytes` is transferred (detached) to the worker.
- * A file that crashes the decoder only fails its own decode; the next one gets a fresh instance.
+ * Decode a RAW file and prepare its CFA in the decoder worker. `bytes` is transferred
+ * (detached) to the worker. A file that crashes the decoder only fails its own decode; the next
+ * one gets a fresh instance. `prepareError` is set, and `prepared` null, when the file decoded but
+ * its CFA can't be laid out.
  */
-export async function decodeRaw(bytes: ArrayBuffer): Promise<RawImage> {
+export async function decodeRaw(bytes: ArrayBuffer): Promise<{
+  raw: RawMeta; prepared: PreparedCfa | null; prepareError: string | null;
+}> {
   const reply = await request({ type: 'decode', bytes }, [bytes]);
   if (reply.type !== 'done') throw new Error('Unexpected reply from the RAW decoder');
-  return reply.raw;
+  return { raw: reply.raw, prepared: reply.prepared, prepareError: reply.prepareError };
 }

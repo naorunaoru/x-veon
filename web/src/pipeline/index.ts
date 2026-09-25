@@ -1,16 +1,7 @@
 import { decodeRaw, initWasm } from './decode/raf-decoder';
-import type { RawImage } from './types';
-import {
-  cropToVisible,
-  findPatternShift,
-  calibrateWhiteLevels,
-  normalizeRawCfa,
-  channelClips,
-  padToAlignment,
-  makeChannelMasks,
-} from './preprocess/preprocessor';
+import type { PreparedCfa, RawMeta } from './types';
+import { channelClips, makeChannelMasks } from './preprocess/preprocessor';
 import { models } from './inference';
-import { initDemosaicGpu } from './demosaic/demosaic-gpu';
 import { strategyFor, destroyDemosaicPool, type DemosaicInput } from './demosaic';
 import { buildColorMatrix } from './postprocess/postprocessor';
 import { gpuPostprocess } from './postprocess/postprocess-gpu';
@@ -22,7 +13,7 @@ import type { PipelineContext, ProcessOptions } from './context';
 
 export type { PipelineContext, ProcessOptions } from './context';
 
-/** A processed RAW: the RGBA32F image on the GPU plus its metadata. The owner must dispose it. */
+/** A processed RAW: the RGBA32F texture on the GPU plus its metadata. The owner must dispose it. */
 export interface ProcessedImage {
   gpu: GpuImage;
   meta: ProcessingResultMeta;
@@ -30,11 +21,11 @@ export interface ProcessedImage {
 }
 
 /**
- * Initialise the wasm decoder, the models and the GPU demosaic in parallel (as before), then
- * share ONNX Runtime's WebGPU device with everything else through gpu/device.ts.
+ * Initialise the wasm decoder and the models in parallel, then share ONNX Runtime's WebGPU
+ * device with everything else (post-process, GPU demosaic, renderer) through gpu/device.ts.
  */
 export async function initPipeline(opts: { modelSize: ModelSize }): Promise<PipelineContext> {
-  await Promise.all([initWasm(), models.init(opts.modelSize), initDemosaicGpu()]);
+  await Promise.all([initWasm(), models.init(opts.modelSize)]);
   // Share ORT's WebGPU device with the renderer and post-processing for zero-copy buffer interop
   if (models.device) setSharedDevice(models.device);
   return { device: await getDevice(), models };
@@ -56,10 +47,15 @@ export async function processRaw(
 ): Promise<ProcessedImage> {
   let ownedOutput: GpuImage | null = null;
   try {
-    // 1. Decode RAW
-    let raw: RawImage;
+    // 1. Decode RAW, and prepare the CFA in the decoder worker: crop to the visible area, find
+    //    the CFA pattern shift, calibrate white levels per colour (actual sensor saturation),
+    //    pad for phase alignment, and build the normalisation table (no WB — the model is
+    //    trained on raw CFA data). The CFA stays u16 until a demosaic consumes it.
+    let raw: RawMeta;
+    let prepared: PreparedCfa | null;
+    let prepareError: string | null;
     try {
-      raw = await decodeRaw(bytes);
+      ({ raw, prepared, prepareError } = await decodeRaw(bytes));
     } catch (e) {
       const detail = (e instanceof Error ? e.message : String(e)).trim();
       throw new Error(
@@ -67,28 +63,13 @@ export async function processRaw(
       );
     }
     console.log(`RAW: ${raw.make} ${raw.model} (${raw.width}x${raw.height}, cfa=${raw.cfaWidth}x${raw.cfaStr.length / raw.cfaWidth})`);
+    if (!prepared) throw new Error(prepareError ?? 'The CFA of this file could not be prepared.');
 
-    // 2. Crop to visible area
-    let visible = cropToVisible(raw.data, raw.width, raw.height, raw.crops);
-    const visWidth = visible.width;
-    const visHeight = visible.height;
-
-    // 3. CFA pattern shift and type (the colour of every visible photosite)
-    const { pattern, period, dy, dx, cfaType } = findPatternShift(raw.cfaStr, raw.cfaWidth, raw.crops);
+    const { pattern, period, dy, dx, cfaType } = prepared.cfa;
+    const visWidth = prepared.visibleWidth;
+    const visHeight = prepared.visibleHeight;
     console.log(`CFA: ${cfaType} (period=${period}, shift=dy${dy} dx${dx})`);
-    const layout = { pattern, period, dy, dx };
-
-    // 4. White-point calibration: detect actual sensor saturation (per colour, RGBE order)
-    const whiteLevels = calibrateWhiteLevels(
-      visible.data, visWidth, visHeight, raw.whiteLevels, layout,
-    );
-    console.log(`WP calibration: metadata=[${Array.from(raw.whiteLevels)}] calibrated=[${Array.from(whiteLevels)}] black=[${Array.from(raw.blackLevels)}]`);
-
-    // 5. Normalize (no WB — model trained on raw CFA data)
-    let cfa: Float32Array | null = normalizeRawCfa(
-      visible.data, visWidth, visHeight, raw.blackLevels, whiteLevels, layout,
-    );
-    visible = null!;
+    console.log(`WP calibration: metadata=[${Array.from(raw.whiteLevels)}] calibrated=[${Array.from(prepared.whiteLevels)}] black=[${Array.from(raw.blackLevels)}]`);
 
     // 6. WB coefficients (normalize to G=1, applied post-demosaic on GPU)
     const wb = new Float32Array([
@@ -104,22 +85,17 @@ export async function processRaw(
       clipNorm[0] * wb[0], clipNorm[1] * wb[1], clipNorm[2] * wb[2],
     ];
 
-    // 8. Pad for alignment
-    let padded = padToAlignment(cfa, visWidth, visHeight, dy, dx, period);
-    const padTop = padded.padTop;
-    const padLeft = padded.padLeft;
-    if (padded.data !== cfa) cfa = null;
-
     // 9. Demosaic through the strategy for the requested method
     const startTime = Date.now();
     // Label the result with the models actually loaded, not with the requested size.
     const modelSize = ctx.models.size;
     const input: DemosaicInput = {
-      cfa: padded.data,
-      width: padded.width,
-      height: padded.height,
-      padTop,
-      padLeft,
+      cfa: prepared.data,
+      lut: prepared.lut,
+      width: prepared.width,
+      height: prepared.height,
+      padTop: prepared.padTop,
+      padLeft: prepared.padLeft,
       visibleWidth: visWidth,
       visibleHeight: visHeight,
       pattern: flattenPattern(pattern, period),
@@ -128,7 +104,7 @@ export async function processRaw(
       masks: makeChannelMasks(PATCH_SIZE, pattern, period),
       clipNorm,
     };
-    padded = null!; cfa = null;
+    prepared = null;
     const demosaiced = await strategyFor(options.method).run(input, ctx, options);
 
     // 10. GPU postprocess: WB → highlight recovery → CC → DR → RGBA (+ clip ratio in alpha)
@@ -137,15 +113,18 @@ export async function processRaw(
     try {
       ccMatrix = raw.xyzToCam ? buildColorMatrix(raw.xyzToCam) : null;
     } catch (error) {
-      if (!(demosaiced.hwc instanceof Float32Array)) demosaiced.hwc.destroy();
+      if (!(demosaiced.rgb instanceof Float32Array)) demosaiced.rgb.buffer.destroy();
       throw error;
     }
     // gpuPostprocess consumes a GPU input on both success and failure.
     const gpuResult = await gpuPostprocess(
-      ctx.device, demosaiced.hwc, visWidth, visHeight,
+      ctx.device, demosaiced.rgb, visWidth, visHeight,
       wb, clipsWb, ccMatrix, raw.drGain,
     );
-    ownedOutput = { buffer: gpuResult.buffer, width: visWidth, height: visHeight, bytesPerRow: gpuResult.bytesPerRow };
+    ownedOutput = { texture: gpuResult.texture, width: visWidth, height: visHeight };
+    // The demosaic and post-process only submit GPU work; wait for it here, once, so the
+    // result is ready when it's published and the reported time covers the real work.
+    await ctx.device.queue.onSubmittedWorkDone();
     const inferenceTime = (Date.now() - startTime) / 1000;
 
     // 11. Compute final display dimensions (after orientation)
@@ -184,17 +163,12 @@ export async function processRaw(
       },
     };
 
-    const gpu: GpuImage = {
-      buffer: gpuResult.buffer,
-      width: visWidth,
-      height: visHeight,
-      bytesPerRow: gpuResult.bytesPerRow,
-    };
-    const image = { gpu, meta, dispose: () => gpu.buffer.destroy() };
+    const gpu: GpuImage = { texture: gpuResult.texture, width: visWidth, height: visHeight };
+    const image = { gpu, meta, dispose: () => gpu.texture.destroy() };
     ownedOutput = null; // transfer to the caller only after metadata construction succeeds
     return image;
   } finally {
-    ownedOutput?.buffer.destroy();
+    ownedOutput?.texture.destroy();
     destroyDemosaicPool();
   }
 }

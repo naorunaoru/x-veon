@@ -14,6 +14,8 @@ const { extractBatch, accumulateBatch, finalize, destroy, createGpuNNPipeline } 
 });
 
 vi.mock('./tile-blend-gpu', () => ({ createGpuNNPipeline }));
+const cfaBuf = vi.hoisted(() => ({}) as GPUBuffer);
+vi.mock('./cfa-gpu', () => ({ uploadNormalizedCfa: () => cfaBuf }));
 
 import { neuralNetStrategy } from './nn';
 import type { DemosaicInput } from './strategy';
@@ -22,7 +24,8 @@ import type { PipelineContext, ProcessOptions } from '../context';
 /** width=height=1 (< PATCH_SIZE) yields exactly one tile — keeps the batch loop to one pass. */
 function makeInput(): DemosaicInput {
   return {
-    cfa: new Float32Array(1),
+    cfa: new Uint16Array(1),
+    lut: new Float32Array(3 * 65536),
     width: 1,
     height: 1,
     padTop: 0,
@@ -66,16 +69,17 @@ describe('neuralNetStrategy resource lifecycle', () => {
   it('extracts, infers, accumulates, and finalizes to produce the output and tile count', async () => {
     const inputBuf = {} as GPUBuffer;
     const inferBuf = {} as GPUBuffer;
-    const outputBuf = {} as GPUBuffer;
+    const output = { buffer: {} as GPUBuffer, stride: 1, offsetX: 0, offsetY: 0 };
     const dispose = vi.fn();
     extractBatch.mockReturnValue(inputBuf);
     const runBatchGpu = vi.fn().mockResolvedValue({ buffer: inferBuf, dispose });
-    finalize.mockResolvedValue(outputBuf);
+    finalize.mockResolvedValue(output);
     const onProgress = vi.fn();
 
     const result = await neuralNetStrategy.run(makeInput(), makeCtx(runBatchGpu), makeOpts(onProgress));
 
-    expect(result).toEqual({ hwc: outputBuf, tileCount: 1 });
+    expect(result).toEqual({ rgb: output, tileCount: 1 });
+    expect(createGpuNNPipeline.mock.calls[0]).toContain(cfaBuf);
     expect(extractBatch).toHaveBeenCalledWith(0, 1);
     expect(runBatchGpu).toHaveBeenCalledWith('bayer', inputBuf, 1, 288);
     expect(accumulateBatch).toHaveBeenCalledWith(inferBuf, 0, 1);

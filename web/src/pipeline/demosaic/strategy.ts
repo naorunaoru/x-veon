@@ -1,13 +1,15 @@
 import type { CfaType, DemosaicMethod } from '@/lib/types';
 import type { ChannelMasks } from '../types';
 import type { PipelineContext, ProcessOptions } from '../context';
-import { cropToHWC } from '../postprocess/postprocessor';
 
 export type TraditionalMethod = Exclude<DemosaicMethod, 'neural-net'>;
 
 /** The padded, canonically aligned CFA plus what a strategy needs to crop its output. */
 export interface DemosaicInput {
-  cfa: Float32Array;
+  /** Raw u16 photosite values, padded and phase-aligned; normalised through `lut` when consumed. */
+  cfa: Uint16Array;
+  /** Per-colour normalisation table (see normalizationLut). */
+  lut: Float32Array;
   width: number;            // padded
   height: number;           // padded
   padTop: number;
@@ -21,24 +23,24 @@ export interface DemosaicInput {
   clipNorm: [number, number, number];
 }
 
-/** Cropped HWC RGB at the visible size: on the GPU for the neural net, on the CPU otherwise. */
+/**
+ * Demosaiced RGB on the GPU: HWC float32, `stride` pixels per row. The visible image starts at
+ * (offsetX, offsetY), so a padded demosaic buffer is consumed in place without a crop copy.
+ */
+export interface GpuRgb {
+  buffer: GPUBuffer;
+  stride: number;
+  offsetX: number;
+  offsetY: number;
+}
+
+/** Visible-size RGB: on the GPU for the GPU methods, cropped HWC on the CPU for the WASM pool. */
 export interface DemosaicOutput {
-  hwc: Float32Array | GPUBuffer;
+  rgb: Float32Array | GpuRgb;
   tileCount: number;
 }
 
 export interface DemosaicStrategy {
   id: DemosaicMethod;
   run(input: DemosaicInput, ctx: PipelineContext, opts: ProcessOptions): Promise<DemosaicOutput>;
-}
-
-/** Crop a planar (CHW, padded) demosaic result to the visible HWC image. */
-export function cropPlanar(planar: Float32Array, input: DemosaicInput): DemosaicOutput {
-  return {
-    hwc: cropToHWC(
-      planar, input.height, input.width,
-      input.padTop, input.padLeft, input.visibleHeight, input.visibleWidth,
-    ),
-    tileCount: 1,
-  };
 }

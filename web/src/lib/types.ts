@@ -98,8 +98,8 @@ export function deserializeResultMeta(meta: SerializableResultMeta): ProcessingR
 /** RGBA32F image resident on the GPU; produced by the pipeline, consumed by the renderer.
  * Alpha carries the clamped clip ratio (max channel / clip level) from GPU highlight recovery. */
 export interface GpuImage {
-  buffer: GPUBuffer;
+  /** rgba32float, TEXTURE_BINDING | COPY_SRC; the renderer samples it without copying. */
+  texture: GPUTexture;
   width: number;
   height: number;
-  bytesPerRow: number;
 }

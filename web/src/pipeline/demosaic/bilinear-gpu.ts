@@ -1,22 +1,28 @@
-import { gpuAvailable, runBilinearGpu } from './demosaic-gpu';
+import { runBilinearGpu } from './demosaic-gpu';
+import { uploadNormalizedCfa } from './cfa-gpu';
 import { runInPool } from './wasm-pool';
-import { cropPlanar, type DemosaicStrategy } from './strategy';
+import type { DemosaicStrategy } from './strategy';
 
 export const bilinearStrategy: DemosaicStrategy = {
   id: 'bilinear',
-  async run(input) {
-    if (gpuAvailable()) {
+  async run(input, ctx) {
+    try {
+      console.time('[demosaic] gpu bilinear');
+      const cfa = uploadNormalizedCfa(ctx.device, input);
+      let buffer: GPUBuffer;
       try {
-        console.time('[demosaic] gpu bilinear');
-        const result = await runBilinearGpu(
-          input.cfa, input.width, input.height, 0, 0, input.pattern, input.period,
-        );
-        console.timeEnd('[demosaic] gpu bilinear');
-        return cropPlanar(result, input);
-      } catch (e) {
-        console.warn('[demosaic] GPU bilinear failed, falling back to worker:', e);
+        buffer = runBilinearGpu(ctx.device, cfa, input.width, input.height, input.pattern, input.period);
+      } finally {
+        cfa.destroy();
       }
+      console.timeEnd('[demosaic] gpu bilinear');
+      return {
+        rgb: { buffer, stride: input.width, offsetX: input.padLeft, offsetY: input.padTop },
+        tileCount: 1,
+      };
+    } catch (e) {
+      console.warn('[demosaic] GPU bilinear failed, falling back to worker:', e);
     }
-    return cropPlanar(await runInPool(input, 'bilinear'), input);
+    return { rgb: await runInPool(input, 'bilinear'), tileCount: 1 };
   },
 };

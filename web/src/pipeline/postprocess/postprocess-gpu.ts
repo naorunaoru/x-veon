@@ -6,7 +6,10 @@
  * Runs in a single command buffer:
  *   1. White balance (per-pixel multiply, in-place)
  *   2–5. Inpaint-opposed highlight recovery (Pass 1 only, no segmentation)
- *   6. Finalize: HL extension + color correction + DR gain → RGBA output
+ *   6. Finalize: HL extension + color correction + DR gain → RGBA32F texture
+ *
+ * The input is HWC float32 read in place at an offset and row stride, so a padded demosaic
+ * buffer needs no crop copy; intermediates are sized to the visible image.
  *
  * Pipeline: raw CFA → neural demosaic → [this module] → display renderer.
  */
@@ -25,10 +28,12 @@ const SHADER_WB = /* wgsl */ `
 struct Params {
   width: u32,
   height: u32,
+  in_stride: u32,
+  off_x: u32,
+  off_y: u32,
   wb_r: f32,
   wb_g: f32,
   wb_b: f32,
-  _pad: f32,
 }
 
 @group(0) @binding(0) var<storage, read_write> data: array<f32>;
@@ -37,7 +42,7 @@ struct Params {
 @compute @workgroup_size(${WG}, ${WG})
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   if (gid.x >= params.width || gid.y >= params.height) { return; }
-  let base = (gid.y * params.width + gid.x) * 3u;
+  let base = ((gid.y + params.off_y) * params.in_stride + gid.x + params.off_x) * 3u;
   data[base] *= params.wb_r;
   data[base + 1u] *= params.wb_g;
   data[base + 2u] *= params.wb_b;
@@ -51,7 +56,9 @@ struct Params {
   clip_r: f32,
   clip_g: f32,
   clip_b: f32,
-  _pad: f32,
+  in_stride: u32,
+  off_x: u32,
+  off_y: u32,
 }
 
 @group(0) @binding(0) var<storage, read> input: array<f32>;
@@ -62,6 +69,10 @@ struct Params {
 fn cbrt(x: f32) -> f32 {
   if (x <= 0.0) { return 0.0; }
   return pow(x, 1.0 / 3.0);
+}
+
+fn src(x: u32, y: u32) -> u32 {
+  return ((y + params.off_y) * params.in_stride + x + params.off_x) * 3u;
 }
 
 @compute @workgroup_size(${WG}, ${WG})
@@ -78,7 +89,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let ny = u32(clamp(i32(y) + ky, 0, i32(h) - 1));
     for (var kx: i32 = -1; kx <= 1; kx++) {
       let nx = u32(clamp(i32(x) + kx, 0, i32(w) - 1));
-      let b = (ny * w + nx) * 3u;
+      let b = src(nx, ny);
       sr += max(input[b], 0.0);
       sg += max(input[b + 1u], 0.0);
       sb += max(input[b + 2u], 0.0);
@@ -99,10 +110,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   refavg[base + 1u] = opp_g * opp_g * opp_g;
   refavg[base + 2u] = opp_b * opp_b * opp_b;
 
+  let s = src(x, y);
   var mask: u32 = 0u;
-  if (input[base] >= params.clip_r) { mask |= 1u; }
-  if (input[base + 1u] >= params.clip_g) { mask |= 2u; }
-  if (input[base + 2u] >= params.clip_b) { mask |= 4u; }
+  if (input[s] >= params.clip_r) { mask |= 1u; }
+  if (input[s + 1u] >= params.clip_g) { mask |= 2u; }
+  if (input[s + 2u] >= params.clip_b) { mask |= 4u; }
   clip_mask[idx] = mask;
 }
 `;
@@ -204,7 +216,11 @@ struct Params {
   lo_clip_g: f32,
   lo_clip_b: f32,
   workgroups_x: u32,
-  _pad: u32,
+  in_stride: u32,
+  off_x: u32,
+  off_y: u32,
+  _pad0: u32,
+  _pad1: u32,
 }
 
 @group(0) @binding(0) var<storage, read> input: array<f32>;
@@ -238,6 +254,7 @@ fn main(
   if (x >= 3u && x < w - 3u && y >= 3u && y < h - 3u) {
     let idx = y * w + x;
     let base = idx * 3u;
+    let sbase = ((y + params.off_y) * params.in_stride + x + params.off_x) * 3u;
     let mask = clip_mask[idx];
     let my = min(y / 3u, params.ds_height - 1u);
     let mx = min(x / 3u, params.ds_width - 1u);
@@ -245,7 +262,7 @@ fn main(
 
     for (var c: u32 = 0u; c < 3u; c++) {
       let bit = 1u << c;
-      let val = input[base + c];
+      let val = input[sbase + c];
       if ((mask & bit) == 0u && val > lo[c] && (dil & bit) != 0u) {
         sh_sum[lid * 3u + c] = val - refavg[base + c];
         sh_cnt[lid * 3u + c] = 1u;
@@ -310,21 +327,22 @@ struct Params {
   width: u32,
   height: u32,
   dr_gain: f32,
-  out_stride: u32,
+  in_stride: u32,
   clip_r: f32,
   clip_g: f32,
   clip_b: f32,
-  _pad1: f32,
+  off_x: u32,
   cc_row0: vec4f,
   cc_row1: vec4f,
   cc_row2: vec4f,
+  off_y: u32,
 }
 
 @group(0) @binding(0) var<storage, read> data: array<f32>;
 @group(0) @binding(1) var<storage, read> refavg: array<f32>;
 @group(0) @binding(2) var<storage, read> clip_mask: array<u32>;
 @group(0) @binding(3) var<storage, read> chroma_buf: array<f32>;
-@group(0) @binding(4) var<storage, read_write> output: array<f32>;
+@group(0) @binding(4) var output: texture_storage_2d<rgba32float, write>;
 @group(0) @binding(5) var<uniform> params: Params;
 
 @compute @workgroup_size(${WG}, ${WG})
@@ -343,12 +361,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
   let idx = y * params.width + x;
   let base3 = idx * 3u;
-  let base4 = (y * params.out_stride + x) * 4u;
+  let s = ((y + params.off_y) * params.in_stride + x + params.off_x) * 3u;
   let mask = clip_mask[idx];
 
-  var r = data[base3];
-  var g = data[base3 + 1u];
-  var b = data[base3 + 2u];
+  var r = data[s];
+  var g = data[s + 1u];
+  var b = data[s + 2u];
 
   // Clip ratio (from WB'd values, before HL extension)
   let cr = max(r / params.clip_r, max(g / params.clip_g, b / params.clip_b));
@@ -371,10 +389,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   g *= params.dr_gain;
   b *= params.dr_gain;
 
-  output[base4] = r;
-  output[base4 + 1u] = g;
-  output[base4 + 2u] = b;
-  output[base4 + 3u] = min(cr, 1.0);
+  textureStore(output, vec2<u32>(x, y), vec4f(r, g, b, min(cr, 1.0)));
 }
 `;
 
@@ -384,18 +399,19 @@ struct Params {
   width: u32,
   height: u32,
   dr_gain: f32,
-  out_stride: u32,
+  in_stride: u32,
   clip_r: f32,
   clip_g: f32,
   clip_b: f32,
-  _pad1: f32,
+  off_x: u32,
   cc_row0: vec4f,
   cc_row1: vec4f,
   cc_row2: vec4f,
+  off_y: u32,
 }
 
 @group(0) @binding(0) var<storage, read> data: array<f32>;
-@group(0) @binding(1) var<storage, read_write> output: array<f32>;
+@group(0) @binding(1) var output: texture_storage_2d<rgba32float, write>;
 @group(0) @binding(2) var<uniform> params: Params;
 
 @compute @workgroup_size(${WG}, ${WG})
@@ -404,13 +420,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let y = gid.y;
   if (x >= params.width || y >= params.height) { return; }
 
-  let idx = y * params.width + x;
-  let base3 = idx * 3u;
-  let base4 = (y * params.out_stride + x) * 4u;
+  let s = ((y + params.off_y) * params.in_stride + x + params.off_x) * 3u;
 
-  var r = data[base3];
-  var g = data[base3 + 1u];
-  var b = data[base3 + 2u];
+  var r = data[s];
+  var g = data[s + 1u];
+  var b = data[s + 2u];
 
   let cr = max(r / params.clip_r, max(g / params.clip_g, b / params.clip_b));
 
@@ -426,10 +440,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   g *= params.dr_gain;
   b *= params.dr_gain;
 
-  output[base4] = r;
-  output[base4 + 1u] = g;
-  output[base4 + 2u] = b;
-  output[base4 + 3u] = min(cr, 1.0);
+  textureStore(output, vec2<u32>(x, y), vec4f(r, g, b, min(cr, 1.0)));
 }
 `;
 
@@ -487,29 +498,32 @@ function asGpu(data: ArrayBufferView): GPUAllowSharedBufferSource {
   return data as unknown as GPUAllowSharedBufferSource;
 }
 
-/** Pad width to 16-pixel alignment so bytesPerRow (width × 16 bytes) is 256-aligned. */
-function padWidth16(w: number): number {
-  return Math.ceil(w / 16) * 16;
+/** Where the visible image sits in the HWC input: row stride in pixels and top-left offset. */
+interface InputLayout {
+  stride: number;
+  offsetX: number;
+  offsetY: number;
 }
 
 function writeFinalizeParams(
   device: GPUDevice, paramBuf: GPUBuffer,
-  width: number, height: number, outStride: number,
+  width: number, height: number, layout: InputLayout,
   clips: [number, number, number],
   ccMatrix: Float32Array | null,
   drGain: number,
 ): void {
-  const ab = new ArrayBuffer(80);
+  const ab = new ArrayBuffer(96);
   const u32 = new Uint32Array(ab);
   const f32 = new Float32Array(ab);
   u32[0] = width;
   u32[1] = height;
   f32[2] = drGain;
-  u32[3] = outStride;
+  u32[3] = layout.stride;
   f32[4] = clips[0];
   f32[5] = clips[1];
   f32[6] = clips[2];
-  f32[7] = 0;
+  u32[7] = layout.offsetX;
+  u32[20] = layout.offsetY;
   if (ccMatrix) {
     f32[8] = ccMatrix[0]; f32[9] = ccMatrix[1]; f32[10] = ccMatrix[2]; f32[11] = 0;
     f32[12] = ccMatrix[3]; f32[13] = ccMatrix[4]; f32[14] = ccMatrix[5]; f32[15] = 0;
@@ -529,10 +543,16 @@ function writeFinalizeParams(
 // ---------------------------------------------------------------------------
 
 export interface PostprocessResult {
-  /** RGBA32F GPU buffer with row-padded layout, ready for copyBufferToTexture. */
+  /** RGBA32F texture at the visible size, sampled by the renderer as is. */
+  texture: GPUTexture;
+}
+
+/** HWC float32 on the GPU, `stride` pixels per row, the visible image at the offset. */
+export interface GpuRgbInput {
   buffer: GPUBuffer;
-  /** Bytes per row (256-aligned) for copyBufferToTexture. */
-  bytesPerRow: number;
+  stride: number;
+  offsetX: number;
+  offsetY: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -542,15 +562,14 @@ export interface PostprocessResult {
 /**
  * GPU post-demosaic processing: WB → highlight recovery → CC → DR → RGBA.
  *
- * Returns a GPU-resident RGBA32F buffer (row-padded for 256-byte alignment).
- * The caller takes ownership of the buffer and must destroy it after use
- * (e.g. after copyBufferToTexture into the renderer's image texture).
+ * Returns a GPU-resident RGBA32F texture (storage-written, sampled by the renderer directly).
+ * The caller takes ownership of the texture and must destroy it after use.
  *
  * @param device   WebGPU device (shared with renderer via setSharedDevice)
- * @param rawHwc   Raw demosaic output in HWC layout (no WB applied).
- *                 Can be a Float32Array (uploaded to GPU) or a GPUBuffer
- *                 already on the GPU (e.g. from GPU tile blending). GPU input
- *                 ownership transfers at entry, even if setup fails; CPU input is borrowed.
+ * @param rawHwc   Raw demosaic output in HWC layout (no WB applied): a cropped Float32Array
+ *                 (uploaded to GPU), or a buffer already on the GPU, possibly padded (e.g.
+ *                 from GPU tile blending), read in place. GPU input ownership transfers at
+ *                 entry, even if setup fails; CPU input is borrowed.
  * @param width    Image width
  * @param height   Image height
  * @param wb       White balance multipliers [R, G, B] normalized to G=1
@@ -560,7 +579,7 @@ export interface PostprocessResult {
  */
 export async function gpuPostprocess(
   device: GPUDevice,
-  rawHwc: Float32Array | GPUBuffer,
+  rawHwc: Float32Array | GpuRgbInput,
   width: number,
   height: number,
   wb: Float32Array,
@@ -569,8 +588,8 @@ export async function gpuPostprocess(
   drGain: number,
 ): Promise<PostprocessResult> {
   const gpuInput = !(rawHwc instanceof Float32Array);
-  const owned = new Set<GPUBuffer>();
-  if (gpuInput) owned.add(rawHwc as GPUBuffer);
+  const owned = new Set<GPUBuffer | GPUTexture>();
+  if (gpuInput) owned.add((rawHwc as GpuRgbInput).buffer);
   const allocate = (size: number, usage: GPUBufferUsageFlags): GPUBuffer => {
     const buffer = buf(device, size, usage);
     owned.add(buffer);
@@ -582,7 +601,6 @@ export async function gpuPostprocess(
 
     const S = GPUBufferUsage.STORAGE;
     const D = GPUBufferUsage.COPY_DST;
-    const C = GPUBufferUsage.COPY_SRC;
     const U = GPUBufferUsage.UNIFORM;
 
 
@@ -606,30 +624,37 @@ export async function gpuPostprocess(
     // ── Buffers ─────────────────────────────────────────────────────────────
 
     let dataBuf: GPUBuffer;
+    let layout: InputLayout;
     if (gpuInput) {
-      dataBuf = rawHwc as GPUBuffer;
+      const input = rawHwc as GpuRgbInput;
+      dataBuf = input.buffer;
+      layout = input;
     } else {
       dataBuf = allocate(n * 3 * 4, S | D);
       device.queue.writeBuffer(dataBuf, 0, asGpu(rawHwc as Float32Array));
+      layout = { stride: width, offsetX: 0, offsetY: 0 };
     }
 
-    // Output buffer: RGBA32F with row padding for 256-byte bytesPerRow alignment
-    const paddedW = padWidth16(width);
-    const bytesPerRow = paddedW * 16;  // 4 channels × 4 bytes × paddedW pixels
-    const outputBuf = allocate(bytesPerRow * height, S | C);
+    // Output: RGBA32F texture the renderer samples directly (no buffer → texture copy)
+    const output = device.createTexture({
+      size: [width, height],
+      format: 'rgba32float',
+      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
+    });
+    owned.add(output);
 
     // WB params
-    const wbParamBuf = allocate(24, U | D);
+    const wbParamBuf = allocate(32, U | D);
     {
-      const ab = new ArrayBuffer(24);
-      new Uint32Array(ab, 0, 2).set([width, height]);
-      new Float32Array(ab, 8, 4).set([wb[0], wb[1], wb[2], 0]);
+      const ab = new ArrayBuffer(32);
+      new Uint32Array(ab, 0, 5).set([width, height, layout.stride, layout.offsetX, layout.offsetY]);
+      new Float32Array(ab, 20, 3).set([wb[0], wb[1], wb[2]]);
       device.queue.writeBuffer(wbParamBuf, 0, asGpu(new Uint8Array(ab)));
     }
 
     // Finalize params (shared between both finalize variants)
-    const finalParamBuf = allocate(80, U | D);
-    writeFinalizeParams(device, finalParamBuf, width, height, paddedW, clips, ccMatrix, drGain);
+    const finalParamBuf = allocate(96, U | D);
+    writeFinalizeParams(device, finalParamBuf, width, height, layout, clips, ccMatrix, drGain);
 
     const enc = device.createCommandEncoder();
     const wgX = Math.ceil(width / WG);
@@ -665,11 +690,12 @@ export async function gpuPostprocess(
       const chromaBuf = allocate(6 * 4, S);
 
       // Refavg + clip mask params
-      const rcParamBuf = allocate(24, U | D);
+      const rcParamBuf = allocate(32, U | D);
       {
-        const ab = new ArrayBuffer(24);
+        const ab = new ArrayBuffer(32);
         new Uint32Array(ab, 0, 2).set([width, height]);
         new Float32Array(ab, 8, 3).set(clips);
+        new Uint32Array(ab, 20, 3).set([layout.stride, layout.offsetX, layout.offsetY]);
         device.queue.writeBuffer(rcParamBuf, 0, asGpu(new Uint8Array(ab)));
       }
 
@@ -730,12 +756,12 @@ export async function gpuPostprocess(
       pass.end();
 
       // Pass 5: CHROMA
-      const chromaParamBuf = allocate(48, U | D);
+      const chromaParamBuf = allocate(64, U | D);
       {
-        const ab = new ArrayBuffer(48);
+        const ab = new ArrayBuffer(64);
         new Uint32Array(ab, 0, 4).set([width, height, dsW, dsH]);
         new Float32Array(ab, 16, 6).set([...clips, ...loClips]);
-        new Uint32Array(ab, 40, 2).set([wgX, 0]);
+        new Uint32Array(ab, 40, 6).set([wgX, layout.stride, layout.offsetX, layout.offsetY, 0, 0]);
         device.queue.writeBuffer(chromaParamBuf, 0, asGpu(new Uint8Array(ab)));
       }
 
@@ -787,7 +813,7 @@ export async function gpuPostprocess(
           { binding: 1, resource: { buffer: refavgBuf } },
           { binding: 2, resource: { buffer: clipMaskBuf } },
           { binding: 3, resource: { buffer: chromaBuf } },
-          { binding: 4, resource: { buffer: outputBuf } },
+          { binding: 4, resource: output.createView() },
           { binding: 5, resource: { buffer: finalParamBuf } },
         ],
       }));
@@ -802,7 +828,7 @@ export async function gpuPostprocess(
         layout: pipes.finalizeSimple.getBindGroupLayout(0),
         entries: [
           { binding: 0, resource: { buffer: dataBuf } },
-          { binding: 1, resource: { buffer: outputBuf } },
+          { binding: 1, resource: output.createView() },
           { binding: 2, resource: { buffer: finalParamBuf } },
         ],
       }));
@@ -815,8 +841,8 @@ export async function gpuPostprocess(
     device.queue.submit([enc.finish()]);
 
     // Transfer only the completed output; the finally block releases all intermediates.
-    owned.delete(outputBuf);
-    return { buffer: outputBuf, bytesPerRow };
+    owned.delete(output);
+    return { texture: output };
   } finally {
     for (const buffer of owned) buffer.destroy();
   }

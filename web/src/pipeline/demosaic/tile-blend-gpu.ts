@@ -5,9 +5,9 @@
  *   0. Extract:    tile the CFA image → 5-channel NCHW batch for inference
  *   1. Accumulate: weighted scatter of each tile into the padded output buffer
  *   2. Finalize:   divide accumulated values by weight sums (in-place)
- *   3. Crop:       extract the original (unpadded) region as HWC
  *
- * Everything stays on GPU — no CPU↔GPU transfers per batch.
+ * Everything stays on GPU — no CPU↔GPU transfers per batch. The padded blend buffer goes to the
+ * post-process as is, with the visible image's offset, instead of through a cropped copy.
  */
 
 // ---------------------------------------------------------------------------
@@ -38,14 +38,14 @@ struct ExtractParams {
   cfa_h: u32,
   count: u32,
   tile_stride: u32,   // floats between consecutive tiles (aligned)
-  _pad0: u32,
+  start: u32,         // index of the batch's first tile in tile_pos
   _pad1: u32,
   _pad2: u32,
 }
 
 @group(0) @binding(0) var<storage, read> cfa: array<f32>;
 @group(0) @binding(1) var<storage, read> masks: array<f32>;     // 3 × ps² (R, G, B)
-@group(0) @binding(2) var<storage, read> tile_pos: array<u32>;  // count × 2 (x, y)
+@group(0) @binding(2) var<storage, read> tile_pos: array<u32>;  // all tiles × 2 (x, y)
 @group(0) @binding(3) var<storage, read> clips: array<f32>;     // [clipR, clipG, clipB]
 @group(0) @binding(4) var<storage, read_write> out: array<f32>;
 @group(0) @binding(5) var<uniform> params: ExtractParams;
@@ -61,8 +61,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let ti = py * params.ps + px;
 
   // Tile origin in CFA image
-  let tx = tile_pos[tile_idx * 2u];
-  let ty = tile_pos[tile_idx * 2u + 1u];
+  let tx = tile_pos[(params.start + tile_idx) * 2u];
+  let ty = tile_pos[(params.start + tile_idx) * 2u + 1u];
   let src_x = tx + px;
   let src_y = ty + py;
 
@@ -163,35 +163,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 `;
 
-/**
- * Crop padded HWC buffer to original dimensions.
- * Output is directly consumable by gpuPostprocess.
- */
-const SHADER_CROP = /* wgsl */ `
-struct CropParams {
-  w_pad: u32,
-  pad_top: u32,
-  pad_left: u32,
-  w_orig: u32,
-  h_orig: u32,
-  _pad: u32,
-}
-
-@group(0) @binding(0) var<storage, read> src: array<f32>;
-@group(0) @binding(1) var<storage, read_write> dst: array<f32>;
-@group(0) @binding(2) var<uniform> params: CropParams;
-
-@compute @workgroup_size(${WG}, ${WG})
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-  if (gid.x >= params.w_orig || gid.y >= params.h_orig) { return; }
-  let src_idx = ((gid.y + params.pad_top) * params.w_pad + gid.x + params.pad_left) * 3u;
-  let dst_idx = (gid.y * params.w_orig + gid.x) * 3u;
-  dst[dst_idx]      = src[src_idx];
-  dst[dst_idx + 1u] = src[src_idx + 1u];
-  dst[dst_idx + 2u] = src[src_idx + 2u];
-}
-`;
-
 // ---------------------------------------------------------------------------
 // Pipeline cache
 // ---------------------------------------------------------------------------
@@ -200,7 +171,6 @@ interface Pipelines {
   extract: GPUComputePipeline;
   accumulate: GPUComputePipeline;
   finalizeBlend: GPUComputePipeline;
-  crop: GPUComputePipeline;
 }
 
 const pipelineCache = new WeakMap<GPUDevice, Pipelines>();
@@ -219,7 +189,6 @@ function getPipelines(device: GPUDevice): Pipelines {
     extract: makePipeline(device, SHADER_EXTRACT),
     accumulate: makePipeline(device, SHADER_ACCUMULATE),
     finalizeBlend: makePipeline(device, SHADER_FINALIZE_BLEND),
-    crop: makePipeline(device, SHADER_CROP),
   };
   pipelineCache.set(device, p);
   return p;
@@ -237,6 +206,14 @@ function asGpu(data: ArrayBufferView): GPUAllowSharedBufferSource {
   return data as unknown as GPUAllowSharedBufferSource;
 }
 
+/** The finalized blend: padded HWC float32, `stride` pixels per row, visible image at the offset. */
+export interface BlendResult {
+  buffer: GPUBuffer;
+  stride: number;
+  offsetX: number;
+  offsetY: number;
+}
+
 // ---------------------------------------------------------------------------
 // Public interface
 // ---------------------------------------------------------------------------
@@ -245,7 +222,9 @@ export interface GpuNNPipeline {
   /**
    * Extract a batch of tiles from the CFA image on the GPU.
    * Returns a GPUBuffer in [count, 5, ps, ps] NCHW layout ready for ORT.
-   * The buffer has STORAGE | COPY_SRC usage as required by ort.Tensor.fromGpuBuffer.
+   * The buffer has STORAGE | COPY_SRC usage as required by ort.Tensor.fromGpuBuffer. It stays
+   * the pipeline's and is reused by later batches of the same size: queue order puts the next
+   * extract after the inference that read this one.
    */
   extractBatch(startIdx: number, count: number): GPUBuffer;
   /**
@@ -256,10 +235,10 @@ export interface GpuNNPipeline {
    */
   accumulateBatch(inferOut: GPUBuffer, startIdx: number, count: number): void;
   /**
-   * Finalize blending, crop to original size, and return a GPUBuffer
-   * containing the cropped HWC float32 data ready for gpuPostprocess.
+   * Finalize blending and return the padded HWC float32 blend buffer (ownership transfers to
+   * the caller) with the visible image's offset, ready for gpuPostprocess.
    */
-  finalize(): Promise<GPUBuffer>;
+  finalize(): Promise<BlendResult>;
   /** Release all GPU resources. */
   destroy(): void;
 }
@@ -278,16 +257,16 @@ export function blendWeights1d(patchSize: number, overlap: number): Float32Array
   return w;
 }
 
+/** `cfaBuf` is the normalised float32 CFA (cfaW × cfaH); the pipeline takes ownership of it. */
 export function createGpuNNPipeline(
   device: GPUDevice,
-  cfa: Float32Array, cfaW: number, cfaH: number,
+  cfaBuf: GPUBuffer, cfaW: number, cfaH: number,
   masks: { r: Float32Array; g: Float32Array; b: Float32Array },
   clips: readonly [number, number, number],
   tiles: ReadonlyArray<{ x: number; y: number }>,
   hPad: number, wPad: number,
   patchSize: number, overlap: number,
   padTop: number, padLeft: number,
-  hOrig: number, wOrig: number,
   maxBatch: number,
 ): GpuNNPipeline {
   const pipes = getPipelines(device);
@@ -326,7 +305,7 @@ export function createGpuNNPipeline(
   // Every buffer this pipeline owns, so a partial construction failure releases what was
   // already created (instead of leaking it — the pipeline object is never returned to the
   // caller in that case), and so finalize()/destroy() each release a buffer at most once.
-  const owned = new Set<GPUBuffer>();
+  const owned = new Set<GPUBuffer>([cfaBuf]);
 
   function alloc(size: number, usage: GPUBufferUsageFlags): GPUBuffer {
     const b = buf(device, size, usage);
@@ -341,14 +320,11 @@ export function createGpuNNPipeline(
   }
 
   const {
-    cfaBuf, masksBuf, tilePosCpu, tilePosBuf, clipsBuf, extractParamBuf,
-    blendOutBuf, weightsBuf, w2dBuf, batchParamBuf, cropOutBuf,
+    masksBuf, tilePosBuf, clipsBuf, extractParamBuf,
+    blendOutBuf, weightsBuf, w2dBuf, batchParamBuf,
   } = (() => {
     try {
       // --- One-time GPU uploads ---
-      const cfaBuf = alloc(cfaW * cfaH * 4, S | D);
-      device.queue.writeBuffer(cfaBuf, 0, asGpu(cfa));
-
       // Channel masks: pack R, G, B contiguously (3 × ps²)
       const masksCpu = new Float32Array(3 * pp);
       masksCpu.set(masks.r, 0);
@@ -380,11 +356,10 @@ export function createGpuNNPipeline(
       device.queue.writeBuffer(w2dBuf, 0, asGpu(w2dCpu));
 
       const batchParamBuf = alloc(maxBatch * paramStride, U | D);
-      const cropOutBuf = alloc(hOrig * wOrig * 3 * 4, S);
 
       return {
-        cfaBuf, masksBuf, tilePosCpu, tilePosBuf, clipsBuf, extractParamBuf,
-        blendOutBuf, weightsBuf, w2dBuf, batchParamBuf, cropOutBuf,
+        masksBuf, tilePosBuf, clipsBuf, extractParamBuf,
+        blendOutBuf, weightsBuf, w2dBuf, batchParamBuf,
       };
     } catch (e) {
       for (const b of owned) {
@@ -396,22 +371,22 @@ export function createGpuNNPipeline(
   })();
 
   const accWg = Math.ceil(patchSize / WG);
+  // Extract outputs by batch size: every full batch shares one, a short last batch gets its own.
+  const extractOuts = new Map<number, GPUBuffer>();
 
   return {
     extractBatch(startIdx: number, count: number): GPUBuffer {
-      // Allocate output buffer with STORAGE | COPY_SRC (ORT requirement)
-      const extractOut = alloc(count * extractTileStride, S | C);
+      // Output buffer with STORAGE | COPY_SRC (ORT requirement)
+      let extractOut = extractOuts.get(count);
+      if (!extractOut) {
+        extractOut = alloc(count * extractTileStride, S | C);
+        extractOuts.set(count, extractOut);
+      }
 
       // Write extract params
       device.queue.writeBuffer(extractParamBuf, 0, asGpu(new Uint32Array([
-        patchSize, cfaW, cfaH, count, extractTileStrideFloats, 0, 0, 0,
+        patchSize, cfaW, cfaH, count, extractTileStrideFloats, startIdx, 0, 0,
       ])));
-
-      // Write tile positions for this batch (as an offset view into tilePosBuf)
-      // The shader indexes tile_pos[tile_idx * 2], so we pass a view starting at startIdx
-      const batchPosCpu = tilePosCpu.subarray(startIdx * 2, (startIdx + count) * 2);
-      const batchPosBuf = alloc(batchPosCpu.byteLength, S | D);
-      device.queue.writeBuffer(batchPosBuf, 0, asGpu(batchPosCpu));
 
       const enc = device.createCommandEncoder();
       const pass = enc.beginComputePass();
@@ -421,7 +396,7 @@ export function createGpuNNPipeline(
         entries: [
           { binding: 0, resource: { buffer: cfaBuf } },
           { binding: 1, resource: { buffer: masksBuf } },
-          { binding: 2, resource: { buffer: batchPosBuf } },
+          { binding: 2, resource: { buffer: tilePosBuf } },
           { binding: 3, resource: { buffer: clipsBuf } },
           { binding: 4, resource: { buffer: extractOut } },
           { binding: 5, resource: { buffer: extractParamBuf } },
@@ -466,20 +441,13 @@ export function createGpuNNPipeline(
       device.queue.submit([enc.finish()]);
     },
 
-    async finalize(): Promise<GPUBuffer> {
+    async finalize(): Promise<BlendResult> {
       // --- Finalize pass: divide by weights ---
       const finParamBuf = alloc(8, U | D);
       device.queue.writeBuffer(finParamBuf, 0, asGpu(new Uint32Array([wPad, hPad])));
 
-      // --- Crop pass: padded → original size ---
-      const cropParamBuf = alloc(24, U | D);
-      device.queue.writeBuffer(cropParamBuf, 0, asGpu(new Uint32Array([
-        wPad, padTop, padLeft, wOrig, hOrig, 0,
-      ])));
-
       const enc = device.createCommandEncoder();
-
-      let pass = enc.beginComputePass();
+      const pass = enc.beginComputePass();
       pass.setPipeline(pipes.finalizeBlend);
       pass.setBindGroup(0, device.createBindGroup({
         layout: pipes.finalizeBlend.getBindGroupLayout(0),
@@ -491,32 +459,18 @@ export function createGpuNNPipeline(
       }));
       pass.dispatchWorkgroups(Math.ceil(wPad / WG), Math.ceil(hPad / WG));
       pass.end();
-
-      pass = enc.beginComputePass();
-      pass.setPipeline(pipes.crop);
-      pass.setBindGroup(0, device.createBindGroup({
-        layout: pipes.crop.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: blendOutBuf } },
-          { binding: 1, resource: { buffer: cropOutBuf } },
-          { binding: 2, resource: { buffer: cropParamBuf } },
-        ],
-      }));
-      pass.dispatchWorkgroups(Math.ceil(wOrig / WG), Math.ceil(hOrig / WG));
-      pass.end();
-
       device.queue.submit([enc.finish()]);
-      await device.queue.onSubmittedWorkDone();
 
-      // Free every tracked buffer except cropOutBuf, whose ownership transfers to the caller.
+      // Free every tracked buffer except blendOutBuf, whose ownership transfers to the caller
+      // (destroying after submit is safe: submitted work keeps its resources alive).
       // Releasing removes each buffer from `owned` as it's freed, so a later destroy() call
       // (e.g. from an unrelated failure elsewhere) finds nothing left to double-free.
       for (const b of [...owned]) {
-        if (b !== cropOutBuf) release(b);
+        if (b !== blendOutBuf) release(b);
       }
-      owned.delete(cropOutBuf);
+      owned.delete(blendOutBuf);
 
-      return cropOutBuf;
+      return { buffer: blendOutBuf, stride: wPad, offsetX: padLeft, offsetY: padTop };
     },
 
     destroy(): void {

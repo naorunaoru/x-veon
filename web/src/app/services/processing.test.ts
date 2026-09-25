@@ -15,7 +15,7 @@ vi.mock('@/app/storage/idb-storage', () => ({
 vi.mock('@/app/services/library', () => ({ matchLensFor: vi.fn() }));
 
 import {
-  processFile, setPipeline, takeResult, getResult, discardResult, isProcessing,
+  processFile, setPipeline, acquireResult, getResult, discardResult, isProcessing, RETAINED_RESULTS,
 } from './processing';
 
 function makeFile(id: string, file: File | null = null): QueuedFile {
@@ -30,7 +30,7 @@ function makeFile(id: string, file: File | null = null): QueuedFile {
 function fakeImage(): ProcessedImage & { disposed: number } {
   const image = {
     disposed: 0,
-    gpu: { buffer: {} as GPUBuffer, width: 4, height: 2, bytesPerRow: 256 },
+    gpu: { texture: {} as GPUTexture, width: 4, height: 2 },
     meta: {
       exportData: { width: 4, height: 2, xyzToCam: null, wbCoeffs: new Float32Array(3), camToXyz: new Float32Array(12), orientation: 'Normal' },
       metadata: { make: 'F', model: 'X', width: 4, height: 2, tileCount: 1, inferenceTime: 0, backend: 'webgpu', exposureBias: 0, lensModel: 'L', focalLength: 0, fNumber: 0, colorTemp: 0, tint: 0 },
@@ -45,8 +45,7 @@ const ctx = { device: {} as GPUDevice, models: { backend: 'webgpu', switchSize }
 
 describe('processing service', () => {
   beforeEach(() => {
-    discardResult('a');
-    discardResult('b');
+    for (const id of ['a', 'b', 'c']) discardResult(id);
     processRaw.mockReset();
     readRaw.mockReset();
     readRaw.mockResolvedValue(new ArrayBuffer(3));
@@ -54,7 +53,7 @@ describe('processing service', () => {
     useAppStore.setState({ files: [makeFile('a')], selectedFileId: 'a', demosaicMethod: 'dht', modelSize: 'S', processingFileId: null });
   });
 
-  afterEach(() => { discardResult('a'); discardResult('b'); });
+  afterEach(() => { for (const id of ['a', 'b', 'c']) discardResult(id); });
 
   it('loads the chosen model size before a neural run, and reports a failed load', async () => {
     switchSize.mockReset().mockResolvedValue(undefined);
@@ -71,7 +70,7 @@ describe('processing service', () => {
     expect(useAppStore.getState().files[0]).toMatchObject({ status: 'error', error: 'No M model is available' });
   });
 
-  it('walks queued → processing → done and hands the result over once', async () => {
+  it('walks queued → processing → done and lends the result out without giving it away', async () => {
     const image = fakeImage();
     processRaw.mockResolvedValue(image);
     const seen: string[] = [];
@@ -89,8 +88,11 @@ describe('processing service', () => {
     expect(file.result).toBe(image.meta);
     expect(file.resultMethod).toBe('dht');
     expect(getResult('a')).toBe(image);
-    expect(takeResult('a')).toBe(image);
-    expect(takeResult('a')).toBeNull();
+    const lease = acquireResult('a')!;
+    expect(lease.image).toBe(image);
+    lease.release();
+    lease.release();  // idempotent
+    expect(acquireResult('a')?.image).toBe(image);  // still cached: showing it again needs no run
     expect(image.disposed).toBe(0);
   });
 
@@ -163,13 +165,42 @@ describe('processing service', () => {
     expect(useAppStore.getState().files[0].status).toBe('queued');
     expect(isProcessing()).toBe(false);
   });
-  it('evicts an unclaimed result when a different file starts', async () => {
-    useAppStore.setState({ files: [makeFile('a'), makeFile('b')] });
-    const a = fakeImage(), b = fakeImage();
-    processRaw.mockResolvedValueOnce(a).mockResolvedValueOnce(b);
+  it('keeps RETAINED_RESULTS results besides the selected one, least recently used evicted', async () => {
+    expect(RETAINED_RESULTS).toBe(1);
+    useAppStore.setState({ files: [makeFile('a'), makeFile('b'), makeFile('c')], selectedFileId: 'c' });
+    const a = fakeImage(), b = fakeImage(), c = fakeImage();
+    processRaw.mockResolvedValueOnce(a).mockResolvedValueOnce(b).mockResolvedValueOnce(c);
     await processFile('a'); await processFile('b');
-    expect(a.disposed).toBe(1); expect(b.disposed).toBe(0);
-    expect(getResult('a')).toBeNull(); expect(getResult('b')).toBe(b);
+    // Neither is selected or shown: only the most recent one stays.
+    expect(a.disposed).toBe(1); expect(getResult('a')).toBeNull(); expect(getResult('b')).toBe(b);
+    await processFile('c');
+    // The selected photo's result doesn't count against the budget.
+    expect(getResult('b')).toBe(b); expect(getResult('c')).toBe(c); expect(b.disposed).toBe(0);
+  });
+  it('never evicts or disposes a result on screen, and disposes a replaced one when released', async () => {
+    useAppStore.setState({ files: [makeFile('a'), makeFile('b'), makeFile('c')], selectedFileId: 'a' });
+    const a1 = fakeImage(), a2 = fakeImage(), b = fakeImage(), c = fakeImage();
+    processRaw.mockResolvedValueOnce(a1).mockResolvedValueOnce(b).mockResolvedValueOnce(c).mockResolvedValueOnce(a2);
+    await processFile('a');
+    const shown = acquireResult('a')!;
+    useAppStore.setState({ selectedFileId: 'z' });
+    await processFile('b'); await processFile('c');
+    expect(a1.disposed).toBe(0); expect(getResult('a')).toBe(a1);  // on screen
+    expect(b.disposed).toBe(1);                                       // evicted instead
+    await processFile('a');                                           // a new run replaces a1…
+    expect(getResult('a')).toBe(a2); expect(a1.disposed).toBe(0);     // …but a1 is still shown
+    shown.release();
+    expect(a1.disposed).toBe(1);
+  });
+  it('disposes a discarded result only once nothing shows it', async () => {
+    const image = fakeImage();
+    processRaw.mockResolvedValueOnce(image);
+    await processFile('a');
+    const shown = acquireResult('a')!;
+    discardResult('a');
+    expect(getResult('a')).toBeNull(); expect(image.disposed).toBe(0);
+    shown.release();
+    expect(image.disposed).toBe(1);
   });
   it('clears the previous image if a retry fails', async () => {
     const image = fakeImage();

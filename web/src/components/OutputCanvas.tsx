@@ -1,7 +1,7 @@
 import { useEffect, useRef, useMemo, memo } from 'react';
 import { useAppStore } from '@/app/store';
 import { usePanZoom } from '@/app/hooks/usePanZoom';
-import { takeResult } from '@/app/services/processing';
+import { acquireResult } from '@/app/services/processing';
 import { createRenderer, isWebGpuSupported, type Renderer } from '@/renderer';
 import { configFromPreset, configWithOverrides, computeTonescaleParams } from '@/renderer/grading/opendrt-params';
 import type { OpenDrtConfig, PreProcessConfig } from '@/renderer/grading/opendrt-params';
@@ -19,7 +19,7 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<Renderer | null>(null);
-  const rendererKeyRef = useRef('');
+  const leaseRef = useRef<ResultLease | null>(null);
   const setRenderer = useAppStore((s) => s.setRenderer);
 
   // Per-file grading — targeted primitive selectors to avoid re-renders from unrelated file changes
@@ -49,53 +49,49 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
     return '';
   }, [result.exportData.orientation, hwcW, hwcH]);
 
-  // Create/reuse renderer + load HWC image.
-  // The renderer is only recreated when dimensions or HDR mode change.
-  // Method changes only reload the HWC texture — no renderer destruction, zoom preserved.
+  // Create the renderer once per canvas, then show the file's current result in it. The
+  // result is borrowed, not taken: it stays cached for re-showing this photo, and a new result
+  // for the same file (another method) only swaps the image — zoom and renderer are preserved.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !isWebGpuSupported()) return;
 
     let cancelled = false;
-    const rendererKey = `${fileId}:${hwcW}:${hwcH}:${displayHdr}:${displayHdrHeadroom}`;
 
     (async () => {
-      // Create or reuse renderer
-      if (rendererKey !== rendererKeyRef.current) {
-        rendererRef.current?.dispose();
-        rendererRef.current = null;
-        rendererKeyRef.current = '';
-        canvas.width = hwcW;
-        canvas.height = hwcH;
-        const renderer = await createRenderer(canvas,
-          displayHdr ? { hdr: true, headroom: displayHdrHeadroom } : undefined,
-        );
-        if (cancelled) { renderer.dispose(); return; }
-        rendererRef.current = renderer;
-        rendererKeyRef.current = rendererKey;
+      if (!rendererRef.current) {
+        const { displayHdr: hdr, displayHdrHeadroom: headroom } = useAppStore.getState();
+        const created = await createRenderer(canvas, hdr ? { hdr: true, headroom } : undefined);
+        if (cancelled || rendererRef.current) { created.dispose(); return; }
+        rendererRef.current = created;
       }
-
-      const renderer = rendererRef.current!;
+      const renderer = rendererRef.current;
       setRenderer(null);
 
       if (cancelled) return;
-      const image = takeResult(fileId);
-      if (!image) {
-        // No undisplayed result (e.g. restored session) → re-queue for processing
+      const lease = acquireResult(fileId);
+      if (!lease) {
+        // No result in memory (e.g. restored session, or evicted) → re-queue for processing
         useAppStore.getState().updateFileStatus(fileId, 'queued');
         return;
       }
 
       try {
-        renderer.setImage(image.gpu);
-      } finally {
-        image.dispose();
+        if (canvas.width !== hwcW || canvas.height !== hwcH) {
+          canvas.width = hwcW;
+          canvas.height = hwcH;
+        }
+        renderer.setImage(lease.image.gpu);
+      } catch (error) {
+        lease.release();
+        throw error;
       }
-      const file = useAppStore.getState().files.find((f) => f.id === fileId);
-      const preset = file?.lookPreset ?? 'default';
-      const overrides = file?.openDrtOverrides ?? {};
-      const preProcess = file?.preProcessOverrides ?? {};
-      applyOpenDrt(renderer, preset, overrides, preProcess, renderer.display.hdr ? renderer.display.headroom : undefined);
+      // The renderer shows the new image now; give the previous one back.
+      leaseRef.current?.release();
+      leaseRef.current = lease;
+
+      syncDisplay(renderer);
+      applyFileGrade(renderer, fileId);
       renderer.render();
       setRenderer(renderer);
     })().catch((error: unknown) => {
@@ -106,13 +102,22 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
     });
 
     return () => { cancelled = true; };
-  }, [fileId, result, imgW, imgH, hwcW, hwcH, setRenderer, displayHdr, displayHdrHeadroom]);
+  }, [fileId, result, hwcW, hwcH, setRenderer]);
 
-  // Dispose renderer on unmount only
+  // HDR on/off or a new headroom: reconfigure the canvas in place — no reprocessing.
+  useEffect(() => {
+    const renderer = rendererRef.current;
+    if (!renderer || !syncDisplay(renderer)) return;
+    applyFileGrade(renderer, fileId);
+    renderer.render();
+  }, [displayHdr, displayHdrHeadroom, fileId]);
+
+  // Dispose the renderer and give the image back on unmount only
   useEffect(() => () => {
     rendererRef.current?.dispose();
     rendererRef.current = null;
-    rendererKeyRef.current = '';
+    leaseRef.current?.release();
+    leaseRef.current = null;
     useAppStore.getState().setRenderer(null);
   }, []);
 
@@ -142,6 +147,26 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
     </div>
   );
 });
+
+type ResultLease = NonNullable<ReturnType<typeof acquireResult>>;
+
+/** Match the renderer's output to the store's display state; true if it changed. */
+function syncDisplay(renderer: Renderer): boolean {
+  const { displayHdr, displayHdrHeadroom } = useAppStore.getState();
+  const headroom = displayHdr ? displayHdrHeadroom : 1.0;
+  if (renderer.display.hdr === displayHdr && renderer.display.headroom === headroom) return false;
+  renderer.setDisplay({ hdr: displayHdr, headroom });
+  return true;
+}
+
+/** The file's own look and overrides, tone-mapped for the renderer's current display. */
+function applyFileGrade(renderer: Renderer, fileId: string): void {
+  const file = useAppStore.getState().files.find((f) => f.id === fileId);
+  applyOpenDrt(
+    renderer, file?.lookPreset ?? 'default', file?.openDrtOverrides ?? {}, file?.preProcessOverrides ?? {},
+    renderer.display.hdr ? renderer.display.headroom : undefined,
+  );
+}
 
 function applyOpenDrt(
   renderer: Renderer,

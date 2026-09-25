@@ -1,28 +1,5 @@
 import { XYZ_TO_SRGB } from '../constants';
 
-export function cropToHWC(
-  output: Float32Array, hPad: number, wPad: number,
-  padTop: number, padLeft: number, hOrig: number, wOrig: number,
-): Float32Array {
-  const planeSize = hPad * wPad;
-  const n = hOrig * wOrig;
-  const hwc = new Float32Array(n * 3);
-
-  for (let y = 0; y < hOrig; y++) {
-    const srcRow = (y + padTop) * wPad + padLeft;
-    const dstRow = y * wOrig;
-    for (let x = 0; x < wOrig; x++) {
-      const srcIdx = srcRow + x;
-      const dstIdx = (dstRow + x) * 3;
-      hwc[dstIdx]     = output[srcIdx];
-      hwc[dstIdx + 1] = output[planeSize + srcIdx];
-      hwc[dstIdx + 2] = output[2 * planeSize + srcIdx];
-    }
-  }
-
-  return hwc;
-}
-
 function invert3x3(m: Float32Array): Float32Array {
   const [a, b, c, d, e, f, g, h, i] = m;
   const det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);

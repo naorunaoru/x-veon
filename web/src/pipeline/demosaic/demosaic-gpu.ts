@@ -55,11 +55,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
   }
 
-  // Write CHW planar output
-  let plane = params.width * params.height;
-  output[idx] = rgb[0u];
-  output[plane + idx] = rgb[1u];
-  output[2u * plane + idx] = rgb[2u];
+  // Write HWC output (read in place by the post-process, padding included)
+  let o = idx * 3u;
+  output[o] = rgb[0u];
+  output[o + 1u] = rgb[1u];
+  output[o + 2u] = rgb[2u];
 }
 `;
 
@@ -242,69 +242,45 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     rgb[other] = interp_cd(y, x, other, green, plane);
   }
 
-  // Write CHW planar output
-  output[idx] = rgb[0];
-  output[plane + idx] = rgb[1];
-  output[2u * plane + idx] = rgb[2];
+  // Write HWC output (read in place by the post-process, padding included)
+  let o = idx * 3u;
+  output[o] = rgb[0];
+  output[o + 1u] = rgb[1];
+  output[o + 2u] = rgb[2];
 }
 `;
 
-let device: GPUDevice | null = null;
-let pipeline: GPUComputePipeline | null = null;
-let dhtGreenPipeline: GPUComputePipeline | null = null;
-let dhtResolvePipeline: GPUComputePipeline | null = null;
-
-export async function initDemosaicGpu(): Promise<boolean> {
-  if (!navigator.gpu) {
-    console.warn('[demosaic-gpu] WebGPU not available');
-    return false;
-  }
-  try {
-    const adapter = await navigator.gpu.requestAdapter();
-    if (!adapter) return false;
-
-    // Request the adapter's max buffer limits so we can handle large images.
-    device = await adapter.requestDevice({
-      requiredLimits: {
-        maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
-        maxBufferSize: adapter.limits.maxBufferSize,
-      },
-    });
-
-    const shaderModule = device.createShaderModule({ code: BILINEAR_WGSL });
-    pipeline = device.createComputePipeline({
-      layout: 'auto',
-      compute: { module: shaderModule, entryPoint: 'main' },
-    });
-
-    const dhtGreenModule = device.createShaderModule({ code: DHT_GREEN_WGSL });
-    dhtGreenPipeline = device.createComputePipeline({
-      layout: 'auto',
-      compute: { module: dhtGreenModule, entryPoint: 'main' },
-    });
-
-    const dhtResolveModule = device.createShaderModule({ code: DHT_RESOLVE_WGSL });
-    dhtResolvePipeline = device.createComputePipeline({
-      layout: 'auto',
-      compute: { module: dhtResolveModule, entryPoint: 'main' },
-    });
-
-    console.log(
-      `[demosaic-gpu] initialized: ${adapter.info?.device ?? 'unknown GPU'}, ` +
-      `maxStorageBuffer=${(device.limits.maxStorageBufferBindingSize / 1024 / 1024).toFixed(0)}MB`,
-    );
-    return true;
-  } catch (e) {
-    console.warn('[demosaic-gpu] init failed:', e);
-    return false;
-  }
+interface Pipelines {
+  bilinear: GPUComputePipeline;
+  dhtGreen: GPUComputePipeline;
+  dhtResolve: GPUComputePipeline;
 }
 
-export function gpuAvailable(): boolean {
-  return device !== null && pipeline !== null;
+// The GPU methods run on the pipeline's shared device (ONNX Runtime's), so their output stays
+// on the GPU for the post-process instead of a readback and re-upload through a second device.
+const pipelineCache = new WeakMap<GPUDevice, Pipelines>();
+
+function makePipeline(device: GPUDevice, code: string): GPUComputePipeline {
+  return device.createComputePipeline({
+    layout: 'auto',
+    compute: { module: device.createShaderModule({ code }), entryPoint: 'main' },
+  });
 }
 
-/** Track each run allocation immediately, including buffers whose upload fails. */
+function getPipelines(device: GPUDevice): Pipelines {
+  let p = pipelineCache.get(device);
+  if (!p) {
+    p = {
+      bilinear: makePipeline(device, BILINEAR_WGSL),
+      dhtGreen: makePipeline(device, DHT_GREEN_WGSL),
+      dhtResolve: makePipeline(device, DHT_RESOLVE_WGSL),
+    };
+    pipelineCache.set(device, p);
+  }
+  return p;
+}
+
+/** Track each run allocation immediately; `keep` survives the run, everything else is released. */
 function runBuffers(device: GPUDevice) {
   const owned: GPUBuffer[] = [];
   return {
@@ -313,72 +289,56 @@ function runBuffers(device: GPUDevice) {
       owned.push(buffer);
       return buffer;
     },
-    dispose(): void {
-      for (const buffer of owned) if (buffer.mapState === 'mapped') buffer.unmap();
-      for (const buffer of owned) buffer.destroy();
+    dispose(keep?: GPUBuffer): void {
+      for (const buffer of owned) if (buffer !== keep) buffer.destroy();
     },
   };
 }
 
-function createCfaPatternBuffer(cfaPattern: Uint32Array, allocate: (descriptor: GPUBufferDescriptor) => GPUBuffer): GPUBuffer {
-  const buf = allocate({
+function checkFits(device: GPUDevice, ...sizes: number[]): void {
+  if (sizes.some((size) => size > device.limits.maxStorageBufferBindingSize)) {
+    throw new Error('Image too large for GPU storage buffer');
+  }
+}
+
+function writeCommon(
+  device: GPUDevice, allocate: (d: GPUBufferDescriptor) => GPUBuffer,
+  width: number, height: number, cfaPattern: Uint32Array, period: number,
+): { paramsBuffer: GPUBuffer; cfaPatternBuffer: GPUBuffer } {
+  const paramsBuffer = allocate({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  // The CFA is canonically aligned, so the pattern shift is always 0.
+  device.queue.writeBuffer(paramsBuffer, 0, new Uint32Array([width, height, 0, 0, period]));
+  const cfaPatternBuffer = allocate({
     size: cfaPattern.byteLength,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
   });
-  device!.queue.writeBuffer(buf, 0, cfaPattern.buffer, cfaPattern.byteOffset, cfaPattern.byteLength);
-  return buf;
+  device.queue.writeBuffer(cfaPatternBuffer, 0, cfaPattern.buffer, cfaPattern.byteOffset, cfaPattern.byteLength);
+  return { paramsBuffer, cfaPatternBuffer };
 }
 
-export async function runBilinearGpu(
-  cfa: Float32Array,
-  width: number,
-  height: number,
-  dy: number,
-  dx: number,
-  cfaPattern: Uint32Array,
-  period: number,
-): Promise<Float32Array> {
-  if (!device || !pipeline) throw new Error('GPU demosaic not initialized');
-
-  const inputBytes = width * height * 4;
+/**
+ * Bilinear demosaic of the normalised float32 CFA in `cfa` (width × height). Returns an HWC
+ * float32 buffer of the same size that the caller owns; `cfa` stays the caller's.
+ */
+export function runBilinearGpu(
+  device: GPUDevice, cfa: GPUBuffer, width: number, height: number,
+  cfaPattern: Uint32Array, period: number,
+): GPUBuffer {
   const outputBytes = 3 * width * height * 4;
-
-  // Check buffer size fits device limits
-  if (outputBytes > device.limits.maxStorageBufferBindingSize) {
-    throw new Error('Image too large for GPU storage buffer');
-  }
+  checkFits(device, outputBytes);
+  const pipes = getPipelines(device);
 
   const buffers = runBuffers(device);
+  let output: GPUBuffer | undefined;
   try {
-    const inputBuffer = buffers.allocate({
-      size: inputBytes,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(inputBuffer, 0, cfa.buffer, cfa.byteOffset, cfa.byteLength);
-
-    const outputBuffer = buffers.allocate({
-      size: outputBytes,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
-    });
-
-    const paramsBuffer = buffers.allocate({
-      size: 32,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(paramsBuffer, 0, new Uint32Array([width, height, dy, dx, period]));
-
-    const cfaPatternBuffer = createCfaPatternBuffer(cfaPattern, buffers.allocate);
-
-    const stagingBuffer = buffers.allocate({
-      size: outputBytes,
-      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-    });
+    output = buffers.allocate({ size: outputBytes, usage: GPUBufferUsage.STORAGE });
+    const { paramsBuffer, cfaPatternBuffer } = writeCommon(device, buffers.allocate, width, height, cfaPattern, period);
 
     const bindGroup = device.createBindGroup({
-      layout: pipeline.getBindGroupLayout(0),
+      layout: pipes.bilinear.getBindGroupLayout(0),
       entries: [
-        { binding: 0, resource: { buffer: inputBuffer } },
-        { binding: 1, resource: { buffer: outputBuffer } },
+        { binding: 0, resource: { buffer: cfa } },
+        { binding: 1, resource: { buffer: output } },
         { binding: 2, resource: { buffer: paramsBuffer } },
         { binding: 3, resource: { buffer: cfaPatternBuffer } },
       ],
@@ -386,91 +346,49 @@ export async function runBilinearGpu(
 
     const encoder = device.createCommandEncoder();
     const pass = encoder.beginComputePass();
-    pass.setPipeline(pipeline);
+    pass.setPipeline(pipes.bilinear);
     pass.setBindGroup(0, bindGroup);
-    pass.dispatchWorkgroups(
-      Math.ceil(width / 16),
-      Math.ceil(height / 16),
-    );
+    pass.dispatchWorkgroups(Math.ceil(width / 16), Math.ceil(height / 16));
     pass.end();
-    encoder.copyBufferToBuffer(outputBuffer, 0, stagingBuffer, 0, outputBytes);
     device.queue.submit([encoder.finish()]);
-
-    await stagingBuffer.mapAsync(GPUMapMode.READ);
-    const result = new Float32Array(new Float32Array(stagingBuffer.getMappedRange()));
-
-
-    return result;
-  } finally {
+    buffers.dispose(output);
+    return output;
+  } catch (error) {
     buffers.dispose();
+    throw error;
   }
 }
 
-export async function runDhtGpu(
-  cfa: Float32Array,
-  width: number,
-  height: number,
-  dy: number,
-  dx: number,
-  cfaPattern: Uint32Array,
-  period: number,
-): Promise<Float32Array> {
-  if (!device || !dhtGreenPipeline || !dhtResolvePipeline) {
-    throw new Error('GPU DHT not initialized');
-  }
-
+/**
+ * DHT demosaic of the normalised float32 CFA in `cfa` (width × height). Returns an HWC float32
+ * buffer of the same size that the caller owns; `cfa` stays the caller's.
+ */
+export function runDhtGpu(
+  device: GPUDevice, cfa: GPUBuffer, width: number, height: number,
+  cfaPattern: Uint32Array, period: number,
+): GPUBuffer {
   const pixels = width * height;
-  const inputBytes = pixels * 4;
   const greenHvBytes = 2 * pixels * 4;  // planar: [green_h | green_v]
   const outputBytes = 3 * pixels * 4;
+  checkFits(device, greenHvBytes, outputBytes);
+  const pipes = getPipelines(device);
 
-  const maxBinding = device.limits.maxStorageBufferBindingSize;
-  if (greenHvBytes > maxBinding || outputBytes > maxBinding) {
-    throw new Error('Image too large for GPU storage buffer');
-  }
-
-  // Shared buffers
   const buffers = runBuffers(device);
+  let output: GPUBuffer | undefined;
   try {
-    const inputBuffer = buffers.allocate({
-      size: inputBytes,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(inputBuffer, 0, cfa.buffer, cfa.byteOffset, cfa.byteLength);
-
-    const paramsBuffer = buffers.allocate({
-      size: 32,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(paramsBuffer, 0, new Uint32Array([width, height, dy, dx, period]));
-
-    const cfaPatternBuffer = createCfaPatternBuffer(cfaPattern, buffers.allocate);
-
+    output = buffers.allocate({ size: outputBytes, usage: GPUBufferUsage.STORAGE });
+    const { paramsBuffer, cfaPatternBuffer } = writeCommon(device, buffers.allocate, width, height, cfaPattern, period);
     // Intermediate green buffer (pass 1 output, pass 2 input)
-    const greenHvBuffer = buffers.allocate({
-      size: greenHvBytes,
-      usage: GPUBufferUsage.STORAGE,
-    });
-
-    // Final output
-    const outputBuffer = buffers.allocate({
-      size: outputBytes,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
-    });
-
-    const stagingBuffer = buffers.allocate({
-      size: outputBytes,
-      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-    });
+    const greenHvBuffer = buffers.allocate({ size: greenHvBytes, usage: GPUBufferUsage.STORAGE });
 
     const wgX = Math.ceil(width / 16);
     const wgY = Math.ceil(height / 16);
 
     // Pass 1: directional green interpolation
     const greenBindGroup = device.createBindGroup({
-      layout: dhtGreenPipeline.getBindGroupLayout(0),
+      layout: pipes.dhtGreen.getBindGroupLayout(0),
       entries: [
-        { binding: 0, resource: { buffer: inputBuffer } },
+        { binding: 0, resource: { buffer: cfa } },
         { binding: 1, resource: { buffer: greenHvBuffer } },
         { binding: 2, resource: { buffer: paramsBuffer } },
         { binding: 3, resource: { buffer: cfaPatternBuffer } },
@@ -479,11 +397,11 @@ export async function runDhtGpu(
 
     // Pass 2: homogeneity selection + R/B color-difference
     const resolveBindGroup = device.createBindGroup({
-      layout: dhtResolvePipeline.getBindGroupLayout(0),
+      layout: pipes.dhtResolve.getBindGroupLayout(0),
       entries: [
-        { binding: 0, resource: { buffer: inputBuffer } },
+        { binding: 0, resource: { buffer: cfa } },
         { binding: 1, resource: { buffer: greenHvBuffer } },
-        { binding: 2, resource: { buffer: outputBuffer } },
+        { binding: 2, resource: { buffer: output } },
         { binding: 3, resource: { buffer: paramsBuffer } },
         { binding: 4, resource: { buffer: cfaPatternBuffer } },
       ],
@@ -492,26 +410,22 @@ export async function runDhtGpu(
     const encoder = device.createCommandEncoder();
 
     const pass1 = encoder.beginComputePass();
-    pass1.setPipeline(dhtGreenPipeline);
+    pass1.setPipeline(pipes.dhtGreen);
     pass1.setBindGroup(0, greenBindGroup);
     pass1.dispatchWorkgroups(wgX, wgY);
     pass1.end();
 
     const pass2 = encoder.beginComputePass();
-    pass2.setPipeline(dhtResolvePipeline);
+    pass2.setPipeline(pipes.dhtResolve);
     pass2.setBindGroup(0, resolveBindGroup);
     pass2.dispatchWorkgroups(wgX, wgY);
     pass2.end();
 
-    encoder.copyBufferToBuffer(outputBuffer, 0, stagingBuffer, 0, outputBytes);
     device.queue.submit([encoder.finish()]);
-
-    await stagingBuffer.mapAsync(GPUMapMode.READ);
-    const result = new Float32Array(new Float32Array(stagingBuffer.getMappedRange()));
-
-
-    return result;
-  } finally {
+    buffers.dispose(output);
+    return output;
+  } catch (error) {
     buffers.dispose();
+    throw error;
   }
 }

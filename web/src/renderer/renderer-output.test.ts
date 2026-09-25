@@ -42,7 +42,7 @@ describe('export gamut is independent of preview', () => {
     for (const hdr of [false, true]) {
       const { canvas, writes } = fixture();
       const renderer = await createRenderer(canvas, { hdr, headroom: hdr ? 4 : 1 });
-      renderer.setImage({ buffer: {} as GPUBuffer, width: 1, height: 1, bytesPerRow: 256 });
+      renderer.setImage({ texture: { createView: () => ({}) } as unknown as GPUTexture, width: 1, height: 1 });
       const cfg = configWithOverrides(configFromPreset('umbra'), {});
       const ts = computeTonescaleParams(cfg);
       renderer.setGrade(cfg, ts);

@@ -22,8 +22,9 @@ function fixture(failAt?: number) {
     queue: { submit: vi.fn() },
   };
   getDevice.mockResolvedValue(device);
-  const canvas = { getContext: () => ({ configure: vi.fn() }) } as unknown as HTMLCanvasElement;
-  return { resources, canvas, copy, device };
+  const context = { configure: vi.fn() };
+  const canvas = { getContext: () => context } as unknown as HTMLCanvasElement;
+  return { resources, canvas, copy, device, context };
 }
 afterEach(() => vi.unstubAllGlobals());
 describe('renderer ownership', () => {
@@ -33,25 +34,31 @@ describe('renderer ownership', () => {
     expect(f.resources).toHaveLength(failAt);
     for (const r of f.resources) expect(r.destroy).toHaveBeenCalledTimes(1);
   });
-  it('borrows image buffers on both successful and failed uploads', async () => {
+  it('samples the image texture it is given, without copying or ever destroying it', async () => {
     const f = fixture(); const renderer = await createRenderer(f.canvas);
-    const buffer = { destroy: vi.fn() } as unknown as GPUBuffer;
-    const image = { buffer, width: 1, height: 1, bytesPerRow: 256 };
-    renderer.setImage(image);
-    expect(buffer.destroy).not.toHaveBeenCalled();
-    f.copy.mockImplementation(() => { throw new Error('copy'); });
-    expect(() => renderer.setImage(image)).toThrow('copy');
-    expect(buffer.destroy).not.toHaveBeenCalled();
+    const texture = (): GPUTexture => ({ destroy: vi.fn(), createView: () => ({}) }) as unknown as GPUTexture;
+    const first = texture(), second = texture();
+    renderer.setImage({ texture: first, width: 1, height: 1 });
+    renderer.setImage({ texture: second, width: 2, height: 2 });
     renderer.dispose();
+    expect(first.destroy).not.toHaveBeenCalled();
+    expect(second.destroy).not.toHaveBeenCalled();
+    expect(f.copy).not.toHaveBeenCalled();
     for (const r of f.resources) expect(r.destroy).toHaveBeenCalledTimes(1);
   });
-  it('does not retain a destroyed texture after replacement allocation fails', async () => {
-    const f = fixture(8); const renderer = await createRenderer(f.canvas);
-    const image = { buffer: {} as GPUBuffer, width: 1, height: 1, bytesPerRow: 256 };
-    renderer.setImage(image);
-    expect(() => renderer.setImage(image)).toThrow('allocation');
-    renderer.dispose();
-    for (const resource of f.resources) expect(resource.destroy).toHaveBeenCalledTimes(1);
+  it('switches between SDR and HDR in place, rebuilding only the display pipeline', async () => {
+    const f = fixture(); const renderer = await createRenderer(f.canvas);
+    const pipelines = f.device.createRenderPipeline.mock.calls.length;
+    const resources = f.resources.length;
+    renderer.setDisplay({ hdr: true, headroom: 4 });
+    expect(renderer.display).toEqual({ hdr: true, headroom: 4 });
+    expect(f.context.configure).toHaveBeenLastCalledWith(expect.objectContaining({ format: 'rgba16float', toneMapping: { mode: 'extended' } }));
+    expect(f.device.createRenderPipeline.mock.calls.length).toBe(pipelines + 1);
+    renderer.setDisplay({ hdr: true, headroom: 2 });  // headroom only: no reconfiguration
+    expect(f.context.configure).toHaveBeenCalledTimes(2);
+    renderer.setDisplay({ hdr: false, headroom: 1 });
+    expect(f.context.configure).toHaveBeenLastCalledWith(expect.objectContaining({ format: 'bgra8unorm', toneMapping: { mode: 'standard' } }));
+    expect(f.resources.length).toBe(resources);
   });
   it('exports through rgba32float even without float32-blendable', async () => {
     const f = fixture(); await createRenderer(f.canvas);

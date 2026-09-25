@@ -1,11 +1,14 @@
 /// <reference lib="webworker" />
 /**
- * RAW decoding off the main thread. rawloader's panics trap the wasm instance (catch_unwind does
+ * RAW decoding, and the CPU preparation of the CFA (crop, white-level calibration, phase
+ * padding, normalisation table), off the main thread. Only the prepared u16 CFA comes back, as a
+ * transfer; the full readout stays here and is dropped. rawloader's panics trap the wasm instance (catch_unwind does
  * nothing on wasm32) and leave its stack and heap corrupted, so the owner replaces this worker
  * after any failed decode instead of reusing the instance.
  */
 import init, { decode_image } from '../../../wasm/rawloader/pkg/rawloader_wasm.js';
-import type { RawImage } from '../types';
+import { prepareCfa } from '../preprocess/preprocessor';
+import type { PreparedCfa, RawImage } from '../types';
 
 const ready = init();
 
@@ -46,7 +49,18 @@ self.onmessage = async (e: MessageEvent<Request>) => {
     } finally {
       img.free();
     }
-    self.postMessage({ type: 'done', raw }, [raw.data.buffer]);
+    // A readout the pipeline can't lay out (an unsupported CFA) decoded fine: report that
+    // separately, so it isn't mistaken for a decoder failure and the instance stays usable.
+    let prepared: PreparedCfa | null = null;
+    let prepareError: string | null = null;
+    try {
+      prepared = prepareCfa(raw);
+    } catch (err) {
+      prepareError = err instanceof Error ? err.message : String(err);
+    }
+    const { data: _data, ...meta } = raw;
+    const transfer: Transferable[] = prepared ? [prepared.data.buffer, prepared.lut.buffer] : [];
+    self.postMessage({ type: 'done', raw: meta, prepared, prepareError }, transfer);
   } catch (err) {
     self.postMessage({ type: 'error', message: err instanceof Error ? err.message : String(err) });
   }

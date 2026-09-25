@@ -1,9 +1,10 @@
 import { generateTiles } from '../preprocess/preprocessor';
 import { createGpuNNPipeline } from './tile-blend-gpu';
+import { uploadNormalizedCfa } from './cfa-gpu';
 import { PATCH_SIZE, OVERLAP, TILE_BATCH } from '../constants';
 import type { DemosaicStrategy } from './strategy';
 
-/** Fully GPU-resident path: extract tiles → infer → blend → finalize+crop, all on ctx.device. */
+/** Fully GPU-resident path: normalise → extract tiles → infer → blend → finalize, all on ctx.device. */
 export const neuralNetStrategy: DemosaicStrategy = {
   id: 'neural-net',
   async run(input, ctx, opts) {
@@ -11,10 +12,10 @@ export const neuralNetStrategy: DemosaicStrategy = {
     const { tiles, hPad, wPad } = tileGrid;
 
     const gpu = createGpuNNPipeline(
-      ctx.device, input.cfa, input.width, input.height,
+      ctx.device, uploadNormalizedCfa(ctx.device, input), input.width, input.height,
       input.masks, input.clipNorm, tiles,
       hPad, wPad, PATCH_SIZE, OVERLAP,
-      input.padTop, input.padLeft, input.visibleHeight, input.visibleWidth, TILE_BATCH,
+      input.padTop, input.padLeft, TILE_BATCH,
     );
 
     try {
@@ -42,9 +43,8 @@ export const neuralNetStrategy: DemosaicStrategy = {
         opts.onProgress?.(end, tiles.length);
       }
 
-      // Finalize+crop on GPU → GPUBuffer passed directly to postprocess
-      const hwc = await gpu.finalize();
-      return { hwc, tileCount: tiles.length };
+      // Finalize on GPU → padded blend buffer passed directly to postprocess
+      return { rgb: await gpu.finalize(), tileCount: tiles.length };
     } catch (error) {
       gpu.destroy();
       throw error;

@@ -19,7 +19,9 @@ export interface HistogramControls {
 }
 export interface Renderer {
   readonly display: { hdr: boolean; headroom: number };
-  /** Caller retains buffer ownership. */
+  /** Switch between SDR and HDR output (or a new headroom) in place: same image, no re-upload. */
+  setDisplay(display: { hdr: boolean; headroom: number }): void;
+  /** Samples the image's texture directly; the caller keeps ownership and keeps it alive. */
   setImage(image: GpuImage): void;
   setGrade(cfg: GradingConfig, ts: TonescaleParams): void;
   render(): void;
@@ -36,6 +38,9 @@ export class HdrRenderer implements Renderer {
   private exportPipeline: GPURenderPipeline;
   private bindGroupLayout: GPUBindGroupLayout;
   private sampler: GPUSampler;
+  private shaderModule: GPUShaderModule;
+  private pipelineLayout: GPUPipelineLayout;
+  private canvasFormat: GPUTextureFormat;
   private uniformBuffer: GPUBuffer;
   private uniformData: Float32Array;
   private imageTex: GPUTexture | null = null;
@@ -69,6 +74,9 @@ export class HdrRenderer implements Renderer {
     this.exportPipeline = exportPipeline;
     this.bindGroupLayout = bindGroupLayout;
     this.sampler = sampler;
+    this.shaderModule = shaderModule;
+    this.pipelineLayout = pipelineLayout;
+    this.canvasFormat = displayFormat(isHdr);
     this.uniformBuffer = uniformBuffer;
     this.uniformData = uniformData;
     this._isHdrDisplay = isHdr;
@@ -87,15 +95,8 @@ export class HdrRenderer implements Renderer {
 
     const wantHdr = opts?.hdr ?? false;
     const headroom = opts?.headroom ?? 1.0;
-    const canvasFormat: GPUTextureFormat = wantHdr ? 'rgba16float' : navigator.gpu.getPreferredCanvasFormat();
-
-    context.configure({
-      device,
-      format: canvasFormat,
-      alphaMode: 'opaque',
-      colorSpace: wantHdr ? 'display-p3' : 'srgb',
-      toneMapping: { mode: wantHdr ? 'extended' : 'standard' },
-    });
+    const canvasFormat = displayFormat(wantHdr);
+    configureContext(context, device, wantHdr);
 
 
     // Shader module
@@ -115,16 +116,7 @@ export class HdrRenderer implements Renderer {
     });
 
     // Display pipeline (targets canvas format)
-    const displayPipeline = device.createRenderPipeline({
-      layout: pipelineLayout,
-      vertex: { module: shaderModule, entryPoint: 'vs_main' },
-      fragment: {
-        module: shaderModule,
-        entryPoint: 'fs_main',
-        targets: [{ format: canvasFormat }],
-      },
-      primitive: { topology: 'triangle-list' },
-    });
+    const displayPipeline = createDisplayPipeline(device, pipelineLayout, shaderModule, canvasFormat);
 
     // Export pipeline: renders to rgba32float. It never blends, so it doesn't need the
     // float32-blendable feature (which ONNX Runtime's shared device doesn't request).
@@ -163,9 +155,8 @@ export class HdrRenderer implements Renderer {
       );
       // Set constant uniforms: matrices + flags
       setMat3(uniformData, U_SRGB_P3_C0, SRGB_TO_P3D65);
-      setMat3(uniformData, U_P3_DSP_C0, wantHdr ? IDENTITY_3X3 : P3D65_TO_REC709);
-      uniformData[U_FLAGS + 1] = wantHdr ? 1.0 : 0.0;  // hdrDisplay
       uniformData[U_FLAGS + 2] = 0.0;                    // exportMode
+      renderer.restoreDisplayState(false);
 
       return renderer;
     } catch (error) {
@@ -176,35 +167,28 @@ export class HdrRenderer implements Renderer {
   get display(): { hdr: boolean; headroom: number } {
     return { hdr: this._isHdrDisplay, headroom: this._hdrHeadroom };
   }
-  setImage(image: GpuImage): void {
-    const { buffer, width, height, bytesPerRow } = image;
-    this.createImageTex(width, height);
-
-    const enc = this.device.createCommandEncoder();
-    enc.copyBufferToTexture(
-      { buffer, bytesPerRow, rowsPerImage: height },
-      { texture: this.imageTex! },
-      [width, height],
-    );
-    this.device.queue.submit([enc.finish()]);
-
-    this.rebuildBindGroups();
+  setDisplay(display: { hdr: boolean; headroom: number }): void {
+    this._hdrHeadroom = display.headroom;
+    if (display.hdr !== this._isHdrDisplay) {
+      this._isHdrDisplay = display.hdr;
+      const format = displayFormat(display.hdr);
+      configureContext(this.context, this.device, display.hdr);
+      if (format !== this.canvasFormat) {
+        this.canvasFormat = format;
+        this.displayPipeline = createDisplayPipeline(this.device, this.pipelineLayout, this.shaderModule, format);
+      }
+    }
+    // The caller sets the grade for the new headroom; this restores flags and gamut and draws.
+    this.restoreDisplayState(false);
   }
 
-  private createImageTex(width: number, height: number): void {
-    this.imageTex?.destroy();
-    this.imageTex = null;
-    this.imgW = width;
-    this.imgH = height;
-
-    this.imageTex = this.device.createTexture({
-      size: [width, height],
-      format: 'rgba32float',
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC,
-    });
-
-    this.uniformData[U_TEXEL]     = 1 / width;
-    this.uniformData[U_TEXEL + 1] = 1 / height;
+  setImage(image: GpuImage): void {
+    this.imageTex = image.texture;
+    this.imgW = image.width;
+    this.imgH = image.height;
+    this.uniformData[U_TEXEL]     = 1 / image.width;
+    this.uniformData[U_TEXEL + 1] = 1 / image.height;
+    this.rebuildBindGroups();
   }
 
   private rebuildBindGroups(): void {
@@ -298,7 +282,7 @@ export class HdrRenderer implements Renderer {
   }
 
   dispose(): void {
-    this.imageTex?.destroy();
+    // The image texture belongs to the processed result, not to the renderer.
     this.uniformBuffer.destroy();
     this.histogram.dispose();
     this.exportTarget.dispose();
@@ -307,7 +291,8 @@ export class HdrRenderer implements Renderer {
     this.bindGroup = null;
   }
 
-  private restoreDisplayState(): void {
+  /** Put display flags, gamut and grade back after an export (or a display change), then draw. */
+  private restoreDisplayState(draw = true): void {
     const d = this.uniformData;
 
     // Restore flags
@@ -323,6 +308,31 @@ export class HdrRenderer implements Renderer {
     }
 
     // Re-render to canvas
-    this.render();
+    if (draw) this.render();
   }
+}
+
+function displayFormat(hdr: boolean): GPUTextureFormat {
+  return hdr ? 'rgba16float' : navigator.gpu.getPreferredCanvasFormat();
+}
+
+function configureContext(context: GPUCanvasContext, device: GPUDevice, hdr: boolean): void {
+  context.configure({
+    device,
+    format: displayFormat(hdr),
+    alphaMode: 'opaque',
+    colorSpace: hdr ? 'display-p3' : 'srgb',
+    toneMapping: { mode: hdr ? 'extended' : 'standard' },
+  });
+}
+
+function createDisplayPipeline(
+  device: GPUDevice, layout: GPUPipelineLayout, module: GPUShaderModule, format: GPUTextureFormat,
+): GPURenderPipeline {
+  return device.createRenderPipeline({
+    layout,
+    vertex: { module, entryPoint: 'vs_main' },
+    fragment: { module, entryPoint: 'fs_main', targets: [{ format }] },
+    primitive: { topology: 'triangle-list' },
+  });
 }

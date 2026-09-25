@@ -19,12 +19,12 @@ class FakeBuffer {
 
 interface FakeDeviceState {
   failAt: number | null; // 1-based index of the createBuffer call that should throw
-  onSubmittedWorkDone: () => Promise<void>;
+  failSubmit: boolean;
 }
 
 function makeFakeDevice(): { device: GPUDevice; buffers: FakeBuffer[]; state: FakeDeviceState } {
   const buffers: FakeBuffer[] = [];
-  const state: FakeDeviceState = { failAt: null, onSubmittedWorkDone: () => Promise.resolve() };
+  const state: FakeDeviceState = { failAt: null, failSubmit: false };
   let created = 0;
 
   const device = {
@@ -48,8 +48,7 @@ function makeFakeDevice(): { device: GPUDevice; buffers: FakeBuffer[]; state: Fa
     }),
     queue: {
       writeBuffer: () => {},
-      submit: () => {},
-      onSubmittedWorkDone: () => state.onSubmittedWorkDone(),
+      submit: () => { if (state.failSubmit) throw new Error('device lost'); },
     },
   } as unknown as GPUDevice;
 
@@ -63,19 +62,22 @@ function makeMasks(patchSize: number): ChannelMasks {
 
 const PATCH_SIZE = 8;
 
-/** One tile, small enough to keep the fake buffer count easy to reason about. */
+/** The CFA buffer handed to the pipeline (it takes ownership; not created through the device). */
+let cfaBuf: FakeBuffer;
+
+/** Three tiles, small enough to keep the fake buffer count easy to reason about. */
 function buildPipeline(device: GPUDevice) {
+  cfaBuf = new FakeBuffer(PATCH_SIZE * PATCH_SIZE * 4, 0);
   return createGpuNNPipeline(
     device,
-    new Float32Array(PATCH_SIZE * PATCH_SIZE), PATCH_SIZE, PATCH_SIZE,
+    cfaBuf as unknown as GPUBuffer, PATCH_SIZE, PATCH_SIZE,
     makeMasks(PATCH_SIZE),
     [1, 1, 1],
-    [{ x: 0, y: 0 }],
+    [{ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 0 }],
     PATCH_SIZE, PATCH_SIZE,
     PATCH_SIZE, 2,
-    0, 0,
-    4, 4,
-    1,
+    1, 2,
+    2,
   );
 }
 
@@ -89,58 +91,69 @@ describe('createGpuNNPipeline buffer lifecycle', () => {
   it('allocates one tracked buffer per construction-time upload', () => {
     const { device, buffers } = makeFakeDevice();
     buildPipeline(device);
-    expect(buffers.length).toBe(10);
-    for (const b of buffers) expect(b.destroy).not.toHaveBeenCalled();
+    expect(buffers.length).toBe(8);
+    for (const b of [...buffers, cfaBuf]) expect(b.destroy).not.toHaveBeenCalled();
   });
 
-  it('releases already-created buffers when construction fails partway through', () => {
+  it('releases already-created buffers, and the CFA it was given, when construction fails', () => {
     const { device, buffers, state } = makeFakeDevice();
-    state.failAt = 6; // blendOutBuf: 5 buffers already created before this one throws
-    expect(() => buildPipeline(device)).toThrow(/allocation 6 failed/);
-    expect(buffers.length).toBe(5);
-    for (const b of buffers) expect(b.destroy).toHaveBeenCalledTimes(1);
+    state.failAt = 5; // blendOutBuf: 4 buffers already created before this one throws
+    expect(() => buildPipeline(device)).toThrow(/allocation 5 failed/);
+    expect(buffers.length).toBe(4);
+    for (const b of [...buffers, cfaBuf]) expect(b.destroy).toHaveBeenCalledTimes(1);
   });
 
-  it('finalize transfers the output buffer and releases every other buffer exactly once', async () => {
+  it('reuses one extract buffer per batch size', () => {
     const { device, buffers } = makeFakeDevice();
     const gpu = buildPipeline(device);
-    const cropOutBuf = buffers[9]; // last buffer allocated during construction
+    const first = gpu.extractBatch(0, 2);
+    expect(gpu.extractBatch(0, 2)).toBe(first);
+    const last = gpu.extractBatch(2, 1);
+    expect(last).not.toBe(first);
+    expect(gpu.extractBatch(2, 1)).toBe(last);
+    expect(buffers.length).toBe(10);
+  });
 
-    gpu.extractBatch(0, 1);
-    gpu.accumulateBatch({} as GPUBuffer, 0, 1);
+  it('finalize hands over the padded blend buffer with the visible offset and releases the rest once', async () => {
+    const { device, buffers } = makeFakeDevice();
+    const gpu = buildPipeline(device);
+    const blendOutBuf = buffers[4];
+
+    gpu.extractBatch(0, 2);
+    gpu.accumulateBatch({} as GPUBuffer, 0, 2);
     const output = await gpu.finalize();
 
-    expect(output).toBe(cropOutBuf as unknown as GPUBuffer);
-    for (const b of buffers) {
-      expect(b.destroy).toHaveBeenCalledTimes(b === cropOutBuf ? 0 : 1);
+    expect(output).toEqual({ buffer: blendOutBuf, stride: PATCH_SIZE, offsetX: 2, offsetY: 1 });
+    for (const b of [...buffers, cfaBuf]) {
+      expect(b.destroy).toHaveBeenCalledTimes(b === blendOutBuf ? 0 : 1);
     }
 
     // A later cleanup call (e.g. defensive teardown) must not double-free anything,
     // and the transferred output must stay alive.
     gpu.destroy();
-    for (const b of buffers) {
-      expect(b.destroy).toHaveBeenCalledTimes(b === cropOutBuf ? 0 : 1);
+    for (const b of [...buffers, cfaBuf]) {
+      expect(b.destroy).toHaveBeenCalledTimes(b === blendOutBuf ? 0 : 1);
     }
   });
 
   it('leaves every buffer intact when finalize fails, so destroy() releases each exactly once', async () => {
     const { device, buffers, state } = makeFakeDevice();
     const gpu = buildPipeline(device);
-    state.onSubmittedWorkDone = () => Promise.reject(new Error('device lost'));
 
-    gpu.extractBatch(0, 1);
-    gpu.accumulateBatch({} as GPUBuffer, 0, 1);
+    gpu.extractBatch(0, 2);
+    gpu.accumulateBatch({} as GPUBuffer, 0, 2);
+    state.failSubmit = true;
     await expect(gpu.finalize()).rejects.toThrow('device lost');
 
-    // 10 constructor buffers + extractOut + batchPosBuf + finParamBuf + cropParamBuf
-    expect(buffers.length).toBe(14);
-    for (const b of buffers) expect(b.destroy).not.toHaveBeenCalled();
+    // 8 constructor buffers + extractOut + finParamBuf
+    expect(buffers.length).toBe(10);
+    for (const b of [...buffers, cfaBuf]) expect(b.destroy).not.toHaveBeenCalled();
 
     gpu.destroy();
-    for (const b of buffers) expect(b.destroy).toHaveBeenCalledTimes(1);
+    for (const b of [...buffers, cfaBuf]) expect(b.destroy).toHaveBeenCalledTimes(1);
 
     gpu.destroy(); // idempotent — nothing left to release
-    for (const b of buffers) expect(b.destroy).toHaveBeenCalledTimes(1);
+    for (const b of [...buffers, cfaBuf]) expect(b.destroy).toHaveBeenCalledTimes(1);
   });
 });
 

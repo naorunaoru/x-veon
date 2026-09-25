@@ -1,4 +1,6 @@
 import type { DemosaicMethod } from '@/lib/types';
+import { normalizeRows } from '../preprocess/preprocessor';
+import type { DemosaicInput } from './strategy';
 
 type Algorithm = Exclude<DemosaicMethod, 'neural-net'>;
 
@@ -29,28 +31,23 @@ export class DemosaicPool {
     }
   }
 
-  async run(
-    cfa: Float32Array,
-    width: number,
-    height: number,
-    dy: number,
-    dx: number,
-    algorithm: Algorithm,
-    period: number,
-    isBayer: boolean,
-  ): Promise<Float32Array> {
+  /**
+   * Demosaic the canonically aligned u16 CFA in `input` and return the visible image as cropped
+   * HWC. Each strip is normalised as it is cut out (the copy a transfer needs anyway), and each
+   * strip's owned rows are written straight into the cropped output.
+   */
+  async run(input: DemosaicInput, algorithm: Algorithm): Promise<Float32Array> {
     this.ensureWorkers();
 
+    const { cfa, lut, width, height, period, pattern } = input;
+    const isBayer = period === 2;
     const stripOverlap = STRIP_OVERLAP_FACTOR * period;
 
-    // Fast path: small image or single core — no splitting
-    const effectiveWorkers = Math.min(
+    // Small image or single core — one strip
+    const effectiveWorkers = Math.max(1, Math.min(
       this.size,
       Math.floor(height / MIN_STRIP_HEIGHT),
-    );
-    if (effectiveWorkers <= 1) {
-      return this.runOne(0, cfa, width, height, dy, dx, algorithm, isBayer);
-    }
+    ));
 
     // Split into horizontal strips
     const baseHeight = Math.ceil(height / effectiveWorkers);
@@ -58,58 +55,55 @@ export class DemosaicPool {
       startRow: number;
       stripHeight: number;
       stripDy: number;
-      innerStart: number; // first owned row within strip output
-      innerEnd: number;   // last+1 owned row within strip output
       ownedStart: number; // first owned row in full image
+      ownedEnd: number;   // last+1 owned row in full image
     }> = [];
 
     for (let i = 0; i < effectiveWorkers; i++) {
       const ownedStart = i * baseHeight;
       const ownedEnd = Math.min((i + 1) * baseHeight, height);
-      const startRow = Math.max(0, ownedStart - stripOverlap);
-      const endRow = Math.min(height, ownedEnd + stripOverlap);
+      const startRow = effectiveWorkers === 1 ? 0 : Math.max(0, ownedStart - stripOverlap);
+      const endRow = effectiveWorkers === 1 ? height : Math.min(height, ownedEnd + stripOverlap);
 
       strips.push({
         startRow,
         stripHeight: endRow - startRow,
-        stripDy: (dy + startRow) % period,
-        innerStart: ownedStart - startRow,
-        innerEnd: ownedEnd - startRow,
+        stripDy: startRow % period,
         ownedStart,
+        ownedEnd,
       });
     }
 
     // Farm strips to workers in parallel
-    const promises = strips.map((strip, i) => {
-      const stripCfa = cfa.subarray(
-        strip.startRow * width,
-        (strip.startRow + strip.stripHeight) * width,
-      );
-      return this.runOne(i, stripCfa, width, strip.stripHeight, strip.stripDy, dx, algorithm, isBayer);
-    });
+    const results = await Promise.all(strips.map((strip, i) => this.runOne(
+      i,
+      normalizeRows(cfa, width, strip.startRow, strip.startRow + strip.stripHeight, pattern, period, lut),
+      width, strip.stripHeight, strip.stripDy, 0, algorithm, isBayer,
+    )));
 
-    const results = await Promise.all(promises);
-
-    // Stitch: copy inner (non-overlap) rows from each strip into final output
-    const npix = width * height;
-    const output = new Float32Array(3 * npix);
-
+    // Stitch: each strip's owned rows that fall in the visible area, planar → cropped HWC
+    const { padTop, padLeft, visibleWidth: visW, visibleHeight: visH } = input;
+    const hwc = new Float32Array(visW * visH * 3);
     for (let i = 0; i < results.length; i++) {
       const strip = strips[i];
       const result = results[i];
-      const stripPixels = width * strip.stripHeight;
-      const innerRows = strip.innerEnd - strip.innerStart;
-
-      for (let c = 0; c < 3; c++) {
-        const srcOff = c * stripPixels + strip.innerStart * width;
-        const dstOff = c * npix + strip.ownedStart * width;
-        output.set(result.subarray(srcOff, srcOff + innerRows * width), dstOff);
+      const plane = width * strip.stripHeight;
+      const from = Math.max(strip.ownedStart, padTop);
+      const to = Math.min(strip.ownedEnd, padTop + visH);
+      for (let y = from; y < to; y++) {
+        const src = (y - strip.startRow) * width + padLeft;
+        let dst = (y - padTop) * visW * 3;
+        for (let x = 0; x < visW; x++, dst += 3) {
+          hwc[dst] = result[src + x];
+          hwc[dst + 1] = result[plane + src + x];
+          hwc[dst + 2] = result[2 * plane + src + x];
+        }
       }
     }
-
-    return output;
+    return hwc;
   }
 
+  /** `stripCfa` is transferred to the worker. */
   private runOne(
     workerIdx: number,
     stripCfa: Float32Array,
@@ -122,7 +116,6 @@ export class DemosaicPool {
   ): Promise<Float32Array> {
     return new Promise((resolve, reject) => {
       const w = this.workers[workerIdx];
-      const cfaCopy = stripCfa.slice();
 
       w.onmessage = (e) => {
         if (e.data.type === 'done') {
@@ -135,10 +128,10 @@ export class DemosaicPool {
 
       w.postMessage({
         type: 'demosaic',
-        cfa: cfaCopy.buffer,
+        cfa: stripCfa.buffer,
         width, height, dy, dx, algorithm,
         bayerVariant: isBayer ? bayerVariantForShift(dy, dx) : undefined,
-      }, [cfaCopy.buffer]);
+      }, [stripCfa.buffer]);
     });
   }
 

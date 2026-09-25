@@ -1,5 +1,5 @@
 import { DemosaicPool } from './demosaic-pool';
-import { cropPlanar, type DemosaicInput, type DemosaicStrategy, type TraditionalMethod } from './strategy';
+import type { DemosaicInput, DemosaicStrategy, TraditionalMethod } from './strategy';
 
 let pool: DemosaicPool | null = null;
 
@@ -18,12 +18,10 @@ export function destroyDemosaicPool(): void {
   }
 }
 
-/** Run a traditional method in the WASM worker pool on the canonically aligned CFA. */
+/** Run a traditional method in the WASM worker pool; returns the visible image as HWC. */
 export async function runInPool(input: DemosaicInput, algorithm: TraditionalMethod): Promise<Float32Array> {
   console.time(`[demosaic] pool ${algorithm}`);
-  const result = await getPool().run(
-    input.cfa, input.width, input.height, 0, 0, algorithm, input.period, input.period === 2,
-  );
+  const result = await getPool().run(input, algorithm);
   console.timeEnd(`[demosaic] pool ${algorithm}`);
   return result;
 }
@@ -33,7 +31,7 @@ export function poolStrategy(id: TraditionalMethod): DemosaicStrategy {
   return {
     id,
     async run(input) {
-      return cropPlanar(await runInPool(input, id), input);
+      return { rgb: await runInPool(input, id), tileCount: 1 };
     },
   };
 }

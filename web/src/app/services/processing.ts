@@ -1,15 +1,29 @@
 /**
- * Owns the pipeline context and every processed image that has not been displayed yet.
- * The canvas takes a result to display it (ownership passes with it); a result that is
- * replaced by a new run or discarded with its file is disposed here.
+ * Owns the pipeline context and the processed images. The canvas borrows a result to display
+ * it (acquireResult) and gives it back when it stops (release), so a result outlives its canvas:
+ * re-showing a photo, or rebuilding the display, doesn't reprocess it. Besides the results on
+ * screen and the selected photo's, RETAINED_RESULTS more are kept, least recently used evicted.
+ * A result replaced by a new run or discarded with its file is disposed once nothing shows it.
  */
 import { useAppStore } from '@/app/store';
 import { processRaw, type PipelineContext, type ProcessedImage } from '@/pipeline';
 import { readRaw } from '@/app/storage/opfs-storage';
 import { matchLensFor } from './library';
 
+/** Processed results kept for photos that are neither on screen nor selected. */
+export const RETAINED_RESULTS = 1;
+
+interface Entry {
+  image: ProcessedImage;
+  pins: number;
+  lastUsed: number;
+  /** Replaced or discarded: dispose when the last pin goes. */
+  stale: boolean;
+}
+
 let context: PipelineContext | null = null;
-const results = new Map<string, ProcessedImage>();
+const results = new Map<string, Entry>();
+let clock = 0;
 let inFlight: string | null = null;
 let runDiscarded = false;
 
@@ -32,8 +46,6 @@ export async function processFile(fileId: string): Promise<void> {
   const entry = store.files.find((f) => f.id === fileId);
   if (!entry) return;
 
-  // Preserve the original single-slot bound, including across different files.
-  for (const id of results.keys()) discardResult(id);
   runDiscarded = false;
   inFlight = fileId;
   store.setProcessingFileId(fileId);
@@ -60,7 +72,7 @@ export async function processFile(fileId: string): Promise<void> {
       image.dispose();
       return;
     }
-    results.set(fileId, image);
+    publish(fileId, image);
     useAppStore.getState().setFileResult(fileId, image.meta, method);
     matchLensFor(fileId);
   } catch (e) {
@@ -75,21 +87,67 @@ export async function processFile(fileId: string): Promise<void> {
   }
 }
 
-/** The undisplayed result for a file, without taking it. */
+function retire(entry: Entry): void {
+  entry.stale = true;
+  if (entry.pins === 0) entry.image.dispose();
+}
+
+function publish(fileId: string, image: ProcessedImage): void {
+  const previous = results.get(fileId);
+  if (previous) retire(previous);
+  results.set(fileId, { image, pins: 0, lastUsed: ++clock, stale: false });
+  trim();
+}
+
+/** Evict least recently used results beyond RETAINED_RESULTS, never one on screen or selected. */
+function trim(): void {
+  const selected = useAppStore.getState().selectedFileId;
+  const evictable = [...results.entries()]
+    .filter(([id, entry]) => entry.pins === 0 && id !== selected)
+    .sort((a, b) => a[1].lastUsed - b[1].lastUsed);
+  for (let i = 0; i < evictable.length - RETAINED_RESULTS; i++) {
+    const [id, entry] = evictable[i];
+    results.delete(id);
+    retire(entry);
+  }
+}
+
+/** The current result for a file, without borrowing it. */
 export function getResult(fileId: string): ProcessedImage | null {
-  return results.get(fileId) ?? null;
+  return results.get(fileId)?.image ?? null;
 }
 
-/** Transfer ownership of a file's result to the caller (who must dispose it). */
-export function takeResult(fileId: string): ProcessedImage | null {
-  const image = results.get(fileId) ?? null;
-  results.delete(fileId);
-  return image;
+/**
+ * Borrow a file's result for display. The caller must call `release` when it stops showing it;
+ * until then the image stays alive even if it is replaced or discarded.
+ */
+export function acquireResult(fileId: string): { image: ProcessedImage; release: () => void } | null {
+  const entry = results.get(fileId);
+  if (!entry) return null;
+  entry.pins++;
+  entry.lastUsed = ++clock;
+  let released = false;
+  return {
+    image: entry.image,
+    release: () => {
+      if (released) return;
+      released = true;
+      entry.pins--;
+      entry.lastUsed = ++clock;
+      if (entry.stale) {
+        if (entry.pins === 0) entry.image.dispose();
+      } else {
+        trim();
+      }
+    },
+  };
 }
 
-/** Dispose an undisplayed result and invalidate an in-flight completion for this file. */
+/** Drop a file's result (disposed once nothing shows it) and invalidate an in-flight completion. */
 export function discardResult(fileId: string): void {
   if (inFlight === fileId) runDiscarded = true;
-  results.get(fileId)?.dispose();
+  const entry = results.get(fileId);
+  if (!entry) return;
   results.delete(fileId);
+  retire(entry);
 }

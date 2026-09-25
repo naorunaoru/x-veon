@@ -1,27 +1,13 @@
 import { XTRANS_PATTERN, BAYER_PATTERN } from '../constants';
-import type { CfaInfo, CroppedImage, PaddedImage, TileGrid, ChannelMasks } from '../types';
+import type { CfaInfo, PaddedCfa, PreparedCfa, RawImage, Rect, TileGrid, ChannelMasks } from '../types';
 
 /** Clip threshold as a fraction of the calibrated white level. */
 const CLIP_MAGIC = 0.96;
 
-export function cropToVisible(
-  rawData: Uint16Array, fullWidth: number, fullHeight: number, crops: Uint16Array,
-): CroppedImage {
+/** The visible area of a sensor readout, from rawloader's crops (top, right, bottom, left). */
+export function visibleRect(fullWidth: number, fullHeight: number, crops: Uint16Array): Rect {
   const top = crops[0], right = crops[1], bottom = crops[2], left = crops[3];
-  const visW = fullWidth - left - right;
-  const visH = fullHeight - top - bottom;
-
-  if (top === 0 && right === 0 && bottom === 0 && left === 0) {
-    return { data: rawData, width: fullWidth, height: fullHeight };
-  }
-
-  const out = new Uint16Array(visW * visH);
-  for (let y = 0; y < visH; y++) {
-    const srcOffset = (y + top) * fullWidth + left;
-    out.set(rawData.subarray(srcOffset, srcOffset + visW), y * visW);
-  }
-
-  return { data: out, width: visW, height: visH };
+  return { left, top, width: fullWidth - left - right, height: fullHeight - top - bottom };
 }
 
 function parseCfaStr(cfaStr: string, cfaWidth: number): number[][] {
@@ -132,105 +118,142 @@ function levelFor(levels: Uint16Array, color: number): number {
  * point.  Returns levels in RGBE order, like the input.
  */
 export function calibrateWhiteLevels(
-  rawData: Uint16Array, width: number, height: number,
+  rawData: Uint16Array, stride: number, rect: Rect,
   whiteLevels: Uint16Array, cfa: Pick<CfaInfo, 'pattern' | 'period' | 'dy' | 'dx'>,
 ): Uint16Array {
   const lut = visibleColorLut(cfa);
   const period = cfa.period;
+  const { left, top, width, height } = rect;
+  // One pass: per colour, the maximum, how many photosites sit at it, and how many sit one DN
+  // below it (together: the count within 1 DN of the maximum, as the old second pass counted).
   const max = [0, 0, 0];
+  const atMax = [0, 0, 0];
+  const belowMax = [0, 0, 0];
   const cnt = [0, 0, 0];
 
   for (let y = 0; y < height; y++) {
-    const row = y * width;
+    const row = (y + top) * stride + left;
     const lutRow = (y % period) * period;
     for (let x = 0, px = 0; x < width; x++, px = px + 1 === period ? 0 : px + 1) {
       const c = lut[lutRow + px];
       const v = rawData[row + x];
-      if (v > max[c]) max[c] = v;
       cnt[c]++;
-    }
-  }
-
-  // Second pass: count pixels at the detected maximum (within 1 DN)
-  const atMax = [0, 0, 0];
-  for (let y = 0; y < height; y++) {
-    const row = y * width;
-    const lutRow = (y % period) * period;
-    for (let x = 0, px = 0; x < width; x++, px = px + 1 === period ? 0 : px + 1) {
-      const c = lut[lutRow + px];
-      if (rawData[row + x] >= max[c] - 1) atMax[c]++;
+      const m = max[c];
+      if (v === m) atMax[c]++;
+      else if (v > m) {
+        belowMax[c] = v === m + 1 ? atMax[c] : 0;
+        atMax[c] = 1;
+        max[c] = v;
+      } else if (v === m - 1) belowMax[c]++;
     }
   }
 
   const calibrated = new Uint16Array(4);
   for (let c = 0; c < 4; c++) {
     const wl = levelFor(whiteLevels, c);
-    // Clipping detected AND actual saturation is below metadata white level
-    calibrated[c] = c < 3 && atMax[c] > cnt[c] * 1e-4 && max[c] < wl ? max[c] : wl;
+    // Clipping detected AND actual saturation is below metadata white level. With a maximum
+    // of 0 every photosite is within 1 DN of it, as before.
+    const nearMax = c < 3 ? (max[c] === 0 ? cnt[c] : atMax[c] + belowMax[c]) : 0;
+    calibrated[c] = c < 3 && nearMax > cnt[c] * 1e-4 && max[c] < wl ? max[c] : wl;
   }
   return calibrated;
 }
 
-export function normalizeRawCfa(
-  rawData: Uint16Array, width: number, height: number,
-  blackLevels: Uint16Array, whiteLevels: Uint16Array,
-  cfa: Pick<CfaInfo, 'pattern' | 'period' | 'dy' | 'dx'>,
-): Float32Array {
-  // Per-colour black/white calibration, so every channel clips at exactly 1.0 after
-  // normalization. Levels are indexed by the photosite's CFA colour: rawloader reports
-  // them in RGBE order (for Canon, E is 0 because it averages masked areas per colour).
-  const sub = new Float32Array(3);
-  const div = new Float32Array(3);
-  for (let c = 0; c < 3; c++) {
-    sub[c] = levelFor(blackLevels, c);
-    div[c] = levelFor(whiteLevels, c) - sub[c];
-  }
+/** Values per colour in a normalisation table: every u16 raw value. */
+export const NORM_LUT_SIZE = 65536;
 
-  const lut = visibleColorLut(cfa);
-  const period = cfa.period;
-  const n = width * height;
-  const out = new Float32Array(n);
-  for (let y = 0; y < height; y++) {
-    const row = y * width;
-    const lutRow = (y % period) * period;
+/**
+ * Per-colour black/white normalisation as a table, `lut[colour * NORM_LUT_SIZE + value]`, so
+ * every channel clips at exactly 1.0. Levels are indexed by the photosite's CFA colour:
+ * rawloader reports them in RGBE order (for Canon, E is 0 because it averages masked areas per
+ * colour). The table holds the same float32 values the per-pixel division produced, and lets the
+ * CFA stay u16 until it is consumed (on the GPU, or per strip in the WASM pool).
+ */
+export function normalizationLut(blackLevels: Uint16Array, whiteLevels: Uint16Array): Float32Array {
+  const lut = new Float32Array(3 * NORM_LUT_SIZE);
+  for (let c = 0; c < 3; c++) {
+    const sub = levelFor(blackLevels, c);
+    const div = levelFor(whiteLevels, c) - sub;
+    const base = c * NORM_LUT_SIZE;
+    for (let v = 0; v < NORM_LUT_SIZE; v++) lut[base + v] = (v - sub) / div;
+  }
+  return lut;
+}
+
+/**
+ * Normalise rows [rowStart, rowEnd) of a canonically aligned u16 CFA to float32.
+ * `pattern` is the canonical period × period colour layout, row-major.
+ */
+export function normalizeRows(
+  cfa: Uint16Array, width: number, rowStart: number, rowEnd: number,
+  pattern: Uint32Array, period: number, lut: Float32Array,
+): Float32Array {
+  const out = new Float32Array((rowEnd - rowStart) * width);
+  const base = new Uint32Array(period * period);
+  for (let i = 0; i < base.length; i++) base[i] = pattern[i] * NORM_LUT_SIZE;
+  for (let y = rowStart; y < rowEnd; y++) {
+    const src = y * width;
+    const dst = (y - rowStart) * width;
+    const patRow = (y % period) * period;
     for (let x = 0, px = 0; x < width; x++, px = px + 1 === period ? 0 : px + 1) {
-      const c = lut[lutRow + px];
-      out[row + x] = (rawData[row + x] - sub[c]) / div[c];
+      out[dst + x] = lut[base[patRow + px] + cfa[src + x]];
     }
   }
   return out;
 }
 
 /**
- * Pad the top and left so the CFA phase matches the reference pattern. Pad rows and columns
- * repeat the nearest source rows/columns with the same CFA phase (mirroring would put values of
- * the wrong colour next to the edge, where the demosaic reads them as context).
+ * Crop the visible area out of the readout and pad its top and left so the CFA phase matches the
+ * reference pattern, in one copy. Pad rows and columns repeat the nearest source rows/columns
+ * with the same CFA phase (mirroring would put values of the wrong colour next to the edge, where
+ * the demosaic reads them as context). With nothing to crop or pad, the readout itself is returned.
  */
-export function padToAlignment(
-  cfa: Float32Array, width: number, height: number, dy: number, dx: number, period: number,
-): PaddedImage {
+export function cropAndPad(
+  rawData: Uint16Array, stride: number, rect: Rect, dy: number, dx: number, period: number,
+): PaddedCfa {
+  const { left, top, width, height } = rect;
   const padTop = dy;
   const padLeft = dx;
+  const newW = width + padLeft;
+  const newH = height + padTop;
 
-  if (padTop === 0 && padLeft === 0) {
-    return { data: cfa, width, height, padTop: 0, padLeft: 0 };
+  if (padTop === 0 && padLeft === 0 && left === 0 && top === 0 && width === stride
+      && height * stride === rawData.length) {
+    return { data: rawData, width, height, padTop: 0, padLeft: 0 };
   }
 
   const samePhase = (i: number, pad: number, size: number) =>
     Math.min(i < pad ? (((i - pad) % period) + period) % period : i - pad, size - 1);
 
-  const newW = width + padLeft;
-  const newH = height + padTop;
-  const out = new Float32Array(newW * newH);
-
+  const out = new Uint16Array(newW * newH);
   for (let y = 0; y < newH; y++) {
-    const srcRow = samePhase(y, padTop, height) * width;
-    for (let x = 0; x < newW; x++) {
-      out[y * newW + x] = cfa[srcRow + samePhase(x, padLeft, width)];
-    }
+    const src = (samePhase(y, padTop, height) + top) * stride + left;
+    const dst = y * newW;
+    for (let x = 0; x < padLeft; x++) out[dst + x] = rawData[src + samePhase(x, padLeft, width)];
+    out.set(rawData.subarray(src, src + width), dst + padLeft);
   }
 
   return { data: out, width: newW, height: newH, padTop, padLeft };
+}
+
+/**
+ * Everything the demosaic needs from a decoded readout, computed where it was decoded (the
+ * decode worker): the CFA layout, calibrated white levels, the cropped and phase-aligned u16 CFA
+ * and its normalisation table.
+ */
+export function prepareCfa(raw: RawImage): PreparedCfa {
+  const rect = visibleRect(raw.width, raw.height, raw.crops);
+  const cfa = findPatternShift(raw.cfaStr, raw.cfaWidth, raw.crops);
+  const whiteLevels = calibrateWhiteLevels(raw.data, raw.width, rect, raw.whiteLevels, cfa);
+  const padded = cropAndPad(raw.data, raw.width, rect, cfa.dy, cfa.dx, cfa.period);
+  return {
+    ...padded,
+    visibleWidth: rect.width,
+    visibleHeight: rect.height,
+    cfa,
+    whiteLevels,
+    lut: normalizationLut(raw.blackLevels, whiteLevels),
+  };
 }
 
 export function generateTiles(

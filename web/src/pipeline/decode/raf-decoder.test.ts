@@ -37,7 +37,7 @@ describe('RAW decoder worker', () => {
     script = [['crash'], [{ type: 'error', message: 'RawLoaderError: truncated' }], []];
     await expect(decodeRaw(new ArrayBuffer(8))).rejects.toThrow('unreachable');
     await expect(decodeRaw(new ArrayBuffer(8))).rejects.toThrow('truncated');
-    await expect(decodeRaw(new ArrayBuffer(8))).resolves.toMatchObject({ width: 1 });
+    await expect(decodeRaw(new ArrayBuffer(8))).resolves.toMatchObject({ raw: { width: 1 } });
     expect(FakeWorker.created.map((w) => w.terminated)).toEqual([true, true, false]);
   });
 
