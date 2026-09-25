@@ -20,7 +20,7 @@ vi.mock('@/app/lens/lensfun', () => ({ matchLens: (...args: unknown[]) => matchL
 const discardResult = vi.fn();
 vi.mock('@/app/services/processing', () => ({ discardResult: (...args: unknown[]) => discardResult(...args) }));
 
-import { useAppStore } from '@/app/store';
+import { useAppStore, type QueuedFile } from '@/app/store';
 import { importFiles, removeFile, cleanupOrphans } from './library';
 
 // jsdom's File may lack arrayBuffer(); the service only needs it to resolve to bytes.
@@ -61,10 +61,22 @@ describe('library service', () => {
     expect(discardResult).toHaveBeenCalledWith(id);
   });
 
-  it('deletes OPFS entries that are not in the library', async () => {
-    await cleanupOrphans(new Set(['a']));
+  it('deletes OPFS entries that no library entry owns', async () => {
+    useAppStore.setState({ files: [{ id: 'a' } as QueuedFile] });
+    await cleanupOrphans();
     expect(opfs.deleteAllForFile).toHaveBeenCalledWith('zombie');
     expect(opfs.deleteAllForFile).not.toHaveBeenCalledWith('a');
+  });
+  it('keeps a RAW imported while the cleanup was listing storage', async () => {
+    let list!: (ids: Set<string>) => void;
+    opfs.listRawFileIds.mockImplementationOnce(() => new Promise<Set<string>>((resolve) => { list = resolve; }));
+    const cleanup = cleanupOrphans();
+    importFiles([new File(['x'], 'dropped.raf')]);
+    const id = useAppStore.getState().files[0].id;
+    list(new Set([id, 'zombie']));
+    await cleanup;
+    expect(opfs.deleteAllForFile).toHaveBeenCalledWith('zombie');
+    expect(opfs.deleteAllForFile).not.toHaveBeenCalledWith(id);
   });
   it('does not write files removed before their bytes arrive', async () => {
     let release!: (bytes: ArrayBuffer) => void;

@@ -88,10 +88,18 @@ async function persistedToQueued(p: PersistedFile): Promise<QueuedFile> {
   };
 }
 
-/** Read the library and settings back; the caller feeds them to restoreFromDb. */
-export async function restore(): Promise<{ files: QueuedFile[]; settings: RestoredSettings }> {
+/**
+ * Read the library and settings back; the caller feeds them to restoreFromDb. `complete` is false
+ * when the file records could not be read, so callers must not treat the list as the whole library.
+ */
+export async function restore(): Promise<{ files: QueuedFile[]; settings: RestoredSettings; complete: boolean }> {
+  let complete = true;
   const [persistedFiles, demosaicMethod, exportFormat, exportQuality, selectedFileId] = await Promise.all([
-    getAllFiles().catch(() => [] as PersistedFile[]),
+    getAllFiles().catch((e) => {
+      console.warn('Could not read the library from IndexedDB:', e);
+      complete = false;
+      return [] as PersistedFile[];
+    }),
     getSetting<DemosaicMethod>('demosaicMethod').catch(() => undefined),
     getSetting<ExportFormat>('exportFormat').catch(() => undefined),
     getSetting<number>('exportQuality').catch(() => undefined),
@@ -99,5 +107,9 @@ export async function restore(): Promise<{ files: QueuedFile[]; settings: Restor
   ]);
   const files: QueuedFile[] = [];
   for (const p of persistedFiles) files.push(await persistedToQueued(p));
-  return { files, settings: { demosaicMethod, exportFormat, exportQuality, selectedFileId: selectedFileId ?? undefined } };
+  return {
+    files,
+    settings: { demosaicMethod, exportFormat, exportQuality, selectedFileId: selectedFileId ?? undefined },
+    complete,
+  };
 }

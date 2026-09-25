@@ -63,6 +63,14 @@ describe('persistence service', () => {
     const restored = await restore();
     expect(restored.files[0]).toMatchObject({ id: 'r', status: 'queued', metadata: { camera: 'Sony', lensModel: '' } });
     expect(restored.settings).toEqual({ demosaicMethod: undefined, exportFormat: undefined, exportQuality: 80, selectedFileId: 'r' });
+    expect(restored.complete).toBe(true);
+  });
+  it('reports an incomplete restore when the file records cannot be read', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    idb.getAllFiles.mockRejectedValue(new Error('Internal error opening backing store'));
+    idb.getSetting.mockResolvedValue(undefined);
+    const restored = await restore();
+    expect(restored).toMatchObject({ files: [], complete: false });
   });
   it('does not persist view-only updates and stops writing after unsubscribe', () => {
     useAppStore.getState().setViewScale(2);

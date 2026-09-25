@@ -14,3 +14,10 @@ it('advances through removal, falls back to the previous last photo, and handles
   useAppStore.getState().removeFile('b');
   expect(useAppStore.getState().selectedFileId).toBe('a');
 });
+it('restores settings for an empty library and ignores a selection whose photo is missing', () => {
+  useAppStore.setState({ files: [], selectedFileId: null });
+  useAppStore.getState().restoreFromDb([], { demosaicMethod: 'dht', selectedFileId: 'gone' });
+  expect(useAppStore.getState()).toMatchObject({ selectedFileId: null, demosaicMethod: 'dht' });
+  useAppStore.getState().restoreFromDb([{ id: 'a' } as QueuedFile], { selectedFileId: 'gone' });
+  expect(useAppStore.getState().selectedFileId).toBe('a');
+});

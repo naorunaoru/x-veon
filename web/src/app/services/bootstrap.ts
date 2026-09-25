@@ -18,7 +18,8 @@ export async function initApp(signal: { cancelled: boolean }): Promise<void> {
     }
     setPipeline(ctx);
 
-    if (restored.files.length > 0) store().restoreFromDb(restored.files, restored.settings);
+    // Merges with anything imported while startup ran, and restores settings even for an empty library.
+    store().restoreFromDb(restored.files, restored.settings);
 
     const backend = ctx.models.backend ?? 'unknown';
 
@@ -39,8 +40,9 @@ export async function initApp(signal: { cancelled: boolean }): Promise<void> {
     // Match lenses for restored files that have metadata but no profile yet
     for (const file of restored.files) matchLensFor(file.id);
 
-    // Orphan cleanup: remove OPFS entries not in IDB (fire-and-forget)
-    cleanupOrphans(new Set(restored.files.map((f) => f.id)));
+    // Orphan cleanup: remove OPFS entries no library entry owns (fire-and-forget). Skipped when the
+    // records could not be read: an empty list would otherwise delete every stored RAW.
+    if (restored.complete) cleanupOrphans();
 
     // Request persistent storage (best-effort)
     navigator.storage?.persist?.().catch(() => {});

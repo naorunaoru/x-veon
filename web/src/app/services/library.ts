@@ -81,12 +81,17 @@ export function removeFile(id: string): void {
   useAppStore.getState().removeFile(id);
 }
 
-/** Remove OPFS entries not in IDB (fire-and-forget on startup). */
-export async function cleanupOrphans(knownIds: Set<string>): Promise<void> {
+/**
+ * Remove OPFS entries that no library entry owns (fire-and-forget on startup). Ownership is read
+ * from the live store when each entry is considered, so files imported while startup was still
+ * running are kept. Call only after the stored library has been restored into the store.
+ */
+export async function cleanupOrphans(): Promise<void> {
   try {
     const rawIds = await listRawFileIds();
+    const owned = new Set(useAppStore.getState().files.map((f) => f.id));
     for (const id of rawIds) {
-      if (!knownIds.has(id)) {
+      if (!owned.has(id)) {
         deleteAllForFile(id).catch(() => {});
       }
     }

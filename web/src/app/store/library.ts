@@ -97,8 +97,16 @@ export const createLibrarySlice: Slice<LibrarySlice> = (set, get) => ({
 
   setProcessingFileId: (processingFileId) => set({ processingFileId }),
 
-  restoreFromDb: (files, settings) => {
-    const selectedFileId = settings.selectedFileId ?? (files.length > 0 ? files[0].id : null);
+  restoreFromDb: (restored, settings) => {
+    // Files imported while startup was running are already in the store: keep them after the
+    // restored library, and keep their selection.
+    const { files: live, selectedFileId: liveSelection } = get();
+    const restoredIds = new Set(restored.map((f) => f.id));
+    const files = [...restored, ...live.filter((f) => !restoredIds.has(f.id))];
+    const has = (id: string | null | undefined): id is string => !!id && files.some((f) => f.id === id);
+    const selectedFileId = has(liveSelection) ? liveSelection
+      : has(settings.selectedFileId) ? settings.selectedFileId
+      : files.length > 0 ? files[0].id : null;
     const selectedFile = selectedFileId ? files.find((f) => f.id === selectedFileId) : null;
     const meta = selectedFile?.result?.metadata;
     set({
