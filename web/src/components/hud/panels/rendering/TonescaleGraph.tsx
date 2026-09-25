@@ -1,9 +1,9 @@
 import * as React from 'react';
 import { useGrading } from '@/app/hooks/useGrading';
-import { computeTonescaleParams, type GradingConfig } from '@/renderer/grading/opendrt-params';
+import { computeTonescaleParams, OPENDRT_LIMITS, type GradingConfig } from '@/renderer/grading/opendrt-params';
 import { evalTonescale } from '@/renderer/grading/tonescale-curve';
 import { isModified } from '@/renderer/grading/param-model';
-import { useDrag, relPos, clamp, lerp } from './hooks';
+import { useRelativeDrag, clamp, lerp } from './hooks';
 import { Readout } from './Readout';
 import { Slider } from '../../Slider';
 
@@ -47,30 +47,38 @@ export function TonescaleGraph({ g, cfg }: Props) {
   const hp = (stop: number) => ({ x: xOfStop(stop), y: yOfDisp(dispAt(stop)) });
   const gpt = hp(STOP_GREY), cpt = hp(STOP_CON), tpt = hp(STOP_TOE), spt = hp(STOP_SH);
 
-  const dragGrey = useDrag((e) => {
-    const { y } = relPos(e, svgRef.current!);
-    const disp = clamp((1 - (y - PADT) / GH) * 1.04, 0.02, 0.3);
-    g.setDrt('tn_lg', +(disp * 100).toFixed(1));
+  // Ranges follow the render-time limits, so the handles never reach values the shader clamps.
+  const [lgMin, lgMax] = OPENDRT_LIMITS.tn_lg;
+  const [conMin, conMax] = OPENDRT_LIMITS.tn_con;
+  const [toeMin, toeMax] = OPENDRT_LIMITS.tn_toe;
+  const SH_MIN = 0.15, SH_MAX = 0.95;
+  const linear = (lo: number, hi: number) => ({
+    toT: (v: number) => (v - lo) / (hi - lo),
+    fromT: (t: number) => lerp(lo, hi, t),
   });
-  const dragCon = useDrag((e) => {
-    const { y } = relPos(e, svgRef.current!);
-    const t = clamp(1 - (y - PADT) / GH, 0, 1);
-    g.setDrt('tn_con', +lerp(0.5, 2.5, t).toFixed(2));
+
+  const dragGrey = useRelativeDrag({
+    axis: 'y', pixelsPerRange: -GH, get: () => g.effective('tn_lg'), ...linear(lgMin, lgMax),
+    apply: (v) => g.setDrt('tn_lg', +v.toFixed(1)),
   });
-  const dragToe = useDrag((e) => {
-    const { y } = relPos(e, svgRef.current!);
-    const t = clamp((y - PADT) / GH, 0, 1);
-    g.setDrt('tn_toe', +lerp(0, 0.1, Math.pow(t, 1.4)).toFixed(4));
+  const dragCon = useRelativeDrag({
+    axis: 'y', pixelsPerRange: -GH, get: () => g.effective('tn_con'), ...linear(conMin, conMax),
+    apply: (v) => g.setDrt('tn_con', +v.toFixed(2)),
   });
-  const dragSh = useDrag((e) => {
-    const { x } = relPos(e, svgRef.current!);
-    const t = clamp((x - PADL) / GW, 0, 1);
-    g.setDrt('tn_sh', +lerp(0.15, 0.95, t).toFixed(2));
+  const dragToe = useRelativeDrag({
+    axis: 'y', pixelsPerRange: GH, get: () => g.effective('tn_toe'),
+    toT: (v) => Math.pow((v - toeMin) / (toeMax - toeMin), 1 / 1.4),
+    fromT: (t) => lerp(toeMin, toeMax, Math.pow(t, 1.4)),
+    apply: (v) => g.setDrt('tn_toe', +v.toFixed(4)),
+  });
+  const dragSh = useRelativeDrag({
+    axis: 'x', pixelsPerRange: GW, get: () => g.effective('tn_sh'), ...linear(SH_MIN, SH_MAX),
+    apply: (v) => g.setDrt('tn_sh', +v.toFixed(2)),
   });
 
   const Handle = ({ pt, on, axis, label }: {
     pt: { x: number; y: number };
-    on: ReturnType<typeof useDrag>;
+    on: ReturnType<typeof useRelativeDrag>;
     axis: 'x' | 'y';
     label: string;
   }) => (
@@ -116,7 +124,7 @@ export function TonescaleGraph({ g, cfg }: Props) {
 
       <div className="xv-readout-grid xv-tone-readouts">
         <Readout label="Grey" value={tn_lg.toFixed(1)} accent={isModified(tn_lg, g.baseConfig.tn_lg) ? 'var(--xv-primary)' : undefined}
-          scrub={{ get: () => g.effective('tn_lg'), set: (v) => g.setDrt('tn_lg', +v.toFixed(1)), min: 2, max: 30 }} />
+          scrub={{ get: () => g.effective('tn_lg'), set: (v) => g.setDrt('tn_lg', +v.toFixed(1)), min: lgMin, max: lgMax }} />
         <Readout label="Shadows" value={tn_toe.toFixed(3)} accent={isModified(tn_toe, g.baseConfig.tn_toe) ? 'var(--xv-primary)' : undefined}
           scrub={{ get: () => g.effective('tn_toe'), set: (v) => g.setDrt('tn_toe', +v.toFixed(4)), min: 0, max: 0.1 }} />
         <Readout label="Highlights" value={tn_sh.toFixed(2)} accent={isModified(tn_sh, g.baseConfig.tn_sh) ? 'var(--xv-primary)' : undefined}
@@ -124,7 +132,7 @@ export function TonescaleGraph({ g, cfg }: Props) {
       </div>
 
       <div className="xv-tone-sliders">
-        <Slider label="Contrast" min={0.5} max={2.5} step={0.01}
+        <Slider label="Contrast" min={conMin} max={conMax} step={0.01}
           value={tn_con} defaultValue={g.baseConfig.tn_con}
           onChange={(v) => g.setDrt('tn_con', v)} />
         <Slider label="Local contrast" min={0} max={2} step={0.01}

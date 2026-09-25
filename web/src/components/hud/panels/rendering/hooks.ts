@@ -42,6 +42,60 @@ export function useDrag(onMove: (e: PointerEvent) => void) {
   return { start, active };
 }
 
+export interface RelativeDragConfig {
+  axis: 'x' | 'y';
+  /** Pointer travel (px) that sweeps the whole range; negative when moving up/left increases it. */
+  pixelsPerRange: number;
+  /** Current value. */
+  get: () => number;
+  /** Value ↔ position along the range, in [0, 1]. */
+  toT: (value: number) => number;
+  fromT: (t: number) => number;
+  apply: (value: number) => void;
+}
+
+/**
+ * Drag a handle by the pointer's travel instead of jumping to the pointer's position, so pressing
+ * a handle never changes its value — for handles drawn somewhere other than where their value
+ * maps (the tone-curve handles ride the curve).
+ */
+export function useRelativeDrag(config: RelativeDragConfig) {
+  const ref = React.useRef(config);
+  ref.current = config;
+  const origin = React.useRef<{ pointer: number; t: number } | null>(null);
+  const [active, setActive] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!active) return;
+    const mv = (e: PointerEvent) => {
+      const c = ref.current;
+      const o = origin.current;
+      if (!o) return;
+      const pointer = c.axis === 'x' ? e.clientX : e.clientY;
+      c.apply(c.fromT(clamp(o.t + (pointer - o.pointer) / c.pixelsPerRange, 0, 1)));
+    };
+    const end = () => { origin.current = null; setActive(false); };
+    window.addEventListener('pointermove', mv);
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
+    return () => {
+      window.removeEventListener('pointermove', mv);
+      window.removeEventListener('pointerup', end);
+      window.removeEventListener('pointercancel', end);
+    };
+  }, [active]);
+
+  const start = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const c = ref.current;
+    origin.current = { pointer: c.axis === 'x' ? e.clientX : e.clientY, t: clamp(c.toT(c.get()), 0, 1) };
+    setActive(true);
+  };
+  return { start, active };
+}
+
 interface ScrubConfig {
   getValue: () => number;
   apply: (v: number) => void;
