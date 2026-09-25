@@ -100,7 +100,8 @@ export const createLibrarySlice: Slice<LibrarySlice> = (set, get) => ({
   restoreFromDb: (restored, settings) => {
     // Files imported while startup was running are already in the store: keep them after the
     // restored library, and keep their selection.
-    const { files: live, selectedFileId: liveSelection } = get();
+    const state = get();
+    const { files: live, selectedFileId: liveSelection } = state;
     const restoredIds = new Set(restored.map((f) => f.id));
     const files = [...restored, ...live.filter((f) => !restoredIds.has(f.id))];
     const has = (id: string | null | undefined): id is string => !!id && files.some((f) => f.id === id);
@@ -112,9 +113,9 @@ export const createLibrarySlice: Slice<LibrarySlice> = (set, get) => ({
     set({
       files,
       selectedFileId,
-      demosaicMethod: selectedFile?.resultMethod ?? settings.demosaicMethod ?? 'neural-net',
-      exportFormat: settings.exportFormat ?? 'jpeg-hdr',
-      exportQuality: settings.exportQuality ?? 95,
+      demosaicMethod: selectedFile?.resultMethod ?? settings.demosaicMethod ?? state.demosaicMethod,
+      exportFormat: settings.exportFormat ?? state.exportFormat,
+      exportQuality: settings.exportQuality ?? state.exportQuality,
       ...(meta?.modelSize ? { modelSize: meta.modelSize } : {}),
     });
   },

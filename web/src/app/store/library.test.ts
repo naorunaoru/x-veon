@@ -21,3 +21,8 @@ it('restores settings for an empty library and ignores a selection whose photo i
   useAppStore.getState().restoreFromDb([{ id: 'a' } as QueuedFile], { selectedFileId: 'gone' });
   expect(useAppStore.getState().selectedFileId).toBe('a');
 });
+it('keeps current settings that were never saved', () => {
+  useAppStore.setState({ files: [], selectedFileId: null, demosaicMethod: 'bilinear', exportFormat: 'tiff', exportQuality: 80 });
+  useAppStore.getState().restoreFromDb([], {});
+  expect(useAppStore.getState()).toMatchObject({ demosaicMethod: 'bilinear', exportFormat: 'tiff', exportQuality: 80 });
+});
