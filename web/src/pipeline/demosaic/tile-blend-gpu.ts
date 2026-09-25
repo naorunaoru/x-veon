@@ -264,6 +264,20 @@ export interface GpuNNPipeline {
   destroy(): void;
 }
 
+/**
+ * 1-D tile blend weights: linear ramps over the overlap, 1 elsewhere. Every weight is positive
+ * (a ramp of i / overlap gave the tile edge weight 0, and since tiles start at 0 the image's
+ * first row and column had no weight at all and came out black). Opposing ramps sum to 1.
+ */
+export function blendWeights1d(patchSize: number, overlap: number): Float32Array {
+  const w = new Float32Array(patchSize).fill(1);
+  for (let i = 0; i < overlap; i++) {
+    w[i] = (i + 1) / (overlap + 1);
+    w[patchSize - 1 - i] = (i + 1) / (overlap + 1);
+  }
+  return w;
+}
+
 export function createGpuNNPipeline(
   device: GPUDevice,
   cfa: Float32Array, cfaW: number, cfaH: number,
@@ -288,12 +302,7 @@ export function createGpuNNPipeline(
 
   // --- Precompute 2D weight grid (same logic as CPU version) ---
   const w2dCpu = new Float32Array(pp);
-  const w1d = new Float32Array(patchSize);
-  w1d.fill(1);
-  for (let i = 0; i < overlap; i++) {
-    w1d[i] = i / overlap;
-    w1d[patchSize - 1 - i] = i / overlap;
-  }
+  const w1d = blendWeights1d(patchSize, overlap);
   for (let py = 0; py < patchSize; py++) {
     const wy = w1d[py];
     const row = py * patchSize;

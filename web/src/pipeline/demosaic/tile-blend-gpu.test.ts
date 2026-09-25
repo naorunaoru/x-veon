@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { createGpuNNPipeline } from './tile-blend-gpu';
+import { createGpuNNPipeline, blendWeights1d } from './tile-blend-gpu';
+import { generateTiles } from '../preprocess/preprocessor';
+import { PATCH_SIZE as NN_PATCH, OVERLAP as NN_OVERLAP } from '../constants';
 import type { ChannelMasks } from '../types';
 
 // jsdom has no real WebGPU, so these tests drive createGpuNNPipeline against a small
@@ -139,5 +141,18 @@ describe('createGpuNNPipeline buffer lifecycle', () => {
 
     gpu.destroy(); // idempotent — nothing left to release
     for (const b of buffers) expect(b.destroy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('blend weights', () => {
+  it('give every pixel of the image positive weight, including the first row and column', () => {
+    const w = blendWeights1d(NN_PATCH, NN_OVERLAP);
+    const { tiles, wPad } = generateTiles(1000, 1000, NN_PATCH, NN_OVERLAP);
+    const sum = new Float64Array(wPad);
+    for (const x0 of new Set(tiles.map((t) => t.x))) for (let i = 0; i < NN_PATCH; i++) sum[x0 + i] += w[i];
+    expect(Math.min(...sum.slice(0, 1000))).toBeGreaterThan(0);
+    // Where two tiles overlap, their ramps add up to exactly one.
+    const stride = NN_PATCH - NN_OVERLAP;
+    for (let i = 0; i < NN_OVERLAP; i++) expect(sum[stride + i]).toBeCloseTo(1, 6);
   });
 });

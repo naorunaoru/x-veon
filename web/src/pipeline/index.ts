@@ -105,7 +105,7 @@ export async function processRaw(
     ];
 
     // 8. Pad for alignment
-    let padded = padToAlignment(cfa, visWidth, visHeight, dy, dx);
+    let padded = padToAlignment(cfa, visWidth, visHeight, dy, dx, period);
     const padTop = padded.padTop;
     const padLeft = padded.padLeft;
     if (padded.data !== cfa) cfa = null;

@@ -109,17 +109,29 @@ describe('normalizeRawCfa', () => {
 describe('padToAlignment', () => {
   it('returns the input for a zero shift', () => {
     const cfa = new Float32Array([1, 2, 3, 4]);
-    expect(padToAlignment(cfa, 2, 2, 0, 0).data).toBe(cfa);
+    expect(padToAlignment(cfa, 2, 2, 0, 0, 2).data).toBe(cfa);
   });
-  it('mirrors the top and left edges by the shift', () => {
+  it('pads with source rows and columns of the same CFA phase', () => {
     const cfa = new Float32Array([1, 2, 3, 4, 5, 6]);  // 3×2
-    const out = padToAlignment(cfa, 3, 2, 1, 2);
-    expect([out.width, out.height, out.padTop, out.padLeft]).toEqual([5, 3, 1, 2]);
+    const out = padToAlignment(cfa, 3, 2, 1, 1, 2);
+    expect([out.width, out.height, out.padTop, out.padLeft]).toEqual([4, 3, 1, 1]);
+    // Pad row 0 has the phase of source row 1, pad column 0 that of source column 1.
     expect(Array.from(out.data)).toEqual([
-      2, 1, 1, 2, 3,
-      2, 1, 1, 2, 3,
-      5, 4, 4, 5, 6,
+      5, 4, 5, 6,
+      2, 1, 2, 3,
+      5, 4, 5, 6,
     ]);
+  });
+  it('keeps every padded X-Trans photosite on the reference colour', () => {
+    const w = 12, h = 12, dy = 5, dx = 3;
+    const cfa = findPatternShift(cfaString(XTRANS_PATTERN, 6, dy, dx), 6, new Uint16Array(4));
+    const lut = visibleColorLut(cfa);
+    const data = new Float32Array(w * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) data[y * w + x] = lut[(y % 6) * 6 + (x % 6)];
+    const out = padToAlignment(data, w, h, cfa.dy, cfa.dx, 6);
+    for (let y = 0; y < out.height; y++) {
+      for (let x = 0; x < out.width; x++) expect(out.data[y * out.width + x]).toBe(XTRANS_PATTERN[y % 6][x % 6]);
+    }
   });
 });
 

@@ -231,9 +231,12 @@ def process_raw(raw_path: str, model: torch.nn.Module, device: str,
         cfa_padded = np.zeros((h_pad, w_pad), dtype=np.float32)
         cfa_padded[:h_aligned, :w_aligned] = cfa_norm
         
+        # Ramps stay positive (a 0 at the tile edge left row/column 0 unweighted, i.e. black);
+        # opposing ramps sum to 1. Matches blendWeights1d in the web app.
+        ramp = np.arange(1, overlap + 1, dtype=np.float32) / (overlap + 1)
         weight_1d = np.ones(patch_size, dtype=np.float32)
-        weight_1d[:overlap] = np.linspace(0, 1, overlap)
-        weight_1d[-overlap:] = np.linspace(1, 0, overlap)
+        weight_1d[:overlap] = ramp
+        weight_1d[-overlap:] = ramp[::-1]
         blend_weight = np.outer(weight_1d, weight_1d)
         
         output = np.zeros((3, h_pad, w_pad), dtype=np.float32)

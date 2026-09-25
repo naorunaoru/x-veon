@@ -201,8 +201,13 @@ export function normalizeRawCfa(
   return out;
 }
 
+/**
+ * Pad the top and left so the CFA phase matches the reference pattern. Pad rows and columns
+ * repeat the nearest source rows/columns with the same CFA phase (mirroring would put values of
+ * the wrong colour next to the edge, where the demosaic reads them as context).
+ */
 export function padToAlignment(
-  cfa: Float32Array, width: number, height: number, dy: number, dx: number,
+  cfa: Float32Array, width: number, height: number, dy: number, dx: number, period: number,
 ): PaddedImage {
   const padTop = dy;
   const padLeft = dx;
@@ -211,17 +216,17 @@ export function padToAlignment(
     return { data: cfa, width, height, padTop: 0, padLeft: 0 };
   }
 
+  const samePhase = (i: number, pad: number, size: number) =>
+    Math.min(i < pad ? (((i - pad) % period) + period) % period : i - pad, size - 1);
+
   const newW = width + padLeft;
   const newH = height + padTop;
   const out = new Float32Array(newW * newH);
 
   for (let y = 0; y < newH; y++) {
-    const srcY = y < padTop ? padTop - 1 - y : y - padTop;
-    const clampedSrcY = Math.min(srcY, height - 1);
+    const srcRow = samePhase(y, padTop, height) * width;
     for (let x = 0; x < newW; x++) {
-      const srcX = x < padLeft ? padLeft - 1 - x : x - padLeft;
-      const clampedSrcX = Math.min(srcX, width - 1);
-      out[y * newW + x] = cfa[clampedSrcY * width + clampedSrcX];
+      out[y * newW + x] = cfa[srcRow + samePhase(x, padLeft, width)];
     }
   }
 
