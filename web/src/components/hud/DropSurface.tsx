@@ -4,7 +4,10 @@ import { useCallback, useRef } from 'react';
 import { Upload } from 'lucide-react';
 import './DropSurface.css';
 
-const FORMAT_LINE = 'RAF · NEF · ARW · CR3 · DNG';
+// Formats we test and stand behind. The picker also accepts others (see RAW_EXTENSIONS) so an
+// unsupported file gets a clear decode error instead of being ignored; DNG and CR3 (no decoder
+// in the vendored rawloader) aren't advertised.
+const FORMAT_LINE = 'RAF · ARW · NEF · CR2';
 
 type DropSurfaceProps = {
   /** false = solid empty canvas; true = scrim+blur overlay over the live view. */

@@ -21,17 +21,32 @@ interface HeadroomResult {
   accurate: boolean;
 }
 
+/** Whether the Window Management permission is already granted (so asking can't prompt). */
+async function windowManagementGranted(): Promise<boolean> {
+  try {
+    const status = await navigator.permissions.query({ name: 'window-management' as PermissionName });
+    return status.state === 'granted';
+  } catch {
+    return false;
+  }
+}
+
 /** Read peak/SDR luminance ratio from the Window Management API, screen API, or media query. */
 async function getHdrHeadroom(): Promise<HeadroomResult> {
-  // 1. Window Management API — most accurate (gives real nit-based headroom)
-  try {
-    if ('getScreenDetails' in window) {
+  const hdrMedia = typeof matchMedia !== 'undefined' && matchMedia('(dynamic-range: high)').matches;
+
+  // 1. Window Management API — most accurate (gives real nit-based headroom). Only on displays
+  //    the browser already treats as HDR, and only once permission is granted: calling
+  //    getScreenDetails() in the "prompt" state shows the browser's permission prompt and
+  //    stalls initialisation until it's answered. HdrPermissionDialog asks explicitly instead.
+  if (hdrMedia && 'getScreenDetails' in window && await windowManagementGranted()) {
+    try {
       const details = await (window as any).getScreenDetails();
       const hr = details?.currentScreen?.highDynamicRangeHeadroom;
       if (typeof hr === 'number' && hr > 1.0) return { headroom: hr, accurate: true };
+    } catch {
+      // Revoked or unavailable — fall through
     }
-  } catch {
-    // Permission denied or no user gesture — fall through
   }
 
   // 2. screen.highDynamicRangeHeadroom (not yet available in most browsers)
@@ -41,7 +56,7 @@ async function getHdrHeadroom(): Promise<HeadroomResult> {
   }
 
   // 3. Media query — knows HDR is supported but not the headroom value
-  if (typeof matchMedia !== 'undefined' && matchMedia('(dynamic-range: high)').matches) {
+  if (hdrMedia) {
     return { headroom: 2.0, accurate: false };
   }
 
