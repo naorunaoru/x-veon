@@ -4,7 +4,10 @@ import { encodeViaWorker } from './encoder';
 
 export interface Encoder {
   format: ExportFormat;
-  /** `hdr` is the Rec.2020 HDR render for formats whose catalogue entry has `needsHdr`; null otherwise. */
+  /**
+   * `hdr` is the Rec.2020 HDR render for formats whose catalogue entry has `needsHdr`; null otherwise.
+   * Both arrays are consumed: they are transferred to the encoder worker and detach.
+   */
   encode(
     sdr: Float32Array, hdr: Float32Array | null,
     width: number, height: number,

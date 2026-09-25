@@ -25,6 +25,8 @@ rav1e = { version = "0.7", default-features = false }
 avif-serialize = "0.8"
 
 
+# opt-level 3, not "s": AVIF (rav1e) encodes ~29% faster for ~42 KB more gzipped wasm, with
+# byte-identical output (measured 2026-09-25, 12 MP, wasm32 without SIMD).
 [profile.release]
-opt-level = "s"
+opt-level = 3
 lto = true

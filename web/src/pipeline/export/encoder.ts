@@ -9,6 +9,17 @@ function getWorker(): Worker {
   return worker;
 }
 
+/** The array's buffer for transfer — itself when the view spans all of it, else a copy. */
+function transferable(a: Float32Array): ArrayBuffer {
+  return a.byteOffset === 0 && a.byteLength === a.buffer.byteLength
+    ? a.buffer as ArrayBuffer
+    : a.slice().buffer;
+}
+
+/**
+ * Encode in the worker. `data` and `hdrData` are transferred, not copied: at 24 MP each is
+ * ~290 MB, so the caller hands them over and must not touch them afterwards (they detach).
+ */
 export function encodeViaWorker(
   data: Float32Array, hdrData: Float32Array,
   width: number, height: number,
@@ -17,8 +28,8 @@ export function encodeViaWorker(
 ): Promise<Uint8Array> {
   return new Promise((resolve, reject) => {
     const w = getWorker();
-    const dataCopy = data.slice();
-    const hdrCopy = hdrData.slice();
+    const dataBuf = transferable(data);
+    const hdrBuf = transferable(hdrData);
 
     w.onmessage = (e) => {
       if (e.data.type === 'done') {
@@ -31,11 +42,11 @@ export function encodeViaWorker(
 
     w.postMessage({
       type: 'encode',
-      data: dataCopy.buffer,
-      hdrData: hdrCopy.buffer,
+      data: dataBuf,
+      hdrData: hdrBuf,
       width, height,
       orientation, format, quality,
       peakLuminance,
-    }, [dataCopy.buffer, hdrCopy.buffer]);
+    }, [dataBuf, hdrBuf]);
   });
 }
