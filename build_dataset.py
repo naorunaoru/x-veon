@@ -161,8 +161,11 @@ def process_raw(args):
 
         h, w = rgb_f.shape[:2]
 
-        # Normalize: subtract black, divide by (white - black), NO CLIP
-        rgb_f = (rgb_f - black) / (white - black)
+        # Normalize: divide by (white - black), NO CLIP. LibRaw's postprocess has already
+        # subtracted the black level (no_auto_scale only skips scaling), so subtracting it
+        # again shifted every target ~black/(white-black) below what inference feeds
+        # (≈0.07 for 14-bit bodies).
+        rgb_f = rgb_f / (white - black)
 
         # DR push: compensate for deliberate underexposure in DR200/400
         if dr_gain > 1.0:

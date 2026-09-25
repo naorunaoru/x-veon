@@ -429,14 +429,26 @@ class PatchCacheDataset(LinearDataset):
         self._stream_stop = threading.Event()
 
     def _fill_buffer(self, seed: int = 0):
-        """Initial fill: extract patches from all images into the buffer."""
+        """Initial fill: extract patches into exactly the n_slots active slots.
+
+        Slots are spread evenly over the images (contiguous per image, for I/O locality). With
+        cache_gb the slot count differs from n_images * ppi; slots used to be indexed by
+        img * ppi + j regardless, which overran the buffer or left slots all-zero.
+        """
         from concurrent.futures import ThreadPoolExecutor
 
         n_images = len(self.data_files)
-        ppi = self.patches_per_image
+        n_slots = self._n_slots
         es = self._extract_size
         ps = self.patch_size
         period = self.period
+        if n_images == 0 or n_slots == 0:
+            return
+
+        counts = [n_slots // n_images + (1 if i < n_slots % n_images else 0) for i in range(n_images)]
+        starts = [0] * n_images
+        for i in range(1, n_images):
+            starts[i] = starts[i - 1] + counts[i - 1]
 
         rng = random.Random(seed)
         crops = []
@@ -446,17 +458,19 @@ class PatchCacheDataset(LinearDataset):
             crop_size = es if (es <= h and es <= w) else ps
             max_y = max(0, h - crop_size)
             max_x = max(0, w - crop_size)
-            for _ in range(ppi):
+            for _ in range(counts[img_i]):
                 top = (rng.randint(0, max_y) // period) * period
                 left = (rng.randint(0, max_x) // period) * period
                 crops.append((img_i, top, left, crop_size))
+        assert len(crops) == n_slots
 
         def _extract_image(img_i):
+            if counts[img_i] == 0:
+                return
             img = np.load(self.data_files[img_i], mmap_mode='r')
-            base = img_i * ppi
-            for j in range(ppi):
-                _, top, left, crop_size = crops[base + j]
-                slot = base + j
+            for j in range(counts[img_i]):
+                slot = starts[img_i] + j
+                _, top, left, crop_size = crops[slot]
                 patch = img[top:top + crop_size, left:left + crop_size]
                 if crop_size < es:
                     self._patch_data[slot] = 0
@@ -722,13 +736,17 @@ class ImageGroupedSampler(Sampler):
     image cache, this reduces file opens from N*patches_per_image to N.
     """
 
-    def __init__(self, num_images: int, patches_per_image: int, shuffle: bool = True):
+    def __init__(self, num_images: int, patches_per_image: int, shuffle: bool = True,
+                 extra_samples: int = 0):
+        """`extra_samples` are indices after the image patches (e.g. the torture patterns of a
+        ConcatDataset from create_mixed_dataset); they are interleaved between image groups."""
         self.num_images = num_images
         self.patches_per_image = patches_per_image
         self.shuffle = shuffle
+        self.extra_samples = extra_samples
         self.epoch = 0
 
-    def __iter__(self):
+    def _grouped(self):
         image_order = list(range(self.num_images))
         if self.shuffle:
             g = random.Random(self.epoch)
@@ -740,8 +758,27 @@ class ImageGroupedSampler(Sampler):
                 random.shuffle(patches)
             yield from patches
 
+    def __iter__(self):
+        if not self.extra_samples:
+            yield from self._grouped()
+            return
+        base = self.num_images * self.patches_per_image
+        extra = list(range(base, base + self.extra_samples))
+        g = random.Random(self.epoch + 1_000_003)
+        if self.shuffle:
+            g.shuffle(extra)
+        total = base + self.extra_samples
+        if self.shuffle:
+            extra_at = set(g.sample(range(total), self.extra_samples))
+        else:
+            extra_at = {i * total // self.extra_samples for i in range(self.extra_samples)}
+        grouped = self._grouped()
+        extra_iter = iter(extra)
+        for pos in range(total):
+            yield next(extra_iter) if pos in extra_at else next(grouped)
+
     def __len__(self):
-        return self.num_images * self.patches_per_image
+        return self.num_images * self.patches_per_image + self.extra_samples
 
     def set_epoch(self, epoch: int):
         self.epoch = epoch

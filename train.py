@@ -624,8 +624,13 @@ def main():
             multiprocessing_context='fork' if cfg.workers > 0 else None,
         )
     else:
+        # A mixed dataset (create_mixed_dataset) appends torture patterns after the image
+        # patches; the sampler must cover them too, or --torture-fraction trains on 0%.
+        image_dataset = (train_dataset.datasets[0]
+                         if isinstance(train_dataset, torch.utils.data.ConcatDataset) else train_dataset)
         train_sampler = ImageGroupedSampler(
-            len(train_files), cfg.patches_per_image, shuffle=True,
+            len(image_dataset.data_files), cfg.patches_per_image, shuffle=True,
+            extra_samples=len(train_dataset) - len(image_dataset),
         )
         persist = cfg.workers > 0
         train_loader = DataLoader(
@@ -938,8 +943,8 @@ def main():
     if use_cache:
         train_dataset.cleanup()
 
-    # Mark as stable if all epochs completed without interruption
-    if not dash.has_fatal_error and not interrupted:
+    # Mark as stable if all epochs completed without interruption or a crash
+    if not dash.has_fatal_error and not interrupted and fatal_exc is None:
         promote_to_stable(
             registry_path, cfa_type=cfg.cfa_type,
             base_width=cfg.base_width,
@@ -967,6 +972,10 @@ def main():
     print(f"  Data:          {data_dirs}")
     print(f"  Output:        {cfg.output_dir}")
     print("=" * 60)
+
+    if fatal_exc is not None:
+        # Surface the traceback and a non-zero exit code after the summary.
+        raise fatal_exc
 
 
 if __name__ == "__main__":

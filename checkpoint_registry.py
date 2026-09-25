@@ -93,7 +93,8 @@ def promote_to_stable(
     except KeyError:
         return
 
-    if "beta" in var and "stable" not in var:
+    # The run that just completed replaces any earlier stable entry.
+    if "beta" in var:
         var["stable"] = var.pop("beta")
         _save_registry(registry_path, reg)
 
@@ -103,7 +104,7 @@ def build_registry(project_root: Path) -> dict:
     reg = {}
     registry_path = project_root / REGISTRY_FILENAME
 
-    for config_path in sorted(project_root.glob("checkpoints/_nowb/**/config.json")):
+    for config_path in sorted(project_root.glob("checkpoints*/**/config.json")):
         ckpt_dir = config_path.parent
         history_path = ckpt_dir / "history.json"
         if not history_path.exists():
