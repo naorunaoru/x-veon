@@ -1,37 +1,60 @@
 import type { RawImage } from '../types';
 
-let wasmModule: Awaited<typeof import('../../../wasm/rawloader/pkg/rawloader_wasm.js')> | null = null;
+type Reply = { type: 'done'; raw: RawImage } | { type: 'pong' } | { type: 'error'; message: string };
 
-export async function initWasm(): Promise<void> {
-  wasmModule = await import('../../../wasm/rawloader/pkg/rawloader_wasm.js');
-  await wasmModule.default();
+/** Factory for the decode worker; replaceable in tests. */
+export let createDecodeWorker = (): Worker =>
+  new Worker(new URL('./decode-worker.ts', import.meta.url), { type: 'module' });
+
+export function setDecodeWorkerFactory(factory: () => Worker): void {
+  createDecodeWorker = factory;
+  worker?.terminate();
+  worker = null;
 }
 
-export function decodeRaw(arrayBuffer: ArrayBuffer): RawImage {
-  if (!wasmModule) throw new Error('WASM not initialized');
+let worker: Worker | null = null;
+let queue: Promise<unknown> = Promise.resolve();
 
-  const bytes = new Uint8Array(arrayBuffer);
-  const img = wasmModule.decode_image(bytes);
+/** Send one request to the worker. After any failure the worker is discarded, never reused. */
+function request(message: object, transfer: Transferable[] = []): Promise<Reply> {
+  const run = () => new Promise<Reply>((resolve, reject) => {
+    const w = worker ??= createDecodeWorker();
+    const discard = () => {
+      w.terminate();
+      if (worker === w) worker = null;
+    };
+    w.onmessage = (e: MessageEvent<Reply>) => {
+      if (e.data.type === 'error') {
+        discard();
+        reject(new Error(e.data.message));
+      } else {
+        resolve(e.data);
+      }
+    };
+    w.onerror = (e: ErrorEvent) => {
+      e.preventDefault();
+      discard();
+      reject(new Error(e.message || 'RAW decoder crashed'));
+    };
+    w.postMessage(message, transfer);
+  });
+  // One decode at a time: each request owns the worker's handlers until it settles.
+  const result = queue.then(run, run);
+  queue = result.catch(() => {});
+  return result;
+}
 
-  return {
-    data: img.get_data(),
-    width: img.get_width(),
-    height: img.get_height(),
-    wbCoeffs: img.get_wb_coeffs(),
-    blackLevels: img.get_blacklevels(),
-    whiteLevels: img.get_whitelevels(),
-    xyzToCam: img.get_xyz_to_cam(),
-    orientation: img.get_orientation(),
-    make: img.get_make(),
-    model: img.get_model(),
-    cfaStr: img.get_cfastr(),
-    cfaWidth: img.get_cfawidth(),
-    crops: img.get_crops(),
-    drGain: img.get_dr_gain(),
-    camToXyz: img.get_cam_to_xyz(),
-    exposureBias: img.get_exposure_bias(),
-    lensModel: img.get_lens_model(),
-    focalLength: img.get_focal_length(),
-    fNumber: img.get_f_number(),
-  };
+/** Start the decoder and wait until its wasm module has loaded. */
+export async function initWasm(): Promise<void> {
+  await request({ type: 'ping' });
+}
+
+/**
+ * Decode a RAW file in the decoder worker. `bytes` is transferred (detached) to the worker.
+ * A file that crashes the decoder only fails its own decode; the next one gets a fresh instance.
+ */
+export async function decodeRaw(bytes: ArrayBuffer): Promise<RawImage> {
+  const reply = await request({ type: 'decode', bytes }, [bytes]);
+  if (reply.type !== 'done') throw new Error('Unexpected reply from the RAW decoder');
+  return reply.raw;
 }

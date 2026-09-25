@@ -59,7 +59,7 @@ export async function processRaw(
     // 1. Decode RAW
     let raw: RawImage;
     try {
-      raw = decodeRaw(bytes);
+      raw = await decodeRaw(bytes);
     } catch (e) {
       const detail = (e instanceof Error ? e.message : String(e)).trim();
       throw new Error(

@@ -21,7 +21,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   input = { destroy: vi.fn() } as unknown as GPUBuffer;
   output = { destroy: vi.fn() } as unknown as GPUBuffer;
-  m.decodeRaw.mockReturnValue({
+  m.decodeRaw.mockResolvedValue({
     data: new Uint16Array(36).fill(100), width: 6, height: 6,
     crops: new Uint16Array(4), whiteLevels: new Uint16Array([1000]), blackLevels: new Uint16Array(4),
     wbCoeffs: new Float32Array([2, 1, 1.5]), cfaStr: 'RGGB', cfaWidth: 2,
@@ -63,7 +63,7 @@ describe('processRaw ownership', () => {
     expect(output.destroy).toHaveBeenCalledTimes(1); expect(input.destroy).toHaveBeenCalledTimes(1);
   });
   it('preserves decoder errors and closes the worker pool', async () => {
-    m.decodeRaw.mockImplementation(() => { throw new Error(' unsupported '); });
+    m.decodeRaw.mockRejectedValue(new Error(' unsupported '));
     await expect(processRaw(new ArrayBuffer(0), options, ctx)).rejects.toThrow("Couldn't decode this RAW file. The camera or format may not be supported by this build of the decoder — unsupported.");
     expect(m.run).not.toHaveBeenCalled(); expect(m.destroyDemosaicPool).toHaveBeenCalledTimes(1);
   });

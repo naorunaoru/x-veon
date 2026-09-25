@@ -29,7 +29,8 @@ impl Default for ExifMeta {
 /// from raw file bytes in a single pass.
 pub fn extract_exif_meta(raw_bytes: &[u8]) -> ExifMeta {
     let data = if is_raf(raw_bytes) {
-        let jpeg_offset = match u32::from_be_bytes(raw_bytes[84..88].try_into().unwrap_or([0;4])) as usize {
+        let header = raw_bytes.get(84..88).and_then(|b| b.try_into().ok()).unwrap_or([0; 4]);
+        let jpeg_offset = match u32::from_be_bytes(header) as usize {
             0 => return ExifMeta::default(),
             o if o >= raw_bytes.len() => return ExifMeta::default(),
             o => o,
@@ -128,7 +129,7 @@ fn is_raf(bytes: &[u8]) -> bool {
 
 fn extract_dr_from_raf(bytes: &[u8]) -> Option<u32> {
     // RAF header: bytes 84-87 = offset to embedded JPEG (big-endian u32)
-    let jpeg_offset = u32::from_be_bytes(bytes[84..88].try_into().ok()?) as usize;
+    let jpeg_offset = u32::from_be_bytes(bytes.get(84..88)?.try_into().ok()?) as usize;
     log!("[DR] RAF embedded JPEG at offset {jpeg_offset}");
     if jpeg_offset >= bytes.len() {
         log!("[DR] JPEG offset beyond file end");
@@ -206,7 +207,9 @@ fn parse_fuji_makernote_manual(data: &[u8]) -> Option<u32> {
     log!("[DR] Manual: MakerNote at offset {mn_offset}, len {mn_len}");
 
     // Parse Fuji makernote: "FUJIFILM" + 4-byte LE offset to IFD
-    let mn = &data[mn_offset..mn_offset + mn_len.min(data.len() - mn_offset)];
+    // Offsets come from the file: a MakerNote pointing past the end must not panic (a panic
+    // traps the wasm instance).
+    let mn = data.get(mn_offset..mn_offset.saturating_add(mn_len).min(data.len()))?;
     if mn.len() < 12 || &mn[0..8] != b"FUJIFILM" {
         log!("[DR] Manual: MakerNote doesn't start with FUJIFILM");
         return None;
