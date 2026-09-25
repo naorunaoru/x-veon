@@ -14,16 +14,16 @@ function fixture(failAt?: number) {
   };
   const copy = vi.fn();
   const device = {
-    features: new Set(['float32-blendable']),
+    features: new Set<string>(),
     createShaderModule: () => ({}), createBindGroupLayout: () => ({}), createPipelineLayout: () => ({}),
-    createRenderPipeline: () => ({}), createComputePipeline: () => ({}), createSampler: () => ({}),
+    createRenderPipeline: vi.fn(() => ({})), createComputePipeline: () => ({}), createSampler: () => ({}),
     createBindGroup: () => ({}), createBuffer: allocate, createTexture: allocate,
     createCommandEncoder: () => ({ copyBufferToTexture: copy, finish: () => ({}) }),
     queue: { submit: vi.fn() },
   };
   getDevice.mockResolvedValue(device);
   const canvas = { getContext: () => ({ configure: vi.fn() }) } as unknown as HTMLCanvasElement;
-  return { resources, canvas, copy };
+  return { resources, canvas, copy, device };
 }
 afterEach(() => vi.unstubAllGlobals());
 describe('renderer ownership', () => {
@@ -53,5 +53,11 @@ describe('renderer ownership', () => {
     renderer.dispose();
     for (const resource of f.resources) expect(resource.destroy).toHaveBeenCalledTimes(1);
   });
-
+  it('exports through rgba32float even without float32-blendable', async () => {
+    const f = fixture(); await createRenderer(f.canvas);
+    const formats = f.device.createRenderPipeline.mock.calls.map((c: unknown[]) =>
+      [...((c[0] as GPURenderPipelineDescriptor).fragment?.targets ?? [])][0]?.format);
+    expect(formats).toContain('rgba32float');
+    expect(formats).not.toContain('rgba16float');
+  });
 });

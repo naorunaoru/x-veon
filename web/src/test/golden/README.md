@@ -36,6 +36,12 @@ browser suite as a current rendering baseline. Do not widen comparisons to hide
 the intended changes. The standalone `tests/opendrt/check_shader.py` checks the
 corrected shader against the complete CTL reference without those RAW samples.
 
+## Export precision, 2026-09-25
+
+Exports now always render to `rgba32float`. They previously used `rgba16float` whenever the
+device lacked `float32-blendable`, which ONNX Runtime's shared device never requests, so the
+recorded export hashes (already stale above) will not match either. Re-record together.
+
 ## Running
 
 ```bash

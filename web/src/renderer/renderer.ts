@@ -7,6 +7,9 @@ import { Histogram, type HistogramMode, type HistogramChannel } from './histogra
 import { ExportTarget, readTextureRgba } from './readback';
 import { U_FLAGS, U_TEXEL, U_SRGB_P3_C0, U_P3_DSP_C0, UNIFORM_BYTES, UNIFORM_FLOATS, setMat3, applyOpenDrtUniforms } from './uniforms';
 import { getDevice } from '@/gpu/device';
+
+/** Full float precision for exports; half floats would leave a "16-bit" TIFF with ~11 bits. */
+const EXPORT_FORMAT = 'rgba32float' as const;
 export type DisplayGamut = 'rec709' | 'rec2020';
 export interface HistogramControls {
   attach(canvas: HTMLCanvasElement): void;
@@ -57,7 +60,6 @@ export class HdrRenderer implements Renderer {
     uniformData: Float32Array,
     isHdr: boolean,
     headroom: number,
-    hasFloat32Blendable: boolean,
     shaderModule: GPUShaderModule,
     pipelineLayout: GPUPipelineLayout,
   ) {
@@ -72,7 +74,7 @@ export class HdrRenderer implements Renderer {
     this._isHdrDisplay = isHdr;
     this._hdrHeadroom = headroom;
     this.histogram = new Histogram(device, shaderModule, pipelineLayout, uniformBuffer, uniformData);
-    this.exportTarget = new ExportTarget(device, hasFloat32Blendable ? 'rgba32float' : 'rgba16float');
+    this.exportTarget = new ExportTarget(device, EXPORT_FORMAT);
   }
   static async create(
     canvas: HTMLCanvasElement,
@@ -95,8 +97,6 @@ export class HdrRenderer implements Renderer {
       toneMapping: { mode: wantHdr ? 'extended' : 'standard' },
     });
 
-    const hasFloat32Blendable = device.features.has('float32-blendable');
-    const exportFormat: GPUTextureFormat = hasFloat32Blendable ? 'rgba32float' : 'rgba16float';
 
     // Shader module
     const shaderModule = device.createShaderModule({ code: WGSL_SRC });
@@ -126,14 +126,15 @@ export class HdrRenderer implements Renderer {
       primitive: { topology: 'triangle-list' },
     });
 
-    // Export pipeline (targets float texture — no blending)
+    // Export pipeline: renders to rgba32float. It never blends, so it doesn't need the
+    // float32-blendable feature (which ONNX Runtime's shared device doesn't request).
     const exportPipeline = device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: { module: shaderModule, entryPoint: 'vs_main' },
       fragment: {
         module: shaderModule,
         entryPoint: 'fs_main',
-        targets: [{ format: exportFormat }],
+        targets: [{ format: EXPORT_FORMAT }],
       },
       primitive: { topology: 'triangle-list' },
     });
@@ -157,7 +158,7 @@ export class HdrRenderer implements Renderer {
     try {
       const renderer = new HdrRenderer(
         device, context, displayPipeline, exportPipeline, bindGroupLayout,
-        sampler, uniformBuffer, uniformData, wantHdr, headroom, hasFloat32Blendable,
+        sampler, uniformBuffer, uniformData, wantHdr, headroom,
         shaderModule, pipelineLayout,
       );
       // Set constant uniforms: matrices + flags
