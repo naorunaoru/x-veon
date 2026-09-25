@@ -106,6 +106,16 @@ export async function processRaw(
     };
     prepared = null;
     const demosaiced = await strategyFor(options.method).run(input, ctx, options);
+    // The GPU methods only submit work. Wait for it (the neural net's finalize and the GPU
+    // methods' readback used to), so the reported time covers the demosaic, as before.
+    if (!(demosaiced.rgb instanceof Float32Array)) {
+      try {
+        await ctx.device.queue.onSubmittedWorkDone();
+      } catch (error) {
+        demosaiced.rgb.buffer.destroy();
+        throw error;
+      }
+    }
 
     // 10. GPU postprocess: WB → highlight recovery → CC → DR → RGBA (+ clip ratio in alpha)
     // If matrix construction fails before transfer, release the strategy output.
@@ -122,9 +132,6 @@ export async function processRaw(
       wb, clipsWb, ccMatrix, raw.drGain,
     );
     ownedOutput = { texture: gpuResult.texture, width: visWidth, height: visHeight };
-    // The demosaic and post-process only submit GPU work; wait for it here, once, so the
-    // result is ready when it's published and the reported time covers the real work.
-    await ctx.device.queue.onSubmittedWorkDone();
     const inferenceTime = (Date.now() - startTime) / 1000;
 
     // 11. Compute final display dimensions (after orientation)
