@@ -51,7 +51,10 @@ export async function processFile(fileId: string): Promise<void> {
     }
 
     const { demosaicMethod: method, modelSize } = useAppStore.getState();
-    const image = await processRaw(bytes, { method, modelSize }, getPipeline());
+    const ctx = getPipeline();
+    // Run with the size the user chose; results are labelled with the size actually loaded.
+    if (method === 'neural-net') await ctx.models.switchSize(modelSize);
+    const image = await processRaw(bytes, { method, modelSize }, ctx);
 
     if (runDiscarded || !useAppStore.getState().files.some((f) => f.id === fileId)) {
       image.dispose();

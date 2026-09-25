@@ -25,8 +25,15 @@ export function SettingsPanel() {
 
   const onModelClick = async (size: ModelSize) => {
     if (size === modelSize || !availableSizes.has(size)) return;
+    const previous = modelSize;
     setModelSize(size);
-    await switchTo(size);
+    try {
+      await switchTo(size);
+    } catch (e) {
+      console.error('Model switch failed:', e);
+      setModelSize(previous);
+      return;
+    }
     const file = useAppStore.getState().files.find((f) => f.id === useAppStore.getState().selectedFileId);
     if (file && (file.status === 'done' || file.status === 'error') && !isProcessing && demosaicMethod === 'neural-net') {
       processFile(file.id);
@@ -47,7 +54,7 @@ export function SettingsPanel() {
         </select>
       </div>
 
-      <div className="xv-field">
+      {availableSizes.size > 1 && <div className="xv-field">
         <span className="xv-field__label">Model</span>
         <div className="xv-seg">
           {MODEL_SIZES.map((s) => (
@@ -61,14 +68,13 @@ export function SettingsPanel() {
             </button>
           ))}
         </div>
-      </div>
+      </div>}
 
       <div className="xv-field">
         <span className="xv-field__label">Output</span>
         <div className="xv-readout">
           HDR preview <b className={displayHdr ? 'hdr' : undefined}>{displayHdr ? 'ON' : 'OFF'}</b>
-          {displayHdr && <> · peak <b>{Math.round(displayHdrHeadroom * 100)} nits</b></>}<br />
-          Tile <b>512</b> · Overlap <b>64</b>
+          {displayHdr && <> · peak <b>{Math.round(displayHdrHeadroom * 100)} nits</b></>}
         </div>
       </div>
 

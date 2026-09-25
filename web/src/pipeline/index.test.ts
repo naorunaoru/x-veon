@@ -3,7 +3,7 @@ const m = vi.hoisted(() => ({
   decodeRaw: vi.fn(), run: vi.fn(), gpuPostprocess: vi.fn(), buildColorMatrix: vi.fn(),
   estimateColorTemperature: vi.fn(), destroyDemosaicPool: vi.fn(),
   initWasm: vi.fn(), initDemosaicGpu: vi.fn(), getDevice: vi.fn(), setSharedDevice: vi.fn(),
-  models: { init: vi.fn(), device: null as GPUDevice | null, backend: 'webgpu' },
+  models: { init: vi.fn(), device: null as GPUDevice | null, backend: 'webgpu', size: 'S' },
 }));
 vi.mock('./decode/raf-decoder', () => ({ decodeRaw: m.decodeRaw, initWasm: m.initWasm }));
 vi.mock('./demosaic', () => ({ strategyFor: () => ({ run: m.run }), destroyDemosaicPool: m.destroyDemosaicPool }));
@@ -33,11 +33,17 @@ beforeEach(() => {
   m.estimateColorTemperature.mockReturnValue({ temp: 6500, tint: 0 });
 });
 describe('processRaw ownership', () => {
+  it('labels a neural result with the size of the loaded models, not the requested size', async () => {
+    const image = await processRaw(new ArrayBuffer(0), { ...options, modelSize: 'M' }, ctx);
+    expect(image.meta.metadata.modelSize).toBe('S');
+    image.dispose();
+  });
   it('transfers the final image to its caller', async () => {
     const image = await processRaw(new ArrayBuffer(0), options, ctx);
     expect(image.gpu).toEqual({ buffer: output, width: 6, height: 6, bytesPerRow: 256 });
     expect(image.meta.metadata).toMatchObject({ colorTemp: 6500, tileCount: 1, backend: 'webgpu', modelSize: 'S' });
     expect(input.destroy).toHaveBeenCalledTimes(1); expect(output.destroy).not.toHaveBeenCalled();
+
     image.dispose(); expect(output.destroy).toHaveBeenCalledTimes(1);
     expect(m.destroyDemosaicPool).toHaveBeenCalledTimes(1);
   });

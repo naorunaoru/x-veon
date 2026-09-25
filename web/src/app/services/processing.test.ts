@@ -40,7 +40,8 @@ function fakeImage(): ProcessedImage & { disposed: number } {
   return image;
 }
 
-const ctx = { device: {} as GPUDevice, models: { backend: 'webgpu' } } as never;
+const switchSize = vi.fn();
+const ctx = { device: {} as GPUDevice, models: { backend: 'webgpu', switchSize } } as never;
 
 describe('processing service', () => {
   beforeEach(() => {
@@ -54,6 +55,21 @@ describe('processing service', () => {
   });
 
   afterEach(() => { discardResult('a'); discardResult('b'); });
+
+  it('loads the chosen model size before a neural run, and reports a failed load', async () => {
+    switchSize.mockReset().mockResolvedValue(undefined);
+    processRaw.mockResolvedValue(fakeImage());
+    useAppStore.setState({ demosaicMethod: 'neural-net', modelSize: 'S' });
+    await processFile('a');
+    expect(switchSize).toHaveBeenCalledWith('S');
+    expect(switchSize.mock.invocationCallOrder[0]).toBeLessThan(processRaw.mock.invocationCallOrder[0]);
+    switchSize.mockRejectedValue(new Error('No M model is available'));
+    processRaw.mockClear();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await processFile('a');
+    expect(processRaw).not.toHaveBeenCalled();
+    expect(useAppStore.getState().files[0]).toMatchObject({ status: 'error', error: 'No M model is available' });
+  });
 
   it('walks queued → processing → done and hands the result over once', async () => {
     const image = fakeImage();

@@ -9,6 +9,7 @@ export interface PipelineContext {
 
 export interface ProcessOptions {
   method: DemosaicMethod;
+  /** Requested model size; the caller makes sure it is loaded (see ModelRegistry.switchSize). */
   modelSize: ModelSize;
   /** Tiles done / total for the neural-net strategy. Unused by the UI today. */
   onProgress?: (done: number, total: number) => void;

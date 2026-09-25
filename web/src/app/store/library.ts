@@ -54,9 +54,8 @@ export const createLibrarySlice: Slice<LibrarySlice> = (set, get) => ({
     const file = id ? get().files.find((f) => f.id === id) : null;
     const updates: Partial<AppState> = { selectedFileId: id };
     if (file?.resultMethod) updates.demosaicMethod = file.resultMethod;
-    // Restore model size from the result that produced this file
-    const meta = file?.result?.metadata;
-    if (meta?.modelSize) updates.modelSize = meta.modelSize;
+    // The model size stays the user's choice: copying it from a result would show a size
+    // whose models aren't loaded.
     set(updates);
   },
 
@@ -109,14 +108,12 @@ export const createLibrarySlice: Slice<LibrarySlice> = (set, get) => ({
       : has(settings.selectedFileId) ? settings.selectedFileId
       : files.length > 0 ? files[0].id : null;
     const selectedFile = selectedFileId ? files.find((f) => f.id === selectedFileId) : null;
-    const meta = selectedFile?.result?.metadata;
     set({
       files,
       selectedFileId,
       demosaicMethod: selectedFile?.resultMethod ?? settings.demosaicMethod ?? state.demosaicMethod,
       exportFormat: settings.exportFormat ?? state.exportFormat,
       exportQuality: settings.exportQuality ?? state.exportQuality,
-      ...(meta?.modelSize ? { modelSize: meta.modelSize } : {}),
     });
   },
 });

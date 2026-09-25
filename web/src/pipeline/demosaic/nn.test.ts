@@ -44,6 +44,7 @@ function makeCtx(runBatchGpu: PipelineContext['models']['runBatchGpu']): Pipelin
       init: vi.fn(),
       switchSize: vi.fn(),
       availableSizes: vi.fn(() => new Set<ModelSize>()),
+      size: 'S',
       runBatchGpu,
       backend: null,
       device: null,

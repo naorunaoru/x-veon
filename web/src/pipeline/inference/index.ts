@@ -157,18 +157,20 @@ async function initModels(size: ModelSize = 'S'): Promise<void> {
   return initPromise;
 }
 
-/** Switch to a different model size. Returns once the new models are loaded. */
+/**
+ * Switch to a different model size. Returns once the new models are loaded; on failure the
+ * previous models stay active and the size is unchanged.
+ */
 async function switchModelSize(size: ModelSize): Promise<void> {
   if (size === currentSize) return;
-  currentSize = size;
   const width = SIZE_TO_WIDTH[size];
-
-  for (const cfaType of ['xtrans', 'bayer'] as CfaType[]) {
-    const key = resolveModelKey(cfaType, width);
-    if (!key) continue;
-    await getOrLoadSession(key);
-    active.set(cfaType, key);
-  }
+  const keys = (['xtrans', 'bayer'] as CfaType[])
+    .map((cfaType) => [cfaType, resolveModelKey(cfaType, width)] as const)
+    .filter((entry): entry is readonly [CfaType, string] => entry[1] !== null);
+  if (keys.length === 0) throw new Error(`No ${size} model is available`);
+  for (const [, key] of keys) await getOrLoadSession(key);
+  for (const [cfaType, key] of keys) active.set(cfaType, key);
+  currentSize = size;
 }
 
 /**
@@ -201,6 +203,8 @@ export interface ModelRegistry {
   init(size: ModelSize): Promise<void>;
   switchSize(size: ModelSize): Promise<void>;
   availableSizes(cfaType: CfaType): Set<ModelSize>;
+  /** The size of the models that are loaded and active. */
+  readonly size: ModelSize;
   runBatchGpu(
     cfaType: CfaType, inputBuffer: GPUBuffer, batchSize: number, patchSize: number,
   ): Promise<{ buffer: GPUBuffer; dispose: () => void }>;
@@ -216,6 +220,7 @@ export const models: ModelRegistry = {
   switchSize: switchModelSize,
   availableSizes: getAvailableSizes,
   runBatchGpu,
+  get size() { return currentSize; },
   get backend() { return backend; },
   get device() { return gpuDevice; },
 };
