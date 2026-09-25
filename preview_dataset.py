@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2024-present X-Veon contributors
 """
 Preview dataset samples with augmentations applied.
 

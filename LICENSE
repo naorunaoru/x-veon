@@ -17,6 +17,7 @@ See the LICENSES/ directory for full license texts.
    - backfill_metadata.py
    - checkpoint_registry.py
    - torture_v2.py
+   - dashboard.py      — training dashboard (used by train.py)
 
    Copyright (c) 2024-present X-Veon contributors
 

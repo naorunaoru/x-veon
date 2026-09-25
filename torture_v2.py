@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2024-present X-Veon contributors
 """
 Expanded torture test dataset v2 with 4x supersampling, smart colors, and fractals.
 """

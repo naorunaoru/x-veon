@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2024-present X-Veon contributors
 """Backfill missing _meta.json files for .npy datasets.
 
 Reads RAF headers to extract camera_wb and other metadata.

@@ -6,25 +6,25 @@ This project consists of two parts: first one is the neural net itself with a bu
 
 ## Neural network
 
-The demosaicing model is a U-Net (encoder-decoder with skip connections) that takes a 4-channel input — the raw CFA mosaic value plus 3 binary masks indicating which color filter covers each pixel — and outputs a full-color 3-channel RGB image.
+The demosaicing model is a U-Net (encoder-decoder with skip connections, `model.py`) with a 5-channel input: the raw CFA mosaic value, 3 binary masks marking which colour filter covers each pixel, and a clip-proximity channel (0 below half of the clip level, ramping to 1 at clipping). It outputs a full-colour 3-channel image in camera RGB, without white balance.
 
-The encoder has 4 downsampling stages (64 → 128 → 256 → 512 → 1024 channels at the bottleneck for full-width model), each consisting of two 3×3 convolutions with BatchNorm and ReLU, followed by 2×2 max pooling. The decoder mirrors this with transposed convolutions for upsampling and skip connections from the corresponding encoder stage.
+The encoder has 4 downsampling stages (strided convolutions; channel widths `base_width × 1, 2, 4, 8, 16`). Each stage is two convolutions with GroupNorm and ReLU; the decoder upsamples with 1×1 convolutions and PixelShuffle and concatenates the matching encoder stage. For X-Trans the first convolution is 7×7 and the input also carries sin/cos encodings of the 6×6 CFA phase.
 
-A key design choice is the residual CFA skip: the single-channel mosaic value is broadcast to all 3 output channels as a baseline, and the network only learns the color correction deltas on top of it. This makes the model largely exposure-agnostic — it doesn't need to reproduce absolute brightness, just fill in the missing color information.
+A key design choice is the residual CFA skip: each photosite's value is placed in its own colour channel as a baseline (`cfa × masks`), and the network learns the missing colours on top of it. This keeps the model largely exposure-agnostic.
 
-The architecture is fully CFA-agnostic: the same model currently works for both 6×6 X-Trans and 2×2 Bayer patterns. It should be trivial to add Quad HDR support if necessary.
+The same architecture serves both 6×6 X-Trans and 2×2 Bayer patterns, with a separate model per sensor type. The models shipped in `web/public/checkpoints/` were exported before the current architecture (max-pool/transposed-convolution, no normalisation), so the current `model.py` cannot load them; retrain to reproduce them.
 
 ## Dataset
 
 The network is trained on synthetic input/target pairs generated from real RAW photos. The build process works as follows:
 
-1. **Ground truth generation**: RAW files (RAF, ARW, CR2, etc.) are demosaiced using traditional algorithms — DHT for X-Trans, AHD for Bayer — in linear sensor space with no white balance or color correction applied. The results are downscaled 4x via area averaging to produce clean, alias-free reference images stored as float32 `.npy` files.
+1. **Ground truth generation** (`build_dataset.py`): RAW files (RAF, ARW, CR2, etc.) are demosaiced with traditional algorithms — DHT for X-Trans, AHD for Bayer — in linear sensor space with no white balance or colour correction, normalised to the sensor's range, and downscaled 2× by area averaging to produce clean reference images stored as float32 `.npy` files.
 
-2. **Synthetic re-mosaicing**: During training, patches are randomly cropped from the ground truth and re-mosaiced through the appropriate CFA pattern to create the network's input. This means the model never sees the original noisy RAW data — it learns from a clean demosaic that has been "re-captured" through the CFA.
+2. **Synthetic re-mosaicing**: during training, patches are cropped on the CFA period from the ground truth and re-mosaiced through the sensor's pattern to form the network's input, so the model learns from a clean demosaic "re-captured" through the CFA.
 
-3. **Augmentations**: Each patch gets random flips, additive Gaussian noise, exposure shifts (pushing toward clipping), white balance perturbation in log space, and optional OLPF (anti-aliasing filter) blur simulation. These help the model generalize across cameras and shooting conditions.
+3. **Augmentations**: random flips and 90° rotations, Poisson-Gaussian noise, optional OLPF (anti-aliasing filter) blur, synthetic bright light sources pushing into clipping, random downscaling, and — for models trained on white-balanced input (`--apply-wb`) — white-balance perturbation in log space.
 
-4. **Torture patterns**: A fraction of synthetic gradient and edge patterns can be mixed into the training set to improve performance on worst-case inputs like fine diagonal lines and color fringes near Nyquist.
+4. **Torture patterns**: a fraction of synthetic gradient and edge patterns can be mixed into the training set (`--torture-fraction`) to improve worst-case inputs like fine diagonal lines and colour fringes near Nyquist.
 
 ## Web application
 
@@ -76,12 +76,14 @@ This project uses a multi-license structure:
 | Component | License | SPDX Identifier |
 |---|---|---|
 | Neural network code (model, training, losses, dataset) | MIT | `MIT` |
-| Trained model weights (`checkpoints_*/`) | Creative Commons Attribution 4.0 | `CC-BY-4.0` |
+| Trained model weights and ONNX checkpoints (`web/public/checkpoints/`) | Creative Commons Attribution 4.0 | `CC-BY-4.0` |
 | Processing pipeline, web app, and everything else | GNU GPL v3 or later | `GPL-3.0-or-later` |
 
 See [LICENSE](LICENSE) for details and [LICENSES/](LICENSES/) for full license texts.
 
 ## Acknowledgments
+
+RAW decoding uses a fork of [rawloader](https://github.com/pedrocr/rawloader) (LGPL-2.1), included as the `web/wasm/vendor/rawloader` submodule.
 
 Parts of the code were adapted from various open-source projects:
 - darktable (segmentation-based highlight reconstruction, reference image pipeline)
