@@ -11,6 +11,7 @@ import { ToolRail } from './ToolRail';
 import { PanelHost } from './PanelHost';
 import { HistogramHud } from './HistogramHud';
 import { Minimap } from './Minimap';
+import { StartupError } from './StartupError';
 import './HudRoot.css';
 
 export function HudRoot() {
@@ -50,15 +51,15 @@ export function HudRoot() {
     );
   }
 
-  // No files: the status pill is always shown (loading / backend / error). The
-  // drop zone appears only once startup has settled (initialized or errored), so
-  // a session restore doesn't flash the empty state before its files load.
+  // No files: the status pill is shown while loading. The drop zone appears only
+  // once startup has succeeded, so a session restore doesn't flash the empty state
+  // before its files load; a failed startup shows its error instead.
   return (
     <div className="xv-hud-root">
       <div className="xv-hud-overlay">
         <TopBar />
       </div>
-      {(initialized || initError) && <DropSurface active={dragging} />}
+      {initError ? <StartupError message={initError} /> : initialized && <DropSurface active={dragging} />}
     </div>
   );
 }

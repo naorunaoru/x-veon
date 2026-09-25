@@ -39,13 +39,16 @@ const CHECKPOINTS_DIR = './checkpoints';
 const SIZE_TO_WIDTH: Record<ModelSize, number> = { S: 16, M: 32, L: 64 };
 
 async function fetchManifest(manifestUrl: string): Promise<Manifest> {
+  let res: Response;
   try {
-    const res = await fetch(manifestUrl);
-    if (!res.ok) return {};
-    return await res.json();
-  } catch {
-    return {};
+    res = await fetch(manifestUrl);
+  } catch (e) {
+    throw new Error(`Couldn't download the model list (${(e as Error).message}).`);
   }
+  if (!res.ok) throw new Error(`Couldn't download the model list (HTTP ${res.status}).`);
+  const manifest = await res.json() as Manifest;
+  if (!manifest || Object.keys(manifest).length === 0) throw new Error('The model list is empty.');
+  return manifest;
 }
 
 async function createSession(modelUrl: string): Promise<ort.InferenceSession> {

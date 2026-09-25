@@ -28,3 +28,8 @@
   background: rgba(10, 10, 10, 0.5); pointer-events: none;
 }
 .xv-canvas-host { width: 100%; height: 100%; overflow: hidden; position: relative; }
+.xv-stage__error .xv-btn {
+  margin-top: 8px; padding: 6px 14px; border: none; border-radius: var(--xv-radius-md);
+  background: var(--xv-primary); color: var(--xv-primary-foreground);
+  font-family: var(--xv-font-sans); font-size: 12px; font-weight: 500; cursor: pointer;
+}

@@ -1,10 +1,12 @@
 import { ImageOff } from 'lucide-react';
 import { useAppStore } from '@/app/store';
 import { OutputCanvas } from '@/components/OutputCanvas';
+import { StartupError } from './StartupError';
 import './PhotoStage.css';
 
 export function PhotoStage() {
   const selectedFile = useAppStore((s) => s.files.find((f) => f.id === s.selectedFileId));
+  const initError = useAppStore((s) => s.initError);
 
   if (!selectedFile) {
     return (
@@ -17,7 +19,9 @@ export function PhotoStage() {
   // One loading indicator for the whole "being worked on" window — covers fresh
   // processing, restore re-queue, and reprocess-on-switch alike. Shown over the
   // canvas (dimming it) when a prior result exists, or over the black stage.
-  const loading = selectedFile.status === 'queued' || selectedFile.status === 'processing';
+  // Nothing processes after a failed startup, so a queued photo would otherwise spin forever.
+  const startupFailed = !!initError && selectedFile.status !== 'done';
+  const loading = !startupFailed && (selectedFile.status === 'queued' || selectedFile.status === 'processing');
   // Show the error whenever the file errored — don't gate on a missing result, or a
   // stale/garbage result would leave a silent black canvas with no error shown.
   const showError = selectedFile.status === 'error';
@@ -27,7 +31,8 @@ export function PhotoStage() {
       {selectedFile.result && (
         <OutputCanvas key={selectedFile.id} fileId={selectedFile.id} result={selectedFile.result} />
       )}
-      {showError && (
+      {startupFailed && <StartupError message={initError!} />}
+      {showError && !startupFailed && (
         <div className="xv-stage__center">
           <div className="xv-stage__error xv-glass-heavy">
             <ImageOff className="xv-stage__error-icon" size={30} strokeWidth={1.5} />
