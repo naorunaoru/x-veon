@@ -7,6 +7,10 @@ and its encoded exports for two sample RAWs, produced by the `?golden` route in
 
 ## Provenance of the current baseline
 
+Re-recorded 2026-09-27 on Apple `metal-3` in Chrome 153, at `develop` `1c24dc6`, before the repository moved into `shared/` + `web/` (desktop M0). Two full runs agreed on every scene, graded-readback and export hash. The whole file was regenerated, so it supersedes the stale graded and export hashes described in the sections below. Against the 2026-09-04 baseline, the scene hashes changed for both neural-net runs and for every X-Trans run, which fits `88dd3f7` (no black first row/column in neural-net output) and `7780116` (black and white levels by CFA colour); the four Bayer traditional runs are unchanged.
+
+## Earlier baseline (2026-09-04)
+
 Recorded 2026-09-04 on Apple `metal-3` at commit `5b064b4`, which is the pre-consolidation tree
 (`develop` at `3ecf71e`) plus the golden harness (`6e5b215`) plus the deterministic chroma
 reduction (`2593aa0` on the feature branch is the cherry-pick of that fix). `5b064b4` is on no

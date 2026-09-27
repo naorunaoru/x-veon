@@ -3,84 +3,84 @@
     "vendor": "apple",
     "architecture": "metal-3"
   },
-  "commit": "5b064b4",
-  "recordedAt": "2026-09-04T18:02:34.933Z",
+  "commit": "1c24dc6",
+  "recordedAt": "2026-09-27T14:06:04.423Z",
   "entries": {
     "DSCF3332.RAF|neural-net:S": {
-      "display": "994b8168f7ccef51aaf16f39870f456283d209fd913c5b4371021d99f08e15de",
-      "displayDark": "4aeb788b593e4c35d480878f466a6db8364fc058dcaabc9b9f883364d0af0ed1",
-      "scene": "53b6f0cab94ecdfaedd45cf774b55c18a5be25f90cd6b87d377c057f968d92bd"
+      "display": "193dc110824e601858e48085203959e235186f03c6791b1f7e7bcecc941a3d7d",
+      "displayDark": "6ac25c58b66b72d04140264b60f4d8b1f76c3022b1ade0ef776432e3fd8cdf8a",
+      "scene": "43ec39dd9beaf2d75a6c5deabd8cbf946bef4bc7aefb53a4718a03ccc33ecdae"
     },
     "DSCF3332.RAF|markesteijn3": {
-      "display": "cab2f9e3b7fb5d2395577b57cf038f6886e1a06a888c96f2be41d8f25926ed6c",
-      "displayDark": "a2a58ca04bc921a38e8e70c79fa382eb04ba46192b07e94f0908203e193b6ecc",
-      "scene": "3bab4bdc43411aaaa56946b7a94368959d6ffffbff20244530a45cd1c0f95656"
+      "display": "bc91465e63d51dac5b68ff8782ee498b78a09609d107f1a38b14d2e56e41f931",
+      "displayDark": "502d9a445160e22a21c6e2e20094b527b8aad393b71c547e524829f3e5feeed1",
+      "scene": "c224c636b229e5ea36606545b8fc5408ea87e2ae2d8bbb84bf05233a8192a8fd"
     },
     "DSCF3332.RAF|markesteijn1": {
-      "display": "9751e3c50872127bc4d1bcba4c48113cbc25f7d37f8d11ae4385c09693ec8955",
-      "displayDark": "17031a2361d2ebd222850bc9c84d499ddf447abbfc9cde05bb0564a964d65365",
-      "scene": "0da1bde92d3b3a162351f25f81bde8453d006822f4b10aab417c5634bac97237"
+      "display": "7f25c6838dde211b00a345954215681ae1c83da16b0225a59880e0b6d03e844d",
+      "displayDark": "9f31fd1c64ad33cbb310021fd0ea86f9f0a46a5bf2176bad0a8d9824787477cc",
+      "scene": "68d5f2691dda432be801f086ec4d42ae21ad5e2243c470a2d7fa866e50fcb09a"
     },
     "DSCF3332.RAF|dht": {
-      "display": "d03a96b7f3bc01e3abd074a68f86f9f054a421a674b116bcd3f5e47f67ca62b6",
-      "displayDark": "45a426312e4d845e51b0535869f840b51053e968231833a35e521cb1ab492736",
-      "scene": "3e8d750b3dffeb78a649184d7376538ff3ff3fa0dc95fb585b2934eeefe7d2e0"
+      "display": "e15d75755e055d7c4c15704afaf8da785b96e41963c81a56ac3ee7a35c5a68c4",
+      "displayDark": "e5410b8b28f98b8a172374954e6f32a09953198c1b8c138ea665fea244457533",
+      "scene": "f87ad81c7df013e96d799ada5353ba804ed6af2c95855f63ef8a2f035109709a"
     },
     "DSCF3332.RAF|bilinear": {
-      "display": "97c72bb4d179c3c0c54e8e4aeda09d7c32db8e743dd1eecd27752761330e6018",
-      "displayDark": "d2c9178ffa21356c43d8580850f6b50abfcb8ddb8146524975e5b22db3435fa4",
-      "scene": "515cf7ceb37cdd51cc95b6ffea8ad4baac6fdb73b07b9c52f1211449f38f61fd"
+      "display": "4a73a9a904e3cda445ef6e316d971b7b6bb5a030611f6cc5f48d9e24fb2dafde",
+      "displayDark": "addaea16153af48a1db96c5519ef4059a276691d7a7c35e6c548bff182f6972f",
+      "scene": "03f2baa21098ee7d736bc1c7c7a4121d831d2ad1cf4cf85d9ff0ecc00ffd495e"
     },
     "sony_a6400_21.arw|neural-net:S": {
-      "display": "d8b1130ce010ba7eb50f03d2bf42633f6f5fe3f707db1716242471ffad4fa4c1",
-      "displayDark": "b9718e72e661c65e83e32b62b4a1b698c1039cf43ffaec94c79ddc31bb08eafc",
-      "scene": "f9ed7ac173af75e43ce1957ff47cddc7fb9caee6e0dc3fa94f804a529584e98a"
+      "display": "d27bb3959c75a0764b160bb361f08ff615acad1b6bbaf882390452108c059897",
+      "displayDark": "ec7e4208ee08c223d26904db98502db201850804d4eb28a292de6cb5ac5e191c",
+      "scene": "264336c79df675d7db5facaeb476ddfd27d7f00685ff5ae97df8a94b5cd8c97d"
     },
     "sony_a6400_21.arw|ahd": {
-      "display": "7fc767c7810e6af16bb4af61e57d5f26e4a3ee1cefdc86cd95c3f2408334edb3",
-      "displayDark": "645ae3231edfa14a6f2a027bc3601b472e131dfb50dd0c191198422a9e8b418f",
+      "display": "170509295edf5e9f33f796a45c7821b64acc1c830c514b883a8d4457b8fe206d",
+      "displayDark": "004898f79f81fc49540777a2c416719370841fd7f59ee43714687aa7a57c58f4",
       "scene": "1a95b6566f8d2d0d1e19f9d5a28a82adf2fdf8e6a3460c54e88d25f253b961cf"
     },
     "sony_a6400_21.arw|ppg": {
-      "display": "241ab8aa0335f29209c62bd3d3863e1e682868422672252a06dafa36df24f727",
-      "displayDark": "8a5c1410737400350b7109e64cf7d096d08568eea6740c7c6c032b42252b4b0e",
+      "display": "f2a5427cf1f4eb6f5c33d680383a54fbab0321353d3c319161e027d9822ea124",
+      "displayDark": "2004d07e2ae177108dadae1bb866d522011fdb6ac5c758da20545fa1f8f42058",
       "scene": "479f710e28648a69eda19d555fb3afa0338cf511653f33a282d70eab03c5c57d"
     },
     "sony_a6400_21.arw|mhc": {
-      "display": "8d2fa7138e3f85c466e8b5186e83a273148f2860d4359182cfe9401d2690d50e",
-      "displayDark": "77398eb78cd4307516c59ab92a421b17c1eff40ecbdb0b54138033f58987ddac",
+      "display": "0a7bc68cdf3caf30a2d947d70ce655dd58967c4b7e5885b45ccd366871ff3e7f",
+      "displayDark": "e771ea1dff6d6b2b11e668fdfe07270372991172b364d5ab9893ed8336373acf",
       "scene": "3781040f11ea36b46b7adbc0550f686a3c112fffa52a2bcf0e3abb286079d5a2"
     },
     "sony_a6400_21.arw|bilinear": {
-      "display": "576db64f93825c9e22cbf159b146c76ae8900073743da4e4c9ed6f29699dfbfc",
-      "displayDark": "7f9c251f23c43acc8da364c0841047ed2a3842163aede5c70b07df149a2c93ce",
+      "display": "c0f0f07936899d1d89dda9c0987ad7fd7f3f23a221fa5dabe8512c28af9559d8",
+      "displayDark": "f6dc96a1f2720306b15f6d1b0c57140110dd8ff4cade5598906e9384fd6ee3b0",
       "scene": "c3692c519fa2688614e1edbf7f5aeac2201f9084d6a834e362e504e7515a4917"
     }
   },
   "exports": {
     "DSCF3332.RAF|jpeg-hdr": {
-      "bytes": 2417665,
-      "sha256": "d7cabc961455b26bcc2637d83f72621a774bb0b5f89f1764f034291caa83a712"
+      "bytes": 2392982,
+      "sha256": "8bffce48c2659e0ffeef6f3c0966033bd7f43f9e4bd6ee584910e7911c908c52"
     },
     "DSCF3332.RAF|avif": {
-      "bytes": 797319,
-      "sha256": "cb410291b882d5a0ed3cec105f86f96499b17b9266ab0d0122c2eeda21a03d76"
+      "bytes": 791645,
+      "sha256": "382f7ee55b3814ff6f0b91c38bb5eeffb7a220a618afc0385d122205620cda7a"
     },
     "DSCF3332.RAF|tiff": {
       "bytes": 97615310,
-      "sha256": "02876e1874ed57a41ef726d089f17bafb09e9e20f9a98f834bc5268c260577bf"
+      "sha256": "5765cc785c0e5ba056b689e29abdef0fe815f378189aa6f1128e74f08f541d2e"
     },
     "sony_a6400_21.arw|jpeg-hdr": {
-      "bytes": 8215543,
-      "sha256": "c66b8d16a3e1c865ba2ec4fb9928384a3e250d14a8d3bee253d17b82cb541307"
+      "bytes": 8201746,
+      "sha256": "605590cdf1dc91f8ea6055345d7d0bb679e6154276542a3df54384b23ea21f97"
     },
     "sony_a6400_21.arw|avif": {
-      "bytes": 4788975,
-      "sha256": "247685b6b8ebd6b067c6b1b2eddbeae1e13cc71ecee479936f6c769815ae185c"
+      "bytes": 4768191,
+      "sha256": "44aab0790a30e6dcd49aef77ed3a6b3312b5aaf8d25fc888852f6a03d2e27314"
     },
     "sony_a6400_21.arw|tiff": {
       "bytes": 145444806,
-      "sha256": "1a8aa58ad0378c6362fe4aecd31f49eb5257c803126ff88f3376bcaaade6e756"
+      "sha256": "bc112f8a68ddfa0f9034bf71995130193e1f5e6a70b36cbd51252b40f6c81e97"
     }
   }
 }
