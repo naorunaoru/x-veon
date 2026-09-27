@@ -1,0 +1,24 @@
+# One Rust workspace for every crate (desktop-app spec §4.4). wasm-pack builds each member from here;
+# the build output goes to /target/ and each crate's package to shared/crates/<crate>/pkg/.
+[workspace]
+resolver = "2"
+members = [
+  "shared/crates/rawloader-wasm",
+  "shared/crates/demosaic-wasm",
+  "shared/crates/encode",
+]
+# The vendored decoder is a path dependency of rawloader-wasm, not a member.
+exclude = ["shared/crates/vendor/rawloader"]
+
+# The encoder and the demosaic crate. Encoder note, moved from its Cargo.toml: opt-level 3, not "s":
+# AVIF (rav1e) encodes ~29% faster for ~42 KB more gzipped wasm, with byte-identical output
+# (measured 2026-09-25, 12 MP, wasm32 without SIMD).
+[profile.release]
+opt-level = 3
+lto = true
+
+# The decoder was built for size across its whole build (its dependencies included), which a
+# per-package override can't express. wasm-pack builds it with `--profile release-small`.
+[profile.release-small]
+inherits = "release"
+opt-level = "s"

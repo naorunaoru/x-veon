@@ -95,8 +95,8 @@ logs
 data/*
 
 web/node_modules
-web/**/target/
-web/**/pkg/
+/target/
+shared/crates/*/pkg/
 
 /checkpoint_registry.json
 /.ui_state.json

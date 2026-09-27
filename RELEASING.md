@@ -64,7 +64,7 @@ gh run list --workflow=deploy.yml --limit 5
 
 ## Bump the RAW decoder
 
-The decoder is the git submodule `web/wasm/vendor/rawloader` (the user's rawloader fork). To move it: push the new commit to the fork, then in this repo run `git -C web/wasm/vendor/rawloader fetch origin && git -C web/wasm/vendor/rawloader checkout <sha>`, rebuild with `npm run build:wasm:decoder`, test with a RAF and an ARW, and commit the updated gitlink on `develop`. The next beta tag picks it up; CI needs nothing else because checkouts use `submodules: true`.
+The decoder is the git submodule `shared/crates/vendor/rawloader` (the user's rawloader fork). To move it: push the new commit to the fork, then in this repo run `git -C shared/crates/vendor/rawloader fetch origin && git -C shared/crates/vendor/rawloader checkout <sha>`, rebuild with `npm run build:wasm:decoder`, test with a RAF and an ARW, and commit the updated gitlink on `develop`. The next beta tag picks it up; CI needs nothing else because checkouts use `submodules: true`.
 
 ## Local builds
 

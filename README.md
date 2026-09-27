@@ -54,7 +54,7 @@ What it can't do yet:
 
 ### Development
 
-The RAW decoder is a git submodule (`web/wasm/vendor/rawloader`, a pinned fork of rawloader). Clone with `git clone --recurse-submodules`, or run `git submodule update --init` in an existing checkout. Then:
+The RAW decoder is a git submodule (`shared/crates/vendor/rawloader`, a pinned fork of rawloader). Clone with `git clone --recurse-submodules`, or run `git submodule update --init` in an existing checkout. Then:
 
 ```
 cd web
@@ -83,7 +83,7 @@ See [LICENSE](LICENSE) for details and [LICENSES/](LICENSES/) for full license t
 
 ## Acknowledgments
 
-RAW decoding uses a fork of [rawloader](https://github.com/pedrocr/rawloader) (LGPL-2.1), included as the `web/wasm/vendor/rawloader` submodule.
+RAW decoding uses a fork of [rawloader](https://github.com/pedrocr/rawloader) (LGPL-2.1), included as the `shared/crates/vendor/rawloader` submodule.
 
 Parts of the code were adapted from various open-source projects:
 - darktable (segmentation-based highlight reconstruction, reference image pipeline)
