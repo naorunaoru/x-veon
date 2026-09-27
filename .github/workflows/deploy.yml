@@ -28,7 +28,9 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  # A dry run gets a group of its own: GitHub keeps one pending run per group and cancels the older one,
+  # so sharing 'pages' would let a dry run cancel a real deploy that is waiting.
+  group: ${{ inputs.dry_run == true && format('pages-dry-run-{0}', github.run_id) || 'pages' }}
   cancel-in-progress: false
 
 jobs:
