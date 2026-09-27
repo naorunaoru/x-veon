@@ -3,6 +3,7 @@ name: Promote a ref to stable
 # Builds `ref` as the stable channel, tags it stable/<date>, publishes a GitHub
 # Release with the site bundle (which becomes "Latest"), then redeploys both channels.
 # Convention: merge develop into main first, then promote main. See RELEASING.md.
+# The checkout may use either repository layout (see deploy.yml). dry_run builds and checks the bundle only.
 
 on:
   workflow_dispatch:
@@ -15,6 +16,10 @@ on:
         description: Extra release notes (optional)
         required: false
         default: ''
+      dry_run:
+        description: Build and check the stable bundle, but don't tag, release or deploy
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -44,18 +49,20 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: '**/package-lock.json'
 
       - name: Build stable
-        working-directory: web
         env:
           XV_CHANNEL: stable
         run: |
           set -euo pipefail
-          npm ci
-          npm test
-          npm run build
-          npx tsc --noEmit
+          if [[ -f scripts/build-web.sh ]]; then
+            bash scripts/build-web.sh stable
+          else
+            # Older web/-only layout: the steps scripts/build-web.sh replaced.
+            (cd web && npm ci && npm test && npm run build && npx tsc --noEmit)
+          fi
+          cd web
           test -f dist/index.html
           grep -q '/x-veon/assets/' dist/index.html
           test -f dist/checkpoints/models.json
@@ -67,6 +74,7 @@ jobs:
 
       - name: Tag
         id: tag
+        if: ${{ !inputs.dry_run }}
         run: |
           set -euo pipefail
           date="$(date -u +%F)"
@@ -76,7 +84,9 @@ jobs:
           done
           tag="stable/$label"
           sha="$(git rev-parse HEAD)"
-          decoder="$(git -C web/wasm/vendor/rawloader rev-parse HEAD)"
+          decoder_dir=web/wasm/vendor/rawloader
+          if [[ -d shared/crates/vendor/rawloader ]]; then decoder_dir=shared/crates/vendor/rawloader; fi
+          decoder="$(git -C "$decoder_dir" rev-parse HEAD)"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "$tag" -m "stable release $label" -m "source: $sha" -m "decoder: $decoder" HEAD
@@ -86,6 +96,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Release
+        if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.tag.outputs.tag }}
@@ -107,4 +118,5 @@ jobs:
 
   deploy:
     needs: release
+    if: ${{ !inputs.dry_run }}
     uses: ./.github/workflows/deploy.yml

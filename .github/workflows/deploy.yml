@@ -4,11 +4,22 @@ name: Deploy channels to GitHub Pages
 #   stable  /x-veon/       = the GitHub Release marked "Latest" (asset site-stable.zip), never rebuilt here
 #   beta    /x-veon/beta/  = the newest annotated beta/* tag, built from source
 # Nothing deploys on a branch push. See RELEASING.md.
+# The beta source may use either repository layout: shared/ + web/ with scripts/build-web.sh, or the
+# older web/-only one. main's copy of this file builds both, so it must stay identical to develop's.
 
 on:
   push:
     tags: ['beta/**']
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build and check the site, but don't upload or deploy it
+        type: boolean
+        default: false
+      beta_ref:
+        description: Dry runs only - build beta from this branch, tag or commit instead of the newest beta tag
+        type: string
+        default: ''
   workflow_call:
 
 permissions:
@@ -17,7 +28,9 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  # A dry run gets a group of its own: GitHub keeps one pending run per group and cancels the older one,
+  # so sharing 'pages' would let a dry run cancel a real deploy that is waiting.
+  group: ${{ inputs.dry_run == true && format('pages-dry-run-{0}', github.run_id) || 'pages' }}
   cancel-in-progress: false
 
 jobs:
@@ -53,8 +66,20 @@ jobs:
 
       - name: Resolve beta (newest annotated beta/* tag)
         id: beta
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+          BETA_REF: ${{ inputs.beta_ref }}
         run: |
           set -euo pipefail
+          if [[ -n "${BETA_REF:-}" ]]; then
+            if [[ "${DRY_RUN:-}" != "true" ]]; then
+              echo "::error::beta_ref is only for dry runs (set dry_run)"
+              exit 1
+            fi
+            echo "tag=${BETA_REF}" >> "$GITHUB_OUTPUT"
+            echo "beta = ${BETA_REF} (dry run)"
+            exit 0
+          fi
           # actions/checkout fetches the triggering tag as a lightweight ref pointing at the
           # commit, which discards the annotated tag object; re-fetch tags with --force so the
           # annotated check and the tagger-date ordering below see the real tag objects.
@@ -94,21 +119,23 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: beta-src/web/package-lock.json
+          cache-dependency-path: 'beta-src/**/package-lock.json'
 
       - name: Build beta
         if: steps.beta.outputs.tag != ''
-        working-directory: beta-src/web
+        working-directory: beta-src
         env:
           XV_CHANNEL: beta
         run: |
           set -euo pipefail
-          npm ci
-          npm test
-          npm run build
-          npx tsc --noEmit
-          rm -rf ../../site/beta
-          mv dist ../../site/beta
+          if [[ -f scripts/build-web.sh ]]; then
+            bash scripts/build-web.sh beta
+          else
+            # Older web/-only layout: the steps scripts/build-web.sh replaced.
+            (cd web && npm ci && npm test && npm run build && npx tsc --noEmit)
+          fi
+          rm -rf ../site/beta
+          mv web/dist ../site/beta
 
       - name: Sanity-check the assembled site
         env:
@@ -126,11 +153,13 @@ jobs:
           du -sh site site/beta 2>/dev/null || true
 
       - uses: actions/upload-pages-artifact@v3
+        if: ${{ inputs.dry_run != true }}
         with:
           path: site
 
   deploy:
     needs: assemble
+    if: ${{ inputs.dry_run != true }}
     runs-on: ubuntu-latest
     environment:
       name: github-pages
