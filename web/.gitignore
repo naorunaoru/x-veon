@@ -1,2 +1,8 @@
 node_modules/
 dist/
+
+# What the old web/-only layout leaves here (README, "Moving an existing checkout").
+# Remove these lines once main has the new layout.
+/wasm/
+/.lensfun-db/
+/public/

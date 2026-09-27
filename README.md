@@ -70,6 +70,26 @@ Layout: `shared/` holds everything the app runs: `shared/src` (TypeScript), `sha
 
 Source layout (`shared/src`): `lib` (shared types and the method/format catalogue, no dependencies) ← `gpu` (the shared WebGPU device) ← `pipeline` (RAW → processed image, framework-free) and `renderer` (display, histogram, readback) ← `app` (the store as pure slices, persistence/library/processing/export/bootstrap services, hooks) ← `components` (React UI). Imports only go left; `shared/src/test/layers.test.ts` fails the suite on a violation and names the file and line.
 
+#### Moving an existing checkout
+
+A checkout from before the move to `shared/` + `web/` (September 2026) needs a one-time cleanup after it pulls the new layout. Commit or set aside work in progress first: edits to files under `web/src` follow them into `shared/src`, and a file you added there comes back as a file-location conflict with a suggested `shared/src/…` path. Then, from the repository root:
+
+<!-- existing-checkout:begin -->
+```bash
+git submodule update --init
+mkdir -p shared/public
+for d in samples lensfun; do
+  if [ -d "web/public/$d" ] && [ ! -e "shared/public/$d" ]; then mv "web/public/$d" shared/public/; fi
+done
+if [ -d web/.lensfun-db ] && [ ! -e shared/.lensfun-db ]; then mv web/.lensfun-db shared/; fi
+rm -rf web/wasm web/node_modules web/dist web/.lensfun-db
+find web/public -depth -type d -empty -delete 2>/dev/null || true
+npm run setup
+```
+<!-- existing-checkout:end -->
+
+This keeps your samples and lens data and removes the old layout's build output and its copy of the decoder submodule, which now lives at `shared/crates/vendor/rawloader`. Untracked files of your own under `web/src` stay where they were; move them into `shared/src`. Checking out a commit from before the move again, such as `main` until its next promotion, leaves `shared/`, `node_modules/` and `target/` untracked: delete them there, or switch back.
+
 ## License
 
 This project uses a multi-license structure:
