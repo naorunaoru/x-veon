@@ -73,6 +73,8 @@ contract in `golden.ts` exactly:
 ## Recording a new baseline
 
 Only when the pipeline's output is meant to change. Delete `baseline.json`, run the full route
-twice, and accept only if every hash agrees between the two runs (status `RECORDED` both times,
-identical `report.entries` and `report.exports`). Write those two maps into `baseline.json`
-together with `adapter`, `commit` and `recordedAt` from the report, and note the reason here.
+twice, and accept only if every hash agrees between the two runs: status `RECORDED` both times,
+every entry `stable`, and identical hash fields, `scene`, `display` and `displayDark` for each entry
+and `bytes` and `sha256` for each export. Entries also carry `elapsedMs` and `runs`, which vary
+between runs and don't belong in the baseline. Write those hash fields into `baseline.json` together
+with `adapter`, `commit` and `recordedAt` from the report, and note the reason here.
