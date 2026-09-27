@@ -94,9 +94,8 @@ Thumbs.db
 logs
 data/*
 
-web/node_modules
+node_modules/
 /target/
-shared/crates/*/pkg/
 
 /checkpoint_registry.json
 /.ui_state.json

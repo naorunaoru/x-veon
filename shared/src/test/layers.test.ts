@@ -191,7 +191,7 @@ describe('layer dependency rule', () => {
         "import shader from '@/renderer/shaders/opendrt.wgsl?raw';",
         "import data from '../test/golden/baseline.json';",
       ].join('\n')),
-      fixture('pipeline/decode/fixture.ts', "export const load = () => import('../../../wasm/rawloader/pkg/rawloader_wasm.js');"),
+      fixture('pipeline/decode/fixture.ts', "export const load = () => import('../../../crates/rawloader-wasm/pkg/rawloader_wasm.js');"),
     ])).toEqual([]);
   });
 

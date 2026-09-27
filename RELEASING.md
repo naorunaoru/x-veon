@@ -64,15 +64,14 @@ gh run list --workflow=deploy.yml --limit 5
 
 ## Bump the RAW decoder
 
-The decoder is the git submodule `shared/crates/vendor/rawloader` (the user's rawloader fork). To move it: push the new commit to the fork, then in this repo run `git -C shared/crates/vendor/rawloader fetch origin && git -C shared/crates/vendor/rawloader checkout <sha>`, rebuild with `npm run build:wasm:decoder`, test with a RAF and an ARW, and commit the updated gitlink on `develop`. The next beta tag picks it up; CI needs nothing else because checkouts use `submodules: true`.
+The decoder is the git submodule `shared/crates/vendor/rawloader` (the user's rawloader fork). To move it: push the new commit to the fork, then in this repo run `git -C shared/crates/vendor/rawloader fetch origin && git -C shared/crates/vendor/rawloader checkout <sha>`, rebuild with `npm run build:wasm:decoder --workspace shared`, test with a RAF and an ARW, and commit the updated gitlink on `develop`. The next beta tag picks it up; CI needs nothing else because checkouts use `submodules: true`.
 
 ## Local builds
 
-`vite build` and `vite preview` need `XV_CHANNEL` (`stable`, `beta` or `dev`); the dev server defaults to `dev`.
+`npm run build` and `npm run preview` need `XV_CHANNEL` (`stable`, `beta` or `dev`); the dev server defaults to `dev`. Run them from the repository root.
 
-`npm run dev` and `vite preview` both serve without cross-origin isolation, like GitHub Pages (which sends no COOP/COEP headers).
+`npm run dev` and `npm run preview` both serve without cross-origin isolation, like GitHub Pages (which sends no COOP/COEP headers).
 
 ```bash
-cd web
-XV_CHANNEL=beta npm run build && XV_CHANNEL=beta npx vite preview   # http://localhost:4173/x-veon/beta/
+XV_CHANNEL=beta npm run build && XV_CHANNEL=beta npm run preview   # http://localhost:4173/x-veon/beta/
 ```

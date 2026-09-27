@@ -324,7 +324,7 @@ export async function runGolden(): Promise<void> {
     if (!manifestResponse.ok) {
       throw new Error(
         `samples/manifest.json: HTTP ${manifestResponse.status} `
-        + '(copy the sample RAWs into web/public/samples and write the manifest)',
+        + '(copy the sample RAWs into shared/public/samples and write the manifest)',
       );
     }
     const manifest = await manifestResponse.json() as Manifest;

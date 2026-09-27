@@ -1,10 +1,10 @@
 // Inputs for check_shader.py. Use production preset, validation and uniform packing.
-import { configFromPreset, configWithOverrides, computeTonescaleParams, LOOK_PRESETS } from '../../web/src/renderer/grading/opendrt-params';
-import { applyOpenDrtUniforms, setMat3, UNIFORM_FLOATS } from '../../web/src/renderer/uniforms';
-import { SRGB_TO_P3D65 } from '../../web/src/renderer/color-matrices';
-import { EXPERT_GROUPS } from '../../web/src/components/hud/panels/rendering/constants';
-import type { LookPreset } from '../../web/src/lib/types';
-import type { OpenDrtConfig } from '../../web/src/renderer/grading/opendrt-params';
+import { configFromPreset, configWithOverrides, computeTonescaleParams, LOOK_PRESETS } from '../../shared/src/renderer/grading/opendrt-params';
+import { applyOpenDrtUniforms, setMat3, UNIFORM_FLOATS } from '../../shared/src/renderer/uniforms';
+import { SRGB_TO_P3D65 } from '../../shared/src/renderer/color-matrices';
+import { EXPERT_GROUPS } from '../../shared/src/components/hud/panels/rendering/constants';
+import type { LookPreset } from '../../shared/src/lib/types';
+import type { OpenDrtConfig } from '../../shared/src/renderer/grading/opendrt-params';
 
 const cases: object[] = [];
 function add(name: string, overrides: Partial<OpenDrtConfig> = {}, preset: LookPreset = 'default', gamut: 'rec709' | 'p3' | 'rec2020' = 'rec709', compare = false) {

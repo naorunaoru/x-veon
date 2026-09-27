@@ -6,7 +6,7 @@
  * nothing on wasm32) and leave its stack and heap corrupted, so the owner replaces this worker
  * after any failed decode instead of reusing the instance.
  */
-import init, { decode_image } from '../../../../shared/crates/rawloader-wasm/pkg/rawloader_wasm.js';
+import init, { decode_image } from '../../../crates/rawloader-wasm/pkg/rawloader_wasm.js';
 import { prepareCfa } from '../preprocess/preprocessor';
 import type { PreparedCfa, RawImage } from '../types';
 

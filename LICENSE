@@ -24,7 +24,7 @@ See the LICENSES/ directory for full license texts.
 2. Trained Model Weights (CC-BY-4.0)
    SPDX-License-Identifier: CC-BY-4.0
 
-   All trained model weights and ONNX checkpoint files (web/public/checkpoints/)
+   All trained model weights and ONNX checkpoint files (shared/public/checkpoints/)
    are licensed under the Creative Commons Attribution 4.0 International License.
 
    Copyright (c) 2024-present X-Veon contributors

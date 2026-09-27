@@ -49,9 +49,9 @@ recorded export hashes (already stale above) will not match either. Re-record to
 ## Running
 
 ```bash
-cd web
-XV_GOLDEN=1 XV_CHANNEL=dev npx vite build
-XV_CHANNEL=dev npx vite preview --port 4190
+npm run build:wasm
+XV_GOLDEN=1 XV_CHANNEL=dev npm run build --workspace web
+XV_CHANNEL=dev npm run preview --workspace web -- --port 4190
 ```
 
 Then open `http://localhost:4190/?golden` (quick: neural S plus one traditional method per
@@ -60,7 +60,7 @@ once, plus Ultra HDR JPEG, AVIF and TIFF exports of the neural S result). The pa
 in the overall status; the report is printed at the bottom of the page and stored in
 `window.__golden` as `{ status, results, report, expected }`.
 
-Samples live in the gitignored `public/samples/` with a `manifest.json` that must match the
+Samples live in the gitignored `shared/public/samples/` with a `manifest.json` that must match the
 contract in `golden.ts` exactly:
 
 ```json

@@ -58,13 +58,13 @@ def run():
     with tempfile.TemporaryDirectory(prefix='opendrt-test-') as directory:
         tmp = pathlib.Path(directory)
         bundle = tmp / 'cases.mjs'
-        subprocess.run([str(ROOT / 'web/node_modules/.bin/esbuild'), str(HERE / 'shader_cases.ts'), '--bundle', '--platform=node', '--format=esm', f'--outfile={bundle}'], check=True)
+        subprocess.run([str(ROOT / 'node_modules/.bin/esbuild'), str(HERE / 'shader_cases.ts'), '--bundle', '--platform=node', '--format=esm', f'--outfile={bundle}'], check=True)
         cases = json.loads(subprocess.check_output(['node', str(bundle)]))
         cpu = reference(tmp)
         adapter = wgpu.gpu.request_adapter_sync()
         print('GPU:', dict(adapter.info))
         device = adapter.request_device_sync()
-        source = (ROOT / 'web/src/renderer/shaders/opendrt.wgsl').read_text() + '''
+        source = (ROOT / 'shared/src/renderer/shaders/opendrt.wgsl').read_text() + '''
 @group(0) @binding(3) var<storage,read> test_in: array<vec4f>;
 @group(0) @binding(4) var<storage,read_write> test_out: array<vec4f>;
 @compute @workgroup_size(64) fn test_main(@builtin(global_invocation_id) id: vec3u) {

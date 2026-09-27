@@ -1,0 +1,19 @@
+{
+  "name": "x-veon",
+  "private": true,
+  "workspaces": [
+    "shared",
+    "web"
+  ],
+  "scripts": {
+    "setup": "rustup target add wasm32-unknown-unknown && npm install && npm run build:wasm",
+    "build:wasm": "npm run build:wasm --workspace shared",
+    "build:lensfun": "npm run build:lensfun --workspace shared",
+    "dev": "npm run build:wasm && npm run dev --workspace web",
+    "build": "npm run build:wasm && npm run build:lensfun && npm run build --workspace web",
+    "preview": "npm run preview --workspace web",
+    "test": "npm test --workspace shared",
+    "typecheck": "npm run typecheck --workspace shared --workspace web",
+    "test:opendrt": "python3 tests/opendrt/check_shader.py"
+  }
+}

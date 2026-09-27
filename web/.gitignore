@@ -1,6 +1,2 @@
 node_modules/
 dist/
-
-.lensfun-db
-public/lensfun
-public/samples

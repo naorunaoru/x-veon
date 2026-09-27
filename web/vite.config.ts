@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import wasm from 'vite-plugin-wasm';
 import path from 'path';
 import { execSync } from 'node:child_process';
-import { basePath, isChannel, CHANNELS, type Channel } from './src/lib/channel';
+import { basePath, isChannel, CHANNELS, type Channel } from '../shared/src/lib/channel';
 
 /**
  * XV_CHANNEL decides the base path, the storage namespace and the build stamp.
@@ -39,6 +39,8 @@ export default defineConfig(({ command, isPreview }) => {
   const build = { channel, sha: buildSha(), date: new Date().toISOString().slice(0, 10) };
   return {
     base: basePath(channel),
+    // The app's code, models, lens data and samples live in ../shared (desktop-app spec §4.4).
+    publicDir: path.resolve(__dirname, '../shared/public'),
     define: {
       __XV_BUILD__: JSON.stringify(build),
       __XV_GOLDEN__: JSON.stringify(command === 'serve' || process.env.XV_GOLDEN === '1'),
@@ -46,7 +48,7 @@ export default defineConfig(({ command, isPreview }) => {
     plugins: [react(), wasm()],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, './src'),
+        '@': path.resolve(__dirname, '../shared/src'),
       },
     },
     optimizeDeps: {

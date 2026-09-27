@@ -1,0 +1,5 @@
+node_modules/
+crates/*/pkg/
+.lensfun-db
+public/lensfun
+public/samples

@@ -168,7 +168,7 @@ def main():
     parser.add_argument("--variant", default=None, help="Filter by variant")
     parser.add_argument("--status", default=None, choices=["stable", "beta"], help="Filter by status (default: prefer stable)")
     parser.add_argument("--slot", default="best", choices=["best", "latest"], help="Which checkpoint slot to export")
-    parser.add_argument("--output-dir", default="web/public/checkpoints", help="Output directory for batch export")
+    parser.add_argument("--output-dir", default="shared/public/checkpoints", help="Output directory for batch export")
 
     # Single-checkpoint override (legacy)
     parser.add_argument("--checkpoint", default=None, help="Export a single checkpoint (skips registry)")

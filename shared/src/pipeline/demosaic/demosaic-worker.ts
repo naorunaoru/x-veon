@@ -1,4 +1,4 @@
-import init, { demosaic_image, demosaic_bayer } from '../../../../shared/crates/demosaic-wasm/pkg/demosaic_wasm.js';
+import init, { demosaic_image, demosaic_bayer } from '../../../crates/demosaic-wasm/pkg/demosaic_wasm.js';
 
 let ready = false;
 

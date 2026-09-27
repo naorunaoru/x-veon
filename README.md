@@ -12,7 +12,7 @@ The encoder has 4 downsampling stages (strided convolutions; channel widths `bas
 
 A key design choice is the residual CFA skip: each photosite's value is placed in its own colour channel as a baseline (`cfa × masks`), and the network learns the missing colours on top of it. This keeps the model largely exposure-agnostic.
 
-The same architecture serves both 6×6 X-Trans and 2×2 Bayer patterns, with a separate model per sensor type. The models shipped in `web/public/checkpoints/` were exported before the current architecture (max-pool/transposed-convolution, no normalisation), so the current `model.py` cannot load them; retrain to reproduce them.
+The same architecture serves both 6×6 X-Trans and 2×2 Bayer patterns, with a separate model per sensor type. The models shipped in `shared/public/checkpoints/` were exported before the current architecture (max-pool/transposed-convolution, no normalisation), so the current `model.py` cannot load them; retrain to reproduce them.
 
 ## Dataset
 
@@ -54,10 +54,9 @@ What it can't do yet:
 
 ### Development
 
-The RAW decoder is a git submodule (`shared/crates/vendor/rawloader`, a pinned fork of rawloader). Clone with `git clone --recurse-submodules`, or run `git submodule update --init` in an existing checkout. Then:
+The RAW decoder is a git submodule (`shared/crates/vendor/rawloader`, a pinned fork of rawloader). Clone with `git clone --recurse-submodules`, or run `git submodule update --init` in an existing checkout. Then, from the repository root:
 
 ```
-cd web
 npm run setup          # rust wasm target, npm install, wasm builds
 npm run build:lensfun  # lens-correction data (gitignored, needed once)
 npm run dev
@@ -65,9 +64,11 @@ npm run dev
 
 `npm run dev` serves without cross-origin isolation, like GitHub Pages.
 
-`npm run build` and `npx vite preview` need `XV_CHANNEL` (`stable`, `beta` or `dev`); see `RELEASING.md`.
+`npm run build` and `npm run preview` need `XV_CHANNEL` (`stable`, `beta` or `dev`); see `RELEASING.md`.
 
-Source layout (`web/src`): `lib` (shared types and the method/format catalogue, no dependencies) ← `gpu` (the shared WebGPU device) ← `pipeline` (RAW → processed image, framework-free) and `renderer` (display, histogram, readback) ← `app` (the store as pure slices, persistence/library/processing/export/bootstrap services, hooks) ← `components` (React UI). Imports only go left; `src/test/layers.test.ts` fails the suite on a violation and names the file and line.
+Layout: `shared/` holds everything the app runs: `shared/src` (TypeScript), `shared/crates` (Rust, built to WASM) and `shared/public` (models, lens data, samples). `web/` is the web host: its entry file, `index.html` and the Vite config for GitHub Pages. The npm and Cargo workspaces are declared at the root.
+
+Source layout (`shared/src`): `lib` (shared types and the method/format catalogue, no dependencies) ← `gpu` (the shared WebGPU device) ← `pipeline` (RAW → processed image, framework-free) and `renderer` (display, histogram, readback) ← `app` (the store as pure slices, persistence/library/processing/export/bootstrap services, hooks) ← `components` (React UI). Imports only go left; `shared/src/test/layers.test.ts` fails the suite on a violation and names the file and line.
 
 ## License
 
@@ -76,7 +77,7 @@ This project uses a multi-license structure:
 | Component | License | SPDX Identifier |
 |---|---|---|
 | Neural network code (model, training, losses, dataset) | MIT | `MIT` |
-| Trained model weights and ONNX checkpoints (`web/public/checkpoints/`) | Creative Commons Attribution 4.0 | `CC-BY-4.0` |
+| Trained model weights and ONNX checkpoints (`shared/public/checkpoints/`) | Creative Commons Attribution 4.0 | `CC-BY-4.0` |
 | Processing pipeline, web app, and everything else | GNU GPL v3 or later | `GPL-3.0-or-later` |
 
 See [LICENSE](LICENSE) for details and [LICENSES/](LICENSES/) for full license texts.
