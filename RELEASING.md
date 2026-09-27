@@ -54,6 +54,17 @@ gh release edit stable/<old> --latest
 gh workflow run deploy.yml --ref main
 ```
 
+## Dry runs
+
+Both workflows can run without publishing anything, to check a workflow or layout change on a branch before it ships:
+
+```bash
+gh workflow run deploy.yml --ref <branch> -f dry_run=true -f beta_ref=<branch>   # builds beta from <branch>; no upload, no deploy
+gh workflow run promote.yml --ref <branch> -f ref=<branch> -f dry_run=true       # builds stable from <branch>; no tag, release or deploy
+```
+
+The build steps call `scripts/build-web.sh <channel>` when the checkout has it, and fall back to the older `web/`-only steps otherwise, so `main`'s copy of these files builds either layout.
+
 ## What is live right now
 
 ```bash
