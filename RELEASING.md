@@ -75,3 +75,5 @@ The decoder is the git submodule `shared/crates/vendor/rawloader` (the user's ra
 ```bash
 XV_CHANNEL=beta npm run build && XV_CHANNEL=beta npm run preview   # http://localhost:4173/x-veon/beta/
 ```
+
+`scripts/build-web.sh <stable|beta|dev>` is the exact recipe CI runs: a clean install of the `shared` and `web` workspaces, the tests, the wasm builds, the lens data, the site build and the typecheck, then the output checks. It leaves the site in `web/dist`.

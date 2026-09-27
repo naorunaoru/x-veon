@@ -64,7 +64,7 @@ npm run dev
 
 `npm run dev` serves without cross-origin isolation, like GitHub Pages.
 
-`npm run build` and `npm run preview` need `XV_CHANNEL` (`stable`, `beta` or `dev`); see `RELEASING.md`.
+`npm run build` and `npm run preview` need `XV_CHANNEL` (`stable`, `beta` or `dev`); see `RELEASING.md`. CI builds the site with `scripts/build-web.sh <channel>`, which you can run too.
 
 Layout: `shared/` holds everything the app runs: `shared/src` (TypeScript), `shared/crates` (Rust, built to WASM) and `shared/public` (models, lens data, samples). `web/` is the web host: its entry file, `index.html` and the Vite config for GitHub Pages. The npm and Cargo workspaces are declared at the root.
 
