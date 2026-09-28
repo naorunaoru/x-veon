@@ -42,3 +42,16 @@ it('retries an open after failure and closes on versionchange', async () => {
   });
   await expect(openDatabase('retry-test')).rejects.toBeDefined();
 });
+
+it('never recreates cleared settings from a tab invalidated by another connection', async () => {
+  const name = 'cleared-elsewhere';
+  setHost({ ...fakeHost(), settingsDbName: name });
+  await putSetting('modelSize', 'S');
+  await new Promise<void>((resolve, reject) => {
+    const request = indexedDB.deleteDatabase(name);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+  await expect(putSetting('modelSize', 'M')).rejects.toThrow('Reload');
+  expect((await indexedDB.databases()).some((db) => db.name === name)).toBe(false);
+});

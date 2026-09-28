@@ -12,7 +12,7 @@ import './AdjustmentsPanel.css';
 const ADJUSTMENT_GROUPS = ['exposure', 'advanced', 'whiteBalance', 'detail'] as const;
 const isAdjustment = (id: PanelId | null) => ADJUSTMENT_GROUPS.some((group) => group === id);
 
-export function PanelHost() {
+export function PanelHost({ settingsOnly = false }: { settingsOnly?: boolean }) {
   const viewOnly = useAppStore(s => s.files.find(f => f.id === s.selectedFileId)?.editing === 'view-only');
   const openPanel = useAppStore((s) => s.openPanel);
   const revision = useAppStore((s) => s.panelNavigationRevision);
@@ -21,7 +21,7 @@ export function PanelHost() {
   const body = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const lastNavigation = useRef<{ revision: number; adjusting: boolean } | null>(null);
-  const adjusting = isAdjustment(openPanel);
+  const adjusting = !settingsOnly && isAdjustment(openPanel);
 
   function updateSurface() {
     if (!body.current || !content.current || !panel.current) return;

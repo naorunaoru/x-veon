@@ -1,6 +1,25 @@
 /** Version 1 is shared by the web library and app settings. Connections are owned here. */
 const connections = new Map<string, Promise<IDBDatabase>>();
+const invalidated = new Set<string>();
+interface DatabaseLifecycle {
+  suspend(): void | Promise<void>;
+  closed(): void;
+}
+const lifecycles = new Map<string, Set<DatabaseLifecycle>>();
+export function onDatabaseVersionChange(name: string, lifecycle: DatabaseLifecycle): void {
+  const listeners = lifecycles.get(name) ?? new Set<DatabaseLifecycle>();
+  listeners.add(lifecycle);
+  lifecycles.set(name, listeners);
+}
+export function assertDatabaseActive(name: string): void {
+  if (invalidated.has(name)) throw new Error('This library changed in another tab. Reload to continue.');
+}
 export function openDatabase(name: string): Promise<IDBDatabase> {
+  try {
+    assertDatabaseActive(name);
+  } catch (error) {
+    return Promise.reject(error);
+  }
   const existing = connections.get(name);
   if (existing) return existing;
   const opening = new Promise<IDBDatabase>((resolve, reject) => {
@@ -13,8 +32,23 @@ export function openDatabase(name: string): Promise<IDBDatabase> {
     request.onsuccess = () => {
       const db = request.result;
       db.onversionchange = () => {
-        db.close();
+        // A stale tab must never reopen and repopulate a deleted database.
+        invalidated.add(name);
         connections.delete(name);
+        const listeners = [...(lifecycles.get(name) ?? [])];
+        lifecycles.delete(name);
+        // Suspend synchronously, then drain host operations before releasing deletion.
+        const draining = listeners.map((listener) => {
+          try {
+            return Promise.resolve(listener.suspend());
+          } catch (error) {
+            return Promise.reject(error);
+          }
+        });
+        void Promise.allSettled(draining).then(() => {
+          db.close();
+          for (const listener of listeners) listener.closed();
+        });
       };
       resolve(db);
     };
@@ -39,6 +73,7 @@ export async function transact<T>(
   operation: (store: IDBObjectStore) => IDBRequest<T>,
 ): Promise<T> {
   const db = await openDatabase(name);
+  assertDatabaseActive(name);
   return new Promise<T>((resolve, reject) => {
     const tx = db.transaction(store, mode);
     let value: T;

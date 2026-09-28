@@ -36,9 +36,22 @@ export function editPhoto(file: QueuedFile, patch: Partial<PhotoEdit>): QueuedFi
   const edit = { ...file.edit, ...patch };
   if (edit.demosaicMethod && edit.demosaicMethod !== 'neural-net') edit.model = null;
   else if (!('model' in patch) && file.actualModel) edit.model = file.actualModel;
+  const adoptsCurrentResult =
+    !('model' in patch) &&
+    file.actualModel &&
+    file.status === 'done' &&
+    file.resultMethod === 'neural-net' &&
+    file.edit.demosaicMethod === 'neural-net' &&
+    edit.demosaicMethod === 'neural-net' &&
+    file.processedKey ===
+      processingKey(file, { demosaicMethod: 'neural-net', modelSize: file.actualModel.size });
   return {
     ...file,
     edit,
+    // Adopting the checkpoint already rendered changes provenance, not image pixels.
+    processedKey: adoptsCurrentResult
+      ? processingKey({ ...file, edit }, { demosaicMethod: 'neural-net', modelSize: file.actualModel!.size })
+      : file.processedKey,
     modelNeedsResolution:
       (!edit.demosaicMethod || edit.demosaicMethod === 'neural-net') &&
       !file.actualModel &&

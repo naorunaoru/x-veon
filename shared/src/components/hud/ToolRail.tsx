@@ -16,7 +16,7 @@ const RAIL: RailItem[] = [
   { id: 'settings', label: 'Settings', Icon: Settings },
 ];
 
-export function ToolRail() {
+export function ToolRail({ settingsOnly = false }: { settingsOnly?: boolean }) {
   const openPanel = useAppStore((s) => s.openPanel);
   const setOpenPanel = useAppStore((s) => s.setOpenPanel);
   const file = useAppStore((s) => s.files.find((f) => f.id === s.selectedFileId));
@@ -28,7 +28,7 @@ export function ToolRail() {
 
   return (
     <div className="xv-toolrail xv-glass">
-      {RAIL.map(({ id, label, Icon }) => {
+      {RAIL.filter(item => !settingsOnly || item.id === 'settings').map(({ id, label, Icon }) => {
         const active = openPanel === id;
         const modified = isSectionModified(id, drt, pre, base);
         return (

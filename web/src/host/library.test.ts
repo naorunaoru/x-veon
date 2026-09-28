@@ -14,7 +14,7 @@ vi.mock('@/pipeline/decode/raf-thumbnail', () => ({
   extractRafQuickMetadata: () => ({ camera: 'Fuji', lensModel: 'XF35', focalLength: 35, fNumber: 2 }),
 }));
 import { createWebLibrary } from './library';
-import { closeDatabase, openDatabase } from '@/app/storage/database';
+import { assertDatabaseActive, closeDatabase, openDatabase } from '@/app/storage/database';
 import { createFileStorage, type PersistedFile } from './idb-storage';
 import { defaultEdit } from '@/test/fake-host';
 let serial = 0;
@@ -202,4 +202,46 @@ it('does not revoke the current host-owned thumbnail when a cancelled startup re
   expect(URL.revokeObjectURL).not.toHaveBeenCalledWith(snapshot.photos[0].thumbnailUrl);
   await host.remove!(photos[0].id);
   expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:thumb');
+});
+
+it('suspends imports and saves when another tab clears the database, then reloads', async () => {
+  const dbName = `invalidated-${++serial}`;
+  const reload = vi.fn();
+  const host = createWebLibrary({ dbName, opfsRoot: 'beta', reload });
+  await host.load();
+  const bytes = deferred<ArrayBuffer>();
+  const file = raw();
+  Object.defineProperty(file, 'arrayBuffer', { value: () => bytes.promise });
+  const { photos } = await host.addFiles([file]);
+  const cleared = new Promise<void>((resolve, reject) => {
+    const request = indexedDB.deleteDatabase(dbName);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+  // Versionchange is delivered before the pending import can finish.
+  await vi.waitFor(() => expect(() => assertDatabaseActive(dbName)).toThrow('Reload'));
+  bytes.resolve(new ArrayBuffer(4));
+  await cleared;
+  await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce());
+  await expect(host.addFiles([raw('late.raf')])).rejects.toThrow('Reload');
+  await expect(host.save(photos[0].id, photos[0].edit, photos[0].facts)).rejects.toThrow('Reload');
+  expect(storage.writeRaw).not.toHaveBeenCalled();
+  expect((await indexedDB.databases()).some((db) => db.name === dbName)).toBe(false);
+});
+it('reports an OPFS failure after database deletion and retries without restoring stale records', async () => {
+  const dbName = `partial-clear-${++serial}`;
+  const reload = vi.fn();
+  const host = createWebLibrary({ dbName, opfsRoot: 'beta', reload });
+  const snapshot = await host.addFiles([raw()]);
+  await vi.waitFor(async () => expect(await createFileStorage(dbName).getAllFiles()).toHaveLength(1));
+  storage.clear.mockRejectedValueOnce(new Error('OPFS denied')).mockResolvedValueOnce(undefined);
+  await expect(host.clear!()).rejects.toThrow('OPFS denied');
+  expect(reload).not.toHaveBeenCalled();
+  expect((await indexedDB.databases()).some((db) => db.name === dbName)).toBe(false);
+  await expect(
+    host.save(snapshot.photos[0].id, snapshot.photos[0].edit, snapshot.photos[0].facts),
+  ).rejects.toThrow('no longer');
+  await host.clear!();
+  expect(reload).toHaveBeenCalledOnce();
+  expect((await indexedDB.databases()).some((db) => db.name === dbName)).toBe(false);
 });

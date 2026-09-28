@@ -10,7 +10,7 @@ import { RAW_EXTENSIONS } from '@/lib/catalog';
 import { extractRafThumbnail, extractRafQuickMetadata } from '@/pipeline/decode/raf-thumbnail';
 import { createFileStorage, fromRecord, toRecord, type PersistedFile } from './idb-storage';
 import { createOpfsStorage } from './opfs-storage';
-import { deleteDatabase } from '@/app/storage/database';
+import { deleteDatabase, assertDatabaseActive, onDatabaseVersionChange } from '@/app/storage/database';
 
 export function createWebLibrary(options: {
   dbName: string;
@@ -27,6 +27,14 @@ export function createWebLibrary(options: {
   const removed = new Set<string>();
   const listeners = new Set<(change: LibraryChange) => void>();
   let clearing = false;
+  let invalidated = false;
+  onDatabaseVersionChange(options.dbName, {
+    suspend: () => {
+      invalidated = true;
+      return Promise.allSettled([...operations]).then(() => {});
+    },
+    closed: () => options.reload?.(),
+  });
   const track = <T>(promise: Promise<T>): Promise<T> => {
     operations.add(promise);
     void promise.then(
@@ -44,6 +52,7 @@ export function createWebLibrary(options: {
       listener({ snapshot: { photos: [photo], complete: true }, kind: 'facts' });
   }
   async function load(): Promise<LibrarySnapshot> {
+    assertDatabaseActive(options.dbName);
     if (clearing) throw new Error('Library is being cleared.');
     let rows: PersistedFile[];
     try {
@@ -56,11 +65,12 @@ export function createWebLibrary(options: {
       if (removed.has(row.id) || files.has(row.id)) continue;
       persisted.set(row.id, row);
       const thumb = await opfs.readThumbnail(row.id).catch(() => null);
-      if (removed.has(row.id) || clearing) continue;
+      if (removed.has(row.id) || clearing || invalidated) continue;
       const existing = photos.get(row.id);
       if (existing) release([existing]);
       photos.set(row.id, fromRecord(row, thumb ? URL.createObjectURL(thumb) : null));
     }
+    assertDatabaseActive(options.dbName);
     // Include imports made while IDB or OPFS reads were pending.
     try {
       for (const id of await opfs.listRawFileIds()) {
@@ -72,7 +82,7 @@ export function createWebLibrary(options: {
     return { photos: [...photos.values()], complete: true };
   }
   async function importOne(photo: LibraryPhoto, file: File): Promise<void> {
-    const live = () => !removed.has(photo.id) && !clearing;
+    const live = () => !removed.has(photo.id) && !clearing && !invalidated;
     try {
       const bytes = await file.arrayBuffer();
       if (!live()) return;
@@ -100,6 +110,7 @@ export function createWebLibrary(options: {
       try {
         await records.putFile(record);
       } catch (error) {
+        if (!live()) return;
         const failed = {
           ...updated,
           editing: 'session' as const,
@@ -113,6 +124,7 @@ export function createWebLibrary(options: {
     }
   }
   async function addFiles(dropped: File[]): Promise<LibrarySnapshot> {
+    assertDatabaseActive(options.dbName);
     if (clearing) throw new Error('Library is being cleared.');
     const added: LibraryPhoto[] = [];
     for (const file of dropped) {
@@ -157,8 +169,10 @@ export function createWebLibrary(options: {
     };
   }
   async function save(id: string, edit: PhotoEdit, facts: PhotoFacts): Promise<void> {
+    assertDatabaseActive(options.dbName);
     if (clearing || removed.has(id)) throw new Error('Photo is no longer in the library.');
     await imports.get(id);
+    assertDatabaseActive(options.dbName);
     if (clearing || removed.has(id)) throw new Error('Photo is no longer in the library.');
     const photo = photos.get(id);
     if (!photo) throw new Error('Photo is no longer in the library.');
@@ -173,6 +187,7 @@ export function createWebLibrary(options: {
     photos.set(id, { ...photo, edit, facts });
   }
   async function remove(id: string): Promise<void> {
+    assertDatabaseActive(options.dbName);
     removed.add(id);
     const photo = photos.get(id);
     if (photo) release([photo]);
@@ -184,6 +199,7 @@ export function createWebLibrary(options: {
     await Promise.all([opfs.deleteAllForFile(id), records.deleteFile(id)]);
   }
   async function clear(): Promise<void> {
+    assertDatabaseActive(options.dbName);
     clearing = true;
     try {
       await Promise.allSettled([...operations]);
@@ -210,6 +226,7 @@ export function createWebLibrary(options: {
     load: () => track(load()),
     addFiles,
     readRaw: async (id) => {
+      assertDatabaseActive(options.dbName);
       const file = files.get(id);
       if (file) return file.arrayBuffer();
       const bytes = await opfs.readRaw(id);

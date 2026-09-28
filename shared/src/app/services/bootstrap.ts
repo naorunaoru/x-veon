@@ -17,7 +17,15 @@ export async function initApp(signal: { cancelled: boolean }): Promise<void> {
     setPipeline(ctx);
 
     // Merges with anything imported while startup ran, and restores settings even for an empty library.
-    store().restoreFromDb(restored.files, restored.settings);
+    const settings = { ...restored.settings };
+    // Older betas saved sizes they never restored. Ignore defaults no longer shipped.
+    if (
+      settings.modelSize &&
+      !ctx.models.availableSizes('xtrans').has(settings.modelSize) &&
+      !ctx.models.availableSizes('bayer').has(settings.modelSize)
+    )
+      delete settings.modelSize;
+    store().restoreFromDb(restored.files, settings);
 
     const backend = ctx.models.backend ?? 'unknown';
 
@@ -37,8 +45,6 @@ export async function initApp(signal: { cancelled: boolean }): Promise<void> {
 
     // Match lenses for restored files that have metadata but no profile yet
     for (const file of restored.files) matchLensFor(file.id);
-
-
   } catch (e) {
     if (!signal.cancelled) store().setInitError((e as Error).message);
   }

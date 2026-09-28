@@ -17,3 +17,6 @@
 }
 .xv-rail-btn--settings { margin-top: 12px; }
 .xv-rail-btn--settings::before { content: ''; position: absolute; top: -8px; left: 4px; right: 4px; height: 1px; background: var(--xv-border); }
+
+.xv-rail-btn--settings:only-child { margin-top: 0; }
+.xv-rail-btn--settings:only-child::before { display: none; }
