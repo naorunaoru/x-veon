@@ -131,7 +131,10 @@ jobs:
           if [[ -f scripts/build-web.sh ]]; then
             bash scripts/build-web.sh beta
           else
-            # Older web/-only layout: the steps scripts/build-web.sh replaced.
+            # Older web/-only layout: the steps scripts/build-web.sh replaced. Its crates stand alone,
+            # but cargo would find this job's own checkout's workspace in a parent directory; nothing
+            # else in the job reads that manifest.
+            rm -f ../Cargo.toml
             (cd web && npm ci && npm test && npm run build && npx tsc --noEmit)
           fi
           rm -rf ../site/beta
