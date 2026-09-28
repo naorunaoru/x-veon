@@ -1,3 +1,5 @@
+import { fromLibraryPhoto } from '@/app/store/photo';
+import { fakePhoto, defaultEdit } from '@/test/fake-host';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { FileMetaPill } from './FileMetaPill';
@@ -6,10 +8,21 @@ import type { QueuedFile } from '@/app/store';
 
 function makeFile(over: Partial<QueuedFile>): QueuedFile {
   return {
-    id: 'a', file: null, name: 'DSCF8037', originalName: 'DSCF8037.RAF', thumbnailUrl: null,
-    metadata: null, cfaType: 'xtrans', status: 'done', error: null, progress: null,
-    result: null, resultMethod: null, lensProfile: null, lookPreset: 'default',
-    openDrtOverrides: {}, preProcessOverrides: {}, ...over,
+    ...fromLibraryPhoto(fakePhoto()),
+    id: 'a',
+    name: 'DSCF8037',
+    originalName: 'DSCF8037.RAF',
+    thumbnailUrl: null,
+    metadata: null,
+    cfaType: 'xtrans',
+    status: 'done',
+    error: null,
+    progress: null,
+    result: null,
+    resultMethod: null,
+    lensProfile: null,
+    ...over,
+    edit: { ...defaultEdit(), lookPreset: 'default', openDrtOverrides: {}, preProcessOverrides: {} },
   };
 }
 
@@ -23,9 +36,11 @@ describe('FileMetaPill', () => {
 
   it('shows filename, camera (FUJIFILM stripped), lens and focal/aperture', () => {
     useAppStore.setState({
-      files: [makeFile({
-        metadata: { camera: 'FUJIFILM X-T5', lensModel: 'XF35mmF1.4 R', focalLength: 35, fNumber: 1.4 },
-      })],
+      files: [
+        makeFile({
+          metadata: { camera: 'FUJIFILM X-T5', lensModel: 'XF35mmF1.4 R', focalLength: 35, fNumber: 1.4 },
+        }),
+      ],
       selectedFileId: 'a',
     });
     render(<FileMetaPill />);

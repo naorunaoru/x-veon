@@ -1,3 +1,5 @@
+import { fromLibraryPhoto } from '@/app/store/photo';
+import { fakePhoto, defaultEdit } from '@/test/fake-host';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { ActionHud } from './ActionHud';
@@ -16,10 +18,20 @@ vi.mock('@/app/hooks/useExport', () => ({
 
 function makeFile(id: string, status: QueuedFile['status']): QueuedFile {
   return {
-    id, file: null, name: id, originalName: `${id}.raf`, thumbnailUrl: null,
-    metadata: null, cfaType: 'xtrans', status, error: null, progress: null,
-    result: null, resultMethod: null, lensProfile: null, lookPreset: 'default',
-    openDrtOverrides: {}, preProcessOverrides: {},
+    ...fromLibraryPhoto(fakePhoto()),
+    id,
+    name: id,
+    originalName: `${id}.raf`,
+    thumbnailUrl: null,
+    metadata: null,
+    cfaType: 'xtrans',
+    status,
+    error: null,
+    progress: null,
+    result: null,
+    resultMethod: null,
+    lensProfile: null,
+    edit: { ...defaultEdit(), lookPreset: 'default', openDrtOverrides: {}, preProcessOverrides: {} },
   };
 }
 

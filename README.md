@@ -109,3 +109,18 @@ RAW decoding uses a fork of [rawloader](https://github.com/pedrocr/rawloader) (L
 Parts of the code were adapted from various open-source projects:
 - darktable (segmentation-based highlight reconstruction, reference image pipeline)
 - Jed Smith's OpenDRT and ART CTL by agriggio (tone mapping)
+
+
+## Photo edits and browser storage
+
+Settings has separate controls for the selected photo and for defaults. Each photo records its demosaic method and neural model checkpoint; changing defaults does not change an explicit photo edit. If a saved checkpoint is unavailable, the app shows a note and renders with the available model of the same size, or the default size when necessary. Its recorded checkpoint changes when you edit that photo again.
+
+A photo can be **saved**, **session** (editable, but its last save failed), or **view only**. Session edits remain in memory and retry on the next change or when the window regains focus. The UI shows the reason for session or view-only state.
+
+**Clear library** in Settings removes this channel's photos, edits and settings, then reloads. Stable also removes storage left by the old app. Other channels and other sites on the same origin are preserved. If clearing is blocked, close other tabs using the library and retry. After a failed clear, imports and persistence stay paused until clearing succeeds or the page is reloaded, so pending writes cannot recreate deleted data.
+
+The app no longer requests persistent browser storage. A browser's existing persistence grant remains until its own storage controls remove it.
+
+### Host boundary
+
+`shared/src/host/` defines the host contracts. Shared startup is `startApp(root, host)`; browser library storage, encoder workers, downloads and HDR detection live in `web/src/host/`. Shared app settings use the host-supplied IndexedDB name. `npm test` runs both workspace suites; `npm test --workspace web` runs just the browser adapters. The layers test enforces the workspace boundary and prevents host detection in shared code.

@@ -1,3 +1,5 @@
+import { fromLibraryPhoto } from '@/app/store/photo';
+import { fakePhoto, defaultEdit } from '@/test/fake-host';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { fireEvent, render } from '@testing-library/react';
 import { Minimap } from './Minimap';
@@ -7,14 +9,45 @@ import type { ProcessingResultMeta } from '@/lib/types';
 
 function fileWithResult(): QueuedFile {
   const result = {
-    exportData: { width: 4000, height: 3000, xyzToCam: null, wbCoeffs: new Float32Array([1, 1, 1]), camToXyz: new Float32Array(12), orientation: 'Normal' },
-    metadata: { make: 'F', model: 'X', width: 4000, height: 3000, tileCount: 1, inferenceTime: 0, backend: 'webgpu', exposureBias: 0, lensModel: '', focalLength: 0, fNumber: 0, colorTemp: 5500, tint: 0 },
+    exportData: {
+      width: 4000,
+      height: 3000,
+      xyzToCam: null,
+      wbCoeffs: new Float32Array([1, 1, 1]),
+      camToXyz: new Float32Array(12),
+      orientation: 'Normal',
+    },
+    metadata: {
+      make: 'F',
+      model: 'X',
+      width: 4000,
+      height: 3000,
+      tileCount: 1,
+      inferenceTime: 0,
+      backend: 'webgpu',
+      exposureBias: 0,
+      lensModel: '',
+      focalLength: 0,
+      fNumber: 0,
+      colorTemp: 5500,
+      tint: 0,
+    },
   } as unknown as ProcessingResultMeta;
   return {
-    id: 'a', file: null, name: 'a', originalName: 'a.raf', thumbnailUrl: 'blob:thumb',
-    metadata: null, cfaType: 'xtrans', status: 'done', error: null, progress: null,
-    result, resultMethod: 'neural-net', lensProfile: null, lookPreset: 'default',
-    openDrtOverrides: {}, preProcessOverrides: {},
+    ...fromLibraryPhoto(fakePhoto()),
+    id: 'a',
+    name: 'a',
+    originalName: 'a.raf',
+    thumbnailUrl: 'blob:thumb',
+    metadata: null,
+    cfaType: 'xtrans',
+    status: 'done',
+    error: null,
+    progress: null,
+    result,
+    resultMethod: 'neural-net',
+    lensProfile: null,
+    edit: { ...defaultEdit(), lookPreset: 'default', openDrtOverrides: {}, preProcessOverrides: {} },
   };
 }
 
@@ -27,19 +60,35 @@ function interactiveMinimap() {
   map.releasePointerCapture = vi.fn();
   map.getBoundingClientRect = () => ({ left: 12, top: 400, width: 200, height: 132.5 }) as DOMRect;
   const pointer = (type: string, x: number, y: number, target: Element = map, button = 0) => {
-    fireEvent(target, Object.assign(new MouseEvent(type, {
-      bubbles: true, clientX: 12 + x, clientY: 400 + y, button,
-    }), { pointerId: 1 }));
+    fireEvent(
+      target,
+      Object.assign(
+        new MouseEvent(type, {
+          bubbles: true,
+          clientX: 12 + x,
+          clientY: 400 + y,
+          button,
+        }),
+        { pointerId: 1 },
+      ),
+    );
   };
   return { map, panTo, pointer };
 }
 
 describe('Minimap', () => {
-  beforeEach(() => useAppStore.setState({
-    files: [fileWithResult()], selectedFileId: 'a',
-    viewScale: 1, viewFitScale: 0.04, viewPan: { x: -400, y: -300 },
-    viewContainerW: 800, viewContainerH: 600, viewControls: null,
-  }));
+  beforeEach(() =>
+    useAppStore.setState({
+      files: [fileWithResult()],
+      selectedFileId: 'a',
+      viewScale: 1,
+      viewFitScale: 0.04,
+      viewPan: { x: -400, y: -300 },
+      viewContainerW: 800,
+      viewContainerH: 600,
+      viewControls: null,
+    }),
+  );
 
   it('renders the viewport rect when zoomed in past fit', () => {
     const { container } = render(<Minimap />);

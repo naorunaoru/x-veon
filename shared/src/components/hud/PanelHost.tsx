@@ -13,6 +13,7 @@ const ADJUSTMENT_GROUPS = ['exposure', 'advanced', 'whiteBalance', 'detail'] as 
 const isAdjustment = (id: PanelId | null) => ADJUSTMENT_GROUPS.some((group) => group === id);
 
 export function PanelHost() {
+  const viewOnly = useAppStore(s => s.files.find(f => f.id === s.selectedFileId)?.editing === 'view-only');
   const openPanel = useAppStore((s) => s.openPanel);
   const revision = useAppStore((s) => s.panelNavigationRevision);
   const setOpenPanel = useAppStore((s) => s.setOpenPanel);
@@ -124,7 +125,7 @@ export function PanelHost() {
       <div className="xv-adjustments__surface xv-glass-heavy" aria-hidden="true" />
       <button className="xv-panel__icon xv-adjustments__close" aria-label="Close panel" onClick={() => setOpenPanel(null)}><X size={14} /></button>
       <div className="xv-adjustments__body" ref={body} onScroll={trackSection}>
-        <div ref={content} className="xv-adjustments__content">
+        <div ref={content} className="xv-adjustments__content" inert={viewOnly} aria-disabled={viewOnly}>
           <section data-adjustment="exposure" aria-label="Exposure"><ExposurePanel embedded /></section>
           <section data-adjustment="advanced" aria-label="Rendering"><RenderingPanel embedded /></section>
           <section data-adjustment="whiteBalance" aria-label="White balance"><WhiteBalancePanel embedded /></section>

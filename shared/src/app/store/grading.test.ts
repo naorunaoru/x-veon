@@ -1,13 +1,30 @@
+import { fromLibraryPhoto } from '@/app/store/photo';
+import { fakePhoto, defaultEdit } from '@/test/fake-host';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useAppStore } from '@/app/store';
 import type { QueuedFile } from '@/app/store';
 
 function makeFile(id: string): QueuedFile {
   return {
-    id, file: null, name: id, originalName: `${id}.raf`, thumbnailUrl: null,
-    metadata: null, cfaType: 'xtrans', status: 'done', error: null, progress: null,
-    result: null, resultMethod: null, lensProfile: null, lookPreset: 'default',
-    openDrtOverrides: { tn_con: 1.0, brl_r: 0.2 }, preProcessOverrides: { exposure: 1.5, wb_temp: 0.3 },
+    ...fromLibraryPhoto(fakePhoto()),
+    id,
+    name: id,
+    originalName: `${id}.raf`,
+    thumbnailUrl: null,
+    metadata: null,
+    cfaType: 'xtrans',
+    status: 'done',
+    error: null,
+    progress: null,
+    result: null,
+    resultMethod: null,
+    lensProfile: null,
+    edit: {
+      ...defaultEdit(),
+      lookPreset: 'default',
+      openDrtOverrides: { tn_con: 1.0, brl_r: 0.2 },
+      preProcessOverrides: { exposure: 1.5, wb_temp: 0.3 },
+    },
   };
 }
 
@@ -39,15 +56,15 @@ describe('per-section override clears', () => {
   it('clearFileOpenDrtOverrides removes only the named keys', () => {
     useAppStore.getState().clearFileOpenDrtOverrides('a', ['tn_con']);
     const f = useAppStore.getState().files.find((x) => x.id === 'a')!;
-    expect('tn_con' in f.openDrtOverrides).toBe(false);
-    expect(f.openDrtOverrides.brl_r).toBe(0.2);
+    expect('tn_con' in f.edit.openDrtOverrides).toBe(false);
+    expect(f.edit.openDrtOverrides.brl_r).toBe(0.2);
   });
 
   it('clearFilePreProcessOverrides removes only the named keys', () => {
     useAppStore.getState().clearFilePreProcessOverrides('a', ['wb_temp']);
     const f = useAppStore.getState().files.find((x) => x.id === 'a')!;
-    expect('wb_temp' in f.preProcessOverrides).toBe(false);
-    expect(f.preProcessOverrides.exposure).toBe(1.5);
+    expect('wb_temp' in f.edit.preProcessOverrides).toBe(false);
+    expect(f.edit.preProcessOverrides.exposure).toBe(1.5);
   });
 });
 
@@ -62,10 +79,19 @@ describe('look history', () => {
     setFileLookPreset('a', 'aces-2');
     setFilePreProcessOverride('a', 'exposure', 2);
     undoFileLook('a');
-    expect(useAppStore.getState().files[0]).toMatchObject({ lookPreset: 'marvelous', openDrtOverrides: {} });
+    expect(useAppStore.getState().files[0]).toMatchObject({
+      edit: { lookPreset: 'marvelous', openDrtOverrides: {} },
+    });
     undoFileLook('a');
-    expect(useAppStore.getState().files[0]).toMatchObject({ lookPreset: original.lookPreset, openDrtOverrides: original.openDrtOverrides, preProcessOverrides: { exposure: 2, wb_temp: 0.3 }, lookHistory: [] });
-    expect(useAppStore.getState().files[1].lookPreset).toBe('umbra');
+    expect(useAppStore.getState().files[0]).toMatchObject({
+      lookHistory: [],
+      edit: {
+        lookPreset: original.edit.lookPreset,
+        openDrtOverrides: original.edit.openDrtOverrides,
+        preProcessOverrides: { exposure: 2, wb_temp: 0.3 },
+      },
+    });
+    expect(useAppStore.getState().files[1].edit.lookPreset).toBe('umbra');
   });
 
   it('does not record a repeated unmodified selection or undo another photo', () => {

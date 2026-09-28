@@ -7,7 +7,8 @@
  */
 import { useAppStore } from '@/app/store';
 import { processRaw, type PipelineContext, type ProcessedImage } from '@/pipeline';
-import { readRaw } from '@/app/storage/opfs-storage';
+import { processingKey } from '@/app/store/photo';
+import { getHost } from './host';
 import { matchLensFor } from './library';
 
 /** Processed results kept for photos that are neither on screen nor selected. */
@@ -46,39 +47,73 @@ export async function processFile(fileId: string): Promise<void> {
   const entry = store.files.find((f) => f.id === fileId);
   if (!entry) return;
 
+  const requestedKey = processingKey(entry, store);
+  const method = entry.edit.demosaicMethod ?? store.demosaicMethod;
+  const modelSize = store.modelSize;
+  const model = entry.edit.model;
   runDiscarded = false;
   inFlight = fileId;
   store.setProcessingFileId(fileId);
   store.updateFileStatus(fileId, 'processing');
 
   try {
-    // RAW bytes: the File object for fresh drops, OPFS for restored sessions
-    let bytes: ArrayBuffer;
-    if (entry.file) {
-      bytes = await entry.file.arrayBuffer();
-    } else {
-      const raw = await readRaw(fileId);
-      if (!raw) throw new Error('RAW file not found in storage. Please re-add this file.');
-      bytes = raw;
-    }
+    const bytes = await getHost().library.readRaw(fileId);
 
-    const { demosaicMethod: method, modelSize } = useAppStore.getState();
-    const ctx = getPipeline();
-    // Run with the size the user chose; results are labelled with the size actually loaded.
-    if (method === 'neural-net') await ctx.models.switchSize(modelSize);
-    const image = await processRaw(bytes, { method, modelSize }, ctx);
+    const image = await processRaw(bytes, { method, modelSize, model }, getPipeline());
 
     if (runDiscarded || !useAppStore.getState().files.some((f) => f.id === fileId)) {
       image.dispose();
       return;
     }
+    // A method/model change during decode must not publish an obsolete result.
+    const current = useAppStore.getState();
+    const latest = current.files.find((f) => f.id === fileId)!;
+    if (processingKey(latest, current) !== requestedKey) {
+      image.dispose();
+      current.updateFileStatus(fileId, 'queued');
+      return;
+    }
     publish(fileId, image);
+    useAppStore.setState((state) => ({
+      files: state.files.map((f) => {
+        if (f.id !== fileId) return f;
+        const actualModel = image.meta.metadata.modelIdentity ?? null;
+        const canRecord = f.editing !== 'view-only';
+        const edit = canRecord
+          ? {
+              ...f.edit,
+              demosaicMethod: f.edit.demosaicMethod ?? method,
+              model:
+                method !== 'neural-net'
+                  ? null
+                  : !f.edit.model || f.modelNeedsResolution || f.editRevision > entry.editRevision
+                    ? actualModel
+                    : f.edit.model,
+            }
+          : f.edit;
+        const updated = {
+          ...f,
+          edit,
+          actualModel,
+          modelNeedsResolution: false,
+          cfaType: image.meta.metadata.cfaType ?? f.cfaType,
+          modelNote:
+            edit.model?.sha256 === actualModel?.sha256 ? null : (image.meta.metadata.modelNote ?? null),
+        };
+        return { ...updated, processedKey: processingKey(updated, state) };
+      }),
+    }));
     useAppStore.getState().setFileResult(fileId, image.meta, method);
     matchLensFor(fileId);
   } catch (e) {
     discardResult(fileId); // also release a published-but-unclaimed result if publication throws
     const detail = e instanceof Error ? e.message : typeof e === 'string' ? e : String(e);
-    const msg = detail.trim() || 'This file could not be opened. It may be corrupt, or the camera or format may be unsupported by this build.';
+    const msg =
+      detail.trim() ||
+      'This file could not be opened. It may be corrupt, or the camera or format may be unsupported by this build.';
+    useAppStore.setState((state) => ({
+      files: state.files.map((f) => (f.id === fileId ? { ...f, processedKey: requestedKey } : f)),
+    }));
     useAppStore.getState().updateFileStatus(fileId, 'error', msg);
     console.error(e);
   } finally {

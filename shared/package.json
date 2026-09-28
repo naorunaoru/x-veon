@@ -30,6 +30,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.7.0",
     "@webgpu/types": "^0.1.69",
+    "fake-indexeddb": "6.2.4",
     "fast-xml-parser": "^5.3.6",
     "jsdom": "^25.0.1",
     "tsx": "^4.23.13",

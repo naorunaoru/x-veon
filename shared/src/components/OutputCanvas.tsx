@@ -24,9 +24,9 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
   const setRenderer = useAppStore((s) => s.setRenderer);
 
   // Per-file grading — targeted primitive selectors to avoid re-renders from unrelated file changes
-  const lookPreset = useAppStore((s) => s.files.find((f) => f.id === fileId)?.lookPreset ?? 'default');
-  const openDrtOverrides = useAppStore((s) => s.files.find((f) => f.id === fileId)?.openDrtOverrides ?? EMPTY_OVERRIDES);
-  const preProcessOverrides = useAppStore((s) => s.files.find((f) => f.id === fileId)?.preProcessOverrides ?? EMPTY_PREPROCESS);
+  const lookPreset = useAppStore((s) => s.files.find((f) => f.id === fileId)?.edit.lookPreset ?? 'default');
+  const openDrtOverrides = useAppStore((s) => s.files.find((f) => f.id === fileId)?.edit.openDrtOverrides ?? EMPTY_OVERRIDES);
+  const preProcessOverrides = useAppStore((s) => s.files.find((f) => f.id === fileId)?.edit.preProcessOverrides ?? EMPTY_PREPROCESS);
 
   const displayHdr = useAppStore((s) => s.displayHdr);
   const displayHdrHeadroom = useAppStore((s) => s.displayHdrHeadroom);
@@ -159,7 +159,7 @@ function syncDisplay(renderer: Renderer): boolean {
 function applyFileGrade(renderer: Renderer, fileId: string): void {
   const file = useAppStore.getState().files.find((f) => f.id === fileId);
   applyOpenDrt(
-    renderer, file?.lookPreset ?? 'default', file?.openDrtOverrides ?? {}, file?.preProcessOverrides ?? {},
+    renderer, file?.edit.lookPreset ?? 'default', file?.edit.openDrtOverrides ?? {}, file?.edit.preProcessOverrides ?? {},
     renderer.display.hdr ? renderer.display.headroom : undefined,
   );
 }

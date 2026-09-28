@@ -1,115 +1,153 @@
-/**
- * Writes what changes in the store to IndexedDB (file records debounced, settings at once) and
- * restores the library on startup. The only module that writes records or settings.
- */
-import { useAppStore } from '@/app/store';
-import type { QueuedFile, RestoredSettings } from '@/app/store';
-import { serializeResultMeta, deserializeResultMeta } from '@/lib/types';
-import type { DemosaicMethod, ExportFormat } from '@/lib/types';
-import type { OpenDrtConfig, PreProcessConfig } from '@/renderer/grading/opendrt-params';
-import { getAllFiles, getSetting, putSetting, debouncedPutFile } from '@/app/storage/idb-storage';
-import type { PersistedFile } from '@/app/storage/idb-storage';
-import { readThumbnail } from '@/app/storage/opfs-storage';
-
-const SETTING_KEYS = ['demosaicMethod', 'modelSize', 'exportFormat', 'exportQuality', 'selectedFileId'] as const;
-
-export function fileToPersistedFile(f: QueuedFile): PersistedFile {
-  return {
-    id: f.id,
-    name: f.name,
-    originalName: f.originalName,
-    fileSize: f.file?.size ?? 0,
-    cfaType: f.cfaType,
-    camera: f.metadata?.camera ?? null,
-    lensModel: f.metadata?.lensModel ?? null,
-    focalLength: f.metadata?.focalLength ?? null,
-    fNumber: f.metadata?.fNumber ?? null,
-    status: f.status === 'processing' ? 'queued' : f.status,
-    error: f.error,
-    resultMethod: f.resultMethod,
-    resultMeta: f.result ? serializeResultMeta(f.result) : null,
-    cachedMethods: [],
-    lensProfile: f.lensProfile,
-    lookPreset: f.lookPreset,
-    openDrtOverrides: f.openDrtOverrides as Record<string, number | boolean>,
-    preProcessOverrides: f.preProcessOverrides as Record<string, number>,
-    addedAt: Date.now(),
-  };
+/** Shared debounce/retry ownership. Hosts resolve saves only once durable. */
+import { useAppStore, type QueuedFile, type RestoredSettings } from '@/app/store';
+import { factsOf, fromLibraryPhoto } from '@/app/store/photo';
+import { getHost } from './host';
+import { getSetting, putSetting, pauseSettings, resumeSettings } from '@/app/storage/settings-storage';
+const SETTING_KEYS = [
+  'demosaicMethod',
+  'modelSize',
+  'exportFormat',
+  'exportQuality',
+  'selectedFileId',
+] as const;
+interface Pending {
+  file: QueuedFile;
+  revision: number;
 }
-
-/** Subscribe to the store; returns the unsubscribe function. */
+interface Writer {
+  cancel(id: string): Promise<void>;
+  pause(): Promise<void>;
+  resume(): void;
+}
+const writers = new Set<Writer>();
+export async function cancelPhotoSave(id: string): Promise<void> {
+  await Promise.all([...writers].map((w) => w.cancel(id)));
+}
+export async function pausePersistence(): Promise<void> {
+  await Promise.all([pauseSettings(), ...[...writers].map((w) => w.pause())]);
+}
+export function resumePersistence(): void {
+  resumeSettings();
+  for (const w of writers) w.resume();
+}
 export function startPersistence(): () => void {
   let previous = useAppStore.getState();
-  return useAppStore.subscribe((state) => {
+  let active = true;
+  let paused = false;
+  let revision = 0;
+  const pending = new Map<string, Pending>();
+  const timers = new Map<string, ReturnType<typeof setTimeout>>();
+  const running = new Map<string, Promise<void>>();
+  function clearTimer(id: string) {
+    const timer = timers.get(id);
+    if (timer) clearTimeout(timer);
+    timers.delete(id);
+  }
+  function stateOf(id: string, editing: 'saved' | 'session', editingNote: string | null) {
+    if (!active || paused) return;
+    useAppStore.setState((state) => ({
+      files: state.files.map((f) =>
+        f.id === id && f.editing !== 'view-only' ? { ...f, editing, editingNote } : f,
+      ),
+    }));
+  }
+  function schedule(id: string, delay = 300) {
+    clearTimer(id);
+    if (!active || paused) return;
+    timers.set(
+      id,
+      setTimeout(() => {
+        timers.delete(id);
+        void flush(id);
+      }, delay),
+    );
+  }
+  async function flush(id: string): Promise<void> {
+    if (!active || paused || running.has(id)) return;
+    const item = pending.get(id);
+    if (!item) return;
+    const work = (async () => {
+      try {
+        await getHost().library.save(id, item.file.edit, factsOf(item.file));
+        if (pending.get(id) === item) {
+          pending.delete(id);
+          stateOf(id, 'saved', null);
+        }
+      } catch (error) {
+        if (pending.has(id)) stateOf(id, 'session', error instanceof Error ? error.message : String(error));
+      }
+    })();
+    running.set(id, work);
+    await work;
+    running.delete(id);
+    if (pending.has(id) && pending.get(id) !== item) schedule(id, 0);
+  }
+  const unsubscribe = useAppStore.subscribe((state) => {
     const before = previous;
     previous = state;
-
-    for (const key of SETTING_KEYS) {
-      if (state[key] !== before[key]) putSetting(key, state[key]).catch(() => {});
+    if (!active || paused || state.hydrationVersion !== before.hydrationVersion) return;
+    for (const key of SETTING_KEYS)
+      if (state[key] !== before[key]) void putSetting(key, state[key]).catch(() => {});
+    for (const file of state.files) {
+      const old = before.files.find((f) => f.id === file.id);
+      if (!old || old === file || file.editing === 'view-only' || file.status === 'processing') continue;
+      if (old.edit === file.edit && JSON.stringify(factsOf(old)) === JSON.stringify(factsOf(file))) continue;
+      // Do not write an incomplete neural edit while its first model is still being resolved.
+      if (
+        file.status !== 'error' &&
+        (file.edit.demosaicMethod ?? state.demosaicMethod) === 'neural-net' &&
+        (!file.edit.model || file.modelNeedsResolution)
+      )
+        continue;
+      pending.set(file.id, { file, revision: ++revision });
+      schedule(file.id);
     }
-
-    if (state.files !== before.files) {
-      for (const file of state.files) {
-        const old = before.files.find((candidate) => candidate.id === file.id);
-        // Transient: the record is written when the run ends (done or error)
-        if (old === file || file.status === 'processing') continue;
-        debouncedPutFile(fileToPersistedFile(file));
+    for (const id of pending.keys())
+      if (!state.files.some((f) => f.id === id)) {
+        clearTimer(id);
+        pending.delete(id);
       }
-    }
   });
-}
-
-async function persistedToQueued(p: PersistedFile): Promise<QueuedFile> {
-  // Load thumbnail from OPFS
-  const thumbBlob = await readThumbnail(p.id).catch(() => null);
-
-  return {
-    id: p.id,
-    file: null,
-    name: p.name,
-    originalName: p.originalName,
-    thumbnailUrl: thumbBlob ? URL.createObjectURL(thumbBlob) : null,
-    metadata: p.camera ? {
-      camera: p.camera,
-      lensModel: p.lensModel ?? '',
-      focalLength: p.focalLength ?? 0,
-      fNumber: p.fNumber ?? 0,
-    } : null,
-    cfaType: p.cfaType,
-    status: p.status === 'done' && p.resultMeta ? 'done' : 'queued',
-    error: null,
-    progress: null,
-    result: p.resultMeta ? deserializeResultMeta(p.resultMeta) : null,
-    resultMethod: p.resultMethod,
-    lensProfile: p.lensProfile ?? null,
-    lookPreset: p.lookPreset,
-    openDrtOverrides: p.openDrtOverrides as Partial<OpenDrtConfig>,
-    preProcessOverrides: (p.preProcessOverrides ?? {}) as Partial<PreProcessConfig>,
+  const retry = () => {
+    for (const id of pending.keys()) schedule(id, 0);
+  };
+  window.addEventListener('focus', retry);
+  const writer: Writer = {
+    cancel: async (id) => {
+      clearTimer(id);
+      pending.delete(id);
+      await running.get(id);
+    },
+    pause: async () => {
+      paused = true;
+      for (const id of timers.keys()) clearTimer(id);
+      pending.clear();
+      await Promise.allSettled([...running.values()]);
+    },
+    resume: () => {
+      previous = useAppStore.getState();
+      paused = false;
+    },
+  };
+  writers.add(writer);
+  return () => {
+    active = false;
+    unsubscribe();
+    window.removeEventListener('focus', retry);
+    for (const id of timers.keys()) clearTimer(id);
+    pending.clear();
+    writers.delete(writer);
   };
 }
-
-/**
- * Read the library and settings back; the caller feeds them to restoreFromDb. `complete` is false
- * when the file records could not be read, so callers must not treat the list as the whole library.
- */
-export async function restore(): Promise<{ files: QueuedFile[]; settings: RestoredSettings; complete: boolean }> {
-  let complete = true;
-  const [persistedFiles, demosaicMethod, exportFormat, exportQuality, selectedFileId] = await Promise.all([
-    getAllFiles().catch((e) => {
-      console.warn('Could not read the library from IndexedDB:', e);
-      complete = false;
-      return [] as PersistedFile[];
-    }),
-    getSetting<DemosaicMethod>('demosaicMethod').catch(() => undefined),
-    getSetting<ExportFormat>('exportFormat').catch(() => undefined),
-    getSetting<number>('exportQuality').catch(() => undefined),
-    getSetting<string | null>('selectedFileId').catch(() => undefined),
+export async function restore(): Promise<{
+  files: QueuedFile[];
+  settings: RestoredSettings;
+  complete: boolean;
+}> {
+  const [snapshot, ...values] = await Promise.all([
+    getHost().library.load(),
+    ...SETTING_KEYS.map((key) => getSetting(key).catch(() => undefined)),
   ]);
-  const files: QueuedFile[] = [];
-  for (const p of persistedFiles) files.push(await persistedToQueued(p));
-  return {
-    files,
-    settings: { demosaicMethod, exportFormat, exportQuality, selectedFileId: selectedFileId ?? undefined },
-    complete,
-  };
+  const settings = Object.fromEntries(SETTING_KEYS.map((key, i) => [key, values[i]])) as RestoredSettings;
+  return { files: snapshot.photos.map(fromLibraryPhoto), settings, complete: snapshot.complete };
 }

@@ -88,7 +88,8 @@ export async function processRaw(
     // 9. Demosaic through the strategy for the requested method
     const startTime = Date.now();
     // Label the result with the models actually loaded, not with the requested size.
-    const modelSize = ctx.models.size;
+    const resolved = options.method === 'neural-net' ? await ctx.models.activate(cfaType, options.model ?? null, options.modelSize) : null;
+    const modelSize = resolved?.model.size ?? ctx.models.size;
     const input: DemosaicInput = {
       cfa: prepared.data,
       lut: prepared.lut,
@@ -167,6 +168,9 @@ export async function processRaw(
         colorTemp,
         tint,
         modelSize: options.method === 'neural-net' ? modelSize : undefined,
+        modelIdentity: resolved?.model,
+        cfaType,
+        modelNote: resolved?.note,
       },
     };
 

@@ -1,15 +1,7 @@
+import type { DisplayHost, HdrDisplayInfo } from '@/host';
 // Probe HDR display capabilities.
 // With WebGPU, HDR canvas (rgba16float + toneMapping: extended) is always available.
 // The only question is whether the physical display supports extended range.
-
-export interface HdrDisplayInfo {
-  /** Whether the display supports HDR (headroom > 1.0). */
-  supported: boolean;
-  /** Peak-to-SDR luminance ratio (e.g. 4.0 = 400 nit peak). 1.0 if unknown/SDR. */
-  headroom: number;
-  /** Whether headroom is precisely known (vs. conservative media-query fallback). */
-  accurate: boolean;
-}
 
 /** Whether the Window Management API is available (may still need permission). */
 export function hasWindowManagementApi(): boolean {
@@ -39,7 +31,7 @@ async function getHdrHeadroom(): Promise<HeadroomResult> {
   //    the browser already treats as HDR, and only once permission is granted: calling
   //    getScreenDetails() in the "prompt" state shows the browser's permission prompt and
   //    stalls initialisation until it's answered. HdrPermissionDialog asks explicitly instead.
-  if (hdrMedia && 'getScreenDetails' in window && await windowManagementGranted()) {
+  if (hdrMedia && 'getScreenDetails' in window && (await windowManagementGranted())) {
     try {
       const details = await (window as any).getScreenDetails();
       const hr = details?.currentScreen?.highDynamicRangeHeadroom;
@@ -89,4 +81,11 @@ export async function requestWindowManagementHeadroom(): Promise<number | null> 
 export async function probeHdrDisplay(): Promise<HdrDisplayInfo> {
   const { headroom, accurate } = await getHdrHeadroom();
   return { supported: headroom > 1.0, headroom, accurate };
+}
+
+export function createDisplayHost(): DisplayHost {
+  return {
+    probe: probeHdrDisplay,
+    ...('getScreenDetails' in window ? { requestAccurateHeadroom: requestWindowManagementHeadroom } : {}),
+  };
 }

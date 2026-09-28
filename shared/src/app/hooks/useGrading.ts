@@ -28,9 +28,9 @@ export function useGrading() {
   const displayHdrHeadroom = useAppStore((s) => s.displayHdrHeadroom);
 
   const fileId = file?.id ?? null;
-  const lookPreset: LookPreset = file?.lookPreset ?? 'default';
-  const overrides = file?.openDrtOverrides ?? EMPTY_DRT;
-  const preOverrides = file?.preProcessOverrides ?? EMPTY_PRE;
+  const lookPreset: LookPreset = file?.edit.lookPreset ?? 'default';
+  const overrides = file?.edit.openDrtOverrides ?? EMPTY_DRT;
+  const preOverrides = file?.edit.preProcessOverrides ?? EMPTY_PRE;
   const resultMeta = file?.result?.metadata;
   const exportData = file?.result?.exportData;
 
@@ -129,7 +129,7 @@ export function useGrading() {
 
   return {
     fileId,
-    hasResult: file?.status === 'done',
+    hasResult: file?.status === 'done' && file.editing !== 'view-only',
     lookPreset, setLook, baseConfig, undoLook, canUndoLook: !!file?.lookHistory?.length,
     overrides, preOverrides,
     effective, effectivePre, setDrt, setPre,

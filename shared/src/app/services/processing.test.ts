@@ -1,3 +1,7 @@
+import { setHost } from './host';
+import { fakeHost } from '@/test/fake-host';
+import { fromLibraryPhoto } from '@/app/store/photo';
+import { fakePhoto, defaultEdit } from '@/test/fake-host';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAppStore } from '@/app/store';
 import type { QueuedFile } from '@/app/store';
@@ -9,21 +13,39 @@ const readRaw = vi.fn();
 vi.mock('@/app/storage/opfs-storage', () => ({ readRaw: (...args: unknown[]) => readRaw(...args) }));
 // The monolithic store still persists and matches lenses inside its actions (until Tasks 8–9).
 vi.mock('@/app/storage/idb-storage', () => ({
-  putFile: vi.fn().mockResolvedValue(undefined), putSetting: vi.fn().mockResolvedValue(undefined),
-  debouncedPutFile: vi.fn(), deleteFile: vi.fn().mockResolvedValue(undefined),
+  putFile: vi.fn().mockResolvedValue(undefined),
+  putSetting: vi.fn().mockResolvedValue(undefined),
+  debouncedPutFile: vi.fn(),
+  deleteFile: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock('@/app/services/library', () => ({ matchLensFor: vi.fn() }));
 
 import {
-  processFile, setPipeline, acquireResult, getResult, discardResult, isProcessing, RETAINED_RESULTS,
+  processFile,
+  setPipeline,
+  acquireResult,
+  getResult,
+  discardResult,
+  isProcessing,
+  RETAINED_RESULTS,
 } from './processing';
 
 function makeFile(id: string, file: File | null = null): QueuedFile {
   return {
-    id, file, name: id, originalName: `${id}.raf`, thumbnailUrl: null,
-    metadata: null, cfaType: 'xtrans', status: 'queued', error: null, progress: null,
-    result: null, resultMethod: null, lensProfile: null, lookPreset: 'default',
-    openDrtOverrides: {}, preProcessOverrides: {},
+    ...fromLibraryPhoto(fakePhoto()),
+    id,
+    name: id,
+    originalName: `${id}.raf`,
+    thumbnailUrl: null,
+    metadata: null,
+    cfaType: 'xtrans',
+    status: 'queued',
+    error: null,
+    progress: null,
+    result: null,
+    resultMethod: null,
+    lensProfile: null,
+    edit: { ...defaultEdit(), lookPreset: 'default', openDrtOverrides: {}, preProcessOverrides: {} },
   };
 }
 
@@ -32,10 +54,35 @@ function fakeImage(): ProcessedImage & { disposed: number } {
     disposed: 0,
     gpu: { texture: {} as GPUTexture, width: 4, height: 2 },
     meta: {
-      exportData: { width: 4, height: 2, xyzToCam: null, wbCoeffs: new Float32Array(3), camToXyz: new Float32Array(12), orientation: 'Normal' },
-      metadata: { make: 'F', model: 'X', width: 4, height: 2, tileCount: 1, inferenceTime: 0, backend: 'webgpu', exposureBias: 0, lensModel: 'L', focalLength: 0, fNumber: 0, colorTemp: 0, tint: 0 },
+      exportData: {
+        width: 4,
+        height: 2,
+        xyzToCam: null,
+        wbCoeffs: new Float32Array(3),
+        camToXyz: new Float32Array(12),
+        orientation: 'Normal',
+      },
+      metadata: {
+        modelIdentity: undefined as import('@/lib/types').ModelIdentity | undefined,
+        modelNote: undefined as string | undefined,
+        make: 'F',
+        model: 'X',
+        width: 4,
+        height: 2,
+        tileCount: 1,
+        inferenceTime: 0,
+        backend: 'webgpu',
+        exposureBias: 0,
+        lensModel: 'L',
+        focalLength: 0,
+        fNumber: 0,
+        colorTemp: 0,
+        tint: 0,
+      },
     },
-    dispose() { image.disposed += 1; },
+    dispose() {
+      image.disposed += 1;
+    },
   };
   return image;
 }
@@ -47,34 +94,51 @@ describe('processing service', () => {
   beforeEach(() => {
     for (const id of ['a', 'b', 'c']) discardResult(id);
     processRaw.mockReset();
+    const host = fakeHost();
+    host.library.readRaw = readRaw;
+    setHost(host);
     readRaw.mockReset();
     readRaw.mockResolvedValue(new ArrayBuffer(3));
     setPipeline(ctx);
-    useAppStore.setState({ files: [makeFile('a')], selectedFileId: 'a', demosaicMethod: 'dht', modelSize: 'S', processingFileId: null });
+    useAppStore.setState({
+      files: [makeFile('a')],
+      selectedFileId: 'a',
+      demosaicMethod: 'dht',
+      modelSize: 'S',
+      processingFileId: null,
+    });
   });
 
-  afterEach(() => { for (const id of ['a', 'b', 'c']) discardResult(id); });
+  afterEach(() => {
+    for (const id of ['a', 'b', 'c']) discardResult(id);
+  });
 
-  it('loads the chosen model size before a neural run, and reports a failed load', async () => {
-    switchSize.mockReset().mockResolvedValue(undefined);
-    processRaw.mockResolvedValue(fakeImage());
-    useAppStore.setState({ demosaicMethod: 'neural-net', modelSize: 'S' });
+  it('passes the photo model independently of defaults and preserves an unknown recorded identity', async () => {
+    const photo = makeFile('a');
+    photo.edit = { ...photo.edit, demosaicMethod: 'neural-net', model: { size: 'M', sha256: 'unknown' } };
+    useAppStore.setState({ files: [photo], demosaicMethod: 'dht', modelSize: 'S' });
+    const image = fakeImage();
+    image.meta.metadata.modelIdentity = { size: 'M', sha256: 'used' };
+    image.meta.metadata.modelNote = 'different model';
+    processRaw.mockResolvedValue(image);
     await processFile('a');
-    expect(switchSize).toHaveBeenCalledWith('S');
-    expect(switchSize.mock.invocationCallOrder[0]).toBeLessThan(processRaw.mock.invocationCallOrder[0]);
-    switchSize.mockRejectedValue(new Error('No M model is available'));
-    processRaw.mockClear();
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-    await processFile('a');
-    expect(processRaw).not.toHaveBeenCalled();
-    expect(useAppStore.getState().files[0]).toMatchObject({ status: 'error', error: 'No M model is available' });
+    expect(processRaw).toHaveBeenCalledWith(
+      expect.any(ArrayBuffer),
+      { method: 'neural-net', modelSize: 'S', model: { size: 'M', sha256: 'unknown' } },
+      ctx,
+    );
+    expect(useAppStore.getState().files[0].edit.model?.sha256).toBe('unknown');
+    useAppStore.getState().setFileLookPreset('a', 'umbra');
+    expect(useAppStore.getState().files[0].edit.model?.sha256).toBe('used');
   });
 
   it('walks queued → processing → done and lends the result out without giving it away', async () => {
     const image = fakeImage();
     processRaw.mockResolvedValue(image);
     const seen: string[] = [];
-    const unsubscribe = useAppStore.subscribe((s) => { seen.push(`${s.files[0].status}/${s.processingFileId}`); });
+    const unsubscribe = useAppStore.subscribe((s) => {
+      seen.push(`${s.files[0].status}/${s.processingFileId}`);
+    });
 
     await processFile('a');
     unsubscribe();
@@ -83,7 +147,11 @@ describe('processing service', () => {
     expect(seen).toContain('processing/a');
     expect(seen.at(-1)).toBe('done/null');
     expect(readRaw).toHaveBeenCalledWith('a');
-    expect(processRaw).toHaveBeenCalledWith(expect.any(ArrayBuffer), { method: 'dht', modelSize: 'S' }, ctx);
+    expect(processRaw).toHaveBeenCalledWith(
+      expect.any(ArrayBuffer),
+      { method: 'dht', modelSize: 'S', model: null },
+      ctx,
+    );
     const file = useAppStore.getState().files[0];
     expect(file.result).toBe(image.meta);
     expect(file.resultMethod).toBe('dht');
@@ -91,23 +159,21 @@ describe('processing service', () => {
     const lease = acquireResult('a')!;
     expect(lease.image).toBe(image);
     lease.release();
-    lease.release();  // idempotent
-    expect(acquireResult('a')?.image).toBe(image);  // still cached: showing it again needs no run
+    lease.release(); // idempotent
+    expect(acquireResult('a')?.image).toBe(image); // still cached: showing it again needs no run
     expect(image.disposed).toBe(0);
   });
 
-  it('reads the File object for fresh drops', async () => {
-    const file = new File(['raw'], 'a.raf');
-    Object.defineProperty(file, 'arrayBuffer', { value: () => Promise.resolve(new ArrayBuffer(7)) });
-    useAppStore.setState({ files: [makeFile('a', file)] });
+  it('always obtains RAW bytes through the host for fresh and restored photos', async () => {
+    readRaw.mockResolvedValue(new ArrayBuffer(7));
     processRaw.mockResolvedValue(fakeImage());
     await processFile('a');
-    expect(readRaw).not.toHaveBeenCalled();
+    expect(readRaw).toHaveBeenCalledWith('a');
     expect((processRaw.mock.calls[0][0] as ArrayBuffer).byteLength).toBe(7);
   });
 
   it('reports a RAW missing from storage as an error', async () => {
-    readRaw.mockResolvedValue(null);
+    readRaw.mockRejectedValue(new Error('RAW file not found in storage. Please re-add this file.'));
     await processFile('a');
     const file = useAppStore.getState().files[0];
     expect(file.status).toBe('error');
@@ -140,10 +206,15 @@ describe('processing service', () => {
 
   it('ignores a second call while a run is in flight', async () => {
     let release!: (image: ProcessedImage) => void;
-    processRaw.mockImplementation(() => new Promise((resolve) => { release = resolve; }));
+    processRaw.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
     const running = processFile('a');
     expect(isProcessing()).toBe(true);
-    await processFile('a');           // returns immediately: locked
+    await processFile('a'); // returns immediately: locked
     expect(processRaw).toHaveBeenCalledTimes(1);
     release(fakeImage());
     await running;
@@ -151,7 +222,12 @@ describe('processing service', () => {
   });
   it('disposes a removed in-flight result while holding the lock until completion', async () => {
     let release!: (image: ProcessedImage) => void;
-    processRaw.mockImplementation(() => new Promise(resolve => { release = resolve; }));
+    processRaw.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
     const running = processFile('a');
     await vi.waitFor(() => expect(processRaw).toHaveBeenCalledTimes(1));
     discardResult('a');
@@ -159,7 +235,9 @@ describe('processing service', () => {
     await processFile('b');
     expect(isProcessing()).toBe(true);
     expect(processRaw).toHaveBeenCalledTimes(1);
-    const image = fakeImage(); release(image); await running;
+    const image = fakeImage();
+    release(image);
+    await running;
     expect(image.disposed).toBe(1);
     expect(getResult('a')).toBeNull();
     expect(useAppStore.getState().files[0].status).toBe('queued');
@@ -168,27 +246,44 @@ describe('processing service', () => {
   it('keeps RETAINED_RESULTS results besides the selected one, least recently used evicted', async () => {
     expect(RETAINED_RESULTS).toBe(1);
     useAppStore.setState({ files: [makeFile('a'), makeFile('b'), makeFile('c')], selectedFileId: 'c' });
-    const a = fakeImage(), b = fakeImage(), c = fakeImage();
+    const a = fakeImage(),
+      b = fakeImage(),
+      c = fakeImage();
     processRaw.mockResolvedValueOnce(a).mockResolvedValueOnce(b).mockResolvedValueOnce(c);
-    await processFile('a'); await processFile('b');
+    await processFile('a');
+    await processFile('b');
     // Neither is selected or shown: only the most recent one stays.
-    expect(a.disposed).toBe(1); expect(getResult('a')).toBeNull(); expect(getResult('b')).toBe(b);
+    expect(a.disposed).toBe(1);
+    expect(getResult('a')).toBeNull();
+    expect(getResult('b')).toBe(b);
     await processFile('c');
     // The selected photo's result doesn't count against the budget.
-    expect(getResult('b')).toBe(b); expect(getResult('c')).toBe(c); expect(b.disposed).toBe(0);
+    expect(getResult('b')).toBe(b);
+    expect(getResult('c')).toBe(c);
+    expect(b.disposed).toBe(0);
   });
   it('never evicts or disposes a result on screen, and disposes a replaced one when released', async () => {
     useAppStore.setState({ files: [makeFile('a'), makeFile('b'), makeFile('c')], selectedFileId: 'a' });
-    const a1 = fakeImage(), a2 = fakeImage(), b = fakeImage(), c = fakeImage();
-    processRaw.mockResolvedValueOnce(a1).mockResolvedValueOnce(b).mockResolvedValueOnce(c).mockResolvedValueOnce(a2);
+    const a1 = fakeImage(),
+      a2 = fakeImage(),
+      b = fakeImage(),
+      c = fakeImage();
+    processRaw
+      .mockResolvedValueOnce(a1)
+      .mockResolvedValueOnce(b)
+      .mockResolvedValueOnce(c)
+      .mockResolvedValueOnce(a2);
     await processFile('a');
     const shown = acquireResult('a')!;
     useAppStore.setState({ selectedFileId: 'z' });
-    await processFile('b'); await processFile('c');
-    expect(a1.disposed).toBe(0); expect(getResult('a')).toBe(a1);  // on screen
-    expect(b.disposed).toBe(1);                                       // evicted instead
-    await processFile('a');                                           // a new run replaces a1…
-    expect(getResult('a')).toBe(a2); expect(a1.disposed).toBe(0);     // …but a1 is still shown
+    await processFile('b');
+    await processFile('c');
+    expect(a1.disposed).toBe(0);
+    expect(getResult('a')).toBe(a1); // on screen
+    expect(b.disposed).toBe(1); // evicted instead
+    await processFile('a'); // a new run replaces a1…
+    expect(getResult('a')).toBe(a2);
+    expect(a1.disposed).toBe(0); // …but a1 is still shown
     shown.release();
     expect(a1.disposed).toBe(1);
   });
@@ -198,16 +293,50 @@ describe('processing service', () => {
     await processFile('a');
     const shown = acquireResult('a')!;
     discardResult('a');
-    expect(getResult('a')).toBeNull(); expect(image.disposed).toBe(0);
+    expect(getResult('a')).toBeNull();
+    expect(image.disposed).toBe(0);
     shown.release();
     expect(image.disposed).toBe(1);
   });
   it('clears the previous image if a retry fails', async () => {
     const image = fakeImage();
     processRaw.mockResolvedValueOnce(image).mockRejectedValueOnce(new Error('retry'));
-    await processFile('a'); await processFile('a');
-    expect(image.disposed).toBe(1); expect(getResult('a')).toBeNull();
+    await processFile('a');
+    await processFile('a');
+    expect(image.disposed).toBe(1);
+    expect(getResult('a')).toBeNull();
     expect(useAppStore.getState().files[0].status).toBe('error');
   });
 
+  it('records the fallback after a user edit made before the first processing run', async () => {
+    const photo = makeFile('a');
+    photo.edit = { ...photo.edit, demosaicMethod: 'neural-net', model: { size: 'S', sha256: 'old' } };
+    useAppStore.setState({ files: [photo] });
+    useAppStore.getState().setFileLookPreset('a', 'umbra');
+    const image = fakeImage();
+    image.meta.metadata.modelIdentity = { size: 'S', sha256: 'actual' };
+    processRaw.mockResolvedValue(image);
+    await processFile('a');
+    expect(useAppStore.getState().files[0].edit.model?.sha256).toBe('actual');
+  });
+  it('discards a run superseded by a method change instead of overwriting the newer edit', async () => {
+    let finish!: (image: ProcessedImage) => void;
+    processRaw.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const running = processFile('a');
+    await vi.waitFor(() => expect(processRaw).toHaveBeenCalled());
+    useAppStore.getState().setFileDemosaicMethod('a', 'bilinear');
+    const image = fakeImage();
+    finish(image);
+    await running;
+    expect(image.disposed).toBe(1);
+    expect(useAppStore.getState().files[0]).toMatchObject({
+      status: 'queued',
+      edit: { demosaicMethod: 'bilinear' },
+    });
+  });
 });

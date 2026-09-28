@@ -1,3 +1,10 @@
+import { beforeEach as beforeHostTest } from 'vitest';
+beforeHostTest(() => {
+  getHost().library.remove = vi.fn(async () => {});
+});
+import { getHost } from '@/app/services/host';
+import { fromLibraryPhoto } from '@/app/store/photo';
+import { fakePhoto, defaultEdit } from '@/test/fake-host';
 import { removeFile } from '@/app/services/library';
 vi.mock('@/app/services/library', () => ({ importFiles: vi.fn(), removeFile: vi.fn() }));
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -8,10 +15,20 @@ import type { QueuedFile } from '@/app/store';
 
 function makeFile(id: string, status: QueuedFile['status'] = 'done'): QueuedFile {
   return {
-    id, file: null, name: id, originalName: `${id}.raf`, thumbnailUrl: null,
-    metadata: null, cfaType: 'xtrans', status, error: null, progress: null,
-    result: null, resultMethod: null, lensProfile: null, lookPreset: 'default',
-    openDrtOverrides: {}, preProcessOverrides: {},
+    ...fromLibraryPhoto(fakePhoto()),
+    id,
+    name: id,
+    originalName: `${id}.raf`,
+    thumbnailUrl: null,
+    metadata: null,
+    cfaType: 'xtrans',
+    status,
+    error: null,
+    progress: null,
+    result: null,
+    resultMethod: null,
+    lensProfile: null,
+    edit: { ...defaultEdit(), lookPreset: 'default', openDrtOverrides: {}, preProcessOverrides: {} },
   };
 }
 
@@ -61,4 +78,11 @@ it('maps a vertical wheel to horizontal scrolling without changing selection or 
   fireEvent.wheel(strip, { deltaY: 100, ctrlKey: true });
   fireEvent.wheel(strip, { deltaX: 100 });
   expect(strip.scrollLeft).toBe(100);
+});
+
+it('omits removal controls when the host does not support deletion', () => {
+  delete getHost().library.remove;
+  useAppStore.setState({ files: [makeFile('a')], selectedFileId: 'a' });
+  render(<Filmstrip />);
+  expect(screen.queryByRole('button', { name: 'Remove file' })).toBeNull();
 });

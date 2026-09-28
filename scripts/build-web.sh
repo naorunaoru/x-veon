@@ -17,6 +17,7 @@ export ELECTRON_SKIP_BINARY_DOWNLOAD=1
 
 npm ci --workspace shared --workspace web
 npm test --workspace shared
+npm test --workspace web
 npm run build:wasm --workspace shared
 npm run build:lensfun --workspace shared
 XV_CHANNEL="$channel" npm run build --workspace web

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { probeHdrDisplay } from './hdr-display';
+import { probeHdrDisplay } from './display';
 
 function environment({ hdr, permission }: { hdr: boolean; permission: PermissionState | 'unsupported' }) {
   const getScreenDetails = vi.fn(async () => ({ currentScreen: { highDynamicRangeHeadroom: 4 } }));
@@ -26,7 +26,8 @@ describe('HDR display probe', () => {
   });
 
   it.each(['prompt', 'denied', 'unsupported'] as const)(
-    'does not prompt at startup on an HDR display when permission is %s', async (permission) => {
+    'does not prompt at startup on an HDR display when permission is %s',
+    async (permission) => {
       const details = environment({ hdr: true, permission });
       expect(await probeHdrDisplay()).toEqual({ supported: true, headroom: 2, accurate: false });
       expect(details).not.toHaveBeenCalled();

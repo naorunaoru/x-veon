@@ -151,7 +151,7 @@ async function cycle(
   let rendererRefresh = armRendererRefresh();
   const startedAt = performance.now();
   try {
-    importFiles([file]);
+    await importFiles([file]);
     const entry = getStore().files.find((candidate) => !previousIds.has(candidate.id));
     if (!entry) throw new Error('addFiles did not create an entry');
     const id = entry.id;
@@ -219,7 +219,7 @@ async function cycle(
         const key = methodKey(sample.file, method);
         rendererRefresh = armRendererRefresh();
         const methodStartedAt = performance.now();
-        getStore().setDemosaicMethod(method);
+        getStore().setFileDemosaicMethod(id, method);
         await waitForState(() => statusOf(id) === 'processing', `${key} start`);
         await waitForState(
           () => statusOf(id) === 'done' || statusOf(id) === 'error',
@@ -248,7 +248,7 @@ async function cycle(
         });
       }
     } finally {
-      removeFile(id);
+      await removeFile(id);
       getStore().selectFile(null);
       getStore().setDemosaicMethod('neural-net');
     }

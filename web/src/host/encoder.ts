@@ -12,7 +12,7 @@ function getWorker(): Worker {
 /** The array's buffer for transfer — itself when the view spans all of it, else a copy. */
 function transferable(a: Float32Array): ArrayBuffer {
   return a.byteOffset === 0 && a.byteLength === a.buffer.byteLength
-    ? a.buffer as ArrayBuffer
+    ? (a.buffer as ArrayBuffer)
     : a.slice().buffer;
 }
 
@@ -21,10 +21,14 @@ function transferable(a: Float32Array): ArrayBuffer {
  * ~290 MB, so the caller hands them over and must not touch them afterwards (they detach).
  */
 export function encodeViaWorker(
-  data: Float32Array, hdrData: Float32Array,
-  width: number, height: number,
-  orientation: string, format: ExportFormat,
-  quality: number, peakLuminance: number,
+  data: Float32Array,
+  hdrData: Float32Array,
+  width: number,
+  height: number,
+  orientation: string,
+  format: ExportFormat,
+  quality: number,
+  peakLuminance: number,
 ): Promise<Uint8Array> {
   return new Promise((resolve, reject) => {
     const w = getWorker();
@@ -40,13 +44,19 @@ export function encodeViaWorker(
     };
     w.onerror = (e) => reject(new Error(e.message));
 
-    w.postMessage({
-      type: 'encode',
-      data: dataBuf,
-      hdrData: hdrBuf,
-      width, height,
-      orientation, format, quality,
-      peakLuminance,
-    }, [dataBuf, hdrBuf]);
+    w.postMessage(
+      {
+        type: 'encode',
+        data: dataBuf,
+        hdrData: hdrBuf,
+        width,
+        height,
+        orientation,
+        format,
+        quality,
+        peakLuminance,
+      },
+      [dataBuf, hdrBuf],
+    );
   });
 }

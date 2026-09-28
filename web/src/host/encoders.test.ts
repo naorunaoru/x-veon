@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ENCODERS, encoderFor } from './index';
+import { ENCODERS, encoderFor } from './encoders';
 import { EXPORT_FORMATS } from '@/lib/catalog';
 
 describe('encoder registry', () => {

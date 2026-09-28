@@ -1,3 +1,5 @@
+import { fromLibraryPhoto } from '@/app/store/photo';
+import { fakePhoto, defaultEdit } from '@/test/fake-host';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { DetailPanel } from './DetailPanel';
@@ -6,10 +8,20 @@ import type { QueuedFile } from '@/app/store';
 
 function makeFile(): QueuedFile {
   return {
-    id: 'a', file: null, name: 'a', originalName: 'a.raf', thumbnailUrl: null,
-    metadata: null, cfaType: 'xtrans', status: 'done', error: null, progress: null,
-    result: null, resultMethod: null, lensProfile: null, lookPreset: 'default',
-    openDrtOverrides: {}, preProcessOverrides: {},
+    ...fromLibraryPhoto(fakePhoto()),
+    id: 'a',
+    name: 'a',
+    originalName: 'a.raf',
+    thumbnailUrl: null,
+    metadata: null,
+    cfaType: 'xtrans',
+    status: 'done',
+    error: null,
+    progress: null,
+    result: null,
+    resultMethod: null,
+    lensProfile: null,
+    edit: { ...defaultEdit(), lookPreset: 'default', openDrtOverrides: {}, preProcessOverrides: {} },
   };
 }
 

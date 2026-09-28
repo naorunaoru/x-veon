@@ -1,105 +1,69 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-const opfs = vi.hoisted(() => ({
-  writeRaw: vi.fn().mockResolvedValue(undefined), writeThumbnail: vi.fn().mockResolvedValue(undefined),
-  deleteAllForFile: vi.fn().mockResolvedValue(undefined), listRawFileIds: vi.fn().mockResolvedValue(new Set(['a', 'zombie'])),
+import { beforeEach, expect, it, vi } from 'vitest';
+import { useAppStore } from '@/app/store';
+import { fakeHost, fakePhoto } from '@/test/fake-host';
+import { setHost } from './host';
+import { importFiles, removeFile, startLibraryWatching } from './library';
+import { fromLibraryPhoto } from '@/app/store/photo';
+vi.mock('./processing', () => ({ discardResult: vi.fn() }));
+vi.mock('./persistence', () => ({
+  cancelPhotoSave: vi.fn(async () => {}),
+  pausePersistence: vi.fn(),
+  resumePersistence: vi.fn(),
 }));
-vi.mock('@/app/storage/opfs-storage', () => opfs);
-const idb = vi.hoisted(() => ({
-  deleteFile: vi.fn().mockResolvedValue(undefined), cancelPendingPut: vi.fn(),
-  // still called by the monolithic store's actions until Task 9
-  putFile: vi.fn().mockResolvedValue(undefined), putSetting: vi.fn().mockResolvedValue(undefined), debouncedPutFile: vi.fn(),
-}));
-vi.mock('@/app/storage/idb-storage', () => idb);
-vi.mock('@/pipeline/decode/raf-thumbnail', () => ({
-  extractRafThumbnail: () => new Blob(['t']),
-  extractRafQuickMetadata: () => ({ camera: 'Fuji X-T10', lensModel: 'XF35', focalLength: 35, fNumber: 2 }),
-}));
-const matchLens = vi.fn().mockResolvedValue({ lensModel: 'XF35', mount: 'X', cropfactor: 1.5, distortion: [], tca: [], vignetting: [] });
-vi.mock('@/app/lens/lensfun', () => ({ matchLens: (...args: unknown[]) => matchLens(...args) }));
-const discardResult = vi.fn();
-vi.mock('@/app/services/processing', () => ({ discardResult: (...args: unknown[]) => discardResult(...args) }));
-
-import { useAppStore, type QueuedFile } from '@/app/store';
-import { importFiles, removeFile, cleanupOrphans } from './library';
-
-// jsdom's File may lack arrayBuffer(); the service only needs it to resolve to bytes.
-if (typeof File.prototype.arrayBuffer !== 'function') {
-  Object.defineProperty(File.prototype, 'arrayBuffer', { value: () => Promise.resolve(new ArrayBuffer(4)) });
-}
-
-describe('library service', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    useAppStore.setState({ files: [], selectedFileId: null });
-    globalThis.URL.createObjectURL = vi.fn(() => 'blob:thumb');
-    globalThis.URL.revokeObjectURL = vi.fn();
+vi.mock('@/app/lens/lensfun', () => ({ matchLens: vi.fn(async () => ({ lensModel: 'XF35' })) }));
+import { matchLens } from '@/app/lens/lensfun';
+import { discardResult } from './processing';
+import { cancelPhotoSave } from './persistence';
+let host: ReturnType<typeof fakeHost>;
+beforeEach(() => {
+  vi.clearAllMocks();
+  host = fakeHost();
+  setHost(host);
+  useAppStore.setState({ files: [], selectedFileId: null });
+});
+it('adds host snapshots, selects the first added photo and matches its lens', async () => {
+  const photo = fakePhoto();
+  photo.facts.metadata = { camera: 'Fuji', lensModel: 'XF35', focalLength: 35, fNumber: 2 };
+  vi.mocked(host.library.addFiles).mockResolvedValue({ photos: [photo], selectedIds: ['a'], complete: true });
+  await importFiles([new File(['x'], 'a.raf')]);
+  expect(useAppStore.getState().selectedFileId).toBe('a');
+  await vi.waitFor(() =>
+    expect(useAppStore.getState().files[0].lensProfile).toMatchObject({ lensModel: 'XF35' }),
+  );
+  expect(matchLens).toHaveBeenCalledWith('Fuji', 'XF35');
+});
+it('removes only when the host supports it, draining saves before host deletion', async () => {
+  useAppStore.setState({ files: [fromLibraryPhoto(fakePhoto())], selectedFileId: 'a' });
+  await removeFile('a');
+  expect(useAppStore.getState().files).toHaveLength(1);
+  host.library.remove = vi.fn(async () => {});
+  await removeFile('a');
+  expect(useAppStore.getState().files).toEqual([]);
+  expect(discardResult).toHaveBeenCalledWith('a');
+  expect(cancelPhotoSave).toHaveBeenCalledWith('a');
+  expect(host.library.remove).toHaveBeenCalledWith('a');
+  expect(vi.mocked(cancelPhotoSave).mock.invocationCallOrder[0]).toBeLessThan(
+    vi.mocked(host.library.remove).mock.invocationCallOrder[0],
+  );
+});
+it('applies thumbnail facts without replacing a local edit and releases its subscription', () => {
+  let publish!: Parameters<NonNullable<typeof host.library.onChange>>[0];
+  const stop = vi.fn();
+  host.library.onChange = (listener) => {
+    publish = listener;
+    return stop;
+  };
+  useAppStore.setState({ files: [fromLibraryPhoto(fakePhoto())] });
+  const unsubscribe = startLibraryWatching();
+  useAppStore.getState().setFileLookPreset('a', 'umbra');
+  publish({
+    kind: 'facts',
+    snapshot: { complete: true, photos: [{ ...fakePhoto(), thumbnailUrl: 'blob:thumb' }] },
   });
-
-  it('imports RAW files only, selects the first, and writes bytes, thumbnail and metadata', async () => {
-    importFiles([new File(['x'], 'one.RAF'), new File(['y'], 'notes.txt'), new File(['z'], 'two.arw')]);
-    const { files, selectedFileId } = useAppStore.getState();
-    expect(files.map((f) => f.originalName)).toEqual(['one.RAF', 'two.arw']);
-    expect(files.map((f) => f.cfaType)).toEqual(['xtrans', 'bayer']);
-    expect(selectedFileId).toBe(files[0].id);
-
-    await vi.waitFor(() => expect(useAppStore.getState().files[0].lensProfile).not.toBeNull());
-    expect(opfs.writeRaw).toHaveBeenCalledTimes(2);
-    expect(opfs.writeThumbnail).toHaveBeenCalledTimes(2);
-    expect(useAppStore.getState().files[0]).toMatchObject({ thumbnailUrl: 'blob:thumb', metadata: { camera: 'Fuji X-T10' } });
-    expect(matchLens).toHaveBeenCalledWith('Fuji X-T10', 'XF35');
+  expect(useAppStore.getState().files[0]).toMatchObject({
+    thumbnailUrl: 'blob:thumb',
+    edit: { lookPreset: 'umbra' },
   });
-
-  it('removes a file from the store, both storages, the pending write and the processing service', () => {
-    importFiles([new File(['x'], 'a.raf')]);
-    const id = useAppStore.getState().files[0].id;
-    removeFile(id);
-    expect(useAppStore.getState().files).toEqual([]);
-    expect(opfs.deleteAllForFile).toHaveBeenCalledWith(id);
-    expect(idb.deleteFile).toHaveBeenCalledWith(id);
-    expect(idb.cancelPendingPut).toHaveBeenCalledWith(id);
-    expect(discardResult).toHaveBeenCalledWith(id);
-  });
-
-  it('deletes OPFS entries that no library entry owns', async () => {
-    useAppStore.setState({ files: [{ id: 'a' } as QueuedFile] });
-    await cleanupOrphans();
-    expect(opfs.deleteAllForFile).toHaveBeenCalledWith('zombie');
-    expect(opfs.deleteAllForFile).not.toHaveBeenCalledWith('a');
-  });
-  it('keeps a RAW imported while the cleanup was listing storage', async () => {
-    let list!: (ids: Set<string>) => void;
-    opfs.listRawFileIds.mockImplementationOnce(() => new Promise<Set<string>>((resolve) => { list = resolve; }));
-    const cleanup = cleanupOrphans();
-    importFiles([new File(['x'], 'dropped.raf')]);
-    const id = useAppStore.getState().files[0].id;
-    list(new Set([id, 'zombie']));
-    await cleanup;
-    expect(opfs.deleteAllForFile).toHaveBeenCalledWith('zombie');
-    expect(opfs.deleteAllForFile).not.toHaveBeenCalledWith(id);
-  });
-  it('does not write files removed before their bytes arrive', async () => {
-    let release!: (bytes: ArrayBuffer) => void;
-    const file = new File(['raw'], 'late.raf');
-    Object.defineProperty(file, 'arrayBuffer', { value: () => new Promise<ArrayBuffer>(resolve => { release = resolve; }) });
-    importFiles([file]);
-    removeFile(useAppStore.getState().files[0].id);
-    release(new ArrayBuffer(4));
-    await Promise.resolve(); await Promise.resolve();
-    expect(opfs.writeRaw).not.toHaveBeenCalled();
-    expect(URL.createObjectURL).not.toHaveBeenCalled();
-  });
-  it('cleans a write that finishes after removal and releases the thumbnail URL', async () => {
-    let finish!: () => void;
-    opfs.writeRaw.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
-    importFiles([new File(['raw'], 'pending.raf')]);
-    const id = useAppStore.getState().files[0].id;
-    await vi.waitFor(() => expect(opfs.writeRaw).toHaveBeenCalled());
-    removeFile(id);
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:thumb');
-    finish();
-    await vi.waitFor(() => expect(opfs.deleteAllForFile).toHaveBeenCalledTimes(2));
-    expect(useAppStore.getState().files).toEqual([]);
-  });
-
+  unsubscribe();
+  expect(stop).toHaveBeenCalledOnce();
 });

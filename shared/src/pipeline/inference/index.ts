@@ -1,7 +1,9 @@
 import * as ort from 'onnxruntime-web';
-import type { CfaType, ModelSize } from '@/lib/types';
+import { resolveModel } from './model-selection';
+import type { CfaType, ModelSize, ModelIdentity } from '@/lib/types';
 
 export interface ModelMeta {
+  source_sha256?: string;
   epoch?: number;
   base_width?: number;
   hl_head?: boolean;
@@ -200,6 +202,8 @@ async function runBatchGpu(
 }
 
 export interface ModelRegistry {
+  resolve(cfa: CfaType, model: ModelIdentity | null, defaultSize: ModelSize): ReturnType<typeof resolveModel>;
+  activate(cfa: CfaType, model: ModelIdentity | null, defaultSize: ModelSize): Promise<ReturnType<typeof resolveModel>>;
   init(size: ModelSize): Promise<void>;
   switchSize(size: ModelSize): Promise<void>;
   availableSizes(cfaType: CfaType): Set<ModelSize>;
@@ -216,6 +220,13 @@ export interface ModelRegistry {
 
 /** The loaded ONNX models. One registry per page: ONNX Runtime is a singleton. */
 export const models: ModelRegistry = {
+  resolve: (cfa, model, defaultSize) => resolveModel(manifest, cfa, model, defaultSize),
+  activate: async (cfa, model, defaultSize) => {
+    const resolved = resolveModel(manifest, cfa, model, defaultSize);
+    await getOrLoadSession(resolved.key);
+    active.set(cfa, resolved.key); currentSize = resolved.model.size;
+    return resolved;
+  },
   init: initModels,
   switchSize: switchModelSize,
   availableSizes: getAvailableSizes,

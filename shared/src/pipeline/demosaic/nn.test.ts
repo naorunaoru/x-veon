@@ -44,6 +44,8 @@ function makeCtx(runBatchGpu: PipelineContext['models']['runBatchGpu']): Pipelin
   return {
     device: {} as GPUDevice,
     models: {
+      resolve: vi.fn(),
+      activate: vi.fn(),
       init: vi.fn(),
       switchSize: vi.fn(),
       availableSizes: vi.fn(() => new Set<ModelSize>()),
@@ -103,7 +105,9 @@ describe('neuralNetStrategy resource lifecycle', () => {
     const err = new Error('accumulate failed');
     const dispose = vi.fn();
     const runBatchGpu = vi.fn().mockResolvedValue({ buffer: {} as GPUBuffer, dispose });
-    accumulateBatch.mockImplementation(() => { throw err; });
+    accumulateBatch.mockImplementation(() => {
+      throw err;
+    });
 
     await expect(neuralNetStrategy.run(makeInput(), makeCtx(runBatchGpu), makeOpts())).rejects.toBe(err);
 
@@ -116,9 +120,13 @@ describe('neuralNetStrategy resource lifecycle', () => {
     const err = new Error('progress failed');
     const dispose = vi.fn();
     const runBatchGpu = vi.fn().mockResolvedValue({ buffer: {} as GPUBuffer, dispose });
-    const onProgress = vi.fn(() => { throw err; });
+    const onProgress = vi.fn(() => {
+      throw err;
+    });
 
-    await expect(neuralNetStrategy.run(makeInput(), makeCtx(runBatchGpu), makeOpts(onProgress))).rejects.toBe(err);
+    await expect(neuralNetStrategy.run(makeInput(), makeCtx(runBatchGpu), makeOpts(onProgress))).rejects.toBe(
+      err,
+    );
 
     expect(dispose).toHaveBeenCalledTimes(1);
     expect(destroy).toHaveBeenCalledTimes(1);

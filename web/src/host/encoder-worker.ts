@@ -1,4 +1,4 @@
-import init, { encode_image } from '../../../crates/encode/pkg/xtrans_encoder_wasm.js';
+import init, { encode_image } from '../../../shared/crates/encode/pkg/xtrans_encoder_wasm.js';
 
 let ready = false;
 
@@ -15,8 +15,11 @@ self.onmessage = async (e: MessageEvent) => {
     const result = encode_image(
       new Float32Array(data),
       new Float32Array(hdrData),
-      width, height,
-      orientation, format, quality,
+      width,
+      height,
+      orientation,
+      format,
+      quality,
       peakLuminance,
     );
     self.postMessage({ type: 'done', data: result.buffer }, [result.buffer] as any);

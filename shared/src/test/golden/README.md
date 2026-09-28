@@ -46,6 +46,10 @@ Exports now always render to `rgba32float`. They previously used `rgba16float` w
 device lacked `float32-blendable`, which ONNX Runtime's shared device never requests, so the
 recorded export hashes (already stale above) will not match either. Re-record together.
 
+## Host routing
+
+Golden exports use the shared export service and `host.exporter`, including the real web WASM encoder. The web entry disables download delivery for a compiled-in golden route; the harness hashes the returned bytes without saving files into Downloads. The baseline and its adapter-specific comparison rules are unchanged by M1.
+
 ## Running
 
 ```bash

@@ -3,7 +3,8 @@ import react from '@vitejs/plugin-react';
 import wasm from 'vite-plugin-wasm';
 import path from 'path';
 import { execSync } from 'node:child_process';
-import { basePath, isChannel, CHANNELS, type Channel } from '../shared/src/lib/channel';
+import { basePath } from './src/host/channel';
+import { isChannel, CHANNELS, type Channel } from '../shared/src/lib/channel';
 
 /**
  * XV_CHANNEL decides the base path, the storage namespace and the build stamp.

@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { basePath, storageNames, otherChannelLink, channelLabel, isChannel, BUILD, CHANNELS } from './channel';
+import {
+  basePath,
+  storageNames,
+  otherChannelLink,
+  channelLabel,
+  isChannel,
+  BUILD,
+  CHANNELS,
+} from './channel';
 
 describe('channel helpers', () => {
   it('maps channels to base paths', () => {

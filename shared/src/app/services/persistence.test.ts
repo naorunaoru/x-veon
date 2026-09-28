@@ -1,104 +1,137 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-const idb = vi.hoisted(() => ({
-  putSetting: vi.fn().mockResolvedValue(undefined), debouncedPutFile: vi.fn(), putFile: vi.fn(),
-  getAllFiles: vi.fn(), getSetting: vi.fn(), cancelPendingPut: vi.fn(),
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+vi.mock('@/app/storage/settings-storage', () => ({
+  getSetting: vi.fn(),
+  putSetting: vi.fn(async () => {}),
+  pauseSettings: vi.fn(),
+  resumeSettings: vi.fn(),
 }));
-vi.mock('@/app/storage/idb-storage', () => idb);
-vi.mock('@/app/storage/opfs-storage', () => ({ readThumbnail: vi.fn().mockResolvedValue(null) }));
-
+import { getSetting, putSetting } from '@/app/storage/settings-storage';
 import { useAppStore } from '@/app/store';
-import type { QueuedFile } from '@/app/store';
-import { startPersistence, restore, fileToPersistedFile } from './persistence';
-import { configFromPreset, configWithOverrides, TONESCALE_PRESETS } from '@/renderer/grading/opendrt-params';
-
-function makeFile(id: string): QueuedFile {
-  return {
-    id, file: null, name: id, originalName: `${id}.raf`, thumbnailUrl: null,
-    metadata: null, cfaType: 'xtrans', status: 'done', error: null, progress: null,
-    result: null, resultMethod: null, lensProfile: null, lookPreset: 'default',
-    openDrtOverrides: {}, preProcessOverrides: {},
-  };
+import { fakeHost, fakePhoto } from '@/test/fake-host';
+import { fromLibraryPhoto } from '@/app/store/photo';
+import { setHost } from './host';
+import { startPersistence, restore, cancelPhotoSave } from './persistence';
+let host: ReturnType<typeof fakeHost>;
+let stop: () => void;
+function photo() {
+  const p = fakePhoto();
+  p.edit.demosaicMethod = 'dht';
+  return fromLibraryPhoto(p);
 }
-
-describe('persistence service', () => {
-  let stop: () => void;
-  beforeEach(() => {
-    vi.clearAllMocks();
-    useAppStore.setState({ files: [makeFile('a')], selectedFileId: 'a', exportQuality: 95, demosaicMethod: 'neural-net' });
-    stop = startPersistence();
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.clearAllMocks();
+  host = fakeHost();
+  setHost(host);
+  useAppStore.setState({
+    files: [photo()],
+    selectedFileId: 'a',
+    exportQuality: 95,
+    modelSize: 'S',
+    demosaicMethod: 'neural-net',
   });
-  afterEach(() => stop());
-
-  it('writes a changed file record exactly once, debounced', () => {
-    useAppStore.getState().setFileLookPreset('a', 'colorful');
-    expect(idb.debouncedPutFile).toHaveBeenCalledTimes(1);
-    expect(idb.debouncedPutFile.mock.calls[0][0]).toMatchObject({ id: 'a', lookPreset: 'colorful' });
-    expect(idb.putFile).not.toHaveBeenCalled();
+  stop = startPersistence();
+});
+afterEach(() => {
+  stop();
+  vi.useRealTimers();
+});
+const flush = () => vi.advanceTimersByTimeAsync(301);
+it('debounces edits, omits transient updates and keeps settings separate', async () => {
+  const s = useAppStore.getState();
+  s.setFileLookPreset('a', 'colorful');
+  s.setFilePreProcessOverride('a', 'exposure', 1);
+  s.updateFileProgress('a', 1, 3);
+  s.setViewScale(2);
+  s.setOpenPanel('scopes');
+  expect(host.library.save).not.toHaveBeenCalled();
+  await flush();
+  expect(host.library.save).toHaveBeenCalledTimes(1);
+  expect(host.library.save).toHaveBeenCalledWith(
+    'a',
+    expect.objectContaining({ lookPreset: 'colorful', preProcessOverrides: { exposure: 1 } }),
+    expect.anything(),
+  );
+  s.setExportQuality(80);
+  expect(putSetting).toHaveBeenCalledWith('exportQuality', 80);
+});
+it('does not write on hydration or selection, and restores model defaults', async () => {
+  vi.mocked(host.library.load).mockResolvedValue({ photos: [fakePhoto('r')], complete: true });
+  vi.mocked(getSetting).mockImplementation(
+    async (key) => (({ modelSize: 'M', exportQuality: 80 }) as Record<string, unknown>)[key] as never,
+  );
+  const restored = await restore();
+  useAppStore.getState().restoreFromDb(restored.files, restored.settings);
+  useAppStore.getState().selectFile('r');
+  await flush();
+  expect(host.library.save).not.toHaveBeenCalled();
+  expect(restored.settings.modelSize).toBe('M');
+});
+it('keeps a rejected edit in session and retries once on focus', async () => {
+  vi.mocked(host.library.save).mockRejectedValueOnce(new Error('disk full'));
+  useAppStore.getState().setFileLookPreset('a', 'umbra');
+  await flush();
+  expect(useAppStore.getState().files[0]).toMatchObject({
+    editing: 'session',
+    editingNote: 'disk full',
+    edit: { lookPreset: 'umbra' },
   });
-
-  it('writes settings keys as they change and nothing else', () => {
-    useAppStore.getState().setExportQuality(80);
-    expect(idb.putSetting).toHaveBeenCalledWith('exportQuality', 80);
-    expect(idb.putSetting).toHaveBeenCalledTimes(1);
-    useAppStore.getState().selectFile(null);
-    expect(idb.putSetting).toHaveBeenCalledWith('selectedFileId', null);
-  });
-
-  it('does not write while a file is processing; the error record is written', () => {
-    useAppStore.getState().updateFileStatus('a', 'processing');
-    expect(idb.debouncedPutFile).not.toHaveBeenCalled();
-    useAppStore.getState().updateFileStatus('a', 'error', 'boom');
-    expect(idb.debouncedPutFile).toHaveBeenCalledTimes(1);
-    expect(idb.debouncedPutFile.mock.calls[0][0]).toMatchObject({ status: 'error', error: 'boom' });
-  });
-
-  it('restores files and settings from storage', async () => {
-    idb.getAllFiles.mockResolvedValue([{
-      id: 'r', name: 'r', originalName: 'r.raf', fileSize: 1, cfaType: 'bayer', camera: 'Sony', lensModel: null,
-      focalLength: null, fNumber: null, status: 'queued', error: null, resultMethod: null, resultMeta: null,
-      cachedMethods: [], lookPreset: 'default', lensProfile: null, openDrtOverrides: {}, preProcessOverrides: {}, addedAt: 1,
-    }]);
-    idb.getSetting.mockImplementation(async (key: string) => ({ exportQuality: 80, selectedFileId: 'r' } as Record<string, unknown>)[key]);
-    const restored = await restore();
-    expect(restored.files[0]).toMatchObject({ id: 'r', status: 'queued', metadata: { camera: 'Sony', lensModel: '' } });
-    expect(restored.settings).toEqual({ demosaicMethod: undefined, exportFormat: undefined, exportQuality: 80, selectedFileId: 'r' });
-    expect(restored.complete).toBe(true);
-  });
-  it('reports an incomplete restore when the file records cannot be read', async () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    idb.getAllFiles.mockRejectedValue(new Error('Internal error opening backing store'));
-    idb.getSetting.mockResolvedValue(undefined);
-    const restored = await restore();
-    expect(restored).toMatchObject({ files: [], complete: false });
-  });
-  it('does not persist view-only updates and stops writing after unsubscribe', () => {
-    useAppStore.getState().setViewScale(2);
-    useAppStore.getState().setOpenPanel('scopes');
-    expect(idb.putSetting).not.toHaveBeenCalled();
-    expect(idb.debouncedPutFile).not.toHaveBeenCalled();
-    stop();
-    useAppStore.getState().setExportQuality(71);
-    useAppStore.getState().setFileLookPreset('a', 'base');
-    expect(idb.putSetting).not.toHaveBeenCalled();
-    expect(idb.debouncedPutFile).not.toHaveBeenCalled();
-  });
-
-  it.each(['colorful', 'marvelous'] as const)('round-trips %s with its edits and appearance intact', async (lookPreset) => {
-    const original: QueuedFile = {
-      ...makeFile('r'), lookPreset,
-      openDrtOverrides: { ...TONESCALE_PRESETS['aces-2'].overrides, cwp: 0.4 },
-      preProcessOverrides: { exposure: 1, wb_temp: 0.2, sharpen_amount: 0.5 },
-      lookHistory: [{ lookPreset: 'umbra', openDrtOverrides: {} }],
-    };
-    const saved = fileToPersistedFile(original);
-    expect(saved).not.toHaveProperty('lookHistory');
-    idb.getAllFiles.mockResolvedValue([saved]);
-    idb.getSetting.mockResolvedValue(undefined);
-    const { files: [restored] } = await restore();
-    expect(restored).toMatchObject({ lookPreset, openDrtOverrides: original.openDrtOverrides, preProcessOverrides: original.preProcessOverrides });
-    expect(configWithOverrides(configFromPreset(restored.lookPreset), restored.openDrtOverrides, restored.preProcessOverrides))
-      .toEqual(configWithOverrides(configFromPreset(original.lookPreset), original.openDrtOverrides, original.preProcessOverrides));
-  });
-
+  await flush();
+  expect(host.library.save).toHaveBeenCalledTimes(1);
+  window.dispatchEvent(new Event('focus'));
+  await flush();
+  expect(host.library.save).toHaveBeenCalledTimes(2);
+  expect(useAppStore.getState().files[0].editing).toBe('saved');
+});
+it('serializes revisions and never acknowledges a newer edit with an older completion', async () => {
+  let finish!: () => void;
+  vi.mocked(host.library.save).mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  useAppStore.getState().setFileLookPreset('a', 'umbra');
+  await flush();
+  useAppStore.getState().setFileLookPreset('a', 'colorful');
+  await flush();
+  expect(host.library.save).toHaveBeenCalledTimes(1);
+  finish();
+  await flush();
+  expect(host.library.save).toHaveBeenCalledTimes(2);
+  expect(vi.mocked(host.library.save).mock.calls[1][1].lookPreset).toBe('colorful');
+});
+it('guards view-only edits and persists neither processing nor note changes', async () => {
+  useAppStore.setState({ files: [{ ...photo(), editing: 'view-only', editingNote: 'newer schema' }] });
+  useAppStore.getState().setFileLookPreset('a', 'colorful');
+  useAppStore.getState().setFileDemosaicMethod('a', 'bilinear');
+  useAppStore.getState().updateFileStatus('a', 'processing');
+  await flush();
+  expect(useAppStore.getState().files[0].edit.lookPreset).toBe('default');
+  expect(host.library.save).not.toHaveBeenCalled();
+});
+it('cancels pending saves on removal and unsubscribes cleanly', async () => {
+  useAppStore.getState().setFileLookPreset('a', 'colorful');
+  await cancelPhotoSave('a');
+  useAppStore.getState().removeFile('a');
+  await flush();
+  expect(host.library.save).not.toHaveBeenCalled();
+  vi.mocked(putSetting).mockClear();
+  stop();
+  useAppStore.getState().setExportQuality(12);
+  expect(putSetting).not.toHaveBeenCalled();
+});
+it('saves an error fact after processing ends and reports incomplete restore', async () => {
+  useAppStore.getState().updateFileStatus('a', 'processing');
+  await flush();
+  expect(host.library.save).not.toHaveBeenCalled();
+  useAppStore.getState().updateFileStatus('a', 'error', 'bad file');
+  await flush();
+  expect(host.library.save).toHaveBeenCalledWith(
+    'a',
+    expect.anything(),
+    expect.objectContaining({ status: 'error', error: 'bad file' }),
+  );
+  vi.mocked(host.library.load).mockResolvedValue({ photos: [], complete: false });
+  expect((await restore()).complete).toBe(false);
 });

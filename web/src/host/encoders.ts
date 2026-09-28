@@ -9,9 +9,13 @@ export interface Encoder {
    * Both arrays are consumed: they are transferred to the encoder worker and detach.
    */
   encode(
-    sdr: Float32Array, hdr: Float32Array | null,
-    width: number, height: number,
-    orientation: string, quality: number, peakLuminance: number,
+    sdr: Float32Array,
+    hdr: Float32Array | null,
+    width: number,
+    height: number,
+    orientation: string,
+    quality: number,
+    peakLuminance: number,
   ): Promise<Blob>;
 }
 
@@ -21,9 +25,14 @@ function workerEncoder(format: ExportFormat): Encoder {
     format,
     async encode(sdr, hdr, width, height, orientation, quality, peakLuminance) {
       const encoded = await encodeViaWorker(
-        sdr, hdr ?? new Float32Array(0),
-        width, height,
-        orientation, format, quality, peakLuminance,
+        sdr,
+        hdr ?? new Float32Array(0),
+        width,
+        height,
+        orientation,
+        format,
+        quality,
+        peakLuminance,
       );
       return new Blob([encoded.buffer as ArrayBuffer], { type: exportFormatInfo(format).mime });
     },

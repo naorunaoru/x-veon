@@ -1,3 +1,5 @@
+import type { ModelIdentity, ModelSize } from '@/lib/types';
+import { editPhoto } from './photo';
 import type { DemosaicMethod, ExportFormat, ProcessingResultMeta } from '@/lib/types';
 import type { QuickMetadata } from '@/pipeline/decode/raf-thumbnail';
 import type { LensProfile } from '@/app/lens/lensfun';
@@ -5,13 +7,17 @@ import type { AppState, FileStatus, QueuedFile, Slice } from './types';
 
 export interface RestoredSettings {
   demosaicMethod?: DemosaicMethod;
+  modelSize?: ModelSize;
   exportFormat?: ExportFormat;
   exportQuality?: number;
   selectedFileId?: string | null;
 }
 
 export interface LibrarySlice {
+  hydrationVersion: number;
   files: QueuedFile[];
+  setFileDemosaicMethod: (id: string, method: DemosaicMethod) => void;
+  setFileModel: (id: string, model: ModelIdentity) => void;
   selectedFileId: string | null;
   processingFileId: string | null;
   /** Append prepared entries and select the first of them. */
@@ -28,7 +34,10 @@ export interface LibrarySlice {
 }
 
 export const createLibrarySlice: Slice<LibrarySlice> = (set, get) => ({
+  hydrationVersion: 0,
   files: [],
+  setFileDemosaicMethod: (id, method) => set(state => ({ files: state.files.map(f => f.id === id ? editPhoto(f, { demosaicMethod: method }) : f) })),
+  setFileModel: (id, model) => set(state => ({ files: state.files.map(f => f.id === id ? editPhoto(f, { model, demosaicMethod: 'neural-net' }) : f) })),
   selectedFileId: null,
   processingFileId: null,
 
@@ -50,14 +59,7 @@ export const createLibrarySlice: Slice<LibrarySlice> = (set, get) => ({
       return { files, selectedFileId };
     }),
 
-  selectFile: (id) => {
-    const file = id ? get().files.find((f) => f.id === id) : null;
-    const updates: Partial<AppState> = { selectedFileId: id };
-    if (file?.resultMethod) updates.demosaicMethod = file.resultMethod;
-    // The model size stays the user's choice: copying it from a result would show a size
-    // whose models aren't loaded.
-    set(updates);
-  },
+  selectFile: (id) => set({ selectedFileId: id }),
 
   updateFileStatus: (id, status, error) =>
     set((state) => ({
@@ -107,11 +109,12 @@ export const createLibrarySlice: Slice<LibrarySlice> = (set, get) => ({
     const selectedFileId = has(liveSelection) ? liveSelection
       : has(settings.selectedFileId) ? settings.selectedFileId
       : files.length > 0 ? files[0].id : null;
-    const selectedFile = selectedFileId ? files.find((f) => f.id === selectedFileId) : null;
     set({
       files,
       selectedFileId,
-      demosaicMethod: selectedFile?.resultMethod ?? settings.demosaicMethod ?? state.demosaicMethod,
+      hydrationVersion: state.hydrationVersion + 1,
+      demosaicMethod: settings.demosaicMethod ?? state.demosaicMethod,
+      modelSize: settings.modelSize ?? state.modelSize,
       exportFormat: settings.exportFormat ?? state.exportFormat,
       exportQuality: settings.exportQuality ?? state.exportQuality,
     });

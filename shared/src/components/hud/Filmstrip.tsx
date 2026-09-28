@@ -1,3 +1,4 @@
+import { getHost } from '@/app/services/host';
 import { RAW_ACCEPT } from '@/lib/catalog';
 import { importFiles, removeFile } from '@/app/services/library';
 import { useCallback, useEffect, useRef } from 'react';
@@ -44,13 +45,13 @@ export function Filmstrip() {
             {f.thumbnailUrl && <img src={f.thumbnailUrl} alt={f.originalName} />}
             <span className={`xv-thumb__dot ${f.status}`} />
             <span className="xv-thumb__index">{String(i + 1).padStart(2, '0')}</span>
-            <button
+            {getHost().library.remove && <button
               className="xv-thumb__remove"
               aria-label="Remove file"
               onClick={(e) => { e.stopPropagation(); removeFile(f.id); }}
             >
               <X size={9} />
-            </button>
+            </button>}
           </div>
         ))}
         <button className="xv-filmstrip__add" aria-label="Add files" onClick={() => inputRef.current?.click()}>

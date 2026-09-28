@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { requestWindowManagementHeadroom } from '@/renderer/hdr-display';
+import { getHost } from '@/app/services/host';
 import { useAppStore } from '@/app/store';
 import { Dialog, DialogContent } from './Dialog';
 
@@ -11,14 +11,14 @@ export function HdrPermissionDialog() {
 
   async function handleAllow() {
     setRequesting(true);
-    const headroom = await requestWindowManagementHeadroom();
+    const headroom = await getHost().display.requestAccurateHeadroom?.();
     setRequesting(false);
     if (headroom != null) setDisplayHdr(true, headroom);
     setNeeded(false);
   }
 
   return (
-    <Dialog open={needed} onOpenChange={(value) => { if (!value) setNeeded(false); }}>
+    <Dialog open={needed && !!getHost().display.requestAccurateHeadroom} onOpenChange={(value) => { if (!value) setNeeded(false); }}>
       <DialogContent
         title="HDR Display Detection"
         actions={(

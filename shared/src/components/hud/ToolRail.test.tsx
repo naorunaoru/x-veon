@@ -1,3 +1,5 @@
+import { fromLibraryPhoto } from '@/app/store/photo';
+import { fakePhoto, defaultEdit } from '@/test/fake-host';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { ToolRail } from './ToolRail';
@@ -6,10 +8,21 @@ import type { QueuedFile } from '@/app/store';
 
 function fileWith(over: Partial<QueuedFile>): QueuedFile {
   return {
-    id: 'a', file: null, name: 'a', originalName: 'a.raf', thumbnailUrl: null,
-    metadata: null, cfaType: 'xtrans', status: 'done', error: null, progress: null,
-    result: null, resultMethod: null, lensProfile: null, lookPreset: 'default',
-    openDrtOverrides: {}, preProcessOverrides: {}, ...over,
+    ...fromLibraryPhoto(fakePhoto()),
+    id: 'a',
+    name: 'a',
+    originalName: 'a.raf',
+    thumbnailUrl: null,
+    metadata: null,
+    cfaType: 'xtrans',
+    status: 'done',
+    error: null,
+    progress: null,
+    result: null,
+    resultMethod: null,
+    lensProfile: null,
+    edit: { ...defaultEdit(), lookPreset: 'default', openDrtOverrides: {}, preProcessOverrides: {} },
+    ...over,
   };
 }
 
@@ -37,7 +50,10 @@ describe('ToolRail', () => {
   });
 
   it('shows a modified dot on a section with overrides', () => {
-    useAppStore.setState({ files: [fileWith({ preProcessOverrides: { exposure: 0.5 } })], selectedFileId: 'a' });
+    useAppStore.setState({
+      files: [fileWith({ edit: { ...defaultEdit(), preProcessOverrides: { exposure: 0.5 } } })],
+      selectedFileId: 'a',
+    });
     const { container } = render(<ToolRail />);
     expect(container.querySelector('.xv-rail-btn__dot')).not.toBeNull();
   });

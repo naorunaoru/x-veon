@@ -22,9 +22,9 @@ export function ToolRail() {
   const file = useAppStore((s) => s.files.find((f) => f.id === s.selectedFileId));
   const displayHdr = useAppStore((s) => s.displayHdr);
   const headroom = useAppStore((s) => s.displayHdrHeadroom);
-  const drt = file?.openDrtOverrides ?? {};
-  const pre = file?.preProcessOverrides ?? {};
-  const base = configFromPreset(file?.lookPreset ?? 'default', displayHdr ? headroom : undefined);
+  const drt = file?.edit.openDrtOverrides ?? {};
+  const pre = file?.edit.preProcessOverrides ?? {};
+  const base = configFromPreset(file?.edit.lookPreset ?? 'default', displayHdr ? headroom : undefined);
 
   return (
     <div className="xv-toolrail xv-glass">

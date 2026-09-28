@@ -9,11 +9,11 @@ export function ActionHud() {
   const initialized = useAppStore((s) => s.initialized);
   const selectedFile = useAppStore((s) => s.files.find((f) => f.id === s.selectedFileId));
   const { processFile, isProcessing } = useProcessing();
-  const { exportFile, isExporting } = useExport();
+  const { exportFile, isExporting, exportError, exportAvailable = true } = useExport();
   const [exportOpen, setExportOpen] = useState(false);
 
   const canProcess = initialized && !isProcessing && !!selectedFile;
-  const canExport = selectedFile?.status === 'done' && !isExporting;
+  const canExport = selectedFile?.status === 'done' && !isExporting && exportAvailable;
 
   return (
     <div className="xv-actionhud xv-glass">
@@ -31,6 +31,7 @@ export function ActionHud() {
       >
         {isProcessing ? 'Processing…' : 'Process'}
       </button>
+      {exportError && <p role="alert">{exportError}</p>}
       <ExportDialog
         open={exportOpen}
         onOpenChange={setExportOpen}

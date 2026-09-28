@@ -1,3 +1,5 @@
+import type { PhotoEdit, LibraryPhoto } from '@/host';
+import type { ModelIdentity } from '@/lib/types';
 import type { StateCreator } from 'zustand';
 import type { CfaType, DemosaicMethod, LookPreset, ProcessingResultMeta } from '@/lib/types';
 import type { OpenDrtConfig, PreProcessConfig } from '@/renderer/grading/opendrt-params';
@@ -19,7 +21,15 @@ export interface LookSnapshot {
 
 export interface QueuedFile {
   id: string;
-  file: File | null;
+  fileSize: number;
+  edit: PhotoEdit;
+  editing: LibraryPhoto['editing'];
+  editingNote: string | null;
+  editRevision: number;
+  modelNeedsResolution: boolean;
+  actualModel: ModelIdentity | null;
+  modelNote: string | null;
+  processedKey: string | null;
   name: string;
   originalName: string;
   thumbnailUrl: string | null;
@@ -31,9 +41,6 @@ export interface QueuedFile {
   result: ProcessingResultMeta | null;
   resultMethod: DemosaicMethod | null;
   lensProfile: LensProfile | null;
-  lookPreset: LookPreset;
-  openDrtOverrides: Partial<OpenDrtConfig>;
-  preProcessOverrides: Partial<PreProcessConfig>;
   /** Session-only history of look selections; never serialized with the photo. */
   lookHistory?: LookSnapshot[];
 }

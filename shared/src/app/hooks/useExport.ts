@@ -1,42 +1,38 @@
-import { useCallback, useState } from 'react';
-import { useAppStore } from '@/app/store';
-import { renderExport } from '@/app/services/export';
-
-function triggerDownload(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 60000);
-}
-
+import { getHost } from '@/app/services/host';
+import { useCallback, useEffect, useState } from 'react';
+import { enqueueExport } from '@/app/services/export';
 export function useExport() {
   const [isExporting, setIsExporting] = useState(false);
-
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportAvailable, setExportAvailable] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void getHost()
+      .exporter.status()
+      .then((status) => {
+        if (cancelled) return;
+        setExportAvailable(status.available);
+        if (!status.available) setExportError(status.reason);
+      })
+      .catch((error) => {
+        if (!cancelled) setExportError(error instanceof Error ? error.message : String(error));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const exportFile = useCallback(async (fileId: string) => {
-    const state = useAppStore.getState();
-    const file = state.files.find((f) => f.id === fileId);
-    if (!file?.result) return;
-    if (!state.renderer) {
-      console.error('Export failed: renderer not available');
-      return;
-    }
     setIsExporting(true);
+    setExportError(null);
     try {
-      const startTime = Date.now();
-      const { blob, ext } = await renderExport(fileId);
-      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-      console.log(`Exported ${state.exportFormat.toUpperCase()} - ${(blob.size / 1024 / 1024).toFixed(1)} MB in ${elapsed}s`);
-      triggerDownload(blob, `${file.name}.${ext}`);
-    } catch (e) {
-      console.error('Export failed:', e);
+      await enqueueExport(fileId).promise;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setExportError(message);
+      console.error('Export failed:', error);
     } finally {
       setIsExporting(false);
     }
   }, []);
-
-  return { exportFile, isExporting };
+  return { exportFile, isExporting, exportError, exportAvailable };
 }

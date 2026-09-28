@@ -1,7 +1,7 @@
 // Extends Vitest's `expect` with jest-dom DOM matchers (toBeInTheDocument, etc.).
 // Must use the /vitest subpath — the root import augments Jest, not Vitest.
 import '@testing-library/jest-dom/vitest';
-import { afterEach } from 'vitest';
+import { beforeEach, afterEach } from 'vitest';
 import { cleanup } from '@testing-library/react';
 
 // globals: false means @testing-library/react cannot detect `afterEach` at
@@ -21,3 +21,7 @@ if (typeof globalThis.ResizeObserver === 'undefined') {
     disconnect() {}
   };
 }
+
+import { setHost } from '@/app/services/host';
+import { fakeHost } from './fake-host';
+beforeEach(() => setHost(fakeHost()));

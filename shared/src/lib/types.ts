@@ -11,6 +11,7 @@ export type DemosaicMethod =
   | 'mhc';
 
 export type ModelSize = 'S' | 'M' | 'L';
+export interface ModelIdentity { size: ModelSize; sha256: string }
 export type ExportFormat = 'jpeg-hdr' | 'avif' | 'tiff';
 export type LookPreset = 'opendrt-v1-default' | 'opendrt-v1-colorful' | 'opendrt-v1-umbra' | 'opendrt-v1-base'
   | 'default' | 'colorful' | 'umbra' | 'base' | 'flat'
@@ -32,6 +33,9 @@ export interface ProcessingMetadata {
   colorTemp: number;
   tint: number;
   modelSize?: ModelSize;
+  modelIdentity?: ModelIdentity;
+  cfaType?: CfaType;
+  modelNote?: string | null;
 }
 
 /** Lightweight export data stored in Zustand; pixel data lives in OPFS. */

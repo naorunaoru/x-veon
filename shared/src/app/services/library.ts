@@ -1,101 +1,96 @@
 import { useAppStore } from '@/app/store';
-import type { QueuedFile } from '@/app/store';
-import type { CfaType } from '@/lib/types';
-import { RAW_EXTENSIONS } from '@/lib/catalog';
-import { extractRafThumbnail, extractRafQuickMetadata } from '@/pipeline/decode/raf-thumbnail';
-import { writeRaw, writeThumbnail, deleteAllForFile, listRawFileIds } from '@/app/storage/opfs-storage';
-import { deleteFile as idbDeleteFile, cancelPendingPut } from '@/app/storage/idb-storage';
+import { fromLibraryPhoto } from '@/app/store/photo';
 import { matchLens } from '@/app/lens/lensfun';
-import { discardResult } from '@/app/services/processing';
-
-function isRawFile(file: File): boolean {
-  const lower = file.name.toLowerCase();
-  return RAW_EXTENSIONS.some((ext) => lower.endsWith(ext));
-}
-
-function newEntry(file: File): QueuedFile {
-  return {
-    id: crypto.randomUUID(),
-    file,
-    name: file.name.replace(/\.[^.]+$/, ''),
-    originalName: file.name,
-    thumbnailUrl: null,
-    metadata: null,
-    cfaType: (file.name.toLowerCase().endsWith('.raf') ? 'xtrans' : 'bayer') as CfaType,
-    status: 'queued',
-    error: null,
-    progress: null,
-    result: null,
-    resultMethod: null,
-    lensProfile: null,
-    lookPreset: 'default',
-    openDrtOverrides: {},
-    preProcessOverrides: {},
-  };
-}
-
-/** Add dropped/picked files: entries into the store, bytes and thumbnails into OPFS, lenses matched. */
-export function importFiles(files: File[]): void {
-  const entries = files.filter(isRawFile).map(newEntry);
-  if (entries.length === 0) return;
-  useAppStore.getState().addFiles(entries);
-
-  for (const entry of entries) {
-    entry.file!.arrayBuffer().then(async (buf) => {
-      const exists = () => useAppStore.getState().files.some((file) => file.id === entry.id);
-      // Removal can happen before disk reads or writes finish.
-      if (!exists()) return;
-      const thumbBlob = extractRafThumbnail(buf);
-      const meta = extractRafQuickMetadata(buf);
-      const writes = [writeRaw(entry.id, buf).catch((e) => console.warn('OPFS raw write failed:', e))];
-      if (thumbBlob) {
-        writes.push(writeThumbnail(entry.id, thumbBlob).catch((e) => console.warn('OPFS thumbnail write failed:', e)));
-      }
-      useAppStore.getState().setFileThumbnail(entry.id, thumbBlob ? URL.createObjectURL(thumbBlob) : null, meta);
-      matchLensFor(entry.id);
-      await Promise.all(writes);
-      // A write already in progress must not resurrect storage after removal.
-      if (!exists()) await deleteAllForFile(entry.id).catch((e) => console.warn('OPFS cleanup failed:', e));
-    }).catch((e) => console.warn('RAW import failed:', e));
+import { discardResult } from './processing';
+import { getHost } from './host';
+import { cancelPhotoSave, pausePersistence, resumePersistence } from './persistence';
+let clearing = false;
+let suspended = false;
+export async function importFiles(files: File[]): Promise<void> {
+  if (clearing || suspended) return;
+  try {
+    const snapshot = await getHost().library.addFiles(files);
+    if (clearing || suspended) return;
+    const state = useAppStore.getState();
+    state.addFiles(
+      snapshot.photos.filter((p) => !state.files.some((f) => f.id === p.id)).map(fromLibraryPhoto),
+    );
+    if (snapshot.selectedIds?.[0]) useAppStore.getState().selectFile(snapshot.selectedIds[0]);
+    for (const photo of snapshot.photos) matchLensFor(photo.id);
+  } catch (error) {
+    console.warn('RAW import failed:', error);
   }
 }
-
-/** Match the file's lens against the LensFun database if it has lens metadata and no profile yet. */
+export function startLibraryWatching(): () => void {
+  return (
+    getHost().library.onChange?.(({ snapshot, kind }) => {
+      if (clearing || suspended) return;
+      if (kind === 'facts') {
+        useAppStore.setState((state) => ({
+          files: state.files.map((file) => {
+            const photo = snapshot.photos.find((p) => p.id === file.id);
+            if (!photo) return file;
+            return {
+              ...file,
+              thumbnailUrl: photo.thumbnailUrl,
+              metadata: photo.facts.metadata,
+              ...(photo.editing === 'session'
+                ? { editing: photo.editing, editingNote: photo.editingNote }
+                : {}),
+            };
+          }),
+        }));
+      } else {
+        const state = useAppStore.getState();
+        state.restoreFromDb(
+          snapshot.photos.map((photo) => {
+            const local = state.files.find((f) => f.id === photo.id);
+            return local?.editing === 'session' || (local?.editRevision ?? 0) > 0
+              ? local!
+              : fromLibraryPhoto(photo);
+          }),
+          {},
+        );
+      }
+      for (const photo of snapshot.photos) matchLensFor(photo.id);
+    }) ?? (() => {})
+  );
+}
 export function matchLensFor(fileId: string): void {
   const file = useAppStore.getState().files.find((f) => f.id === fileId);
   if (!file || file.lensProfile || !file.metadata?.lensModel) return;
-  matchLens(file.metadata.camera, file.metadata.lensModel)
+  void matchLens(file.metadata.camera, file.metadata.lensModel)
     .then((profile) => {
-      if (profile) useAppStore.getState().setFileLensProfile(fileId, profile);
+      if (profile && !clearing) useAppStore.getState().setFileLensProfile(fileId, profile);
     })
-    .catch((e) => console.warn('Lens match failed:', e));
+    .catch((error) => console.warn('Lens match failed:', error));
 }
-
-export function removeFile(id: string): void {
-  const thumbnailUrl = useAppStore.getState().files.find((file) => file.id === id)?.thumbnailUrl;
-  if (thumbnailUrl) URL.revokeObjectURL(thumbnailUrl);
+export async function removeFile(id: string): Promise<void> {
+  const remove = getHost().library.remove;
+  if (!remove || clearing || suspended) return;
   discardResult(id);
-  cancelPendingPut(id);
-  deleteAllForFile(id).catch((e) => console.warn('OPFS cleanup failed:', e));
-  idbDeleteFile(id).catch((e) => console.warn('IDB cleanup failed:', e));
   useAppStore.getState().removeFile(id);
+  await cancelPhotoSave(id);
+  await remove(id).catch((error) => console.warn('Library removal failed:', error));
 }
-
-/**
- * Remove OPFS entries that no library entry owns (fire-and-forget on startup). Ownership is read
- * from the live store when each entry is considered, so files imported while startup was still
- * running are kept. Call only after the stored library has been restored into the store.
- */
-export async function cleanupOrphans(): Promise<void> {
+export async function clearLibrary(): Promise<void> {
+  const clear = getHost().library.clear;
+  if (!clear || clearing) return;
+  clearing = true;
   try {
-    const rawIds = await listRawFileIds();
-    const owned = new Set(useAppStore.getState().files.map((f) => f.id));
-    for (const id of rawIds) {
-      if (!owned.has(id)) {
-        deleteAllForFile(id).catch(() => {});
-      }
-    }
-  } catch {
-    // Non-critical — silently ignore
+    await pausePersistence();
+    for (const file of useAppStore.getState().files) discardResult(file.id);
+    await clear();
+    useAppStore.setState({ files: [], selectedFileId: null });
+    suspended = false;
+    resumePersistence();
+  } catch (error) {
+    // A blocked IDB delete cannot be cancelled. Reopening here would stall behind it.
+    // Keep writers/imports suspended until Clear is retried or the app is reloaded.
+    suspended = true;
+    useAppStore.setState({ files: [], selectedFileId: null });
+    throw error;
+  } finally {
+    clearing = false;
   }
 }
