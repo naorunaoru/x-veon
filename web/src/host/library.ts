@@ -31,7 +31,6 @@ export function createWebLibrary(options: {
   onDatabaseVersionChange(options.dbName, {
     suspend: () => {
       invalidated = true;
-      return Promise.allSettled([...operations]).then(() => {});
     },
     closed: () => options.reload?.(),
   });

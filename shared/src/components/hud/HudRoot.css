@@ -2,7 +2,8 @@
   position: relative; width: 100vw; height: 100vh; overflow: hidden;
   background: var(--xv-background); color: var(--xv-foreground); font-family: var(--xv-font-sans);
 }
-.xv-hud-overlay { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
+.xv-hud-overlay { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.xv-hud-settings { z-index: 3; }
 .xv-hud-overlay > * { pointer-events: auto; }
 .xv-bottom-left-hud {
   position: absolute; left: 12px; bottom: 12px;
@@ -39,9 +40,7 @@
   .xv-hud-overlay[data-chrome-hidden="true"] .xv-topbar,
   .xv-hud-overlay[data-chrome-hidden="true"] .xv-minimap,
   .xv-hud-overlay[data-chrome-hidden="true"] .xv-actionhud,
-  .xv-hud-overlay[data-chrome-hidden="true"] .xv-histhud,
-  .xv-hud-overlay[data-chrome-hidden="true"] .xv-toolrail,
-  .xv-hud-overlay[data-chrome-hidden="true"] .xv-panel {
+  .xv-hud-overlay[data-chrome-hidden="true"] .xv-histhud {
     transform: none;
   }
 }

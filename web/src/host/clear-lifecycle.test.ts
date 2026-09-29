@@ -77,7 +77,6 @@ it('drains an import, settings write and in-flight save while cancelling the deb
     void clearing.then(() => {
       finished = true;
     });
-    setting.resolve();
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(finished).toBe(false);
     expect(storage.clear).not.toHaveBeenCalled();
@@ -86,6 +85,12 @@ it('drains an import, settings write and in-flight save while cancelling the deb
     expect(finished).toBe(false);
     expect(storage.clear).not.toHaveBeenCalled();
     importing.resolve();
+    // The settings write is the last outstanding writer, so this assertion
+    // independently guards Clear's settings drain.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(finished).toBe(false);
+    expect(storage.clear).not.toHaveBeenCalled();
+    setting.resolve();
     await clearing;
     window.dispatchEvent(new Event('focus'));
     await new Promise((resolve) => setTimeout(resolve, 350));

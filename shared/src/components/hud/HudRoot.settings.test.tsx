@@ -64,7 +64,7 @@ it('keeps the Clear error and retry controls mounted when a partial failure empt
   await vi.waitFor(() => expect(host.library.clear).toHaveBeenCalledTimes(2));
 });
 
-it('places the recovery controls above the empty drop surface', () => {
+it('places only the recovery controls above the empty drop surface', () => {
   const style = document.createElement('style');
   style.textContent = hudCss + dropCss;
   document.head.append(style);
@@ -73,6 +73,8 @@ it('places the recovery controls above the empty drop surface', () => {
     const settings = screen.getByRole('button', { name: 'Settings' });
     const overlay = settings.closest('.xv-hud-overlay')!;
     const drop = container.querySelector('.xv-drop')!;
+    const photoOverlay = container.querySelector('.xv-topbar')!.closest('.xv-hud-overlay')!;
+    expect(Number(getComputedStyle(photoOverlay).zIndex)).toBeLessThan(Number(getComputedStyle(drop).zIndex));
     expect(Number(getComputedStyle(overlay).zIndex)).toBeGreaterThan(Number(getComputedStyle(drop).zIndex));
   } finally {
     style.remove();

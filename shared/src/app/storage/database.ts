@@ -2,7 +2,7 @@
 const connections = new Map<string, Promise<IDBDatabase>>();
 const invalidated = new Set<string>();
 interface DatabaseLifecycle {
-  suspend(): void | Promise<void>;
+  suspend(): void;
   closed(): void;
 }
 const lifecycles = new Map<string, Set<DatabaseLifecycle>>();
@@ -37,18 +37,11 @@ export function openDatabase(name: string): Promise<IDBDatabase> {
         connections.delete(name);
         const listeners = [...(lifecycles.get(name) ?? [])];
         lifecycles.delete(name);
-        // Suspend synchronously, then drain host operations before releasing deletion.
-        const draining = listeners.map((listener) => {
-          try {
-            return Promise.resolve(listener.suspend());
-          } catch (error) {
-            return Promise.reject(error);
-          }
-        });
-        void Promise.allSettled(draining).then(() => {
-          db.close();
-          for (const listener of listeners) listener.closed();
-        });
+        // Mark this tab stale before closing. IndexedDB drains its transactions;
+        // waiting for unrelated host work here would block the other tab's delete.
+        for (const listener of listeners) listener.suspend();
+        db.close();
+        for (const listener of listeners) listener.closed();
       };
       resolve(db);
     };

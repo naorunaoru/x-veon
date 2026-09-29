@@ -220,9 +220,13 @@ it('suspends imports and saves when another tab clears the database, then reload
   });
   // Versionchange is delivered before the pending import can finish.
   await vi.waitFor(() => expect(() => assertDatabaseActive(dbName)).toThrow('Reload'));
-  bytes.resolve(new ArrayBuffer(4));
-  await cleared;
-  await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce());
+  try {
+    // The tab must release its connection while the import is still busy.
+    await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce());
+    await cleared;
+  } finally {
+    bytes.resolve(new ArrayBuffer(4));
+  }
   await expect(host.addFiles([raw('late.raf')])).rejects.toThrow('Reload');
   await expect(host.save(photos[0].id, photos[0].edit, photos[0].facts)).rejects.toThrow('Reload');
   expect(storage.writeRaw).not.toHaveBeenCalled();

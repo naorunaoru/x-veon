@@ -48,7 +48,7 @@ export function HudRoot() {
           </>
         )}
       </div>
-      <div className="xv-hud-overlay">
+      <div className="xv-hud-overlay xv-hud-settings">
         <ToolRail settingsOnly={chromeHidden} />
         <PanelHost settingsOnly={chromeHidden} />
       </div>
