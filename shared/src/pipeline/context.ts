@@ -12,6 +12,8 @@ export interface ProcessOptions {
   /** Requested model size; the caller makes sure it is loaded (see ModelRegistry.switchSize). */
   modelSize: ModelSize;
   model?: ModelIdentity | null;
+  /** Optional diagnostic output: strategy execution through GPU completion, excluding model activation/postprocessing. */
+  timings?: { demosaicMs?: number };
   /** Tiles done / total for the neural-net strategy. Unused by the UI today. */
   onProgress?: (done: number, total: number) => void;
 }

@@ -1,6 +1,6 @@
 # Golden baseline
 
-`baseline.json` holds SHA-256 hashes of the renderer's scene texture, the app's graded readbacks
+`baselines/*.json` hold SHA-256 hashes of the renderer's scene texture, the app's graded readbacks
 and its encoded exports for two sample RAWs, produced by the `?golden` route in
 `src/dev/golden.ts`. The route is compiled in on the dev server and in builds made with
 `XV_GOLDEN=1`; normal builds do not contain it.
@@ -65,7 +65,7 @@ in the overall status; the report is printed at the bottom of the page and store
 `window.__golden` as `{ status, results, report, expected }`.
 
 Samples live in the gitignored `shared/public/samples/` with a `manifest.json` that must match the
-contract in `golden.ts` exactly:
+contract in `shared/src/dev/golden-contract.ts` exactly:
 
 ```json
 { "samples": [
@@ -76,9 +76,30 @@ contract in `golden.ts` exactly:
 
 ## Recording a new baseline
 
-Only when the pipeline's output is meant to change. Delete `baseline.json`, run the full route
-twice, and accept only if every hash agrees between the two runs: status `RECORDED` both times,
-every entry `stable`, and identical hash fields, `scene`, `display` and `displayDark` for each entry
-and `bytes` and `sha256` for each export. Entries also carry `elapsedMs` and `runs`, which vary
-between runs and don't belong in the baseline. Write those hash fields into `baseline.json` together
-with `adapter`, `commit` and `recordedAt` from the report, and note the reason here.
+For a new GPU adapter, run Chrome's full route twice without adding a baseline first. Both
+reports must be `RECORDED`, every entry stable, and all scene/display/displayDark hashes
+and export bytes/sha256 identical across the two runs. Obtain the user's sign-off before
+committing `baselines/<adapter-label>.json`. Keep the other adapters' files. A deliberate
+output change on an existing adapter needs the same two-run comparison and sign-off;
+move only that adapter's existing file outside the source tree while recording.
+
+Copy `adapter`, `commit`, `recordedAt`, and the hash fields into the baseline. Exclude
+`elapsedMs` and `runs`, which vary. Record the reason and provenance here.
+
+## Adapter selection and desktop spike
+
+The loader selects exactly one baseline by the pipeline device's `adapter.vendor` and
+`adapter.architecture`; filenames are labels only. An unknown adapter is an error. A
+missing baseline gives `NEW`/`RECORDED`, never `PASS`. Multiple matching baselines are an
+error. There is no fallback to the Mac baseline. If two physical devices collide on this
+identity pair, extend the report and selection identity before adding the second baseline.
+
+The original Apple baseline moved unchanged to `baselines/apple-metal-3.json` in M2.
+Its provenance above still applies. Windows recording must use the same physical GPU as
+Electron, with driver and runtime versions saved alongside the reports.
+
+`?golden=render` runs all ten processing cases once and checks exact scene, graded and
+dark-graded hashes. It does not exercise exports. Electron uses this mode because its
+spike exporter is unavailable; desktop exports wait for M3. `?golden=full` continues to
+require all ten cases and all six exports. Missing expected cases fail in either mode.
+See `desktop/SPIKE.md` for the built Electron commands and cross-machine handoff.

@@ -1,0 +1,9 @@
+{
+  "extends": "../shared/tsconfig.json",
+  "compilerOptions": {
+    "types": ["@webgpu/types", "node", "vite/client"],
+    "baseUrl": ".",
+    "paths": { "@/*": ["../shared/src/*"] }
+  },
+  "include": ["src", "electron.vite.config.ts", "../shared/src/vite-env.d.ts"]
+}

@@ -106,6 +106,7 @@ export async function processRaw(
       clipNorm,
     };
     prepared = null;
+    const demosaicStart = options.timings ? performance.now() : 0;
     const demosaiced = await strategyFor(options.method).run(input, ctx, options);
     // The GPU methods only submit work. Wait for it (the neural net's finalize and the GPU
     // methods' readback used to), so the reported time covers the demosaic, as before.
@@ -117,6 +118,8 @@ export async function processRaw(
         throw error;
       }
     }
+
+    if (options.timings) options.timings.demosaicMs = performance.now() - demosaicStart;
 
     // 10. GPU postprocess: WB → highlight recovery → CC → DR → RGBA (+ clip ratio in alpha)
     // If matrix construction fails before transfer, release the strategy output.

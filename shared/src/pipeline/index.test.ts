@@ -153,3 +153,22 @@ it('initializes the engines and shares their device', async () => {
   expect(m.setSharedDevice).toHaveBeenCalledWith(m.models.device);
   expect(result).toEqual({ device: m.models.device, models: m.models });
 });
+
+it('records demosaic time after GPU completion and before postprocessing', async () => {
+  let finish!: () => void;
+  const gpuDone = new Promise<void>(resolve => { finish = resolve; });
+  const timingCtx = { ...ctx, device: { queue: { onSubmittedWorkDone: () => gpuDone } } } as unknown as PipelineContext;
+  const timings: { demosaicMs?: number } = {};
+  const pending = processRaw(new ArrayBuffer(0), { ...options, timings }, timingCtx);
+  await vi.waitFor(() => expect(m.run).toHaveBeenCalled());
+  expect(timings.demosaicMs).toBeUndefined();
+  m.gpuPostprocess.mockImplementation(async () => {
+    expect(timings.demosaicMs).toEqual(expect.any(Number));
+    input.destroy();
+    return { texture: output };
+  });
+  finish();
+  const result = await pending;
+  expect(timings.demosaicMs).toBeGreaterThanOrEqual(0);
+  result.dispose();
+});

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The web build recipe: CI runs it for the stable and beta channels (deploy.yml, promote.yml),
 # and you can run it locally. It builds the web host for <channel> into web/dist, from a clean install.
-# It touches only the shared and web workspaces, so desktop work can't break a web deploy.
+# Shared dependencies and host contracts are checked across all three workspaces.
 set -euo pipefail
 
 channel="${1:-}"
@@ -15,13 +15,14 @@ esac
 cd "$(dirname "$0")/.."
 export ELECTRON_SKIP_BINARY_DOWNLOAD=1
 
-npm ci --workspace shared --workspace web
+npm ci --workspace shared --workspace web --workspace desktop
 npm test --workspace shared
 npm test --workspace web
+npm test --workspace desktop
 npm run build:wasm --workspace shared
 npm run build:lensfun --workspace shared
 XV_CHANNEL="$channel" npm run build --workspace web
-npm run typecheck --workspace shared --workspace web
+npm run typecheck --workspace shared --workspace web --workspace desktop
 
 # What the workflows' sanity checks look for.
 test -f web/dist/index.html

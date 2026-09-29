@@ -1,6 +1,8 @@
+import { getDevice } from '@/gpu/device';
+import { SAMPLE_CONTRACT, TRADITIONAL, FORMATS, expectationFor, selectBaseline } from './golden-contract';
 import { importFiles, removeFile } from '@/app/services/library';
 /**
- * Browser-only golden harness. It drives the real application through the store and hashes
+ * Host-neutral golden harness. It drives the real application through the store and hashes
  * renderer readbacks for a fixed pair of representative RAW files. Normal builds exclude it.
  */
 import { configFromPreset, configWithOverrides, computeTonescaleParams } from '@/renderer/grading/opendrt-params';
@@ -18,7 +20,6 @@ import {
   methodKey,
   overallStatus,
   type AdapterInfo,
-  type Expectation,
   type ExportRun,
   type GoldenBaseline,
   type GoldenMode,
@@ -36,15 +37,6 @@ interface Manifest {
 }
 
 const STEP_TIMEOUT_MS = 240_000;
-const SAMPLE_CONTRACT: readonly ManifestSample[] = [
-  { file: 'DSCF3332.RAF', cfa: 'xtrans', traditional: 'dht' },
-  { file: 'sony_a6400_21.arw', cfa: 'bayer', traditional: 'ahd' },
-];
-const TRADITIONAL: Record<CfaType, DemosaicMethod[]> = {
-  xtrans: ['markesteijn3', 'markesteijn1', 'dht', 'bilinear'],
-  bayer: ['ahd', 'ppg', 'mhc', 'bilinear'],
-};
-const FORMATS: ExportFormat[] = ['jpeg-hdr', 'avif', 'tiff'];
 
 type State = ReturnType<typeof useAppStore.getState>;
 
@@ -140,6 +132,7 @@ async function cycle(
   run: number,
   runs: RunEntry[],
   exports: ExportRun[],
+  cleanup: (id: string) => Promise<void>,
 ): Promise<void> {
   const getStore = useAppStore.getState;
   getStore().setDemosaicMethod('neural-net');
@@ -248,7 +241,7 @@ async function cycle(
         });
       }
     } finally {
-      await removeFile(id);
+      await cleanup(id);
       getStore().selectFile(null);
       getStore().setDemosaicMethod('neural-net');
     }
@@ -265,35 +258,13 @@ function validateManifest(manifest: Manifest): void {
   }
 }
 
-function expectationFor(mode: GoldenMode): Expectation {
-  const keys: string[] = [];
-  const exportKeys: string[] = [];
-  for (const sample of SAMPLE_CONTRACT) {
-    keys.push(methodKey(sample.file, 'neural-net', 'S'));
-    const traditional = mode === 'full' ? TRADITIONAL[sample.cfa] : [sample.traditional];
-    for (const method of traditional) keys.push(methodKey(sample.file, method));
-    if (mode === 'full') {
-      for (const format of FORMATS) exportKeys.push(exportKey(sample.file, format));
-    }
-  }
-  return { keys, exportKeys, runs: mode === 'full' ? 1 : 2 };
-}
-
 async function adapterInfo(): Promise<AdapterInfo> {
-  const adapter = await navigator.gpu?.requestAdapter();
-  const info = adapter?.info;
-  return {
-    vendor: info?.vendor ?? 'unknown',
-    architecture: info?.architecture ?? 'unknown',
-  };
+  const info = (await getDevice()).adapterInfo;
+  return { vendor: info?.vendor ?? 'unknown', architecture: info?.architecture ?? 'unknown' };
 }
-
-function loadBaseline(): GoldenBaseline | null {
-  const modules = import.meta.glob('../test/golden/baseline.json', {
-    eager: true,
-    import: 'default',
-  }) as Record<string, GoldenBaseline>;
-  return Object.values(modules)[0] ?? null;
+function loadBaseline(adapter: AdapterInfo): GoldenBaseline | null {
+  const modules = import.meta.glob('../test/golden/baselines/*.json', {eager:true,import:'default'}) as Record<string, GoldenBaseline>;
+  return selectBaseline(adapter, Object.values(modules));
 }
 
 function publish(payload: unknown, status: string): void {
@@ -307,10 +278,9 @@ function publish(payload: unknown, status: string): void {
   console.log('[golden]', JSON.stringify(payload));
 }
 
-export async function runGolden(): Promise<void> {
-  const mode: GoldenMode = new URLSearchParams(location.search).get('golden') === 'full'
-    ? 'full'
-    : 'quick';
+export async function runGolden(cleanup: (id: string) => Promise<void> = removeFile): Promise<void> {
+  const requested = new URLSearchParams(location.search).get('golden');
+  const mode: GoldenMode = requested === 'full' ? 'full' : requested === 'render' ? 'render' : 'quick';
   document.title = `golden: running (${mode})`;
   const runs: RunEntry[] = [];
   const exports: ExportRun[] = [];
@@ -331,11 +301,11 @@ export async function runGolden(): Promise<void> {
     validateManifest(manifest);
 
     const expected = expectationFor(mode);
-    const passes = mode === 'full' ? 1 : 2;
+    const passes = mode === 'quick' ? 2 : 1;
     for (let run = 1; run <= passes; run += 1) {
       for (const sample of SAMPLE_CONTRACT) {
-        const traditional = mode === 'full' ? TRADITIONAL[sample.cfa] : [sample.traditional];
-        await cycle(sample, 'S', traditional, mode === 'full', run, runs, exports);
+        const traditional = mode === 'quick' ? [sample.traditional] : TRADITIONAL[sample.cfa];
+        await cycle(sample, 'S', traditional, mode === 'full', run, runs, exports, cleanup);
       }
     }
 
@@ -347,7 +317,7 @@ export async function runGolden(): Promise<void> {
       BUILD.sha,
       new Date().toISOString(),
     );
-    const results = compareToBaseline(report, loadBaseline(), expected);
+    const results = compareToBaseline(report, loadBaseline(report.adapter), expected);
     const status = overallStatus(results);
     publish({ status, results, report, expected }, status);
   } catch (error) {

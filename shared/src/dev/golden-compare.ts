@@ -38,7 +38,7 @@ export interface AdapterInfo {
   architecture: string;
 }
 
-export type GoldenMode = 'quick' | 'full';
+export type GoldenMode = 'quick' | 'full' | 'render';
 
 export interface GoldenReport {
   mode: GoldenMode;

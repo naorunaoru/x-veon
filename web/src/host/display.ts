@@ -1,3 +1,4 @@
+import { mediaQueryHeadroom } from '@/lib/display';
 import type { DisplayHost, HdrDisplayInfo } from '@/host';
 // Probe HDR display capabilities.
 // With WebGPU, HDR canvas (rgba16float + toneMapping: extended) is always available.
@@ -48,11 +49,7 @@ async function getHdrHeadroom(): Promise<HeadroomResult> {
   }
 
   // 3. Media query — knows HDR is supported but not the headroom value
-  if (hdrMedia) {
-    return { headroom: 2.0, accurate: false };
-  }
-
-  return { headroom: 1.0, accurate: true };
+  return mediaQueryHeadroom(hdrMedia);
 }
 
 /**
