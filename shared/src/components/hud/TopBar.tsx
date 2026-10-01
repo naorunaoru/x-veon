@@ -1,16 +1,18 @@
 import { StatusPill } from './StatusPill';
 import { FileMetaPill } from './FileMetaPill';
 import { ZoomPill } from './ZoomPill';
+import { FolderMenu } from './FolderMenu';
 import './TopBar.css';
 
-export function TopBar() {
+export function TopBar({ folderOnly = false }: { folderOnly?: boolean }) {
   return (
     <div className="xv-topbar">
       <div className="xv-topbar__left">
-        <StatusPill />
-        <FileMetaPill />
+        <FolderMenu />
+        {!folderOnly && <StatusPill />}
+        {!folderOnly && <FileMetaPill />}
       </div>
-      <ZoomPill />
+      {!folderOnly && <ZoomPill />}
     </div>
   );
 }

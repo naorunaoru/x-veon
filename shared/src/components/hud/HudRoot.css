@@ -3,6 +3,7 @@
   background: var(--xv-background); color: var(--xv-foreground); font-family: var(--xv-font-sans);
 }
 .xv-hud-overlay { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.xv-hud-overlay--folder-only:has(.xv-folder-menu) { z-index: 2; }
 .xv-hud-settings { z-index: 3; }
 .xv-hud-overlay > * { pointer-events: auto; }
 .xv-bottom-left-hud {
@@ -27,6 +28,9 @@
 .xv-hud-overlay[data-chrome-hidden="true"] .xv-minimap  { transform: translateY(14px); opacity: 0; pointer-events: none; }
 .xv-hud-overlay[data-chrome-hidden="true"] .xv-actionhud { transform: translateY(14px); opacity: 0; pointer-events: none; }
 .xv-hud-overlay[data-chrome-hidden="true"] .xv-histhud   { transform: translateY(14px); opacity: 0; pointer-events: none; }
+.xv-hud-overlay[data-chrome-hidden="true"]:has(.xv-folder-menu) .xv-topbar {
+  transform: none; opacity: 1; pointer-events: auto;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .xv-hud-overlay .xv-topbar,

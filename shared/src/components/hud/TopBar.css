@@ -5,3 +5,21 @@
 }
 .xv-topbar > * { pointer-events: auto; }
 .xv-topbar__left { display: flex; align-items: flex-start; gap: 8px; }
+.xv-folder-menu { position: relative; pointer-events: auto; }
+.xv-folder-menu__trigger {
+  border: 0; border-radius: var(--xv-radius-chrome); padding: 5px 10px;
+  color: var(--xv-foreground); font: 11px var(--xv-font-mono); cursor: pointer;
+}
+.xv-folder-menu__list {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 1;
+  display: flex; flex-direction: column; min-width: 160px; padding: 4px;
+  border-radius: var(--xv-radius-chrome);
+}
+.xv-folder-menu__item {
+  border: 0; border-radius: var(--xv-radius-sm); background: transparent;
+  padding: 7px 9px; color: var(--xv-foreground); text-align: left;
+  font: 11px var(--xv-font-mono); white-space: nowrap; cursor: pointer;
+}
+.xv-folder-menu__item:hover, .xv-folder-menu__item:focus-visible {
+  background: var(--xv-bg-raised);
+}
