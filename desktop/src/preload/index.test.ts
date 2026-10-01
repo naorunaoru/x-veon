@@ -6,8 +6,8 @@ it('exposes only the version-2 API and sends typed channel envelopes', async () 
   vi.stubGlobal('window', { postMessage: m.post }); vi.stubGlobal('location', { origin: 'app://bundle' }); await import('./index');
   expect(m.exposed.version).toBe(2);
   expect(Object.keys(m.exposed).sort()).toEqual(['version', 'loadLast', 'openFolder', 'openDropped', 'recentFolders', 'pathsForFiles', 'requestWorkerPort', 'updateUnsaved', 'respondFlush', 'onEvent'].sort());
-  await m.exposed.loadLast(); await m.exposed.openFolder('f'); await m.exposed.openDropped(['/raw']); m.invoke.mockResolvedValueOnce([] as any); await m.exposed.recentFolders(); await m.exposed.requestWorkerPort();
-  expect(m.invoke.mock.calls).toEqual([['xveon-desktop', { version: 2, kind: 'loadLast' }], ['xveon-desktop', { version: 2, kind: 'openFolder', folderId: 'f' }], ['xveon-desktop', { version: 2, kind: 'openDropped', paths: ['/raw'] }], ['xveon-desktop', { version: 2, kind: 'recentFolders' }], ['xveon-desktop', { version: 2, kind: 'requestWorkerPort' }]]);
+  await m.exposed.loadLast(); await m.exposed.openFolder('f'); await m.exposed.openDropped(['/raw']); m.invoke.mockResolvedValueOnce([] as any); await m.exposed.recentFolders(); await m.exposed.requestWorkerPort('00000000-0000-4000-8000-000000000001');
+  expect(m.invoke.mock.calls).toEqual([['xveon-desktop', { version: 2, kind: 'loadLast' }], ['xveon-desktop', { version: 2, kind: 'openFolder', folderId: 'f' }], ['xveon-desktop', { version: 2, kind: 'openDropped', paths: ['/raw'] }], ['xveon-desktop', { version: 2, kind: 'recentFolders' }], ['xveon-desktop', { version: 2, kind: 'requestWorkerPort', requestId: '00000000-0000-4000-8000-000000000001' }]]);
   m.exposed.updateUnsaved([]); m.exposed.respondFlush(4, []); expect(m.send.mock.calls).toEqual([['xveon-unsaved', { version: 2, edits: [] }], ['xveon-flush', { version: 2, requestId: 4, unsaved: [] }]]);
   expect(m.exposed.pathsForFiles([new File(['x'], 'x')])).toEqual(['']);
 });
@@ -16,11 +16,24 @@ it('filters invalid event and port envelopes and unsubscribes precisely', async 
   expect(m.exposed.onEvent).toBeTypeOf('function'); const listener = vi.fn(), unsubscribe = m.exposed.onEvent(listener); const handler = m.handlers.get('xveon-event')!;
   handler({}, { version: 1, kind: 'worker-restarted' }); handler({}, { version: 2, kind: 'flush-request', requestId: 'bad' }); handler({}, { version: 2, kind: 'worker-restarted' });
   expect(listener.mock.calls).toEqual([[{ version: 2, kind: 'worker-restarted' }]]); unsubscribe(); expect(m.remove).toHaveBeenCalledWith('xveon-event', handler);
-  const port = {}; m.handlers.get('xveon-port')!({ ports: [port] }, { version: 1 }); expect(m.post).not.toHaveBeenCalled(); m.handlers.get('xveon-port')!({ ports: [port] }, { version: 2 }); expect(m.post).toHaveBeenCalledWith({ type: 'xveon-port', version: 2 }, 'app://bundle', [port]);
+  await m.exposed.requestWorkerPort('00000000-0000-4000-8000-000000000001'); const port = { close: vi.fn() }; m.handlers.get('xveon-port')!({ ports: [port] }, { version: 1 }); expect(m.post).not.toHaveBeenCalled(); m.handlers.get('xveon-port')!({ ports: [port] }, { version: 2, requestId: '00000000-0000-4000-8000-000000000001' }); expect(m.post).toHaveBeenCalledWith({ type: 'xveon-port', version: 2, requestId: '00000000-0000-4000-8000-000000000001' }, 'app://bundle', [port]);
 });
 it('rejects malformed or oversized invoke results before exposing them to the renderer', async () => {
   vi.stubGlobal('window', { postMessage: m.post }); vi.stubGlobal('location', { origin: 'app://bundle' }); await import('./index');
   m.invoke.mockResolvedValueOnce({ token: 7 } as any); await expect(m.exposed.openFolder()).rejects.toThrow('Invalid bridge response');
   m.invoke.mockResolvedValueOnce({ token: 't', selected: ['bad'] } as any); await expect(m.exposed.openDropped(['/raw'])).rejects.toThrow('Invalid bridge response');
   m.invoke.mockResolvedValueOnce([{ id: 'f', name: 'x'.repeat(1_000_000) }] as any); await expect(m.exposed.recentFolders()).rejects.toThrow('Invalid bridge response');
+});
+
+it.each(['stale-first', 'current-first'])('closes stale deliveries without forwarding or consuming the current handshake (%s)', async order => {
+  vi.stubGlobal('window', { postMessage: m.post }); vi.stubGlobal('location', { origin: 'app://bundle' }); await import('./index');
+  const old = '00000000-0000-4000-8000-000000000001', current = '00000000-0000-4000-8000-000000000002';
+  await m.exposed.requestWorkerPort(old); await m.exposed.requestWorkerPort(current);
+  const stalePort = { close: vi.fn() }, currentPort = { close: vi.fn() };
+  const receive = m.handlers.get('xveon-port')!;
+  const stale = () => receive({ ports: [stalePort] }, { version: 2, requestId: old });
+  const fresh = () => receive({ ports: [currentPort] }, { version: 2, requestId: current });
+  if (order === 'stale-first') { stale(); fresh(); } else { fresh(); stale(); }
+  expect(m.post.mock.calls).toEqual([[{ type: 'xveon-port', version: 2, requestId: current }, 'app://bundle', [currentPort]]]);
+  expect(stalePort.close).toHaveBeenCalledOnce(); expect(currentPort.close).not.toHaveBeenCalled();
 });

@@ -46,3 +46,10 @@ it('validates the complete outgoing bridge event and rejects oversized wrapped l
   expect(isBridgeEvent({ version: 2, kind: 'flush-request', requestId: 1 })).toBe(true);
   expect(isBridgeEvent({ version: 2, kind: 'folder-request', folderId: 42 })).toBe(false);
 });
+
+it('requires a bounded correlation UUID for worker-port handshakes', async () => {
+  const { isDesktopRequest } = await import('./security');
+  expect(isDesktopRequest({ version: 2, kind: 'requestWorkerPort', requestId: '00000000-0000-4000-8000-000000000001' })).toBe(true);
+  for (const requestId of [undefined, 1, '', 'old', 'x'.repeat(1_000_001)])
+    expect(isDesktopRequest({ version: 2, kind: 'requestWorkerPort', requestId })).toBe(false);
+});

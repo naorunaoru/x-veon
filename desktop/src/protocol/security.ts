@@ -34,7 +34,7 @@ export function acceptsSender(url: string, mainFrame: boolean): boolean {
     return false;
   }
 }
-export type DesktopRequest = { version: 2; kind: 'loadLast' | 'recentFolders' | 'requestWorkerPort' } | { version: 2; kind: 'openFolder'; folderId?: string } | { version: 2; kind: 'openDropped'; paths: string[] };
+export type DesktopRequest = { version: 2; kind: 'loadLast' | 'recentFolders' } | { version: 2; kind: 'requestWorkerPort'; requestId: string } | { version: 2; kind: 'openFolder'; folderId?: string } | { version: 2; kind: 'openDropped'; paths: string[] };
 export const CONTENT_SECURITY_POLICY = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; img-src 'self' blob: data: xveon-photo:; style-src 'self' 'unsafe-inline'; connect-src 'self' xveon-photo:; object-src 'none'; base-uri 'none'; frame-src 'none'";
 function object(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === 'object' && !Array.isArray(value); }
 function envelope(value: unknown): value is Record<string, unknown> {
@@ -54,7 +54,8 @@ function unsaved(value: unknown): boolean {
 export function isDesktopRequest(value: unknown): value is DesktopRequest {
   if (!envelope(value)) return false;
   switch (value.kind) {
-    case 'loadLast': case 'recentFolders': case 'requestWorkerPort': return true;
+    case 'loadLast': case 'recentFolders': return true;
+    case 'requestWorkerPort': return correlationId(value.requestId);
     case 'openFolder': return value.folderId === undefined || typeof value.folderId === 'string';
     case 'openDropped': return dense(value.paths, p => typeof p === 'string');
     default: return false;
@@ -73,4 +74,11 @@ export function isBridgeEvent(value: unknown): value is import('./bridge').Bridg
     case 'worker-stopped': return typeof value.reason === 'string';
     default: return false;
   }
+}
+
+function correlationId(value: unknown): value is string {
+  return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+export function isWorkerPortDelivery(value: unknown): value is { version: 2; requestId: string } {
+  return envelope(value) && correlationId(value.requestId);
 }

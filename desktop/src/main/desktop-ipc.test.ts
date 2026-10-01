@@ -16,7 +16,7 @@ it('routes only trusted valid desktop requests, including delivered worker ports
   await expect(invoke(h.event, { version: 2, kind: 'loadLast' })).resolves.toEqual({ token: 'last' });
   await invoke(h.event, { version: 2, kind: 'openFolder', folderId: 'f' }); await invoke(h.event, { version: 2, kind: 'openDropped', paths: ['/a'] }); expect(h.calls).toEqual(['f', ['/a']]);
   await expect(invoke(h.event, { version: 2, kind: 'recentFolders' })).resolves.toEqual([{ id: 'f', name: 'Folder' }]);
-  await invoke(h.event, { version: 2, kind: 'requestWorkerPort' }); expect(h.postMessage).toHaveBeenCalledWith('xveon-port', { version: 2 }, [h.port]);
+  await invoke(h.event, { version: 2, kind: 'requestWorkerPort', requestId: '00000000-0000-4000-8000-000000000001' }); expect(h.postMessage).toHaveBeenCalledWith('xveon-port', { version: 2, requestId: '00000000-0000-4000-8000-000000000001' }, [h.port]);
   await expect(invoke({ trusted: false }, { version: 2, kind: 'loadLast' })).rejects.toThrow('Invalid bridge request'); await expect(invoke(h.event, { version: 2, kind: 'openDropped', paths: [1] })).rejects.toThrow('Invalid bridge request');
 });
 it('takes inventory only from trusted valid pushes and correlates flush responses', async () => {
@@ -30,4 +30,45 @@ it('expires pending flushes to the most recent pushed inventory', async () => {
   vi.useFakeTimers(); const h = harness(); const flush = h.guard.requestFlush(); expect(h.events).toHaveLength(1); h.listeners.get('xveon-unsaved')!(h.event, { version: 2, edits });
   await vi.advanceTimersByTimeAsync(20); await expect(flush).resolves.toEqual(edits);
   h.listeners.get('xveon-flush')!(h.event, { version: 2, requestId: h.events[0].requestId, unsaved: [] }); expect(h.guard.inventory()).toEqual(edits);
+});
+
+it('serializes overlapping port connections and closes a late superseded delivery before connecting the current request', async () => {
+  let invoke!: (...args: any[]) => Promise<unknown>;
+  const connections: { deliver: (port: MessagePortMain) => void; finish: () => void }[] = [];
+  registerDesktopIpc({ ipc: { handle: (_name: string, handler: typeof invoke) => { invoke = handler; }, on() {} } as unknown as IpcMain,
+    trusted: () => true, folders: { loadLast: async () => null, openFolder: async () => null, openDropped: async () => null }, recent: () => [], send() {},
+    connect: deliver => new Promise<void>(finish => { connections.push({ deliver, finish }); }),
+  });
+  const postMessage = vi.fn(), event = { senderFrame: { postMessage } };
+  const old = invoke(event, { version: 2, kind: 'requestWorkerPort', requestId: '00000000-0000-4000-8000-000000000001' });
+  for (let i=0;i<5;i++) await Promise.resolve();
+  const current = invoke(event, { version: 2, kind: 'requestWorkerPort', requestId: '00000000-0000-4000-8000-000000000002' });
+  for (let i=0;i<5;i++) await Promise.resolve();
+  const oldPort = { close: vi.fn() } as unknown as MessagePortMain;
+  try {
+    expect(connections).toHaveLength(1); connections[0].deliver(oldPort); connections[0].finish(); await old;
+    for (let i=0;i<5;i++) await Promise.resolve();
+    expect(oldPort.close).toHaveBeenCalledOnce(); expect(postMessage).not.toHaveBeenCalled(); expect(connections).toHaveLength(2);
+    const currentPort = { close: vi.fn() } as unknown as MessagePortMain;
+    connections[1].deliver(currentPort); connections[1].finish(); await current;
+    expect(postMessage).toHaveBeenCalledWith('xveon-port', { version: 2, requestId: '00000000-0000-4000-8000-000000000002' }, [currentPort]);
+  } finally { for (const c of connections) c.finish(); }
+});
+it('continues with the latest queued port request after an older connection rejects', async () => {
+  let invoke!: (...args: any[]) => Promise<unknown>;
+  let fail!: (error: Error) => void; const port = { close: vi.fn() } as unknown as MessagePortMain;
+  const connect = vi.fn<(deliver: (port: MessagePortMain) => void) => Promise<void>>()
+    .mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject; }))
+    .mockImplementationOnce(async deliver => { deliver(port); });
+  registerDesktopIpc({ ipc: { handle: (_name: string, handler: typeof invoke) => { invoke = handler; }, on() {} } as unknown as IpcMain,
+    trusted: () => true, folders: { loadLast: async () => null, openFolder: async () => null, openDropped: async () => null }, recent: () => [], send() {}, connect,
+  });
+  const postMessage = vi.fn(), event = { senderFrame: { postMessage } };
+  const request = (n: number) => invoke(event, { version: 2, kind: 'requestWorkerPort', requestId: `00000000-0000-4000-8000-00000000000${n}` });
+  const old = request(1); const rejected = expect(old).rejects.toThrow('worker exited');
+  for (let i=0;i<5;i++) await Promise.resolve();
+  const middle = request(2), latest = request(3); fail(new Error('worker exited'));
+  await rejected; await middle; await latest;
+  expect(connect).toHaveBeenCalledTimes(2);
+  expect(postMessage.mock.calls).toEqual([['xveon-port', { version: 2, requestId: '00000000-0000-4000-8000-000000000003' }, [port]]]);
 });

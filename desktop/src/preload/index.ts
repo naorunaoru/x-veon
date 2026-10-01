@@ -1,9 +1,14 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type { DesktopBridge } from '../protocol/bridge';
-import { isBridgeEvent, isDesktopRequest, isUnsavedUpdate, isFlushResponse, type DesktopRequest } from '../protocol/security';
-ipcRenderer.on('xveon-port', (event, data) => {
-  if (data?.version !== 2 || event.ports.length !== 1) return;
-  window.postMessage({ type: 'xveon-port', version: 2 }, location.origin, event.ports);
+import { isBridgeEvent, isDesktopRequest, isUnsavedUpdate, isFlushResponse, isWorkerPortDelivery, type DesktopRequest } from '../protocol/security';
+let requestedPort: string | undefined;
+ipcRenderer.on('xveon-port', (event, data: unknown) => {
+  if (!isWorkerPortDelivery(data) || data.requestId !== requestedPort || event.ports.length !== 1) {
+    for (const port of event.ports) port.close();
+    return;
+  }
+  requestedPort = undefined;
+  window.postMessage({ type: 'xveon-port', version: 2, requestId: data.requestId }, location.origin, event.ports);
 });
 async function invoke(request: DesktopRequest) {
   if (!isDesktopRequest(request)) throw new Error('Invalid bridge request');
@@ -26,7 +31,13 @@ const bridge: DesktopBridge = {
   openDropped: paths => invoke({ version: 2, kind: 'openDropped', paths }) as ReturnType<DesktopBridge['openDropped']>,
   recentFolders: () => invoke({ version: 2, kind: 'recentFolders' }) as ReturnType<DesktopBridge['recentFolders']>,
   pathsForFiles: files => files.map(file => webUtils.getPathForFile(file)),
-  requestWorkerPort: () => invoke({ version: 2, kind: 'requestWorkerPort' }).then(() => {}),
+  async requestWorkerPort(requestId) {
+    const request = { version: 2 as const, kind: 'requestWorkerPort' as const, requestId };
+    if (!isDesktopRequest(request)) throw new Error('Invalid bridge request');
+    requestedPort = requestId;
+    try { await invoke(request); }
+    catch (error) { if (requestedPort === requestId) requestedPort = undefined; throw error; }
+  },
   updateUnsaved(edits) {
     const message = { version: 2, edits };
     if (!isUnsavedUpdate(message)) throw new Error('Invalid unsaved inventory');

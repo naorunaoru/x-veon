@@ -5,6 +5,8 @@ import type { BridgeEvent } from '../protocol/bridge';
 type Deps = { ipc: Pick<IpcMain, 'handle' | 'on'>; trusted(event: IpcMainEvent | IpcMainInvokeEvent): boolean; folders: { loadLast(): Promise<unknown>; openFolder(id?: string): Promise<unknown>; openDropped(paths: string[]): Promise<unknown> }; recent(): FolderRef[]; connect(deliver: (port: MessagePortMain) => void): Promise<void>; send(event: BridgeEvent): void; timeoutMs?: number };
 export function registerDesktopIpc(deps: Deps) {
   let inventory: UnsavedSummary[] = [], nextId = 0;
+  let requestedPort: string | undefined;
+  let connecting = Promise.resolve();
   const flushes = new Map<number, { resolve(unsaved: UnsavedSummary[]): void; timer: ReturnType<typeof setTimeout> }>();
   deps.ipc.handle('xveon-desktop', async (event, value: unknown) => {
     if (!deps.trusted(event) || !isDesktopRequest(value)) throw new Error('Invalid bridge request');
@@ -13,7 +15,20 @@ export function registerDesktopIpc(deps: Deps) {
       case 'openFolder': return deps.folders.openFolder(value.folderId);
       case 'openDropped': return deps.folders.openDropped(value.paths);
       case 'recentFolders': return deps.recent();
-      case 'requestWorkerPort': return deps.connect(port => event.senderFrame!.postMessage('xveon-port', { version: 2 }, [port]));
+      case 'requestWorkerPort': {
+        requestedPort = value.requestId;
+        // The supervisor attaches a port before delivering it. Serialize attempts so
+        // an older asynchronous connect cannot detach the newer worker connection.
+        const connection = connecting.then(async () => {
+          if (requestedPort !== value.requestId) return;
+          await deps.connect(port => {
+            if (requestedPort !== value.requestId) { port.close(); return; }
+            event.senderFrame!.postMessage('xveon-port', { version: 2, requestId: value.requestId }, [port]);
+          });
+        });
+        connecting = connection.catch(() => {});
+        return connection;
+      }
     }
   });
   deps.ipc.on('xveon-unsaved', (event, value: unknown) => { if (deps.trusted(event) && isUnsavedUpdate(value)) inventory = value.edits; });

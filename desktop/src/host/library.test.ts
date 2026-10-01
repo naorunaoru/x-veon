@@ -25,6 +25,7 @@ class FakePort extends EventTarget {
   close() { this.closed = true; }
   receive(data: unknown) { this.dispatchEvent(new MessageEvent('message', { data })); }
   postMessage(request: PortRequest, transfer?: unknown) {
+    if (this.closed) throw new Error('Port is closed');
     expect(transfer).toBeUndefined();
     this.sent.push(request);
     if (!this.hold) queueMicrotask(() => this.confirm(request));
@@ -48,7 +49,7 @@ beforeEach(() => {
   win = new EventTarget(); ports = []; listeners = new Set(); stop = () => {};
   vi.stubGlobal('window', win); vi.stubGlobal('location', { origin: 'app://bundle' }); vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(dynamic-range: high)' }));
   bridge = { version: 2, loadLast: vi.fn(async () => null), openFolder: vi.fn(async () => null), openDropped: vi.fn(async () => null), recentFolders: vi.fn(async () => [folder]), pathsForFiles: vi.fn((files: File[]) => files.map(f => '/test/' + f.name)),
-    requestWorkerPort: vi.fn(async () => { const port = new FakePort(); ports.push(port); const e = new MessageEvent('message', { data: { type: 'xveon-port', version: 2 }, origin: 'app://bundle' }); Object.defineProperty(e, 'source', { value: win }); Object.defineProperty(e, 'ports', { value: [port] }); win.dispatchEvent(e); }),
+    requestWorkerPort: vi.fn(async (requestId: string) => { const port = new FakePort(); ports.push(port); const e = new MessageEvent('message', { data: { type: 'xveon-port', version: 2, requestId }, origin: 'app://bundle' }); Object.defineProperty(e, 'source', { value: win }); Object.defineProperty(e, 'ports', { value: [port] }); win.dispatchEvent(e); }),
     updateUnsaved: vi.fn(), respondFlush: vi.fn(), onEvent: listener => { listeners.add(listener); return () => listeners.delete(listener); } };
   host = createDesktopHost(bridge);
 });
@@ -148,4 +149,33 @@ it('delivers current-folder watcher changes while a new folder picker is pending
   for (const frame of watch.slice(1)) emit({ kind: 'listing', frame });
   try { expect(changed).toHaveBeenCalledWith({ kind: 'replace', snapshot: { folder, photos: [{ ...photo(), name: 'changed.RAF' }], complete: true } }); }
   finally { cancel(null); await opening; }
+});
+
+it.each(['stale-first', 'current-first'])('cancels a pending handshake and retries the shared ledger on only the current port (%s)', async order => {
+  emit({ kind: 'worker-stopped', reason: 'replace initial test host' }); listeners.clear();
+  const deliveries: { requestId: string; port: FakePort }[] = [];
+  vi.mocked(bridge.requestWorkerPort).mockImplementation(async requestId => { deliveries.push({ requestId, port: new FakePort() }); });
+  const deliver = ({ requestId, port }: typeof deliveries[number]) => {
+    const event = new MessageEvent('message', { data: { type: 'xveon-port', version: 2, requestId }, origin: 'app://bundle' });
+    Object.defineProperties(event, { source: { value: win }, ports: { value: [port] } }); win.dispatchEvent(event);
+  };
+  host = createDesktopHost(bridge); setHost(host); useAppStore.setState({ files: [fromLibraryPhoto(photo())], folder });
+  stop = startPersistence(); host.library.onFlushRequest!(flushPersistence);
+  useAppStore.getState().setFilePreProcessOverride(id, 'exposure', 1);
+  let settled = false; const interrupted = flushPersistence().then(() => { settled = true; }); await tick();
+  emit({ kind: 'worker-restarted' }); await tick(); const cancelledBeforeDelivery = settled;
+  const [stale, current] = deliveries;
+  if (order === 'stale-first') { deliver(stale); await tick(); deliver(current); }
+  else { deliver(current); await tick(); deliver(stale); }
+  await tick();
+  try {
+    expect(cancelledBeforeDelivery).toBe(true);
+    expect(current.port.closed).toBe(false); expect(stale.port.sent).toEqual([]);
+    // A stale window event queued before restart arrives before the current delivery.
+    // Later stale IPC deliveries are closed by preload (covered in its tests).
+    if (order === 'stale-first') expect(stale.port.closed).toBe(true);
+    expect(current.port.sent.map(r => r.op)).toEqual(['saveEdit', 'saveFacts']);
+    expect(current.port.sidecar).toMatchObject({ preProcessOverrides: { exposure: 1 } }); expect(unsavedEdits()).toEqual([]);
+    expect(stale.requestId).not.toBe(current.requestId);
+  } finally { emit({ kind: 'worker-stopped', reason: 'test cleanup' }); await interrupted; }
 });
