@@ -30,3 +30,14 @@ it('requires the trusted top frame and versioned requests', () => {
   ])
     expect(isRequest(value)).toBe(false);
 });
+it('validates bounded version-2 desktop requests and dense nested unsaved summaries', async () => {
+  const { isDesktopRequest, isUnsavedUpdate, isFlushResponse, CONTENT_SECURITY_POLICY } = await import('./security');
+  expect(isDesktopRequest({ version: 2, kind: 'openFolder', folderId: 'a' })).toBe(true);
+  expect(isDesktopRequest({ version: 2, kind: 'openDropped', paths: ['/a'] })).toBe(true);
+  for (const request of [{ version: 1, kind: 'loadLast' }, { version: 2, kind: 'openFolder', folderId: 1 }, { version: 2, kind: 'openDropped', paths: Array(2) }, { version: 2, kind: 'openDropped', paths: ['a'.repeat(1_000_001)] }, { version: 2, kind: 'readFile', path: '/secret' }]) expect(isDesktopRequest(request)).toBe(false);
+  const edits = [{ id: 'a'.repeat(22), name: 'a', folder: { id: 'f', name: 'Photos' }, error: null }];
+  expect(isUnsavedUpdate({ version: 2, edits })).toBe(true); expect(isFlushResponse({ version: 2, requestId: 1, unsaved: edits })).toBe(true);
+  expect(isUnsavedUpdate({ version: 2, edits: Array(1) })).toBe(false); expect(isUnsavedUpdate({ version: 2, edits: [{ ...edits[0], folder: { id: 4 } }] })).toBe(false);
+  expect(isFlushResponse({ version: 2, requestId: NaN, unsaved: edits })).toBe(false);
+  expect(CONTENT_SECURITY_POLICY).toMatch(/img-src[^;]*xveon-photo:/); expect(CONTENT_SECURITY_POLICY).toMatch(/connect-src[^;]*xveon-photo:/);
+});

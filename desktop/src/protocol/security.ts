@@ -44,3 +44,31 @@ export function isRequest(value: unknown): value is Request {
     v.version === 1 && ['connect', 'restart', 'diagnostics'].includes(v.kind)
   );
 }
+export type DesktopRequest = { version: 2; kind: 'loadLast' | 'recentFolders' | 'requestWorkerPort' } | { version: 2; kind: 'openFolder'; folderId?: string } | { version: 2; kind: 'openDropped'; paths: string[] };
+export const CONTENT_SECURITY_POLICY = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; img-src 'self' blob: data: xveon-photo:; style-src 'self' 'unsafe-inline'; connect-src 'self' xveon-photo:; object-src 'none'; base-uri 'none'; frame-src 'none'";
+function object(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === 'object' && !Array.isArray(value); }
+function envelope(value: unknown): value is Record<string, unknown> {
+  if (!object(value) || value.version !== 2) return false;
+  try { return new TextEncoder().encode(JSON.stringify(value)).byteLength <= 1_000_000; } catch { return false; }
+}
+function dense(value: unknown, check: (item: unknown) => boolean): boolean {
+  if (!Array.isArray(value)) return false;
+  for (let i = 0; i < value.length; i++) if (!Object.hasOwn(value, i) || !check(value[i])) return false;
+  return true;
+}
+function unsaved(value: unknown): boolean {
+  return dense(value, item => object(item) && typeof item.id === 'string' && /^[A-Za-z0-9_-]{22}$/.test(item.id)
+    && typeof item.name === 'string' && (item.error === null || typeof item.error === 'string')
+    && (item.folder === null || (object(item.folder) && typeof item.folder.id === 'string' && typeof item.folder.name === 'string')));
+}
+export function isDesktopRequest(value: unknown): value is DesktopRequest {
+  if (!envelope(value)) return false;
+  switch (value.kind) {
+    case 'loadLast': case 'recentFolders': case 'requestWorkerPort': return true;
+    case 'openFolder': return value.folderId === undefined || typeof value.folderId === 'string';
+    case 'openDropped': return dense(value.paths, p => typeof p === 'string');
+    default: return false;
+  }
+}
+export function isUnsavedUpdate(value: unknown): value is { version: 2; edits: import('@/host').UnsavedSummary[] } { return envelope(value) && unsaved(value.edits); }
+export function isFlushResponse(value: unknown): value is { version: 2; requestId: number; unsaved: import('@/host').UnsavedSummary[] } { return envelope(value) && Number.isSafeInteger(value.requestId) && (value.requestId as number) > 0 && unsaved(value.unsaved); }

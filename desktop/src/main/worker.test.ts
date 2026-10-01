@@ -94,3 +94,20 @@ it.each(['request', 'send', 'connect'] as const)('rejects %s with the stopped co
   const error = await result; s.stop();
   expect(error).toBe('The background worker stopped.');
 });
+it('prepared commit validates worker identity before touching accepted state and dispatches without yielding', async () => {
+  const { supervisor: s, children } = harness(); const ready = s.ready(); children[0].spawn(); await ready; const commit = await s.prepareCommit();
+  const remember = vi.fn(); const folder = { path: '/B', folderId: 'b', activation: 'new' };
+  commit(folder, [['b'.repeat(22), '/B/b.RAF']], remember);
+  expect(remember).toHaveBeenCalledOnce(); expect(s.current).toEqual(folder); expect(s.roots).toEqual(['/B']); expect(s.registry.get('b'.repeat(22))).toBe('/B/b.RAF');
+  expect(children[0].sent.slice(-2).map(m => m.data)).toEqual([{ v: 1, kind: 'roots', realRoots: ['/B'] }, { v: 1, kind: 'watch', ...folder }]);
+  children[0].emit('exit', 1); const stale = vi.fn(); expect(() => commit({ ...folder, path: '/A' }, [], stale)).toThrow('The background worker stopped.'); expect(stale).not.toHaveBeenCalled(); expect(s.current).toEqual(folder);
+  children[1].spawn(); await s.ready(); s.stop();
+});
+it('registers accepted listing entries in bounded messages when preparation readies a replacement worker', async () => {
+  const { supervisor: s, children } = harness(); const ready = s.ready(); children[0].spawn(); await ready;
+  children[0].emit('exit', 1); const preparation = s.prepareCommit(); children[1].spawn(); const commit = await preparation;
+  const entries: [string, string][] = Array.from({ length: 1001 }, (_, i) => [String(i).padStart(22, '0'), `/new/${i}.RAF`]);
+  commit({ path: '/new', folderId: 'new', activation: 'accepted' }, entries, () => {});
+  const sent = children[1].sent.map(m => m.data); expect(sent.filter(m => m.kind === 'register').map(m => m.entries.length)).toEqual([1000, 1]); expect(sent.every(isMainToWorker)).toBe(true);
+  expect(sent.at(-1)).toEqual({ v: 1, kind: 'watch', path: '/new', folderId: 'new', activation: 'accepted' }); s.stop();
+});

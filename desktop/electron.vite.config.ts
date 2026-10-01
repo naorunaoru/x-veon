@@ -11,6 +11,7 @@ const build = {
 };
 export default defineConfig({
   main: {
+    define: { __XV_BUILD__: JSON.stringify(build), __XV_GOLDEN__: JSON.stringify(process.env.XV_GOLDEN === '1') },
     resolve: { alias: { '@': path.join(shared, 'src') } },
     build: {
       rollupOptions: {

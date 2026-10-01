@@ -1,3 +1,10 @@
+export type { UnsavedSummary } from '@/host';
+export type BridgeEvent =
+  | { kind: 'folder-request'; folderId?: string }
+  | { kind: 'flush-request'; requestId: number }
+  | { kind: 'listing'; frame: import('./listing').ListingFrame }
+  | { kind: 'worker-restarted' }
+  | { kind: 'worker-stopped'; reason: string };
 export type ReportName =
   | 'golden'
   | 'timing'

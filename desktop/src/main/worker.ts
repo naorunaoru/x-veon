@@ -128,6 +128,33 @@ export function createWorkerSupervisor(opts: {
   }
   return {
     registry, roots, ready, request, send,
+    async prepareCommit(): Promise<(folder: CommittedFolder, entries: [PhotoId, string][], remember: () => void) => void> {
+      const initialized = ready(), target = child;
+      try { await initialized; } catch { throw new Error(stoppedMessage); }
+      return (folder, entries, remember) => {
+        if (stopped || child !== target) throw new Error(stoppedMessage);
+        const nextRoots = roots.includes(folder.path) ? [...roots] : [...roots, folder.path];
+        const rootMessage: MainToWorker = { v: 1, kind: 'roots', realRoots: nextRoots };
+        const watchMessage: MainToWorker = { v: 1, kind: 'watch', ...folder };
+        if (!isMainToWorker(rootMessage) || !isMainToWorker(watchMessage)) throw new Error('Invalid folder commit');
+        const registrations: MainToWorker[] = [];
+        let batch: [PhotoId, string][] = [];
+        for (const entry of entries) {
+          if (batch.length && !isMainToWorker({ v: 1, kind: 'register', entries: [...batch, entry] })) {
+            registrations.push({ v: 1, kind: 'register', entries: batch }); batch = [];
+          }
+          batch.push(entry);
+          if (!isMainToWorker({ v: 1, kind: 'register', entries: batch })) throw new Error('Invalid folder registry');
+        }
+        if (batch.length) registrations.push({ v: 1, kind: 'register', entries: batch });
+        remember();
+        current = { ...folder };
+        for (const [id, file] of entries) registry.set(id, file);
+        roots.splice(0, roots.length, ...nextRoots);
+        for (const message of registrations) post(target!, message);
+        post(target!, rootMessage); post(target!, watchMessage);
+      };
+    },
     get current() { return current; },
     // Main calls this only once it accepts a folder request (Task 9).
     commitCurrent(folder: CommittedFolder | null) { current = folder && { ...folder }; },
