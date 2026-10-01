@@ -123,4 +123,39 @@ describe('XMP sidecar codec', () => {
       expect(withoutXveon(after)).toBe(withoutXveon(before));
     }
   });
+
+  it('appends a new description when every existing rdf:about is nonempty', () => {
+    const before = '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="urn:other"/></rdf:RDF></x:xmpmeta>';
+    const after = mergeSidecar(before, { ...defaultPhotoEdit(), lookPreset: 'umbra' })!;
+    const items = descriptions(after);
+    expect(items).toHaveLength(2);
+    expect(items[0].getAttributeNS(XVEON_NS, 'Look')).toBeNull();
+    expect(items[1].getAttributeNS(RDF_NS, 'about')).toBe('');
+    expect(items[1].getAttributeNS(XVEON_NS, 'Look')).toBe('umbra');
+  });
+
+  it('keeps unknown X-Veon properties named like Object prototype members', () => {
+    const before = `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="${RDF_NS}"><rdf:Description rdf:about="" xmlns:xveon="${XVEON_NS}" xveon:SchemaVersion="1" xveon:constructor="foreign"><xveon:toString>foreign element</xveon:toString></rdf:Description></rdf:RDF></x:xmpmeta>`;
+    const after = mergeSidecar(before, defaultPhotoEdit())!;
+    expect(after).toContain('xveon:constructor="foreign"');
+    expect(after).toContain('<xveon:toString>foreign element</xveon:toString>');
+    expect(after).toContain('xveon:SchemaVersion="1"');
+  });
+
+  it('preserves a foreign xveon prefix binding while writing our namespace', () => {
+    const before = `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="${RDF_NS}"><rdf:Description rdf:about="" xmlns:xveon="urn:foreign" xmlns:ours="${XVEON_NS}" xveon:Foreign="keep" ours:SchemaVersion="1"/></rdf:RDF></x:xmpmeta>`;
+    const after = mergeSidecar(before, { ...defaultPhotoEdit(), lookPreset: 'umbra' })!;
+    const errors: string[] = [];
+    const doc = new DOMParser({ onError: (_level, message) => { errors.push(message); } }).parseFromString(after, 'application/xml');
+    expect(errors).toEqual([]);
+    const item = doc.getElementsByTagNameNS(RDF_NS, 'Description').item(0)!;
+    expect(item.getAttribute('xmlns:xveon')).toBe('urn:foreign');
+    expect(item.getAttributeNS('urn:foreign', 'Foreign')).toBe('keep');
+    expect(item.getAttributeNS(XVEON_NS, 'Look')).toBe('umbra');
+    expect(readSidecar(after)).toEqual({ kind: 'ok', edit: { ...defaultPhotoEdit(), lookPreset: 'umbra' } });
+    const reset = mergeSidecar(before, defaultPhotoEdit())!;
+    const resetItem = descriptions(reset)[0];
+    expect(resetItem.getAttribute('xmlns:xveon')).toBe('urn:foreign');
+    expect(resetItem.getAttributeNS('urn:foreign', 'Foreign')).toBe('keep');
+  });
 });

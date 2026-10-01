@@ -35,7 +35,7 @@ function parse(text: string): Parsed {
   const descriptions = Array.from(rdf.getElementsByTagNameNS(RDF_NS, 'Description'));
   const description = descriptions.find(hasXveonProperty)
     ?? descriptions.find((element) => element.getAttributeNS(RDF_NS, 'about') === '')
-    ?? descriptions[0] ?? null;
+    ?? null;
   const values = new Map<string, string>();
   if (description) {
     for (const child of Array.from(description.childNodes)) {
@@ -69,7 +69,7 @@ function booleanValue(name: string, raw: string): boolean {
 }
 function knownName(name: string): boolean {
   return name === 'SchemaVersion' || name === 'Look' || name === 'Demosaic' || name === 'ModelSize' || name === 'ModelHash'
-    || name in PRE || (name.startsWith('Odrt_') && DRT_KEYS.has(name.slice(5)));
+    || Object.hasOwn(PRE, name) || (name.startsWith('Odrt_') && DRT_KEYS.has(name.slice(5)));
 }
 function readValues(values: Map<string, string>): { edit: PhotoEdit; schemaVersion: number } {
   const edit = defaultPhotoEdit();
@@ -188,10 +188,14 @@ export function mergeSidecar(existing: string | null, edit: PhotoEdit): string |
   }
   const hasUnknown = hasXveonProperty(description);
   if (attrs.size > 0 || hasUnknown) {
-    if (!description.hasAttributeNS(XMLNS_NS, 'xveon')) description.setAttributeNS(XMLNS_NS, 'xmlns:xveon', XVEON_NS);
-    description.setAttributeNS(XVEON_NS, 'xveon:SchemaVersion', '1');
-    for (const [name, value] of attrs) description.setAttributeNS(XVEON_NS, `xveon:${name}`, value);
-  } else if (description.hasAttributeNS(XMLNS_NS, 'xveon')) {
+    let prefix = 'xveon';
+    for (let suffix = 1; description.lookupNamespaceURI(prefix) !== null && description.lookupNamespaceURI(prefix) !== XVEON_NS; suffix++) {
+      prefix = `xveon${suffix}`;
+    }
+    if (description.lookupNamespaceURI(prefix) !== XVEON_NS) description.setAttributeNS(XMLNS_NS, `xmlns:${prefix}`, XVEON_NS);
+    description.setAttributeNS(XVEON_NS, `${prefix}:SchemaVersion`, '1');
+    for (const [name, value] of attrs) description.setAttributeNS(XVEON_NS, `${prefix}:${name}`, value);
+  } else if (description.getAttributeNS(XMLNS_NS, 'xveon') === XVEON_NS) {
     description.removeAttributeNS(XMLNS_NS, 'xveon');
   }
   if (emptyEnvelope(parsed)) return null;
