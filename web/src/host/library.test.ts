@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { renderHook } from '@testing-library/react';
+const processRaw = vi.hoisted(() => vi.fn());
 const storage = vi.hoisted(() => ({
   writeRaw: vi.fn(),
   writeThumbnail: vi.fn(),
@@ -9,6 +11,8 @@ const storage = vi.hoisted(() => ({
   clear: vi.fn(),
 }));
 vi.mock('./opfs-storage', () => ({ createOpfsStorage: () => storage }));
+vi.mock('@/pipeline', () => ({ processRaw }));
+vi.mock('@/app/services/library', () => ({ matchLensFor: vi.fn() }));
 vi.mock('@/pipeline/decode/raf-thumbnail', () => ({
   extractRafThumbnail: () => new Blob(['t']),
   extractRafQuickMetadata: () => ({ camera: 'Fuji', lensModel: 'XF35', focalLength: 35, fNumber: 2 }),
@@ -16,8 +20,14 @@ vi.mock('@/pipeline/decode/raf-thumbnail', () => ({
 import { createWebLibrary } from './library';
 import { assertDatabaseActive, closeDatabase, openDatabase } from '@/app/storage/database';
 import { createFileStorage, type PersistedFile } from './idb-storage';
-import { defaultEdit } from '@/test/fake-host';
+import { defaultEdit, fakeHost } from '@/test/fake-host';
 import { fromLibraryPhoto, processingKey, factsOf } from '@/app/store/photo';
+import { useAppStore } from '@/app/store';
+import { setHost } from '@/app/services/host';
+import { processFile, setPipeline, discardResult } from '@/app/services/processing';
+import { startPersistence } from '@/app/services/persistence';
+import { useAutoProcess } from '@/app/hooks/useAutoProcess';
+import type { DemosaicMethod } from '@/lib/types';
 let serial = 0;
 function setup() {
   const dbName = `library-test-${++serial}`;
@@ -35,8 +45,19 @@ function deferred<T>() {
   });
   return { promise, resolve };
 }
+function processedImage(method: DemosaicMethod) {
+  return {
+    gpu: { texture: {} as GPUTexture, width: 4, height: 2 },
+    meta: {
+      exportData: { width: 4, height: 2, xyzToCam: null, wbCoeffs: new Float32Array(3), camToXyz: new Float32Array(12), orientation: 'Normal' },
+      metadata: { make: 'F', model: 'X', width: 4, height: 2, tileCount: 1, inferenceTime: 0, backend: 'webgpu', exposureBias: 0, lensModel: 'L', focalLength: 0, fNumber: 0, colorTemp: 0, tint: 0, cfaType: 'bayer' as const, modelIdentity: method === 'neural-net' ? { size: 'S' as const, sha256: 'used' } : undefined },
+    },
+    dispose: vi.fn(),
+  };
+}
 beforeEach(() => {
   vi.resetAllMocks();
+  processRaw.mockReset();
   storage.listRawFileIds.mockResolvedValue(new Set());
   storage.readThumbnail.mockResolvedValue(null);
   storage.writeRaw.mockResolvedValue(undefined);
@@ -46,6 +67,48 @@ beforeEach(() => {
   URL.revokeObjectURL = vi.fn();
 });
 describe('web library', () => {
+  it('processes, saves facts, reloads, and follows a changed default without creating an edit', async () => {
+    const { host, dbName } = setup();
+    const { photos: [photo] } = await host.addFiles([raw('first.arw')]);
+    const appHost = fakeHost();
+    appHost.library = host;
+    setHost(appHost);
+    setPipeline({} as never);
+    useAppStore.setState({ files: [fromLibraryPhoto(photo)], selectedFileId: photo.id, demosaicMethod: 'markesteijn3', modelSize: 'S', processingFileId: null, initialized: true });
+    processRaw.mockImplementation(async (_bytes, options: { method: DemosaicMethod }) => processedImage(options.method));
+    const save = vi.spyOn(host, 'save');
+    const stop = startPersistence();
+    try {
+      await processFile(photo.id);
+      expect(processRaw).toHaveBeenCalledWith(expect.any(ArrayBuffer), expect.objectContaining({ method: 'neural-net' }), expect.anything());
+      await vi.waitFor(async () => {
+        expect(save).toHaveBeenCalledTimes(1);
+        expect((await createFileStorage(dbName).getAllFiles())[0]).toMatchObject({ resultMethod: 'neural-net', editMethod: null, status: 'done' });
+      });
+    } finally {
+      stop();
+      discardResult(photo.id);
+    }
+    storage.readRaw.mockResolvedValue(new ArrayBuffer(4));
+    const reloaded = createWebLibrary({ dbName, opfsRoot: 'dev' });
+    const restored = (await reloaded.load()).photos[0];
+    expect(restored.edit).toMatchObject({ demosaicMethod: null, model: null });
+    expect(restored.facts.resultMethod).toBe('neural-net');
+    const nextHost = fakeHost();
+    nextHost.library = reloaded;
+    setHost(nextHost);
+    useAppStore.setState({ files: [fromLibraryPhoto(restored)], selectedFileId: photo.id, demosaicMethod: 'bilinear', modelSize: 'S', processingFileId: null, initialized: true });
+    const { unmount } = renderHook(useAutoProcess);
+    try {
+      await vi.waitFor(() => expect(processRaw).toHaveBeenCalledTimes(2));
+      expect(processRaw).toHaveBeenLastCalledWith(expect.any(ArrayBuffer), expect.objectContaining({ method: 'bilinear' }), expect.anything());
+      await vi.waitFor(() => expect(useAppStore.getState().files[0].resultMethod).toBe('bilinear'));
+      expect(useAppStore.getState().files[0].edit.demosaicMethod).toBeNull();
+    } finally {
+      unmount();
+      discardResult(photo.id);
+    }
+  });
   it('reloads processing facts without turning an untouched photo into an edit', async () => {
     const { host, dbName } = setup();
     const { photos: [photo] } = await host.addFiles([raw()]);

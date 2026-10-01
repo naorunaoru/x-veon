@@ -146,6 +146,23 @@ describe('processing service', () => {
     expect(file.actualModel?.size).toBe('S');
   });
 
+  it('runs a Bayer photo through the neural net when the X-Trans default is incompatible', async () => {
+    const file = makeFile('a');
+    file.cfaType = 'bayer';
+    useAppStore.setState({ files: [file], demosaicMethod: 'markesteijn3' });
+    const image = fakeImage();
+    image.meta.metadata.modelIdentity = { size: 'S', sha256: 'used' };
+    processRaw.mockResolvedValue(image);
+    await processFile('a');
+    expect(processRaw).toHaveBeenCalledWith(
+      expect.any(ArrayBuffer),
+      { method: 'neural-net', modelSize: 'S', model: null },
+      ctx,
+    );
+    expect(useAppStore.getState().files[0].edit).toEqual(defaultEdit());
+    expect(useAppStore.getState().files[0].resultMethod).toBe('neural-net');
+  });
+
   it('saves processing facts while leaving an untouched edit null', async () => {
     vi.useFakeTimers();
     const stop = startPersistence();
