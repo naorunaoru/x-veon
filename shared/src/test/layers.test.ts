@@ -11,6 +11,9 @@ import ts from 'typescript';
 const SRC = resolve(process.cwd(), 'src');
 const REPO = resolve(SRC, '../..');
 
+// Keep diagnostics identical across Windows and POSIX hosts.
+const diagnosticPath = (file: string) => relative(SRC, file).split(sep).join('/');
+
 type Layer = 'lib' | 'gpu' | 'pipeline' | 'renderer' | 'app' | 'components' | 'dev' | 'root' | 'host';
 const LAYER_DIRS = ['lib', 'gpu', 'pipeline', 'renderer', 'app', 'components', 'dev', 'host'] as const;
 
@@ -115,7 +118,7 @@ function syntaxViolations(file: string, source: string): string[] {
   const errors: string[] = [];
   const report = (node: ts.Node, reason: string) =>
     errors.push(
-      `${relative(SRC, file)}:${tree.getLineAndCharacterOfPosition(node.getStart(tree)).line + 1} [${reason}]`,
+      `${diagnosticPath(file)}:${tree.getLineAndCharacterOfPosition(node.getStart(tree)).line + 1} [${reason}]`,
     );
   const visit = (node: ts.Node) => {
     if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
@@ -186,16 +189,16 @@ function violationsIn(files: SourceText[]): string[] {
         (origin === 'web' && destination === 'desktop') ||
         (origin === 'desktop' && destination === 'web')
       ) {
-        violations.push(`${relative(SRC, file)}:${line} → ${spec} [host boundary]`);
+        violations.push(`${diagnosticPath(file)}:${line} → ${spec} [host boundary]`);
         continue;
       }
       if (origin === 'shared' && /^(electron|@electron)(\/|$)/.test(spec)) {
-        violations.push(`${relative(SRC, file)}:${line} → ${spec} [host detection]`);
+        violations.push(`${diagnosticPath(file)}:${line} → ${spec} [host detection]`);
         continue;
       }
       if (origin !== 'shared') continue;
       const target = resolveTarget(file, spec);
-      const where = `${relative(SRC, file)}:${line} (${from}) → ${spec}`;
+      const where = `${diagnosticPath(file)}:${line} (${from}) → ${spec}`;
       if (target.kind === 'layer' && !ALLOWED[from].includes(target.layer)) {
         violations.push(`${where} [${target.layer}]`);
       }
