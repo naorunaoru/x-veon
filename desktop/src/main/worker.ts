@@ -96,7 +96,9 @@ export function createWorkerSupervisor(opts: {
   }
   function ready(): Promise<void> { return stopped ? Promise.reject(new Error(stoppedMessage)) : readiness ?? start(); }
   async function send(message: MainToWorker): Promise<void> {
-    const initialized = ready(), target = child; await initialized;
+    const initialized = ready(), target = child;
+    try { await initialized; }
+    catch { throw new Error(stoppedMessage); }
     if (stopped || child !== target) throw new Error(stoppedMessage);
     if (message.kind === 'cancel-list') {
       for (const [rid, entry] of pending) if (entry.token === message.token) { pending.delete(rid); entry.assembler?.cancel(message.token); entry.reject(new Error('Listing cancelled')); }
@@ -106,7 +108,9 @@ export function createWorkerSupervisor(opts: {
   function request(message: ListRequest): Promise<ListingResult>;
   function request(message: ThumbnailRequest): Promise<Extract<WorkerToMain, { kind: 'thumbnail' }>>;
   async function request(message: ListRequest | ThumbnailRequest): Promise<ListingResult | Extract<WorkerToMain, { kind: 'thumbnail' }>> {
-    const initialized = ready(), target = child; await initialized;
+    const initialized = ready(), target = child;
+    try { await initialized; }
+    catch { throw new Error(stoppedMessage); }
     if (stopped || child !== target) throw new Error(stoppedMessage);
     const rid = nextRid++;
     return new Promise((resolve, reject) => {
@@ -129,7 +133,9 @@ export function createWorkerSupervisor(opts: {
     commitCurrent(folder: CommittedFolder | null) { current = folder && { ...folder }; },
     onMessage(listener: (message: WorkerToMain) => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     async connect(postToWindow: (port: MessagePortMain) => void) {
-      const initialized = ready(), target = child; await initialized;
+      const initialized = ready(), target = child;
+      try { await initialized; }
+      catch { throw new Error(stoppedMessage); }
       if (stopped || child !== target) throw new Error(stoppedMessage);
       const channel = await (opts.createChannel?.() ?? import('electron').then(({ MessageChannelMain }) => new MessageChannelMain()));
       try {

@@ -29,7 +29,13 @@ const number = (x: unknown): x is number => typeof x === 'number' && Number.isFi
 const count = (x: unknown): x is number => Number.isSafeInteger(x) && (x as number) >= 0;
 const id = (x: unknown): x is string => string(x) && /^[A-Za-z0-9_-]{22}$/.test(x);
 const nullableString = (x: unknown) => x === null || string(x);
-const array = (x: unknown, check: (x: unknown) => boolean): x is unknown[] => Array.isArray(x) && x.every(check);
+function array(x: unknown, check: (x: unknown) => boolean): x is unknown[] {
+  if (!Array.isArray(x)) return false;
+  for (let i = 0; i < x.length; i++) {
+    if (!Object.hasOwn(x, i) || !check(x[i])) return false;
+  }
+  return true;
+}
 const oneOf = (x: unknown, values: readonly unknown[]) => values.includes(x);
 const optional = (x: RecordValue, key: string, check: (v: unknown) => boolean) => x[key] === undefined || check(x[key]);
 const fields = (x: RecordValue, names: string[], check: (v: unknown) => boolean) => names.every(k => check(x[k]));

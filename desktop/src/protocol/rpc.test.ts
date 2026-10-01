@@ -53,3 +53,22 @@ describe('versioned process protocol', () => {
     expect(isListingFrame({ ...examples[18][1], photos: [{ ...p, fileSize: NaN }] })).toBe(false);
   });
 });
+
+describe('structured-cloned sparse arrays', () => {
+  const sparse = (value: unknown) => [value, , value];
+  const sparseFacts = (field: 'xyzToCam' | 'wbCoeffs' | 'camToXyz') => ({ ...p.facts, resultMeta: { ...p.facts.resultMeta, exportData: { ...p.facts.resultMeta!.exportData, [field]: sparse(1) } } });
+  const sparseLens = (field: 'distortion' | 'tca' | 'vignetting') => ({ ...p.facts, lensProfile: { ...p.facts.lensProfile, [field]: sparse(p.facts.lensProfile![field][0]) } });
+  const cases = [
+    ['listing photos', isListingFrame, { ...examples[18][1], photos: sparse(p) }],
+    ['event photos', isPortEvent, { ...examples[5][1], photos: sparse(p) }],
+    ['listing registry', isListingFrame, { ...examples[18][1], registry: sparse([p.id, '/a.RAF']) }],
+    ['registered entries', isMainToWorker, { v: 1, kind: 'register', entries: sparse([p.id, '/a.RAF']) }],
+    ['registry tuple', isMainToWorker, { v: 1, kind: 'register', entries: [[p.id, ,]] }],
+    ['roots', isMainToWorker, { v: 1, kind: 'roots', realRoots: sparse('/photos') }],
+    ...(['xyzToCam', 'wbCoeffs', 'camToXyz'] as const).map(field => [field, isPortRequest, { ...examples[1][1], facts: sparseFacts(field) }] as const),
+    ...(['distortion', 'tca', 'vignetting'] as const).map(field => [field, isPortRequest, { ...examples[1][1], facts: sparseLens(field) }] as const),
+  ] as const;
+  it.each(cases)('rejects holes in %s', (_name, validate, message) => {
+    expect(validate(structuredClone(message))).toBe(false);
+  });
+});

@@ -33,3 +33,10 @@ it('splits below the count limit when large metadata would exceed the byte limit
   expect(batches.length).toBeGreaterThan(1); expect(batches.flatMap(f => f.photos)).toEqual(photos);
   expect(frames.every(f => Buffer.byteLength(JSON.stringify(f)) <= 1_000_000)).toBe(true);
 });
+it('drops a structured-cloned sparse photo batch without applying undefined photos', () => {
+  const done = vi.fn(), error = vi.fn(); const assembler = createListingAssembler(done, error);
+  assembler.push({ ...begin, total: 3 });
+  assembler.push(structuredClone({ v: 1, kind: 'listing-batch', token: 't', seq: 0, photos: [photo(), , photo(2)] }) as ListingFrame);
+  assembler.push({ v: 1, kind: 'listing-end', token: 't', total: 3 });
+  expect(done).not.toHaveBeenCalled(); expect(error).toHaveBeenCalledExactlyOnceWith('t', 'Invalid listing frame');
+});

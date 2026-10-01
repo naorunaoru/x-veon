@@ -83,3 +83,14 @@ it('rejects pending work and ignores late spawn when quit starts before spawn', 
   await expect(ready).rejects.toThrow('The background worker stopped.');
   expect(children).toHaveLength(1); expect(children[0].sent).toEqual([]); expect(events).toEqual([]);
 });
+it.each(['request', 'send', 'connect'] as const)('rejects %s with the stopped contract when its worker exits before spawn', async operation => {
+  const { supervisor: s, children } = harness();
+  const pending = operation === 'request' ? s.request({ kind: 'thumbnail', id: '0'.repeat(22) })
+    : operation === 'send' ? s.send({ v: 1, kind: 'roots', realRoots: ['/photos'] })
+    : s.connect(vi.fn());
+  const result = pending.then(() => 'resolved', error => error.message);
+  children[0].emit('exit', 1);
+  children[1].spawn(); await s.ready();
+  const error = await result; s.stop();
+  expect(error).toBe('The background worker stopped.');
+});
