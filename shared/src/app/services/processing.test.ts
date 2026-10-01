@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAppStore } from '@/app/store';
 import type { QueuedFile } from '@/app/store';
 import type { ProcessedImage } from '@/pipeline';
+import { startPersistence } from './persistence';
 
 const processRaw = vi.fn();
 vi.mock('@/pipeline', () => ({ processRaw: (...args: unknown[]) => processRaw(...args) }));
@@ -89,12 +90,13 @@ function fakeImage(): ProcessedImage & { disposed: number } {
 
 const switchSize = vi.fn();
 const ctx = { device: {} as GPUDevice, models: { backend: 'webgpu', switchSize } } as never;
+let host: ReturnType<typeof fakeHost>;
 
 describe('processing service', () => {
   beforeEach(() => {
     for (const id of ['a', 'b', 'c']) discardResult(id);
     processRaw.mockReset();
-    const host = fakeHost();
+    host = fakeHost();
     host.library.readRaw = readRaw;
     setHost(host);
     readRaw.mockReset();
@@ -130,6 +132,57 @@ describe('processing service', () => {
     expect(useAppStore.getState().files[0].edit.model?.sha256).toBe('unknown');
     useAppStore.getState().setFileLookPreset('a', 'umbra');
     expect(useAppStore.getState().files[0].edit.model?.sha256).toBe('used');
+  });
+
+  it('leaves an untouched edit untouched after processing', async () => {
+    const image = fakeImage();
+    image.meta.metadata.modelIdentity = { size: 'S', sha256: 'used' };
+    processRaw.mockResolvedValue(image);
+    useAppStore.setState({ demosaicMethod: 'neural-net' });
+    await processFile('a');
+    const file = useAppStore.getState().files[0];
+    expect(file.edit).toEqual(defaultEdit());
+    expect(file.resultMethod).toBe('neural-net');
+    expect(file.actualModel?.size).toBe('S');
+  });
+
+  it('saves processing facts while leaving an untouched edit null', async () => {
+    vi.useFakeTimers();
+    const stop = startPersistence();
+    try {
+      const image = fakeImage();
+      image.meta.metadata.modelIdentity = { size: 'S', sha256: 'used' };
+      processRaw.mockResolvedValue(image);
+      useAppStore.setState({ demosaicMethod: 'neural-net' });
+      await processFile('a');
+      await vi.advanceTimersByTimeAsync(301);
+      expect(host.library.save).toHaveBeenCalledTimes(1);
+      expect(host.library.save).toHaveBeenCalledWith('a', expect.objectContaining({ demosaicMethod: null, model: null }), expect.objectContaining({ resultMethod: 'neural-net' }));
+    } finally {
+      stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it('saves a first edit once its deferred neural model resolves', async () => {
+    vi.useFakeTimers();
+    const stop = startPersistence();
+    try {
+      useAppStore.setState({ demosaicMethod: 'neural-net' });
+      useAppStore.getState().setFileLookPreset('a', 'umbra');
+      await vi.advanceTimersByTimeAsync(301);
+      expect(host.library.save).not.toHaveBeenCalled();
+      const image = fakeImage();
+      image.meta.metadata.modelIdentity = { size: 'S', sha256: 'used' };
+      processRaw.mockResolvedValue(image);
+      await processFile('a');
+      await vi.advanceTimersByTimeAsync(301);
+      expect(host.library.save).toHaveBeenCalledTimes(1);
+      expect(host.library.save).toHaveBeenCalledWith('a', expect.objectContaining({ model: { size: 'S', sha256: 'used' } }), expect.anything());
+    } finally {
+      stop();
+      vi.useRealTimers();
+    }
   });
 
   it('walks queued → processing → done and lends the result out without giving it away', async () => {

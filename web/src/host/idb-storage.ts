@@ -15,6 +15,7 @@ export interface PersistedFile {
   status: 'queued' | 'done' | 'error';
   error: string | null;
   resultMethod: DemosaicMethod | null;
+  editMethod?: DemosaicMethod | null;
   resultMeta: SerializableResultMeta | null;
   cachedMethods: DemosaicMethod[]; // deprecated — kept for schema compat
   lookPreset: LookPreset;
@@ -47,7 +48,7 @@ export function fromRecord(p: PersistedFile, thumbnailUrl: string | null): Libra
       lookPreset: p.lookPreset,
       openDrtOverrides: p.openDrtOverrides,
       preProcessOverrides: p.preProcessOverrides ?? {},
-      demosaicMethod: p.resultMethod,
+      demosaicMethod: 'editMethod' in p ? p.editMethod ?? null : p.resultMethod,
       model: p.model ?? null,
     },
     facts: {
@@ -63,6 +64,7 @@ export function fromRecord(p: PersistedFile, thumbnailUrl: string | null): Libra
       status: p.status === 'done' && p.resultMeta ? 'done' : 'queued',
       error: null,
       resultMeta: p.resultMeta,
+      resultMethod: p.resultMethod,
       lensProfile: p.lensProfile ?? null,
     },
   };
@@ -86,7 +88,8 @@ export function toRecord(
     status: facts.status,
     error: facts.error,
     resultMeta: facts.resultMeta,
-    resultMethod: edit.demosaicMethod,
+    resultMethod: facts.resultMethod,
+    editMethod: edit.demosaicMethod,
     cachedMethods: [],
     lensProfile: facts.lensProfile,
     lookPreset: edit.lookPreset,

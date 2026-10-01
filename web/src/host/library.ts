@@ -148,6 +148,7 @@ export function createWebLibrary(options: {
           cfaType: file.name.toLowerCase().endsWith('.raf') ? 'xtrans' : 'bayer',
           metadata: null,
           resultMeta: null,
+          resultMethod: null,
           lensProfile: null,
           status: 'queued',
           error: null,

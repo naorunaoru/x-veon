@@ -17,6 +17,7 @@ import { createWebLibrary } from './library';
 import { assertDatabaseActive, closeDatabase, openDatabase } from '@/app/storage/database';
 import { createFileStorage, type PersistedFile } from './idb-storage';
 import { defaultEdit } from '@/test/fake-host';
+import { fromLibraryPhoto, processingKey, factsOf } from '@/app/store/photo';
 let serial = 0;
 function setup() {
   const dbName = `library-test-${++serial}`;
@@ -45,6 +46,20 @@ beforeEach(() => {
   URL.revokeObjectURL = vi.fn();
 });
 describe('web library', () => {
+  it('reloads processing facts without turning an untouched photo into an edit', async () => {
+    const { host, dbName } = setup();
+    const { photos: [photo] } = await host.addFiles([raw()]);
+    await host.save(photo.id, photo.edit, { ...photo.facts, resultMethod: 'neural-net' });
+    const reloaded = createWebLibrary({ dbName, opfsRoot: 'dev' });
+    const restored = (await reloaded.load()).photos[0];
+    expect(restored.edit.demosaicMethod).toBeNull();
+    expect(restored.edit.model).toBeNull();
+    expect(restored.facts.resultMethod).toBe('neural-net');
+    const queued = fromLibraryPhoto(restored);
+    expect(processingKey(queued, { demosaicMethod: 'dht', modelSize: 'S' })).toBe('dht');
+    expect(processingKey(queued, { demosaicMethod: 'neural-net', modelSize: 'S' })).toBe('neural-net:S:');
+    expect(factsOf(queued).resultMethod).toBe('neural-net');
+  });
   it('filters imports and retains File bytes inside the host, with selected IDs', async () => {
     const { host } = setup();
     const result = await host.addFiles([raw('one.RAF'), raw('no.txt'), raw('two.arw')]);

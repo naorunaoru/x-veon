@@ -15,6 +15,7 @@ export interface PhotoFacts {
   cfaType: CfaType | null;
   metadata: QuickMetadata | null;
   resultMeta: SerializableResultMeta | null;
+  resultMethod: DemosaicMethod | null;
   lensProfile: LensProfile | null;
   status: 'queued' | 'done' | 'error';
   error: string | null;

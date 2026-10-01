@@ -93,11 +93,7 @@ export function startPersistence(): () => void {
       if (!old || old === file || file.editing === 'view-only' || file.status === 'processing') continue;
       if (old.edit === file.edit && JSON.stringify(factsOf(old)) === JSON.stringify(factsOf(file))) continue;
       // Do not write an incomplete neural edit while its first model is still being resolved.
-      if (
-        file.status !== 'error' &&
-        (file.edit.demosaicMethod ?? state.demosaicMethod) === 'neural-net' &&
-        (!file.edit.model || file.modelNeedsResolution)
-      )
+      if (file.status !== 'error' && file.modelNeedsResolution)
         continue;
       pending.set(file.id, { file, revision: ++revision });
       schedule(file.id);

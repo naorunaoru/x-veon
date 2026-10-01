@@ -36,8 +36,8 @@ export interface LibrarySlice {
 export const createLibrarySlice: Slice<LibrarySlice> = (set, get) => ({
   hydrationVersion: 0,
   files: [],
-  setFileDemosaicMethod: (id, method) => set(state => ({ files: state.files.map(f => f.id === id ? editPhoto(f, { demosaicMethod: method }) : f) })),
-  setFileModel: (id, model) => set(state => ({ files: state.files.map(f => f.id === id ? editPhoto(f, { model, demosaicMethod: 'neural-net' }) : f) })),
+  setFileDemosaicMethod: (id, method) => set(state => ({ files: state.files.map(f => f.id === id ? editPhoto(f, { demosaicMethod: method }, state) : f) })),
+  setFileModel: (id, model) => set(state => ({ files: state.files.map(f => f.id === id ? editPhoto(f, { model, demosaicMethod: 'neural-net' }, state) : f) })),
   selectedFileId: null,
   processingFileId: null,
 

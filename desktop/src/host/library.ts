@@ -32,6 +32,7 @@ export function createFixtureLibrary() {
             cfaType: file.name.endsWith('.RAF') ? 'xtrans' : 'bayer',
             metadata: null,
             resultMeta: null,
+            resultMethod: null,
             lensProfile: null,
             status: 'queued',
             error: null,

@@ -24,6 +24,7 @@ export function fakePhoto(id = 'a'): LibraryPhoto {
       cfaType: 'xtrans',
       metadata: null,
       resultMeta: null,
+      resultMethod: null,
       lensProfile: null,
       status: 'queued',
       error: null,

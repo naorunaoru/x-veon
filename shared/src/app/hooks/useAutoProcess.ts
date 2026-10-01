@@ -4,6 +4,7 @@ import { useProcessing } from './useProcessing';
 import { processingKey } from '@/app/store/photo';
 import type { FileStatus } from '@/app/store';
 import { isMethodValidForCfa } from '@/lib/catalog';
+import { effectiveMethod } from '@/app/photo-edit';
 export function shouldAutoProcess(
   file: { status: FileStatus } | undefined,
   initialized: boolean,
@@ -18,12 +19,12 @@ export function useAutoProcess(): void {
   const key = file ? processingKey(file, state) : null;
   useEffect(() => {
     if (!file || !state.initialized || isProcessing) return;
-    const method = file.edit.demosaicMethod ?? state.demosaicMethod;
-    if (file.cfaType && !isMethodValidForCfa(method, file.cfaType) && file.editing !== 'view-only') {
+    const method = effectiveMethod(file.edit, state.demosaicMethod, file.cfaType);
+    if (file.edit.demosaicMethod && file.cfaType && !isMethodValidForCfa(method, file.cfaType) && file.editing !== 'view-only') {
       state.setFileDemosaicMethod(file.id, 'neural-net');
       return;
     }
-    if (file.status === 'queued' || (file.processedKey !== null && file.processedKey !== key))
+    if (file.status === 'queued' || (file.status === 'done' && file.processedKey === null) || (file.processedKey !== null && file.processedKey !== key))
       void processFile(file.id);
   }, [file?.id, file?.status, file?.processedKey, key, state.initialized, isProcessing, processFile]);
 }

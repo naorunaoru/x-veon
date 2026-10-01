@@ -8,6 +8,7 @@
 import { useAppStore } from '@/app/store';
 import { processRaw, type PipelineContext, type ProcessedImage } from '@/pipeline';
 import { processingKey } from '@/app/store/photo';
+import { effectiveMethod } from '@/app/photo-edit';
 import { getHost } from './host';
 import { matchLensFor } from './library';
 
@@ -48,7 +49,7 @@ export async function processFile(fileId: string): Promise<void> {
   if (!entry) return;
 
   const requestedKey = processingKey(entry, store);
-  const method = entry.edit.demosaicMethod ?? store.demosaicMethod;
+  const method = effectiveMethod(entry.edit, store.demosaicMethod, entry.cfaType);
   const modelSize = store.modelSize;
   const model = entry.edit.model;
   runDiscarded = false;
@@ -78,24 +79,14 @@ export async function processFile(fileId: string): Promise<void> {
       files: state.files.map((f) => {
         if (f.id !== fileId) return f;
         const actualModel = image.meta.metadata.modelIdentity ?? null;
-        const canRecord = f.editing !== 'view-only';
-        const edit = canRecord
-          ? {
-              ...f.edit,
-              demosaicMethod: f.edit.demosaicMethod ?? method,
-              model:
-                method !== 'neural-net'
-                  ? null
-                  : !f.edit.model || f.modelNeedsResolution || f.editRevision > entry.editRevision
-                    ? actualModel
-                    : f.edit.model,
-            }
+        const edit = f.editing !== 'view-only' && f.modelNeedsResolution && actualModel
+          ? { ...f.edit, model: actualModel }
           : f.edit;
         const updated = {
           ...f,
           edit,
           actualModel,
-          modelNeedsResolution: false,
+          modelNeedsResolution: f.modelNeedsResolution && !actualModel,
           cfaType: image.meta.metadata.cfaType ?? f.cfaType,
           modelNote:
             edit.model?.sha256 === actualModel?.sha256 ? null : (image.meta.metadata.modelNote ?? null),

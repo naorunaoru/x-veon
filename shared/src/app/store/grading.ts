@@ -1,6 +1,6 @@
 import type { LookPreset } from '@/lib/types';
 import type { OpenDrtConfig, PreProcessConfig } from '@/renderer/grading/opendrt-params';
-import type { Slice, QueuedFile } from './types';
+import type { Slice, QueuedFile, AppState } from './types';
 import { editPhoto } from './photo';
 export interface GradingSlice {
   setFileLookPreset: (fileId: string, preset: LookPreset) => void;
@@ -21,16 +21,16 @@ export interface GradingSlice {
   clearFilePreProcessOverrides: (fileId: string, keys: (keyof PreProcessConfig)[]) => void;
 }
 export const createGradingSlice: Slice<GradingSlice> = (set) => {
-  const update = (id: string, fn: (file: QueuedFile) => QueuedFile) =>
+  const update = (id: string, fn: (file: QueuedFile, state: AppState) => QueuedFile) =>
     set((state) => ({
-      files: state.files.map((f) => (f.id === id && f.editing !== 'view-only' ? fn(f) : f)),
+      files: state.files.map((f) => (f.id === id && f.editing !== 'view-only' ? fn(f, state) : f)),
     }));
   return {
     setFileLookPreset: (id, preset) =>
-      update(id, (f) => {
+      update(id, (f, state) => {
         if (f.edit.lookPreset === preset && Object.keys(f.edit.openDrtOverrides).length === 0) return f;
         return {
-          ...editPhoto(f, { lookPreset: preset, openDrtOverrides: {} }),
+          ...editPhoto(f, { lookPreset: preset, openDrtOverrides: {} }, state),
           lookHistory: [
             ...(f.lookHistory ?? []),
             { lookPreset: f.edit.lookPreset, openDrtOverrides: { ...f.edit.openDrtOverrides } },
@@ -38,32 +38,32 @@ export const createGradingSlice: Slice<GradingSlice> = (set) => {
         };
       }),
     undoFileLook: (id) =>
-      update(id, (f) => {
+      update(id, (f, state) => {
         if (!f.lookHistory?.length) return f;
         return {
-          ...editPhoto(f, f.lookHistory[f.lookHistory.length - 1]),
+          ...editPhoto(f, f.lookHistory[f.lookHistory.length - 1], state),
           lookHistory: f.lookHistory.slice(0, -1),
         };
       }),
     setFileOpenDrtOverride: (id, key, value) =>
-      update(id, (f) => editPhoto(f, { openDrtOverrides: { ...f.edit.openDrtOverrides, [key]: value } })),
-    resetFileOpenDrtOverrides: (id) => update(id, (f) => editPhoto(f, { openDrtOverrides: {} })),
+      update(id, (f, state) => editPhoto(f, { openDrtOverrides: { ...f.edit.openDrtOverrides, [key]: value } }, state)),
+    resetFileOpenDrtOverrides: (id) => update(id, (f, state) => editPhoto(f, { openDrtOverrides: {} }, state)),
     setFilePreProcessOverride: (id, key, value) =>
-      update(id, (f) =>
-        editPhoto(f, { preProcessOverrides: { ...f.edit.preProcessOverrides, [key]: value } }),
+      update(id, (f, state) =>
+        editPhoto(f, { preProcessOverrides: { ...f.edit.preProcessOverrides, [key]: value } }, state),
       ),
-    resetFilePreProcessOverrides: (id) => update(id, (f) => editPhoto(f, { preProcessOverrides: {} })),
+    resetFilePreProcessOverrides: (id) => update(id, (f, state) => editPhoto(f, { preProcessOverrides: {} }, state)),
     clearFileOpenDrtOverrides: (id, keys) =>
-      update(id, (f) => {
+      update(id, (f, state) => {
         const overrides = { ...f.edit.openDrtOverrides };
         for (const key of keys) delete overrides[key];
-        return editPhoto(f, { openDrtOverrides: overrides });
+        return editPhoto(f, { openDrtOverrides: overrides }, state);
       }),
     clearFilePreProcessOverrides: (id, keys) =>
-      update(id, (f) => {
+      update(id, (f, state) => {
         const overrides = { ...f.edit.preProcessOverrides };
         for (const key of keys) delete overrides[key];
-        return editPhoto(f, { preProcessOverrides: overrides });
+        return editPhoto(f, { preProcessOverrides: overrides }, state);
       }),
   };
 };

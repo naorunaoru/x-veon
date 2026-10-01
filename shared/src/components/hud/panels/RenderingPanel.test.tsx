@@ -82,6 +82,7 @@ describe('RenderingPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Undo look change' }));
     expect(file()).toMatchObject({
       ...original,
+      edit: { ...original.edit, demosaicMethod: 'neural-net' },
       editRevision: expect.any(Number),
       modelNeedsResolution: expect.any(Boolean),
     });
@@ -176,6 +177,7 @@ describe('RenderingPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Undo look change' }));
     expect(file()).toMatchObject({
       ...original,
+      edit: { ...original.edit, demosaicMethod: 'neural-net' },
       editRevision: expect.any(Number),
       modelNeedsResolution: expect.any(Boolean),
     });
