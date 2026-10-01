@@ -8,13 +8,15 @@ import { gpuPostprocess } from './postprocess/postprocess-gpu';
 import { estimateColorTemperature } from './color-temperature';
 import { PATCH_SIZE } from './constants';
 import { getDevice, setSharedDevice } from '@/gpu/device';
-import type { GpuImage, ModelSize, ProcessingResultMeta } from '@/lib/types';
+import type { DemosaicMethod, GpuImage, ModelSize, ProcessingResultMeta } from '@/lib/types';
+import { isMethodValidForCfa } from '@/lib/catalog';
 import type { PipelineContext, ProcessOptions } from './context';
 
 export type { PipelineContext, ProcessOptions } from './context';
 
 /** A processed RAW: the RGBA32F texture on the GPU plus its metadata. The owner must dispose it. */
 export interface ProcessedImage {
+  method: DemosaicMethod;
   gpu: GpuImage;
   meta: ProcessingResultMeta;
   dispose(): void;
@@ -66,6 +68,8 @@ export async function processRaw(
     if (!prepared) throw new Error(prepareError ?? 'The CFA of this file could not be prepared.');
 
     const { pattern, period, dy, dx, cfaType } = prepared.cfa;
+    const method = options.resolveDefault && !isMethodValidForCfa(options.method, cfaType) ? 'neural-net' : options.method;
+    const resolvedOptions = { ...options, method };
     const visWidth = prepared.visibleWidth;
     const visHeight = prepared.visibleHeight;
     console.log(`CFA: ${cfaType} (period=${period}, shift=dy${dy} dx${dx})`);
@@ -88,7 +92,7 @@ export async function processRaw(
     // 9. Demosaic through the strategy for the requested method
     const startTime = Date.now();
     // Label the result with the models actually loaded, not with the requested size.
-    const resolved = options.method === 'neural-net' ? await ctx.models.activate(cfaType, options.model ?? null, options.modelSize) : null;
+    const resolved = method === 'neural-net' ? await ctx.models.activate(cfaType, options.model ?? null, options.modelSize) : null;
     const modelSize = resolved?.model.size ?? ctx.models.size;
     const input: DemosaicInput = {
       cfa: prepared.data,
@@ -107,7 +111,7 @@ export async function processRaw(
     };
     prepared = null;
     const demosaicStart = options.timings ? performance.now() : 0;
-    const demosaiced = await strategyFor(options.method).run(input, ctx, options);
+    const demosaiced = await strategyFor(method).run(input, ctx, resolvedOptions);
     // The GPU methods only submit work. Wait for it (the neural net's finalize and the GPU
     // methods' readback used to), so the reported time covers the demosaic, as before.
     if (!(demosaiced.rgb instanceof Float32Array)) {
@@ -163,14 +167,14 @@ export async function processRaw(
         height: finalHeight,
         tileCount: demosaiced.tileCount,
         inferenceTime,
-        backend: options.method === 'neural-net' ? (ctx.models.backend ?? 'unknown') : options.method,
+        backend: method === 'neural-net' ? (ctx.models.backend ?? 'unknown') : method,
         exposureBias: raw.exposureBias,
         lensModel: raw.lensModel,
         focalLength: raw.focalLength,
         fNumber: raw.fNumber,
         colorTemp,
         tint,
-        modelSize: options.method === 'neural-net' ? modelSize : undefined,
+        modelSize: method === 'neural-net' ? modelSize : undefined,
         modelIdentity: resolved?.model,
         cfaType,
         modelNote: resolved?.note,
@@ -178,7 +182,7 @@ export async function processRaw(
     };
 
     const gpu: GpuImage = { texture: gpuResult.texture, width: visWidth, height: visHeight };
-    const image = { gpu, meta, dispose: () => gpu.texture.destroy() };
+    const image = { gpu, meta, method, dispose: () => gpu.texture.destroy() };
     ownedOutput = null; // transfer to the caller only after metadata construction succeeds
     return image;
   } finally {

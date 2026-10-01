@@ -4,14 +4,16 @@ import { LOOK_PRESETS, DEFAULT_PREPROCESS, configFromPreset } from '@/renderer/g
 import type { ListingFrame } from './listing';
 export type { ListingFrame } from './listing';
 
+export interface StateStamp { worker: string; revision: number }
+export interface ListingStamp extends StateStamp { scan: number }
 export type PortRequest =
   | { v: 1; rid: number; op: 'saveEdit'; id: PhotoId; edit: PhotoEdit }
   | { v: 1; rid: number; op: 'saveFacts'; id: PhotoId; facts: PhotoFacts }
   | { v: 1; rid: number; op: 'rescan' };
-export type PortReply = { v: 1; rid: number; ok: true } | { v: 1; rid: number; ok: false; error: string };
+export type PortReply = { v: 1; rid: number; ok: true; stamp?: StateStamp } | { v: 1; rid: number; ok: false; error: string };
 export type PortEvent = { v: 1; event: 'facts'; activation: string; folder: FolderRef; photos: LibraryPhoto[] };
 export type MainToWorker =
-  | { v: 1; kind: 'session'; key: string; cacheDir: string }
+  | { v: 1; kind: 'session'; key: string; cacheDir: string; worker?: string }
   | { v: 1; kind: 'connect' }
   | { v: 1; kind: 'register'; entries: [PhotoId, string][] }
   | { v: 1; kind: 'roots'; realRoots: string[] }
@@ -27,6 +29,9 @@ const record = (x: unknown): x is RecordValue => x !== null && typeof x === 'obj
 const string = (x: unknown): x is string => typeof x === 'string';
 const number = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
 const count = (x: unknown): x is number => Number.isSafeInteger(x) && (x as number) >= 0;
+export const isWorkerIdentity = (x: unknown): x is string => typeof x === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(x);
+const stateStamp = (x: unknown) => record(x) && isWorkerIdentity(x.worker) && count(x.revision);
+const listingStamp = (x: unknown) => stateStamp(x) && count((x as RecordValue).scan);
 const id = (x: unknown): x is string => string(x) && /^[A-Za-z0-9_-]{22}$/.test(x);
 const nullableString = (x: unknown) => x === null || string(x);
 function array(x: unknown, check: (x: unknown) => boolean): x is unknown[] {
@@ -82,6 +87,7 @@ function facts(x: unknown): x is PhotoFacts {
 }
 function photo(x: unknown): x is LibraryPhoto {
   return record(x) && id(x.id) && string(x.name) && string(x.originalName) && number(x.fileSize) && x.fileSize >= 0
+    && (x.sourceVersion === undefined || (typeof x.sourceVersion === 'string' && /^[a-f0-9]{64}$/.test(x.sourceVersion)))
     && nullableString(x.thumbnailUrl) && edit(x.edit) && facts(x.facts)
     && oneOf(x.editing, ['saved', 'session', 'view-only']) && nullableString(x.editingNote);
 }
@@ -96,7 +102,7 @@ function envelope(x: unknown): x is RecordValue {
 function listing(x: RecordValue): boolean {
   if (!string(x.token)) return false;
   switch (x.kind) {
-    case 'listing-begin': return string(x.activation) && folder(x.folder) && count(x.total) && purpose(x.purpose);
+    case 'listing-begin': return string(x.activation) && folder(x.folder) && count(x.total) && purpose(x.purpose) && optional(x, 'stamp', listingStamp);
     case 'listing-batch': return count(x.seq) && photos(x.photos) && optional(x, 'registry', v => registry(v, 250));
     case 'listing-end': return count(x.total);
     default: return false;
@@ -113,7 +119,7 @@ export function isPortRequest(x: unknown): x is PortRequest {
   }
 }
 export function isPortReply(x: unknown): x is PortReply {
-  return envelope(x) && Number.isSafeInteger(x.rid) && (x.ok === true || (x.ok === false && string(x.error)));
+  return envelope(x) && Number.isSafeInteger(x.rid) && ((x.ok === true && optional(x, 'stamp', stateStamp)) || (x.ok === false && string(x.error)));
 }
 export function isPortEvent(x: unknown): x is PortEvent {
   return envelope(x) && x.event === 'facts' && string(x.activation) && folder(x.folder) && photos(x.photos);
@@ -121,7 +127,7 @@ export function isPortEvent(x: unknown): x is PortEvent {
 export function isMainToWorker(x: unknown): x is MainToWorker {
   if (!envelope(x)) return false;
   switch (x.kind) {
-    case 'session': return string(x.key) && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(x.key) && x.key.length > 0 && string(x.cacheDir);
+    case 'session': return string(x.key) && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(x.key) && x.key.length > 0 && string(x.cacheDir) && optional(x, 'worker', isWorkerIdentity);
     case 'connect': return true;
     case 'register': return registry(x.entries, 1000);
     case 'roots': return array(x.realRoots, string);

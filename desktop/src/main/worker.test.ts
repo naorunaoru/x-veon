@@ -111,3 +111,22 @@ it('registers accepted listing entries in bounded messages when preparation read
   const sent = children[1].sent.map(m => m.data); expect(sent.filter(m => m.kind === 'register').map(m => m.entries.length)).toEqual([1000, 1]); expect(sent.every(isMainToWorker)).toBe(true);
   expect(sent.at(-1)).toEqual({ v: 1, kind: 'watch', path: '/new', folderId: 'new', activation: 'accepted' }); s.stop();
 });
+
+it('restarts after the crash circuit with the same session, roots, registry and activation', async () => {
+  const { supervisor: s, children, events } = harness();
+  s.registry.set('a'.repeat(22), '/photos/a.RAF'); s.roots.push('/photos');
+  s.commitCurrent({ path: '/photos', folderId: 'f', activation: 'visit' });
+  const initial = s.ready(); children[0].spawn(); await initial;
+  for (let i = 0; i < 3; i++) { children[i].emit('exit', 1); if (i < 2) { children[i + 1].spawn(); await s.ready(); } }
+  const recovery = s.restart(); children[3].spawn(); await recovery;
+  expect(children[3].sent.map(m => m.data)).toEqual(expect.arrayContaining([
+    { v: 1, kind: 'session', key: Buffer.from('key').toString('base64'), cacheDir: '/cache', worker: s.instance },
+    { v: 1, kind: 'roots', realRoots: ['/photos'] },
+    { v: 1, kind: 'register', entries: [['a'.repeat(22), '/photos/a.RAF']] },
+    { v: 1, kind: 'watch', path: '/photos', folderId: 'f', activation: 'visit' },
+  ]));
+  expect(events.at(-1)).toBe('restarted');
+  children[3].emit('exit', 1); children[4].spawn(); await s.ready();
+  expect(events.at(-1)).toBe('restarted'); s.stop();
+  await expect(s.restart()).rejects.toThrow(/stopped/);
+});

@@ -39,7 +39,9 @@ export function factsOf(file: QueuedFile): PhotoFacts {
 export function editPhoto(file: QueuedFile, patch: Partial<PhotoEdit>, defaults: { demosaicMethod: DemosaicMethod }): QueuedFile {
   if (file.editing === 'view-only') return file;
   const edit = { ...file.edit, ...patch };
-  if (edit.demosaicMethod === null)
+  // A first grade edit before decode must wait for the CFA-compatible method.
+  const awaitingMethod = edit.demosaicMethod === null && file.resultMethod === null && file.cfaType === null;
+  if (edit.demosaicMethod === null && !awaitingMethod)
     edit.demosaicMethod = file.resultMethod ?? effectiveMethod(file.edit, defaults.demosaicMethod, file.cfaType);
   if (edit.demosaicMethod && edit.demosaicMethod !== 'neural-net') edit.model = null;
   else if (!('model' in patch) && file.actualModel) edit.model = file.actualModel;
@@ -58,10 +60,10 @@ export function editPhoto(file: QueuedFile, patch: Partial<PhotoEdit>, defaults:
     processedKey: adoptsCurrentResult
       ? processingKey({ ...file, edit }, { demosaicMethod: 'neural-net', modelSize: file.actualModel!.size })
       : file.processedKey,
-    modelNeedsResolution:
+    modelNeedsResolution: awaitingMethod || (
       edit.demosaicMethod === 'neural-net' &&
       !file.actualModel &&
-      !('model' in patch),
+      !('model' in patch)),
     editRevision: nextRevision(),
     editing: 'session',
     modelNote: edit.model?.sha256 === file.actualModel?.sha256 ? null : file.modelNote,
@@ -75,4 +77,24 @@ export function processingKey(
   return method === 'neural-net'
     ? `${method}:${file.edit.model?.size ?? defaults.modelSize}:${file.edit.model?.sha256 ?? ''}`
     : method;
+}
+
+/** Preserve rendering and session history when a listing only refreshes disk/cache state. */
+export function mergeLibraryPhoto(live: QueuedFile, incoming: QueuedFile, defaults: { demosaicMethod: DemosaicMethod; modelSize: ModelSize }): { file: QueuedFile; invalidate: boolean } {
+  const sameRaw = live.sourceVersion === incoming.sourceVersion && live.fileSize === incoming.fileSize && live.originalName === incoming.originalName;
+  const next = { ...incoming, cfaType: incoming.cfaType ?? live.cfaType };
+  const invalidate = !sameRaw || (live.cfaType !== null && incoming.cfaType !== null && live.cfaType !== incoming.cfaType) || processingKey(live, defaults) !== processingKey(next, defaults);
+  if (invalidate) return { file: incoming, invalidate: true };
+  const flatEqual = (a: object, b: object) => Object.keys(a).length === Object.keys(b).length && Object.entries(a).every(([key, value]) => value === (b as Record<string, unknown>)[key]);
+  const sameEdit = live.edit.lookPreset === incoming.edit.lookPreset && live.edit.demosaicMethod === incoming.edit.demosaicMethod
+    && live.edit.model?.size === incoming.edit.model?.size && live.edit.model?.sha256 === incoming.edit.model?.sha256
+    && flatEqual(live.edit.preProcessOverrides, incoming.edit.preProcessOverrides) && flatEqual(live.edit.openDrtOverrides, incoming.edit.openDrtOverrides);
+  return { invalidate: false, file: {
+    ...live,
+    name: incoming.name, thumbnailUrl: incoming.thumbnailUrl,
+    editing: incoming.editing, editingNote: incoming.editingNote,
+    metadata: incoming.metadata ?? live.metadata, cfaType: next.cfaType,
+    lensProfile: incoming.lensProfile ?? live.lensProfile,
+    ...(sameEdit ? {} : { edit: incoming.edit, editRevision: incoming.editRevision, modelNeedsResolution: incoming.modelNeedsResolution, lookHistory: undefined }),
+  } };
 }

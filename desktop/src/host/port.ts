@@ -1,6 +1,6 @@
 import type { DesktopBridge } from '../protocol/bridge';
 import { isWorkerPortDelivery } from '../protocol/security';
-import { isPortEvent, isPortReply, isPortRequest, type PortEvent, type PortRequest } from '../protocol/rpc';
+import { isPortEvent, isPortReply, isPortRequest, type PortEvent, type PortRequest, type StateStamp } from '../protocol/rpc';
 /** Install the listener before invoking main: the transferred port may arrive first. */
 export function waitForWorkerPort(bridge: DesktopBridge, signal?: AbortSignal): Promise<MessagePort> {
   const requestId = crypto.randomUUID();
@@ -31,7 +31,7 @@ export function waitForWorkerPort(bridge: DesktopBridge, signal?: AbortSignal): 
 }
 
 type Request = PortRequest extends infer R ? R extends PortRequest ? Omit<R, 'v' | 'rid'> : never : never;
-export function createWorkerClient(bridge: DesktopBridge, onFacts: (event: PortEvent) => void) {
+export function createWorkerClient(bridge: DesktopBridge, onFacts: (event: PortEvent) => void, onAcknowledged?: (stamp: StateStamp) => void) {
   let port: MessagePort | null = null, connecting: Promise<MessagePort> | null = null;
   let handshake: AbortController | undefined;
   let generation = 0, rid = 0, stopped: string | null = null;
@@ -55,7 +55,7 @@ export function createWorkerClient(bridge: DesktopBridge, onFacts: (event: PortE
         if (isPortReply(event.data)) {
           const request = pending.get(event.data.rid); if (!request) return;
           pending.delete(event.data.rid);
-          if (event.data.ok) request.resolve(); else request.reject(new Error(event.data.error));
+          if (event.data.ok) { if (event.data.stamp) onAcknowledged?.(event.data.stamp); request.resolve(); } else request.reject(new Error(event.data.error));
         } else if (isPortEvent(event.data)) onFacts(event.data);
       });
       const closed = () => { if (port === next) disconnect('Worker port closed'); };

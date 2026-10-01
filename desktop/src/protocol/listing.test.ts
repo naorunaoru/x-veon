@@ -11,7 +11,7 @@ it('assembles 2,000 realistic photos from eight batches below 1 MB', () => {
   expect(frames.filter(f => f.kind === 'listing-batch').length).toBe(8);
   const done = vi.fn(); const error = vi.fn(); const assembler = createListingAssembler(done, error);
   for (const frame of frames) { expect(isListingFrame(frame)).toBe(true); expect(Buffer.byteLength(JSON.stringify(frame))).toBeLessThanOrEqual(1_000_000); assembler.push(frame); }
-  expect(error).not.toHaveBeenCalled(); expect(done).toHaveBeenCalledExactlyOnceWith(folder, photos, 'open');
+  expect(error).not.toHaveBeenCalled(); expect(done).toHaveBeenCalledExactlyOnceWith(folder, photos, 'open', undefined);
 });
 it('ignores unknown and cancelled tokens, including a late begin', () => {
   const done = vi.fn(); const error = vi.fn(); const a = createListingAssembler(done, error);

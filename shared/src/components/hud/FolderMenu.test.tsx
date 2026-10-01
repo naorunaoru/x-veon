@@ -106,3 +106,16 @@ it('renders no folder control when the host cannot open folders', () => {
   expect(screen.queryByRole('button', { name: 'Open folder…' })).toBeNull();
   expect(screen.queryByRole('menu')).toBeNull();
 });
+
+it('keeps the keyboard choice focused when delayed recent folders arrive', async () => {
+  let resolve!: (folders: typeof recent) => void;
+  setHost(fakeHost({ openFolder: vi.fn(async () => null), recentFolders: () => new Promise(done => { resolve = done; }) }));
+  const user = userEvent.setup(); render(<TopBar />);
+  screen.getByRole('button', { name: 'Open folder…' }).focus();
+  await user.keyboard('{Enter}{End}');
+  const choice = screen.getByRole('menuitem', { name: 'Open folder…' });
+  expect(document.activeElement).toBe(choice);
+  resolve(recent);
+  await screen.findByRole('menuitem', { name: 'Archive' });
+  expect(document.activeElement).toBe(choice);
+});

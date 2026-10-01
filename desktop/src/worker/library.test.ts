@@ -94,3 +94,43 @@ it('retains extracted metadata after incomplete facts saves, including a fresh l
   }
   expect(open).not.toHaveBeenCalled();
 });
+
+it.each(['write', 'reset'] as const)('rejects a persistent parent swap after validation during %s', async operation => {
+  await lib.saveEdit(id(), edit);
+  const outside = path.join(dir, 'outside');
+  await fs.mkdir(outside);
+  await fs.writeFile(path.join(outside, 'a.RAF'), 'outside raw');
+  await fs.writeFile(path.join(outside, 'a.RAF.xmp'), 'outside sidecar');
+  const realpath = fs.realpath.bind(fs);
+  let parents = 0;
+  vi.spyOn(fs, 'realpath').mockImplementation(async target => {
+    if (String(target) === folder && ++parents === 3) {
+      await fs.rename(folder, folder + '-old');
+      await fs.symlink(outside, folder);
+    }
+    return realpath(target);
+  });
+  await expect(lib.saveEdit(id(), operation === 'reset' ? defaultPhotoEdit() : { ...edit, preProcessOverrides: { exposure: 2 } })).rejects.toThrow(/directory|folder/i);
+  expect(await fs.readFile(path.join(outside, 'a.RAF.xmp'), 'utf8')).toBe('outside sidecar');
+  expect(await fs.readdir(outside)).toEqual(['a.RAF', 'a.RAF.xmp']);
+});
+
+it('rejects a parent swap between a locked rename and its retry', async () => {
+  const outside = path.join(dir, 'outside'); await fs.mkdir(outside);
+  await fs.writeFile(path.join(outside, 'a.RAF.xmp'), 'outside sidecar');
+  vi.spyOn(fs, 'rename').mockImplementationOnce(async () => {
+    await fs.rename(folder, folder + '-old'); await fs.symlink(outside, folder);
+    throw Object.assign(new Error('busy'), { code: 'EBUSY' });
+  });
+  await expect(lib.saveEdit(id(), edit)).rejects.toThrow(/directory|folder/i);
+  expect(await fs.readFile(path.join(outside, 'a.RAF.xmp'), 'utf8')).toBe('outside sidecar');
+});
+
+it('changes the opaque RAW revision for same-size content changed at the same registered path', async () => {
+  const before = (await collect())[0].photos[0];
+  await fs.writeFile(raw, 'new'); await fs.utimes(raw, 1000, 1000);
+  const after = (await collect())[0].photos[0];
+  expect(before.sourceVersion).toMatch(/^[a-f0-9]{64}$/);
+  expect(after).toMatchObject({ id: before.id, fileSize: before.fileSize });
+  expect(after.sourceVersion).not.toBe(before.sourceVersion);
+});

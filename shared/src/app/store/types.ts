@@ -22,6 +22,7 @@ export interface LookSnapshot {
 export interface QueuedFile {
   id: string;
   fileSize: number;
+  sourceVersion?: string;
   edit: PhotoEdit;
   editing: LibraryPhoto['editing'];
   editingNote: string | null;

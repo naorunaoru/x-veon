@@ -70,7 +70,7 @@ export function createWorkerLibrary(opts: { sessionKey: Buffer; cacheDir: string
             }
           } catch (error) { editing = 'view-only'; editingNote = `Sidecar is unreadable: ${message(error)}`; }
           const facts = await cache.getFacts(cache.key(entry)) ?? queuedFacts();
-          photos.push({ id, name: entry.name.replace(/\.[^.]+$/, ''), originalName: entry.name, fileSize: entry.size, thumbnailUrl: `xveon-photo://thumb/${id}`, edit, facts, editing, editingNote });
+          photos.push({ id, name: entry.name.replace(/\.[^.]+$/, ''), originalName: entry.name, fileSize: entry.size, sourceVersion: cache.key(entry), thumbnailUrl: `xveon-photo://thumb/${id}`, edit, facts, editing, editingNote });
           registry.set(id, entry.path);
           batchRegistry.push([id, entry.path]);
         }
@@ -92,9 +92,9 @@ export function createWorkerLibrary(opts: { sessionKey: Buffer; cacheDir: string
       const merged = mergeSidecar(existing, edit);
       if (merged === existing) return;
       const current = await roots.checkWrite(raw);
-      if (current.sidecarPath !== checked.sidecarPath) throw new Error('The photo is no longer in its folder');
-      if (merged === null) await removeIfExists(current.sidecarPath);
-      else await writeFileAtomic(current.sidecarPath, merged);
+      if (current.sidecarPath !== checked.sidecarPath || current.dev !== checked.dev || current.ino !== checked.ino) throw new Error('The photo is no longer in its folder');
+      if (merged === null) await removeIfExists(current.sidecarPath, checked);
+      else await writeFileAtomic(current.sidecarPath, merged, { directory: checked });
     },
     async saveFacts(id, facts) {
       await cache.putFacts(cache.key(await currentEntry(id)), facts);

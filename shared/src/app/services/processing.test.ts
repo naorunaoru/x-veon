@@ -1,12 +1,12 @@
 import { setHost } from './host';
 import { fakeHost } from '@/test/fake-host';
-import { fromLibraryPhoto } from '@/app/store/photo';
+import { factsOf, fromLibraryPhoto } from '@/app/store/photo';
 import { fakePhoto, defaultEdit } from '@/test/fake-host';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAppStore } from '@/app/store';
 import type { QueuedFile } from '@/app/store';
 import type { ProcessedImage } from '@/pipeline';
-import { startPersistence, unsavedEdits, cancelPhotoSave } from './persistence';
+import { startPersistence, flushPersistence, unsavedEdits, cancelPhotoSave } from './persistence';
 import { switchFolder, startLibraryWatching } from './library';
 
 const processRaw = vi.fn();
@@ -58,6 +58,7 @@ function makeFile(id: string, file: File | null = null): QueuedFile {
 function fakeImage(): ProcessedImage & { disposed: number } {
   const image = {
     disposed: 0,
+    get method(): import('@/lib/types').DemosaicMethod { return image.meta.metadata.modelIdentity ? 'neural-net' : 'dht'; },
     gpu: { texture: {} as GPUTexture, width: 4, height: 2 },
     meta: {
       exportData: {
@@ -120,6 +121,53 @@ describe('processing service', () => {
     for (const id of ['a', 'b', 'c']) discardResult(id);
   });
 
+  it.each(['focus', 'own-save', 'unrelated-add', 'in-flight'] as const)('retains live work and history during an unchanged %s replacement', async cause => {
+    const original = fakePhoto('a');
+    useAppStore.setState({ files: [fromLibraryPhoto(original)], folder: { id: 'A', name: 'A' } });
+    const image = fakeImage();
+    let finish!: (image: ProcessedImage) => void;
+    processRaw.mockImplementationOnce(() => cause === 'in-flight' ? new Promise(resolve => { finish = resolve; }) : Promise.resolve(image));
+    const running = processFile('a');
+    await vi.waitFor(() => expect(processRaw).toHaveBeenCalled());
+    if (cause !== 'in-flight') await running;
+    const stopPersistence = startPersistence();
+    let publish!: Parameters<NonNullable<typeof host.library.onChange>>[0];
+    host.library.onChange = listener => { publish = listener; return () => {}; };
+    const stopWatching = startLibraryWatching();
+    try {
+      if (cause === 'own-save') {
+        useAppStore.getState().setFileLookPreset('a', 'umbra');
+        await flushPersistence();
+        expect(unsavedEdits()).toEqual([]);
+      }
+      const before = useAppStore.getState().files[0];
+      const incoming = cause === 'own-save' ? { ...original, edit: before.edit, facts: factsOf(before) } : original;
+      publish({ kind: 'replace', snapshot: { folder: { id: 'A', name: 'A' }, complete: true, photos: [incoming, ...(cause === 'unrelated-add' ? [fakePhoto('b')] : [])] } });
+      const after = useAppStore.getState().files[0];
+      expect(after.processedKey).toBe(before.processedKey);
+      expect(after.lookHistory).toBe(before.lookHistory);
+      expect(after.status).toBe(before.status);
+      if (cause === 'in-flight') { finish(image); await running; }
+      expect(getResult('a')).toBe(image);
+      expect(image.disposed).toBe(0);
+      expect(useAppStore.getState().files[0].status).toBe('done');
+    } finally { if (finish) finish(image); await running; stopWatching(); stopPersistence(); await cancelPhotoSave('a'); }
+  });
+
+  it.each(['raw', 'method', 'look', 'removed'] as const)('reloads a genuine external %s change and invalidates only affected processing', async change => {
+    const original = { ...fakePhoto('a'), sourceVersion: 'a'.repeat(64) };
+    useAppStore.setState({ files: [fromLibraryPhoto(original)], folder: { id: 'A', name: 'A' } });
+    const image = fakeImage(); processRaw.mockResolvedValueOnce(image); await processFile('a');
+    let publish!: Parameters<NonNullable<typeof host.library.onChange>>[0];
+    host.library.onChange = listener => { publish = listener; return () => {}; };
+    const stop = startLibraryWatching();
+    const changed = { ...original, ...(change === 'raw' ? { sourceVersion: 'b'.repeat(64) } : {}), edit: { ...original.edit, ...(change === 'method' ? { demosaicMethod: 'bilinear' as const } : {}), ...(change === 'look' ? { lookPreset: 'umbra' as const } : {}) } };
+    publish({ kind: 'replace', snapshot: { folder: { id: 'A', name: 'A' }, complete: true, photos: change === 'removed' ? [] : [changed] } });
+    expect(image.disposed).toBe(change === 'look' ? 0 : 1);
+    if (change !== 'removed') expect(useAppStore.getState().files[0].edit).toEqual(changed.edit);
+    stop();
+  });
+
   it.each(['folder', 'watch'] as const)(
     'ignores a discarded processing rejection after a same-ID %s replacement',
     async (replacement) => {
@@ -132,7 +180,7 @@ describe('processing service', () => {
       const processing = processFile('a');
       useAppStore.getState().setFileLookPreset('a', 'umbra');
       const revision = useAppStore.getState().files[0].editRevision;
-      const reopened = { photos: [fakePhoto('a')], folder: { id: 'A', name: 'A' }, complete: true };
+      const reopened = { photos: [{ ...fakePhoto('a'), fileSize: 99 }], folder: { id: 'A', name: 'A' }, complete: true };
       try {
         if (replacement === 'folder') {
           await switchFolder(async () => ({ photos: [], folder: { id: 'B', name: 'B' }, complete: true }));
@@ -210,7 +258,7 @@ describe('processing service', () => {
     await processFile('a');
     expect(processRaw).toHaveBeenCalledWith(
       expect.any(ArrayBuffer),
-      { method: 'neural-net', modelSize: 'S', model: null },
+      { method: 'neural-net', modelSize: 'S', model: null, resolveDefault: true },
       ctx,
     );
     expect(useAppStore.getState().files[0].edit).toEqual(defaultEdit());
@@ -274,7 +322,7 @@ describe('processing service', () => {
     expect(readRaw).toHaveBeenCalledWith('a');
     expect(processRaw).toHaveBeenCalledWith(
       expect.any(ArrayBuffer),
-      { method: 'dht', modelSize: 'S', model: null },
+      { method: 'dht', modelSize: 'S', model: null, resolveDefault: true },
       ctx,
     );
     const file = useAppStore.getState().files[0];
@@ -298,15 +346,19 @@ describe('processing service', () => {
   });
 
   it('reports a RAW missing from storage as an error', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
     readRaw.mockRejectedValue(new Error('RAW file not found in storage. Please re-add this file.'));
     await processFile('a');
     const file = useAppStore.getState().files[0];
     expect(file.status).toBe('error');
     expect(file.error).toMatch(/re-add this file/);
     expect(processRaw).not.toHaveBeenCalled();
+    expect(logged).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ message: 'RAW file not found in storage. Please re-add this file.' }));
+    logged.mockRestore();
   });
 
   it('propagates pipeline errors verbatim and leaves no result behind', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
     processRaw.mockRejectedValue(new Error("Couldn't decode this RAW file. X"));
     await processFile('a');
     const file = useAppStore.getState().files[0];
@@ -314,6 +366,8 @@ describe('processing service', () => {
     expect(file.error).toBe("Couldn't decode this RAW file. X");
     expect(getResult('a')).toBeNull();
     expect(useAppStore.getState().processingFileId).toBeNull();
+    expect(logged).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ message: "Couldn't decode this RAW file. X" }));
+    logged.mockRestore();
   });
 
   it('disposes a replaced result and a discarded one', async () => {
@@ -424,6 +478,7 @@ describe('processing service', () => {
     expect(image.disposed).toBe(1);
   });
   it('clears the previous image if a retry fails', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
     const image = fakeImage();
     processRaw.mockResolvedValueOnce(image).mockRejectedValueOnce(new Error('retry'));
     await processFile('a');
@@ -431,6 +486,8 @@ describe('processing service', () => {
     expect(image.disposed).toBe(1);
     expect(getResult('a')).toBeNull();
     expect(useAppStore.getState().files[0].status).toBe('error');
+    expect(logged).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ message: 'retry' }));
+    logged.mockRestore();
   });
 
   it('records the fallback after a user edit made before the first processing run', async () => {

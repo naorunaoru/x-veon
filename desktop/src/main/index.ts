@@ -78,12 +78,31 @@ void app.whenReady().then(async () => {
   const cacheDir = path.join(app.getPath('userData'), 'cache');
   await mkdir(cacheDir, { recursive: true });
   const store = createFolderStore(path.join(app.getPath('userData'), 'folders.json'));
+  let stoppedReason: string | null = null;
+  let recoveryOpen = false, endingSession = false;
+  async function recoverWorker(): Promise<void> {
+    if (!stoppedReason || recoveryOpen || endingSession) return;
+    recoveryOpen = true;
+    let response: number;
+    try {
+      ({ response } = await dialog.showMessageBox(win, { type: 'error', message: 'Background worker stopped', detail: stoppedReason,
+        buttons: ['Restart', 'Quit'], defaultId: 0, cancelId: 1, noLink: true,
+      }));
+    } finally { recoveryOpen = false; }
+    if (endingSession) return;
+    if (response === 0) await supervisor.restart();
+    else app.quit(); // before-quit goes through the unsaved-edit guard below.
+  }
   const supervisor = createWorkerSupervisor({
     fork: () => utilityProcess.fork(path.join(__dirname, 'worker.js'), [], { stdio: 'pipe', serviceName: 'X-veon library' }),
     sessionKey: randomBytes(32), cacheDir,
     onEvent: event => {
-      if (event === 'restarted') send({ kind: 'worker-restarted' });
-      else { send({ kind: 'worker-stopped', reason: event.stopped }); dialog.showErrorBox('Background worker stopped', event.stopped); }
+      if (event === 'restarted') { stoppedReason = null; send({ kind: 'worker-restarted', worker: supervisor.instance }); }
+      else {
+        stoppedReason = event.stopped;
+        send({ kind: 'worker-stopped', reason: event.stopped });
+        void recoverWorker().catch(() => {}); // A failed restart reports another stopped event.
+      }
     },
   });
   const refreshMenu = () => Menu.setApplicationMenu(Menu.buildFromTemplate(buildMenuTemplate(store.recent(), send, process.platform)));
@@ -95,13 +114,17 @@ void app.whenReady().then(async () => {
   registerPhotoProtocol({ protocol, registry: supervisor.registry, roots: supervisor.roots, cacheDir,
     thumbnail: async id => (await supervisor.request({ kind: 'thumbnail', id })).path,
   });
-  const stopWorkers = () => { supervisor.stop(); };
+  const stopWorkers = () => { endingSession = true; supervisor.stop(); };
   const guard = createCloseGuard({ window: win, app: { on: (event, handler) => { app.on(event, handler); }, quit: () => app.quit(), exit: code => { stopWorkers(); app.exit(code); } },
     inventory: ipc.inventory, requestFlush: ipc.requestFlush,
-    confirmQuit: async unsaved => (await dialog.showMessageBox(win, { type: 'warning', message: unsavedQuitMessage(unsaved), buttons: ['Quit anyway', 'Cancel'], defaultId: 1, cancelId: 1, noLink: true })).response === 0,
+    confirmQuit: async unsaved => {
+      const quit = (await dialog.showMessageBox(win, { type: 'warning', message: unsavedQuitMessage(unsaved), buttons: ['Quit anyway', 'Cancel'], defaultId: 1, cancelId: 1, noLink: true })).response === 0;
+      if (!quit) void recoverWorker().catch(() => {});
+      return quit;
+    },
   });
-  powerMonitor.on('shutdown', (event?: Electron.Event) => { event?.preventDefault(); guard.onSessionEnd(); });
-  win.on('session-end', () => guard.onSessionEnd());
+  powerMonitor.on('shutdown', (event?: Electron.Event) => { event?.preventDefault(); endingSession = true; guard.onSessionEnd(); });
+  win.on('session-end', () => { endingSession = true; guard.onSessionEnd(); });
   app.on('will-quit', stopWorkers);
   refreshMenu();
   win.webContents.on('console-message', (event) =>

@@ -4,7 +4,7 @@ export type BridgeEvent =
   | { kind: 'folder-request'; folderId?: string }
   | { kind: 'flush-request'; requestId: number }
   | { kind: 'listing'; frame: import('./listing').ListingFrame }
-  | { kind: 'worker-restarted' }
+  | { kind: 'worker-restarted'; worker?: string }
   | { kind: 'worker-stopped'; reason: string };
 export interface DesktopBridge {
   version: 2;

@@ -1,10 +1,11 @@
+import { randomUUID } from 'node:crypto';
 import type { EventEmitter } from 'node:events';
 import type { MessagePortMain } from 'electron';
 import type { FolderRef, LibraryPhoto, PhotoId } from '@/host';
 import { waitForWorkerSpawn } from './worker-ready';
 import { createListingAssembler } from '../protocol/listing';
 import { isMainToWorker, isWorkerToMain, isListingFrame } from '../protocol/rpc';
-import type { MainToWorker, WorkerToMain } from '../protocol/rpc';
+import type { MainToWorker, WorkerToMain, ListingStamp } from '../protocol/rpc';
 
 export type UtilityProcessLike = EventEmitter & {
   readonly pid?: number;
@@ -14,7 +15,7 @@ export type UtilityProcessLike = EventEmitter & {
 type CommittedFolder = { path: string; folderId: string; activation: string };
 type ListRequest = Omit<Extract<MainToWorker, { kind: 'list' }>, 'v' | 'rid'>;
 type ThumbnailRequest = Omit<Extract<MainToWorker, { kind: 'thumbnail' }>, 'v' | 'rid'>;
-export type ListingResult = { folder: FolderRef; photos: LibraryPhoto[]; purpose: 'open' | 'replace'; token: string; activation: string; registry: [PhotoId, string][] };
+export type ListingResult = { folder: FolderRef; photos: LibraryPhoto[]; purpose: 'open' | 'replace'; token: string; activation: string; registry: [PhotoId, string][]; stamp?: ListingStamp };
 type Pending = { reject(error: Error): void; resolve(value: ListingResult | Extract<WorkerToMain, { kind: 'thumbnail' }>): void; token?: string; assembler?: ReturnType<typeof createListingAssembler>; entries: [PhotoId, string][] };
 const stoppedMessage = 'The background worker stopped.';
 
@@ -33,7 +34,9 @@ export function createWorkerSupervisor(opts: {
   let current: CommittedFolder | null = null;
   let child: UtilityProcessLike | undefined;
   let readiness: Promise<void> | undefined;
+  let instance = randomUUID();
   let stopped = false;
+  let quitting = false;
   let nextRid = 1;
   let crashes: number[] = [];
   const now = opts.now ?? Date.now;
@@ -61,7 +64,7 @@ export function createWorkerSupervisor(opts: {
   }
   function start(restarting = false): Promise<void> {
     if (stopped) return Promise.reject(new Error(stoppedMessage));
-    const target = opts.fork(); child = target;
+    const target = opts.fork(); child = target; instance = randomUUID();
     target.on('message', value => received(target, value));
     target.once('exit', () => {
       if (child !== target || stopped) return;
@@ -72,7 +75,7 @@ export function createWorkerSupervisor(opts: {
     });
     readiness = waitForWorkerSpawn(target).then(() => {
       if (stopped || child !== target) throw new Error(stoppedMessage);
-      post(target, { v: 1, kind: 'session', key: opts.sessionKey.toString('base64'), cacheDir: opts.cacheDir });
+      post(target, { v: 1, kind: 'session', key: opts.sessionKey.toString('base64'), cacheDir: opts.cacheDir, worker: instance });
       let entries: [PhotoId, string][] = [];
       for (const entry of registry) {
         const candidate = { v: 1 as const, kind: 'register' as const, entries: [...entries, entry] };
@@ -117,8 +120,8 @@ export function createWorkerSupervisor(opts: {
       const entry: Pending = { resolve, reject, entries: [] };
       if (message.kind === 'list') {
         entry.token = message.token;
-        entry.assembler = createListingAssembler((folder, photos, purpose) => {
-          pending.delete(rid); resolve({ folder, photos, purpose, token: message.token, activation: message.activation, registry: entry.entries });
+        entry.assembler = createListingAssembler((folder, photos, purpose, stamp) => {
+          pending.delete(rid); resolve({ folder, photos, purpose, token: message.token, activation: message.activation, registry: entry.entries, stamp });
         }, (_token, reason) => { pending.delete(rid); reject(new Error(reason)); });
       }
       pending.set(rid, entry);
@@ -128,6 +131,12 @@ export function createWorkerSupervisor(opts: {
   }
   return {
     registry, roots, ready, request, send,
+    async restart(): Promise<void> {
+      if (quitting) throw new Error(stoppedMessage);
+      if (!stopped) return ready();
+      stopped = false; crashes = []; readiness = undefined;
+      await start(true);
+    },
     async prepareCommit(): Promise<(folder: CommittedFolder, entries: [PhotoId, string][], remember: () => void) => void> {
       const initialized = ready(), target = child;
       try { await initialized; } catch { throw new Error(stoppedMessage); }
@@ -156,6 +165,7 @@ export function createWorkerSupervisor(opts: {
       };
     },
     get current() { return current; },
+    get instance() { return instance; },
     // Main calls this only once it accepts a folder request (Task 9).
     commitCurrent(folder: CommittedFolder | null) { current = folder && { ...folder }; },
     onMessage(listener: (message: WorkerToMain) => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
@@ -171,6 +181,7 @@ export function createWorkerSupervisor(opts: {
       } catch (error) { channel.port1.close(); channel.port2.close(); throw error; }
     },
     stop() {
+      quitting = true;
       if (stopped) return;
       stopped = true; rejectPending(); const target = child;
       if (target?.pid !== undefined) target.kill();

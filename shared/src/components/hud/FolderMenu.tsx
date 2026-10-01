@@ -33,7 +33,7 @@ export function FolderMenu() {
 
   useEffect(() => {
     if (open) menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
-  }, [open, recent]);
+  }, [open]);
 
   if (!library.openFolder) return null;
 

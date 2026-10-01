@@ -179,3 +179,94 @@ it.each(['stale-first', 'current-first'])('cancels a pending handshake and retri
     expect(stale.requestId).not.toBe(current.requestId);
   } finally { emit({ kind: 'worker-stopped', reason: 'test cleanup' }); await interrupted; }
 });
+
+it('saves the existing shared-ledger edit after three supervisor crashes and explicit Restart', async () => {
+  const { EventEmitter } = await import('node:events');
+  const { createWorkerSupervisor } = await import('../main/worker');
+  class Child extends EventEmitter {
+    pid = 42; postMessage() {} kill() { return true; }
+  }
+  const children: Child[] = [];
+  const s = createWorkerSupervisor({ fork: () => { const child = new Child(); children.push(child); queueMicrotask(() => child.emit('spawn')); return child; }, sessionKey: Buffer.from('key'), cacheDir: '/cache', onEvent: event => emit(event === 'restarted' ? { kind: 'worker-restarted' } : { kind: 'worker-stopped', reason: event.stopped }) });
+  await s.ready(); await tick();
+  let failing = true;
+  const connect = bridge.requestWorkerPort;
+  bridge.requestWorkerPort = async requestId => { await connect(requestId); ports.at(-1)!.error = failing ? 'worker unavailable' : null; };
+  ports[0].error = 'worker unavailable';
+  setHost(host); useAppStore.setState({ files: [fromLibraryPhoto(photo())], folder });
+  stop = startPersistence(); host.library.onFlushRequest!(flushPersistence);
+  useAppStore.getState().setFilePreProcessOverride(id, 'exposure', 2);
+  await flushPersistence(); const revision = unsavedEdits()[0].revision;
+  for (let i = 0; i < 3; i++) { children[i].emit('exit', 1); await tick(); }
+  expect(unsavedEdits()).toMatchObject([{ revision, edit: { preProcessOverrides: { exposure: 2 } } }]);
+  expect(ports.at(-1)!.closed).toBe(true);
+  failing = false; await s.restart(); await tick();
+  expect(ports.at(-1)!.sidecar).toMatchObject({ preProcessOverrides: { exposure: 2 } });
+  expect(unsavedEdits()).toEqual([]);
+  expect(useAppStore.getState().files[0].editRevision).toBe(revision);
+  s.stop();
+});
+
+const workerA = '11111111-1111-4111-8111-111111111111';
+const workerB = '22222222-2222-4222-8222-222222222222';
+function stamped(token: string, revision: number, scan: number, worker = workerA, photos = [photo()]) {
+  return listingFrames({ token, activation: 'visit', purpose: 'replace', folder, stamp: { worker, revision, scan } }, photos);
+}
+it.each(['whole', 'partial'] as const)('rejects an already-posted %s old listing delivered after the actual ledger save acknowledgment', async delivery => {
+  await accept('open', 'visit'); setHost(host);
+  useAppStore.setState({ files: [fromLibraryPhoto(photo())], folder });
+  const changed = vi.fn(); host.library.onChange!(changed);
+  stop = startPersistence();
+  const delayed = stamped('old', 0, 1);
+  if (delivery === 'partial') emit({ kind: 'listing', frame: delayed.shift()! });
+  ports[0].hold = true;
+  useAppStore.getState().setFilePreProcessOverride(id, 'exposure', 3);
+  const saving = flushPersistence(); await tick();
+  const editRequest = ports[0].sent.find(r => r.op === 'saveEdit')!;
+  ports[0].receive({ v: 1, rid: editRequest.rid, ok: true, stamp: { worker: workerA, revision: 2 } }); await tick();
+  const factsRequest = ports[0].sent.find(r => r.op === 'saveFacts')!;
+  ports[0].receive({ v: 1, rid: factsRequest.rid, ok: true, stamp: { worker: workerA, revision: 4 } });
+  await saving; expect(unsavedEdits()).toEqual([]);
+  for (const frame of delayed) emit({ kind: 'listing', frame });
+  expect(changed).not.toHaveBeenCalled();
+  await tick(); expect(ports[0].sent.at(-1)).toMatchObject({ op: 'rescan' });
+  ports[0].confirm(ports[0].sent.at(-1)!); await tick();
+  for (const frame of stamped('fresh', 4, 2)) emit({ kind: 'listing', frame });
+  expect(changed).toHaveBeenCalledOnce();
+});
+it.each([false, true])('rejects old scan/worker identities while a picker is pending: %s', async picker => {
+  await accept('open', 'visit'); const changed = vi.fn(); host.library.onChange!(changed);
+  for (const frame of stamped('new', 0, 2)) emit({ kind: 'listing', frame });
+  for (const frame of stamped('old', 0, 1)) emit({ kind: 'listing', frame });
+  expect(changed).toHaveBeenCalledOnce();
+  emit({ kind: 'worker-restarted', worker: workerB }); await tick();
+  let cancel!: (value: null) => void;
+  if (picker) vi.mocked(bridge.openFolder).mockImplementationOnce(() => new Promise(resolve => { cancel = resolve; }));
+  const opening = picker ? host.library.openFolder!() : Promise.resolve(null);
+  for (const frame of stamped('old-worker', 999, 999)) emit({ kind: 'listing', frame });
+  for (const frame of stamped('new-worker', 0, 1, workerB)) emit({ kind: 'listing', frame });
+  try { expect(changed).toHaveBeenCalledTimes(2); } finally { if (picker) cancel(null); await opening; }
+});
+
+it.each([false, true])('refreshes an opening snapshot held in main across direct-port saves (second save: %s)', async secondSave => {
+  let finish!: (value: { token: string }) => void;
+  vi.mocked(bridge.openFolder).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const opening = host.library.openFolder!(); await tick();
+  for (const frame of listingFrames({ token: 'open', activation: 'visit', purpose: 'open', folder, stamp: { worker: workerA, revision: 0, scan: 1 } }, [photo()])) emit({ kind: 'listing', frame });
+  ports[0].hold = true;
+  const saving = host.library.save(id, { ...photo().edit, lookPreset: 'umbra' }, photo().facts); await tick();
+  ports[0].receive({ v: 1, rid: ports[0].sent[0].rid, ok: true, stamp: { worker: workerA, revision: 2 } }); await tick();
+  ports[0].receive({ v: 1, rid: ports[0].sent[1].rid, ok: true, stamp: { worker: workerA, revision: 4 } }); await saving;
+  ports[0].hold = false; finish({ token: 'open' }); await tick();
+  expect(ports[0].sent.at(-1)).toMatchObject({ op: 'rescan' });
+  if (secondSave) {
+    ports[0].hold = true;
+    const facts = host.library.saveFacts(id, photo().facts); await tick();
+    ports[0].receive({ v: 1, rid: ports[0].sent.at(-1)!.rid, ok: true, stamp: { worker: workerA, revision: 6 } }); await facts;
+    ports[0].hold = false;
+    for (const frame of stamped('stale-again', 4, 2)) emit({ kind: 'listing', frame }); await tick();
+    expect(ports[0].sent.filter(request => request.op === 'rescan')).toHaveLength(2);
+  }
+  for (const frame of stamped('fresh', secondSave ? 6 : 4, 3, workerA, [{ ...photo(), edit: { ...photo().edit, lookPreset: 'umbra' } }])) emit({ kind: 'listing', frame });
+  expect((await opening)?.photos[0].edit.lookPreset).toBe('umbra');
+});

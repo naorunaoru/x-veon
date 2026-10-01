@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({
   decodeRaw: vi.fn(),
   run: vi.fn(),
+  strategyFor: vi.fn(),
   gpuPostprocess: vi.fn(),
   buildColorMatrix: vi.fn(),
   estimateColorTemperature: vi.fn(),
@@ -19,7 +20,7 @@ const m = vi.hoisted(() => ({
 }));
 vi.mock('./decode/raf-decoder', () => ({ decodeRaw: m.decodeRaw, initWasm: m.initWasm }));
 vi.mock('./demosaic', () => ({
-  strategyFor: () => ({ run: m.run }),
+  strategyFor: m.strategyFor,
   destroyDemosaicPool: m.destroyDemosaicPool,
 }));
 vi.mock('./inference', () => ({ models: m.models }));
@@ -39,6 +40,8 @@ let input: GPUBuffer;
 let output: GPUTexture;
 beforeEach(() => {
   vi.resetAllMocks();
+  m.strategyFor.mockReturnValue({ run: m.run });
+  vi.spyOn(console, 'log').mockImplementation(() => {});
   m.models.activate.mockResolvedValue({ model: { size: 'S', sha256: 'test' }, note: null });
   input = { destroy: vi.fn() } as unknown as GPUBuffer;
   output = { destroy: vi.fn() } as unknown as GPUTexture;
@@ -171,4 +174,73 @@ it('records demosaic time after GPU completion and before postprocessing', async
   const result = await pending;
   expect(timings.demosaicMs).toBeGreaterThanOrEqual(0);
   result.dispose();
+});
+
+vi.mock('@/app/lens/lensfun', () => ({ matchLens: vi.fn(async () => null) }));
+vi.mock('@/app/storage/settings-storage', () => ({ putSetting: vi.fn(), pauseSettings: vi.fn(), resumeSettings: vi.fn() }));
+import { useAppStore } from '@/app/store';
+import { fromLibraryPhoto, factsOf, processingKey } from '@/app/store/photo';
+import { fakeHost, fakePhoto, defaultEdit } from '@/test/fake-host';
+import { setHost } from '@/app/services/host';
+import { processFile, setPipeline, discardResult } from '@/app/services/processing';
+import { startPersistence, flushPersistence, unsavedEdits, cancelPhotoSave } from '@/app/services/persistence';
+afterEach(() => { discardResult('fresh'); vi.restoreAllMocks(); });
+it.each([
+  ['ARW', 'bayer', 'markesteijn3'], ['RAF', 'xtrans', 'ahd'],
+] as const)('resolves a fresh uncached %s default after decode without creating an edit', async (extension, cfa, method) => {
+  const decoded = await m.decodeRaw(); decoded.prepared.cfa.cfaType = cfa;
+  const host = fakeHost(); setHost(host); setPipeline(ctx);
+  const photo = fakePhoto('fresh'); photo.originalName = `fresh.${extension}`; photo.facts.cfaType = null;
+  useAppStore.setState({ files: [fromLibraryPhoto(photo)], demosaicMethod: method, modelSize: 'S' });
+  const stop = startPersistence();
+  try {
+    await processFile('fresh'); await flushPersistence();
+    expect(m.strategyFor).toHaveBeenCalledWith('neural-net');
+    expect(m.models.activate).toHaveBeenCalledWith(cfa, null, 'S');
+    const file = useAppStore.getState().files[0];
+    expect(file).toMatchObject({ status: 'done', cfaType: cfa, resultMethod: 'neural-net', actualModel: { size: 'S', sha256: 'test' } });
+    expect(file.processedKey).toBe(processingKey(file, useAppStore.getState()));
+    expect(file.edit).toEqual(defaultEdit()); expect(host.library.save).not.toHaveBeenCalled();
+    expect(factsOf(file).resultMethod).toBe('neural-net');
+  } finally { stop(); await cancelPhotoSave('fresh'); }
+});
+it.each(['before-decode', 'during-model'] as const)('defers the first actual edit %s until CFA and model resolve', async timing => {
+  const decoded = await m.decodeRaw();
+  let decode!: () => void, activate!: () => void;
+  m.decodeRaw.mockImplementationOnce(() => new Promise(resolve => { decode = () => resolve(decoded); }));
+  m.models.activate.mockImplementationOnce(() => new Promise(resolve => { activate = () => resolve({ model: { size: 'S', sha256: 'test' }, note: null }); }));
+  const host = fakeHost(); setHost(host); setPipeline(ctx);
+  const photo = fakePhoto('fresh'); photo.facts.cfaType = null;
+  useAppStore.setState({ files: [fromLibraryPhoto(photo)], demosaicMethod: 'markesteijn3', modelSize: 'S' });
+  const stop = startPersistence();
+  const running = processFile('fresh');
+  await vi.waitFor(() => expect(decode).toBeDefined());
+  try {
+    if (timing === 'during-model') { decode(); await vi.waitFor(() => expect(activate).toBeDefined()); }
+    useAppStore.getState().setFilePreProcessOverride('fresh', 'exposure', 1);
+    const revision = useAppStore.getState().files[0].editRevision;
+    await flushPersistence();
+    expect(host.library.save).not.toHaveBeenCalled(); expect(unsavedEdits()[0].deferred).toBe(true);
+    if (timing === 'before-decode') { decode(); await vi.waitFor(() => expect(activate).toBeDefined()); }
+    activate(); await running; await flushPersistence();
+    expect(host.library.save).toHaveBeenCalledTimes(1);
+    expect(host.library.save).toHaveBeenCalledWith('fresh', expect.objectContaining({ demosaicMethod: 'neural-net', model: { size: 'S', sha256: 'test' }, preProcessOverrides: { exposure: 1 } }), expect.anything());
+    expect(useAppStore.getState().files[0].editRevision).toBe(revision); expect(unsavedEdits()).toEqual([]);
+  } finally { decode(); if (activate) activate(); await running; stop(); await cancelPhotoSave('fresh'); }
+});
+it('keeps a deliberately explicit method rather than applying default fallback', async () => {
+  await processRaw(new ArrayBuffer(0), { method: 'markesteijn3', modelSize: 'S' }, ctx);
+  expect(m.strategyFor).toHaveBeenCalledWith('markesteijn3'); expect(m.models.activate).not.toHaveBeenCalled();
+});
+
+it('does not publish a default fallback after the user explicitly selects that restricted method during decode', async () => {
+  const decoded = await m.decodeRaw(); let decode!: () => void;
+  m.decodeRaw.mockImplementationOnce(() => new Promise(resolve => { decode = () => resolve(decoded); }));
+  const host = fakeHost(); setHost(host); setPipeline(ctx);
+  const photo = fakePhoto('fresh'); photo.facts.cfaType = null;
+  useAppStore.setState({ files: [fromLibraryPhoto(photo)], demosaicMethod: 'markesteijn3', modelSize: 'S' });
+  const run = processFile('fresh'); await vi.waitFor(() => expect(decode).toBeDefined());
+  useAppStore.getState().setFileDemosaicMethod('fresh', 'markesteijn3'); decode(); await run;
+  expect(useAppStore.getState().files[0]).toMatchObject({ status: 'queued', resultMethod: null, processedKey: null, edit: { demosaicMethod: 'markesteijn3' } });
+  expect(output.destroy).toHaveBeenCalledOnce();
 });

@@ -32,3 +32,14 @@ it('cancels the old folder timer when changing watches and prevents callbacks af
   sources[1].emit('change'); await vi.advanceTimersByTimeAsync(200); expect(changed).toHaveBeenCalledOnce();
   sources[1].emit('change'); watch(null); await vi.advanceTimersByTimeAsync(200); expect(changed).toHaveBeenCalledOnce();
 });
+
+it('reports synchronous watch setup failure without leaving pending callbacks', async () => {
+  const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+  vi.mocked(fs.watch).mockImplementationOnce(() => { throw new Error('watch unavailable'); });
+  const changed = vi.fn(); const watcher = watchFolder('/photos', changed);
+  expect(changed).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(200);
+  expect(changed).not.toHaveBeenCalled();
+  expect(error).toHaveBeenCalledExactlyOnceWith('Folder watcher failed for /photos: watch unavailable');
+  watcher.close(); watcher.close();
+});

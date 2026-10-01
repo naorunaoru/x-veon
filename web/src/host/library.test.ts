@@ -47,6 +47,7 @@ function deferred<T>() {
 }
 function processedImage(method: DemosaicMethod) {
   return {
+    method,
     gpu: { texture: {} as GPUTexture, width: 4, height: 2 },
     meta: {
       exportData: { width: 4, height: 2, xyzToCam: null, wbCoeffs: new Float32Array(3), camToXyz: new Float32Array(12), orientation: 'Normal' },
@@ -213,12 +214,15 @@ describe('web library', () => {
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:thumb');
   });
   it('reports incomplete loads and never cleans unknown ownership', async () => {
+    const logged = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { host, dbName } = setup();
     const db = await openDatabase(dbName);
     db.close();
     const result = await host.load();
     expect(result.complete).toBe(false);
     expect(storage.listRawFileIds).not.toHaveBeenCalled();
+    expect(logged).toHaveBeenCalledExactlyOnceWith('Could not read the library from IndexedDB:', expect.any(DOMException));
+    logged.mockRestore();
   });
   it('reports a missing restored RAW with the existing message', async () => {
     const { host } = setup();

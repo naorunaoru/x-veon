@@ -143,7 +143,7 @@ describe('XMP sidecar codec', () => {
   });
 
   it('preserves a foreign xveon prefix binding while writing our namespace', () => {
-    const before = `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="${RDF_NS}"><rdf:Description rdf:about="" xmlns:xveon="urn:foreign" xmlns:ours="${XVEON_NS}" xveon:Foreign="keep" ours:SchemaVersion="1"/></rdf:RDF></x:xmpmeta>`;
+    const before = `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="${RDF_NS}"><rdf:Description rdf:about="" xmlns:xveon="urn:foreign" xmlns:ours="${XVEON_NS}" xveon:Foreign="keep" ours:Future="unknown" ours:SchemaVersion="1"/></rdf:RDF></x:xmpmeta>`;
     const after = mergeSidecar(before, { ...defaultPhotoEdit(), lookPreset: 'umbra' })!;
     const errors: string[] = [];
     const doc = new DOMParser({ onError: (_level, message) => { errors.push(message); } }).parseFromString(after, 'application/xml');
@@ -153,9 +153,12 @@ describe('XMP sidecar codec', () => {
     expect(item.getAttributeNS('urn:foreign', 'Foreign')).toBe('keep');
     expect(item.getAttributeNS(XVEON_NS, 'Look')).toBe('umbra');
     expect(readSidecar(after)).toEqual({ kind: 'ok', edit: { ...defaultPhotoEdit(), lookPreset: 'umbra' } });
-    const reset = mergeSidecar(before, defaultPhotoEdit())!;
+    const reset = mergeSidecar(after, defaultPhotoEdit())!;
     const resetItem = descriptions(reset)[0];
     expect(resetItem.getAttribute('xmlns:xveon')).toBe('urn:foreign');
     expect(resetItem.getAttributeNS('urn:foreign', 'Foreign')).toBe('keep');
+    expect(resetItem.hasAttributeNS(XVEON_NS, 'Look')).toBe(false);
+    expect(resetItem.getAttributeNS(XVEON_NS, 'Future')).toBe('unknown');
+    expect(resetItem.getAttributeNS(XVEON_NS, 'SchemaVersion')).toBe('1');
   });
 });

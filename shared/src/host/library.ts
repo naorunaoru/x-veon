@@ -25,6 +25,8 @@ export interface LibraryPhoto {
   name: string;
   originalName: string;
   fileSize: number;
+  /** Opaque host revision of the RAW bytes; absent for immutable imported files. */
+  sourceVersion?: string;
   thumbnailUrl: string | null;
   edit: PhotoEdit;
   facts: PhotoFacts;

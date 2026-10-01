@@ -1,4 +1,4 @@
-import { isListingFrame } from './rpc';
+import { isListingFrame, isWorkerIdentity } from './rpc';
 export function assetName(
   raw: string,
   method: string,
@@ -70,7 +70,7 @@ export function isBridgeEvent(value: unknown): value is import('./bridge').Bridg
     case 'listing': return isListingFrame(value.frame) && !('registry' in value.frame);
     case 'folder-request': return value.folderId === undefined || typeof value.folderId === 'string';
     case 'flush-request': return Number.isSafeInteger(value.requestId) && (value.requestId as number) > 0;
-    case 'worker-restarted': return true;
+    case 'worker-restarted': return value.worker === undefined || isWorkerIdentity(value.worker);
     case 'worker-stopped': return typeof value.reason === 'string';
     default: return false;
   }

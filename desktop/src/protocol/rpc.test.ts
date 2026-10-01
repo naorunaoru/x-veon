@@ -72,3 +72,19 @@ describe('structured-cloned sparse arrays', () => {
     expect(validate(structuredClone(message))).toBe(false);
   });
 });
+
+it('bounds and validates state stamps, listing order and opaque source revisions', () => {
+  const stamp = { worker: '11111111-1111-4111-8111-111111111111', revision: 2 };
+  expect(isPortReply({ v: 1, rid: 1, ok: true, stamp })).toBe(true);
+  expect(isListingFrame({ ...examples[17][1], stamp: { ...stamp, scan: 1 } })).toBe(true);
+  for (const invalid of [{ ...stamp, worker: 'x'.repeat(100) }, { ...stamp, revision: -1 }, { ...stamp, revision: 1.5 }, { ...stamp, revision: Number.MAX_SAFE_INTEGER + 1 }]) {
+    expect(isPortReply({ v: 1, rid: 1, ok: true, stamp: invalid })).toBe(false);
+    expect(isListingFrame({ ...examples[17][1], stamp: { ...invalid, scan: 1 } })).toBe(false);
+  }
+  for (const scan of [-1, 1.5, NaN]) expect(isListingFrame({ ...examples[17][1], stamp: { ...stamp, scan } })).toBe(false);
+  for (const sourceVersion of ['a'.repeat(64), 'x'.repeat(64), 'a'.repeat(65), null, 1]) {
+    const expected = sourceVersion === 'a'.repeat(64);
+    expect(isListingFrame({ ...examples[18][1], photos: [{ ...p, sourceVersion }] })).toBe(expected);
+    expect(isPortEvent({ ...examples[5][1], photos: [{ ...p, sourceVersion }] })).toBe(expected);
+  }
+});

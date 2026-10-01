@@ -1,6 +1,6 @@
 import type { FolderRef, LibrarySnapshot } from '@/host';
 import { useAppStore } from '@/app/store';
-import { fromLibraryPhoto } from '@/app/store/photo';
+import { fromLibraryPhoto, mergeLibraryPhoto } from '@/app/store/photo';
 import { matchLens } from '@/app/lens/lensfun';
 import { discardResult } from './processing';
 import { getHost } from './host';
@@ -79,8 +79,16 @@ export function startLibraryWatching(): () => void {
         }));
       } else {
         const state = useAppStore.getState();
-        const files = snapshot.photos.map(photo => restoreFromLedger(fromLibraryPhoto(photo)));
-        for (const file of state.files) discardResult(file.id);
+        const live = new Map(state.files.map(file => [file.id, file]));
+        const files = snapshot.photos.map(photo => {
+          const incoming = restoreFromLedger(fromLibraryPhoto(photo));
+          const previous = live.get(photo.id); live.delete(photo.id);
+          if (!previous) return incoming;
+          const merged = mergeLibraryPhoto(previous, incoming, state);
+          if (merged.invalidate) discardResult(photo.id);
+          return merged.file;
+        });
+        for (const id of live.keys()) discardResult(id);
         const selection = snapshot.selectedIds?.[0] ?? state.selectedFileId;
         useAppStore.setState({ files, hydrationVersion: state.hydrationVersion + 1,
           selectedFileId: files.some(f => f.id === selection) ? selection : files[0]?.id ?? null });

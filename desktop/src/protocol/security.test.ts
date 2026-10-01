@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { assetName, acceptsSender } from './security';
+import { assetName, acceptsSender, isBridgeEvent } from './security';
 it('serves only exact bundle assets via GET', () => {
   const files = new Set(['index.html', 'assets/decoder.wasm']);
   expect(assetName('app://bundle/', 'GET', files)).toBe('index.html');
@@ -52,4 +52,9 @@ it('requires a bounded correlation UUID for worker-port handshakes', async () =>
   expect(isDesktopRequest({ version: 2, kind: 'requestWorkerPort', requestId: '00000000-0000-4000-8000-000000000001' })).toBe(true);
   for (const requestId of [undefined, 1, '', 'old', 'x'.repeat(1_000_001)])
     expect(isDesktopRequest({ version: 2, kind: 'requestWorkerPort', requestId })).toBe(false);
+});
+
+it('validates worker identities on native restart events', () => {
+  expect(isBridgeEvent({ version: 2, kind: 'worker-restarted', worker: '11111111-1111-4111-8111-111111111111' })).toBe(true);
+  for (const worker of [null, 1, 'invalid', 'a'.repeat(100)]) expect(isBridgeEvent({ version: 2, kind: 'worker-restarted', worker })).toBe(false);
 });

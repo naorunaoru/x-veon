@@ -9,6 +9,8 @@ export interface PipelineContext {
 
 export interface ProcessOptions {
   method: DemosaicMethod;
+  /** Resolve a Settings default against the decoded CFA; explicit photo methods stay explicit. */
+  resolveDefault?: boolean;
   /** Requested model size; the caller makes sure it is loaded (see ModelRegistry.switchSize). */
   modelSize: ModelSize;
   model?: ModelIdentity | null;

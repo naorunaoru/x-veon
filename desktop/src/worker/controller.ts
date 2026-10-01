@@ -24,6 +24,10 @@ export function createWorkerController(opts: {
   let port: WorkerPort | undefined;
   let watched: WatchedFolder | null = null;
   const listings = new Map<string, object>();
+  const replacements = new Map<string, string>();
+  const writes = new Set<Promise<unknown>>();
+  let mutation = 0, scan = 0;
+  let worker: string = randomUUID();
   const snapshots = new Map<string, { folder: FolderRef; photos: Map<string, LibraryPhoto> }>();
   function post(message: WorkerToMain) {
     if (!isWorkerToMain(message)) throw new Error('Invalid worker response');
@@ -35,33 +39,47 @@ export function createWorkerController(opts: {
   }
   function getLibrary() { if (!library) throw new Error('Worker session is not initialized'); return library; }
   async function list(request: { path: string; folderId: string; token: string; activation: string; purpose: 'open' | 'replace' }) {
+    if (request.purpose === 'replace') {
+      const previous = replacements.get(request.activation);
+      if (previous) listings.delete(previous);
+      replacements.set(request.activation, request.token);
+    }
+    const order = ++scan;
     const run = {}; listings.set(request.token, run);
-    const photos: LibraryPhoto[] = []; const registry: [string, string][] = [];
     try {
-      for await (const batch of getLibrary().list(request.path, request.folderId)) {
+      while (listings.get(request.token) === run) {
+        await Promise.allSettled([...writes]);
+        const revision = mutation;
+        const photos: LibraryPhoto[] = []; const registry: [string, string][] = [];
+        for await (const batch of getLibrary().list(request.path, request.folderId)) {
+          if (listings.get(request.token) !== run) return;
+          photos.push(...batch.photos); registry.push(...batch.registry);
+        }
         if (listings.get(request.token) !== run) return;
-        photos.push(...batch.photos); registry.push(...batch.registry);
+        // A save may finish while the iterator holds an old sidecar or cached facts.
+        if (revision !== mutation || writes.size) continue;
+        const folder = { id: request.folderId, name: path.basename(request.path) || request.path };
+        // Publish one complete snapshot without yielding to another scan or save.
+        for (const frame of listingFrames({ token: request.token, activation: request.activation, purpose: request.purpose, folder, stamp: { worker, revision, scan: order } }, photos, registry)) post(frame);
+        snapshots.set(request.activation, { folder, photos: new Map(photos.map(photo => [photo.id, photo])) });
+        return;
       }
-      if (listings.get(request.token) !== run) return;
-      const folder = { id: request.folderId, name: path.basename(request.path) || request.path };
-      for (const frame of listingFrames({ token: request.token, activation: request.activation, purpose: request.purpose, folder }, photos, registry)) {
-        if (listings.get(request.token) !== run) return;
-        post(frame);
-        if (frame.kind === 'listing-batch') await new Promise<void>(resolve => setImmediate(resolve));
-      }
-      if (listings.get(request.token) === run) snapshots.set(request.activation, { folder, photos: new Map(photos.map(photo => [photo.id, photo])) });
     } finally { if (listings.get(request.token) === run) listings.delete(request.token); }
   }
   async function replace() {
     if (!watched) return;
     await list({ ...watched, token: randomUUID(), purpose: 'replace' });
   }
+  async function mutate<T>(operation: () => Promise<T>): Promise<T> {
+    ++mutation;
+    const write = operation(); writes.add(write);
+    try { return await write; } finally { writes.delete(write); ++mutation; }
+  }
   async function handlePort(target: WorkerPort, message: PortRequest) {
     try {
-      if (message.op === 'saveEdit') await getLibrary().saveEdit(message.id, message.edit);
-      else if (message.op === 'saveFacts') await getLibrary().saveFacts(message.id, message.facts);
-      else await replace();
-      reply(target, { v: 1, rid: message.rid, ok: true });
+      if (message.op === 'rescan') await replace();
+      else await mutate(() => message.op === 'saveEdit' ? getLibrary().saveEdit(message.id, message.edit) : getLibrary().saveFacts(message.id, message.facts));
+      reply(target, { v: 1, rid: message.rid, ok: true, ...(message.op === 'rescan' ? {} : { stamp: { worker, revision: mutation } }) });
     } catch (error) { reply(target, { v: 1, rid: message.rid, ok: false, error: reason(error).slice(0, 10_000) }); }
   }
   return {
@@ -74,6 +92,7 @@ export function createWorkerController(opts: {
         switch (message.kind) {
           case 'session':
             if (library) throw new Error('Worker session is already initialized');
+            worker = message.worker ?? worker;
             library = (opts.createLibrary ?? createWorkerLibrary)({ sessionKey: Buffer.from(message.key, 'base64'), cacheDir: message.cacheDir }); break;
           case 'connect':
             if (ports.length !== 1) return;
@@ -89,7 +108,7 @@ export function createWorkerController(opts: {
             opts.onWatch?.(watched); break;
           case 'thumbnail': {
             const activation = watched?.activation;
-            const result = await getLibrary().thumbnail(message.id);
+            const result = await mutate(() => getLibrary().thumbnail(message.id));
             post({ v: 1, rid: message.rid, kind: 'thumbnail', path: result.path });
             const snapshot = activation && snapshots.get(activation);
             const photo = snapshot && snapshot.photos.get(message.id);

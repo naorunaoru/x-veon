@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { createWorkerController } from './controller';
 import { createWorkerLibrary } from './library';
 import { createCache } from './cache';
@@ -72,12 +72,92 @@ it('routes validated saves and rescans over the port while listings stay on pare
   const replies: any[] = []; b.on('message', ({ data }) => replies.push(data));
   b.postMessage(null); b.postMessage({ v: 2, rid: 2, op: 'rescan' });
   async function request(message: any) { const reply = new Promise<any>(resolve => { const listener = ({ data }: any) => { if (data.rid === message.rid) { b.off('message', listener); resolve(data); } }; b.on('message', listener); }); b.postMessage(message); return reply; }
-  expect(await request({ v: 1, rid: 2, op: 'saveEdit', id: photo.id, edit: { ...photo.edit, preProcessOverrides: { exposure: 1 } } })).toEqual({ v: 1, rid: 2, ok: true });
+  expect(await request({ v: 1, rid: 2, op: 'saveEdit', id: photo.id, edit: { ...photo.edit, preProcessOverrides: { exposure: 1 } } })).toEqual({ v: 1, rid: 2, ok: true, stamp: { worker: expect.any(String), revision: 2 } });
   expect(await fs.readFile(path.join(folder, 'a.RAF.xmp'), 'utf8')).toContain('xveon:Exposure="1"');
-  expect(await request({ v: 1, rid: 3, op: 'saveFacts', id: photo.id, facts: realisticFacts() })).toEqual({ v: 1, rid: 3, ok: true });
+  expect(await request({ v: 1, rid: 3, op: 'saveFacts', id: photo.id, facts: realisticFacts() })).toEqual({ v: 1, rid: 3, ok: true, stamp: { worker: expect.any(String), revision: 4 } });
   expect(await request({ v: 1, rid: 4, op: 'rescan' })).toEqual({ v: 1, rid: 4, ok: true });
   expect(sent.filter(m => m.kind === 'listing-begin').at(-1)).toMatchObject({ purpose: 'replace', activation: 't' });
   await c.handleMain({ v: 1, rid: 5, kind: 'thumbnail', id: photo.id });
   expect(replies.some(isPortEvent)).toBe(true); expect(replies.every(m => isPortReply(m) || isPortEvent(m))).toBe(true);
   expect(await request({ v: 1, rid: 6, op: 'saveEdit', id: 'z'.repeat(22), edit: photo.edit })).toMatchObject({ ok: false, error: expect.stringMatching(/registered/) });
+});
+
+function heldListings() {
+  const scans: { release(): void }[] = [];
+  let edit = defaultPhotoEdit();
+  let facts = fakePhoto().facts;
+  const published: LibraryPhoto[][] = [];
+  const assembler = createListingAssembler((_folder, photos) => published.push(photos), (_token, error) => { throw new Error(error); });
+  const controller = createWorkerController({ postToMain: frame => { if (isListingFrame(frame)) assembler.push(frame); }, createLibrary: () => ({
+    async *list() {
+      const photo = { ...fakePhoto('a'.repeat(22)), edit: structuredClone(edit), facts: structuredClone(facts) };
+      await new Promise<void>(release => scans.push({ release }));
+      yield { photos: [photo], registry: [[photo.id, '/photos/a.RAF']] as [string, string][] };
+    }, register() {}, setRoots() {}, async saveEdit(_id, next) { edit = next; },
+    async saveFacts(_id, next) { facts = next; }, async thumbnail() { facts = { ...facts, metadata: { camera: 'extracted', lensModel: '', focalLength: 0, fNumber: 0 } }; return { path: null, facts }; },
+  }) });
+  return { controller, scans, published, setEdit(next: typeof edit) { edit = next; } };
+}
+import { defaultPhotoEdit } from '@/app/photo-edit';
+import { fakePhoto, fakeHost } from '@/test/fake-host';
+import { useAppStore } from '@/app/store';
+import { fromLibraryPhoto } from '@/app/store/photo';
+import { setHost } from '@/app/services/host';
+import { startPersistence, flushPersistence, unsavedEdits, cancelPhotoSave } from '@/app/services/persistence';
+vi.mock('@/app/storage/settings-storage', () => ({ putSetting: vi.fn(), pauseSettings: vi.fn(), resumeSettings: vi.fn() }));
+const tick = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
+async function initHeld(h: ReturnType<typeof heldListings>) {
+  await h.controller.handleMain({ v: 1, kind: 'session', key: 'a2V5', cacheDir: '/cache' });
+  await h.controller.handleMain({ v: 1, kind: 'watch', path: '/photos', folderId: 'f', activation: 'a' });
+}
+it.each(['watch', 'restore'] as const)('supersedes an older same-activation %s scan that finishes after the newer scan', async origin => {
+  const h = heldListings(); await initHeld(h);
+  const first = origin === 'watch' ? h.controller.replace() : h.controller.handleMain({ v: 1, rid: 9, kind: 'list', path: '/photos', folderId: 'f', token: 'restored', activation: 'a', purpose: 'replace' }); await tick();
+  h.setEdit({ ...defaultPhotoEdit(), preProcessOverrides: { exposure: 2 } });
+  const second = h.controller.replace(); await tick();
+  h.scans[1].release(); await second; h.scans[0].release(); await first;
+  expect(h.published.map(p => p[0].edit.preProcessOverrides.exposure)).toEqual([2]);
+});
+it('rereads a held pre-edit snapshot after the real ledger has acknowledged the save', async () => {
+  const h = heldListings(); await initHeld(h);
+  const [a, b] = ports(); await h.controller.handleMain({ v: 1, kind: 'connect' }, [a]);
+  const host = fakeHost(); let rid = 0;
+  host.library.save = async (id, edit) => {
+    const requestId = ++rid;
+    await new Promise<void>((resolve, reject) => {
+      const listener = ({ data }: any) => { if (data.rid !== requestId) return; b.off('message', listener); if (data.ok) resolve(); else reject(new Error(data.error)); };
+      b.on('message', listener); b.postMessage({ v: 1, rid: requestId, op: 'saveEdit', id, edit });
+    });
+  };
+  setHost(host);
+  const id = 'a'.repeat(22);
+  useAppStore.setState({ files: [fromLibraryPhoto(fakePhoto(id))], demosaicMethod: 'dht', folder: { id: 'f', name: 'f' } });
+  vi.stubGlobal('window', new EventTarget());
+  const stop = startPersistence();
+  try {
+    const scan = h.controller.replace(); await tick();
+    useAppStore.getState().setFileLookPreset(id, 'umbra');
+    await flushPersistence(); expect(unsavedEdits()).toEqual([]);
+    h.scans[0].release(); await tick();
+    // An invalidated scan must reread, never publish its old sidecar after acknowledgment.
+    expect(h.published).toEqual([]);
+    expect(h.scans).toHaveLength(2);
+    h.scans[1].release(); await scan;
+    expect(h.published[0][0].edit.lookPreset).toBe('umbra');
+  } finally { stop(); await cancelPhotoSave(id); vi.unstubAllGlobals(); }
+});
+
+it.each(['saveFacts', 'thumbnail'] as const)('rereads cached facts when %s completes during a held listing', async operation => {
+  const h = heldListings(); await initHeld(h);
+  const [a, b] = ports(); await h.controller.handleMain({ v: 1, kind: 'connect' }, [a]);
+  const scan = h.controller.replace(); await tick();
+  if (operation === 'thumbnail') await h.controller.handleMain({ v: 1, rid: 9, kind: 'thumbnail', id: 'a'.repeat(22) });
+  else {
+    b.postMessage({ v: 1, rid: 9, op: 'saveFacts', id: 'a'.repeat(22), facts: { ...fakePhoto().facts, metadata: { camera: 'saved', lensModel: '', focalLength: 0, fNumber: 0 } } });
+    await tick();
+  }
+  h.scans[0].release(); await tick();
+  expect(h.published).toEqual([]); expect(h.scans).toHaveLength(2);
+  h.scans[1].release(); await scan;
+  expect(h.published[0][0].facts.metadata?.camera).toBe(operation === 'thumbnail' ? 'extracted' : 'saved');
 });

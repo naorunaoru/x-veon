@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import type { DirectoryIdentity } from './atomic-write';
 
 function inside(root: string, file: string): boolean {
   const relative = path.relative(root, file);
@@ -10,7 +11,7 @@ export function createRoots() {
   let roots: string[] = [];
   return {
     set(realRoots: string[]): void { roots = realRoots.map(root => path.resolve(root)); },
-    async checkWrite(rawPath: string): Promise<{ realDir: string; sidecarPath: string }> {
+    async checkWrite(rawPath: string): Promise<DirectoryIdentity & { sidecarPath: string }> {
       let realDir: string;
       let realRaw: string;
       try {
@@ -34,7 +35,8 @@ export function createRoots() {
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       }
-      return { realDir, sidecarPath };
+      const directory = await fs.stat(realDir);
+      return { realDir, sidecarPath, dev: directory.dev, ino: directory.ino };
     },
   };
 }

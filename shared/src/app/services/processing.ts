@@ -60,7 +60,7 @@ export async function processFile(fileId: string): Promise<void> {
   try {
     const bytes = await getHost().library.readRaw(fileId);
 
-    const image = await processRaw(bytes, { method, modelSize, model }, getPipeline());
+    const image = await processRaw(bytes, { method, modelSize, model, ...(entry.edit.demosaicMethod === null ? { resolveDefault: true } : {}) }, getPipeline());
 
     if (runDiscarded || !useAppStore.getState().files.some((f) => f.id === fileId)) {
       image.dispose();
@@ -69,7 +69,8 @@ export async function processFile(fileId: string): Promise<void> {
     // A method/model change during decode must not publish an obsolete result.
     const current = useAppStore.getState();
     const latest = current.files.find((f) => f.id === fileId)!;
-    if (processingKey(latest, current) !== requestedKey) {
+    const decodedMethod = effectiveMethod(latest.edit, current.demosaicMethod, image.meta.metadata.cfaType ?? latest.cfaType);
+    if (processingKey(latest, current) !== requestedKey || decodedMethod !== image.method) {
       image.dispose();
       current.updateFileStatus(fileId, 'queued');
       return;
@@ -79,14 +80,15 @@ export async function processFile(fileId: string): Promise<void> {
       files: state.files.map((f) => {
         if (f.id !== fileId) return f;
         const actualModel = image.meta.metadata.modelIdentity ?? null;
-        const edit = f.editing !== 'view-only' && f.modelNeedsResolution && actualModel
-          ? { ...f.edit, model: actualModel }
+        const completingEdit = f.editing !== 'view-only' && f.modelNeedsResolution;
+        const edit = completingEdit
+          ? { ...f.edit, demosaicMethod: f.edit.demosaicMethod ?? image.method, model: image.method === 'neural-net' ? (actualModel ?? f.edit.model) : null }
           : f.edit;
         const updated = {
           ...f,
           edit,
           actualModel,
-          modelNeedsResolution: f.modelNeedsResolution && !actualModel,
+          modelNeedsResolution: f.modelNeedsResolution && image.method === 'neural-net' && !actualModel,
           cfaType: image.meta.metadata.cfaType ?? f.cfaType,
           modelNote:
             edit.model?.sha256 === actualModel?.sha256 ? null : (image.meta.metadata.modelNote ?? null),
@@ -94,7 +96,7 @@ export async function processFile(fileId: string): Promise<void> {
         return { ...updated, processedKey: processingKey(updated, state) };
       }),
     }));
-    useAppStore.getState().setFileResult(fileId, image.meta, method);
+    useAppStore.getState().setFileResult(fileId, image.meta, image.method);
     matchLensFor(fileId);
   } catch (e) {
     // Folder/watch replacement invalidates failures as well as successful results.

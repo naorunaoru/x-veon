@@ -1,10 +1,10 @@
 import type { FolderRef, LibraryPhoto, PhotoId } from '@/host';
-import { isListingFrame, MAX_MESSAGE_BYTES } from './rpc';
+import { isListingFrame, MAX_MESSAGE_BYTES, type ListingStamp } from './rpc';
 export type ListingFrame =
-  | { v: 1; kind: 'listing-begin'; token: string; activation: string; folder: FolderRef; total: number; purpose: 'open' | 'replace' }
+  | { v: 1; kind: 'listing-begin'; token: string; activation: string; folder: FolderRef; total: number; purpose: 'open' | 'replace'; stamp?: ListingStamp }
   | { v: 1; kind: 'listing-batch'; token: string; seq: number; photos: LibraryPhoto[]; registry?: [PhotoId, string][] }
   | { v: 1; kind: 'listing-end'; token: string; total: number };
-type Header = Pick<Extract<ListingFrame, { kind: 'listing-begin' }>, 'token' | 'activation' | 'folder' | 'purpose'>;
+type Header = Pick<Extract<ListingFrame, { kind: 'listing-begin' }>, 'token' | 'activation' | 'folder' | 'purpose' | 'stamp'>;
 
 /** Splits by both count and serialized size, including long paths/large cached facts. */
 export function listingFrames(header: Header, photos: LibraryPhoto[], registry?: [PhotoId, string][], byteLimit = MAX_MESSAGE_BYTES): ListingFrame[] {
@@ -33,7 +33,7 @@ export function listingFrames(header: Header, photos: LibraryPhoto[], registry?:
 }
 
 export function createListingAssembler(
-  onComplete: (folder: FolderRef, photos: LibraryPhoto[], purpose: 'open' | 'replace') => void,
+  onComplete: (folder: FolderRef, photos: LibraryPhoto[], purpose: 'open' | 'replace', stamp?: ListingStamp) => void,
   onError: (token: string, reason: string) => void,
 ) {
   const active = new Map<string, { begin: Extract<ListingFrame, { kind: 'listing-begin' }>; photos: LibraryPhoto[]; seq: number }>();
@@ -62,7 +62,7 @@ export function createListingAssembler(
       }
       if (frame.total !== state.begin.total || frame.total !== state.photos.length) { fail(frame.token, 'Listing total mismatch'); return; }
       active.delete(frame.token); cancelled.add(frame.token);
-      onComplete(state.begin.folder, state.photos, state.begin.purpose);
+      onComplete(state.begin.folder, state.photos, state.begin.purpose, state.begin.stamp);
     },
   };
 }

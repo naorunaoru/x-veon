@@ -26,7 +26,7 @@ async function harness() {
   async function listed(index: number) { await vi.waitFor(() => expect(child.sent.filter(m => m.kind === 'list').length).toBeGreaterThan(index)); return child.sent.filter(m => m.kind === 'list')[index]; }
   function complete(request: any, name: string) {
     const p = { ...photo(), id: name.repeat(22) }; const folder = { id: request.folderId, name: path.basename(request.path) };
-    for (const frame of listingFrames({ token: request.token, activation: request.activation, purpose: request.purpose, folder }, [p], [[p.id, path.join(request.path, name + '.RAF')]])) child.emit('message', frame);
+    for (const frame of listingFrames({ token: request.token, activation: request.activation, purpose: request.purpose, folder, stamp: request.stamp }, [p], [[p.id, path.join(request.path, name + '.RAF')]])) child.emit('message', frame);
   }
   return { A, B, dir, store, worker, child, requests, choose, frames, error, listed, complete };
 }
@@ -88,4 +88,14 @@ it('reports an unpublishable replacement instead of throwing from the worker mes
   const frames = [{ v: 1, kind: 'listing-begin', token: 'huge', activation: request.activation, folder: { id: request.folderId, name: 'A' }, purpose: 'replace', total: 1 }, batch, { v: 1, kind: 'listing-end', token: 'huge', total: 1 }];
   expect(() => { for (const frame of frames) h.child.emit('message', frame); }).not.toThrow();
   expect(h.frames).toEqual([]); expect(h.error).toHaveBeenCalledWith('A', expect.stringContaining('listing message limit'));
+});
+
+it('preserves worker revision and scan stamps when main republishes open and replacement listings', async () => {
+  const h = await harness(); const opening = h.choose(h.A); const request = await h.listed(0);
+  const stamp = { worker: h.worker.instance, revision: 4, scan: 1 };
+  h.complete({ ...request, stamp }, 'a'); await opening;
+  expect(h.frames[0].stamp).toEqual(stamp); h.frames.length = 0;
+  const replacementStamp = { ...stamp, revision: 6, scan: 2 };
+  h.complete({ ...request, token: 'replacement', purpose: 'replace', stamp: replacementStamp }, 'b');
+  expect(h.frames[0].stamp).toEqual(replacementStamp);
 });

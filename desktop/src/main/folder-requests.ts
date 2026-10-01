@@ -24,7 +24,7 @@ export function createFolderRequests(deps: Deps) {
         if (deps.worker.current?.activation !== header.activation) return;
         for (const [id, file] of replacement.entries) deps.worker.registry.set(id, file);
         try {
-          const frames = bridgeListingFrames({ folder, purpose, token: header.token, activation: header.activation }, photos);
+          const frames = bridgeListingFrames({ folder, purpose, token: header.token, activation: header.activation, stamp: header.stamp }, photos);
           if (publication?.activation === header.activation && !publication.opened) publication.replacement = frames;
           else for (const frame of frames) deps.send(frame);
         } catch (error) { deps.error(header.folder.name, error instanceof Error ? error.message : String(error)); }
@@ -53,7 +53,7 @@ export function createFolderRequests(deps: Deps) {
         const id = folderId(canonical);
         const listing = await deps.worker.request({ kind: 'list', path: canonical, folderId: id, token, activation: token, purpose: 'open' });
         if (!latest()) return null;
-        const frames = bridgeListingFrames({ token, activation: token, folder: listing.folder, purpose: 'open' }, listing.photos);
+        const frames = bridgeListingFrames({ token, activation: token, folder: listing.folder, purpose: 'open', stamp: listing.stamp }, listing.photos);
         const commit = await deps.worker.prepareCommit(); if (!latest()) return null;
         commit({ path: canonical, folderId: id, activation: token }, listing.registry, () => deps.store.remember(canonical));
         publication = { activation: token, opened: false };
