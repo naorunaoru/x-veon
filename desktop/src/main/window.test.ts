@@ -6,7 +6,7 @@ vi.mock('electron', () => ({
 }));
 import { createMainWindow } from './window';
 it('keeps the renderer sandboxed, denies permissions/navigation and allows only external HTTP(S)', () => {
-  createMainWindow({ preload: '/preload.js', backgroundThrottling: false });
+  createMainWindow({ preload: '/preload.js' });
   expect(state.options.webPreferences).toMatchObject({ sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false, preload: '/preload.js' });
   const preventDefault = vi.fn(), permission = vi.fn(); state.navigate({ preventDefault }); expect(preventDefault).toHaveBeenCalledOnce();
   state.permission(null, 'camera', permission); expect(permission).toHaveBeenCalledWith(false); expect(state.check()).toBe(false);

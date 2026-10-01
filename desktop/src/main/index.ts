@@ -69,7 +69,7 @@ void app.whenReady().then(async () => {
   });
   const goldenFile = typeof __XV_GOLDEN__ !== 'undefined' && __XV_GOLDEN__
     ? process.argv.find(arg => arg.startsWith('--golden-report='))?.slice('--golden-report='.length) : undefined;
-  win = createMainWindow({ preload: path.resolve(__dirname, '../preload/index.js'), backgroundThrottling: !goldenFile });
+  win = createMainWindow({ preload: path.resolve(__dirname, '../preload/index.js') });
   const send = (event: BridgeEvent) => {
     const message = { version: 2, ...event };
     if (!isBridgeEvent(message)) throw new Error('Invalid bridge event');
