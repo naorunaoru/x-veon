@@ -92,6 +92,19 @@ This keeps your samples and lens data and removes the old layout's build output 
 
 ## License
 
+## Desktop beta
+
+Set up the repository as described above, then run the desktop app from the repository root:
+
+```bash
+npm run build --workspace desktop
+npm run start --workspace desktop
+```
+
+Build a local installer with `npm run dist --workspace desktop -- --mac` on macOS or `npm run dist --workspace desktop -- --win` on Windows. The macOS build produces an arm64 DMG; the Windows build produces an x64 NSIS installer. These local builds are unsigned for distribution. On macOS, if the first launch is blocked, use System Settings → Privacy & Security → **Open Anyway**. On Windows, if SmartScreen appears, select **More info** → **Run anyway**.
+
+Desktop edits are saved beside each RAW in a `.xmp` sidecar. Other apps may drop the `xveon:` properties when they rewrite that sidecar, so keep a copy if you edit the same photo in another app.
+
 This project uses a multi-license structure:
 
 | Component | License | SPDX Identifier |
