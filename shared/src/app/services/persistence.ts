@@ -72,6 +72,15 @@ export async function flushPersistence(): Promise<void> {
 export function retryUnsaved(): void {
   for (const w of writers) w.retry();
 }
+/** Save outcomes belong to the session, even if their originating subscription has stopped. */
+function reconcileSave(id: string, revision: number, editing: 'saved' | 'session', editingNote: string | null) {
+  useAppStore.setState(state => ({
+    files: state.files.map(file =>
+      file.id === id && file.editRevision === revision && file.editing !== 'view-only'
+        ? { ...file, editing, editingNote } : file,
+    ),
+  }));
+}
 export function startPersistence(): () => void {
   let previous = useAppStore.getState();
   let active = true;
@@ -83,15 +92,6 @@ export function startPersistence(): () => void {
     const timer = timers.get(id);
     if (timer !== undefined) clearTimeout(timer);
     timers.delete(id);
-  }
-  function stateOf(id: string, revision: number, editing: 'saved' | 'session', editingNote: string | null) {
-    if (!active || paused) return;
-    useAppStore.setState(state => ({
-      files: state.files.map(f =>
-        f.id === id && f.editRevision === revision && f.editing !== 'view-only'
-          ? { ...f, editing, editingNote } : f,
-      ),
-    }));
   }
   function schedule(id: string, delay = 300) {
     clearTimer(id);
@@ -119,7 +119,7 @@ export function startPersistence(): () => void {
           await getHost().library.save(id, item.edit, item.facts);
           if (ledger.get(id)?.revision === item.revision) {
             ledger.delete(id);
-            stateOf(id, item.revision, 'saved', null);
+            reconcileSave(id, item.revision, 'saved', null);
             publish();
           }
         } catch (error) {
@@ -127,7 +127,7 @@ export function startPersistence(): () => void {
           if (current) {
             const message = error instanceof Error ? error.message : String(error);
             ledger.set(id, { ...current, error: message });
-            stateOf(id, current.revision, 'session', message);
+            reconcileSave(id, current.revision, 'session', message);
             publish();
           }
         }

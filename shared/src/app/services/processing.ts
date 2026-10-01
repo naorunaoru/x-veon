@@ -97,6 +97,8 @@ export async function processFile(fileId: string): Promise<void> {
     useAppStore.getState().setFileResult(fileId, image.meta, method);
     matchLensFor(fileId);
   } catch (e) {
+    // Folder/watch replacement invalidates failures as well as successful results.
+    if (runDiscarded || !useAppStore.getState().files.some((f) => f.id === fileId)) return;
     discardResult(fileId); // also release a published-but-unclaimed result if publication throws
     const detail = e instanceof Error ? e.message : typeof e === 'string' ? e : String(e);
     const msg =

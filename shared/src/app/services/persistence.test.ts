@@ -380,3 +380,30 @@ it('keeps edit B flushable when persistence remounts while save A is in flight',
   expect(host.library.save).toHaveBeenCalledTimes(2);
   expect(isPhotoDirty('a')).toBe(false);
 });
+
+it('reconciles an old save success after persistence remounts without a newer edit', async () => {
+  const save = deferred();
+  vi.mocked(host.library.save).mockImplementationOnce(() => save.promise);
+  useAppStore.getState().setFileLookPreset('a', 'umbra');
+  await flush();
+  stop();
+  stop = startPersistence();
+  save.resolve();
+  await flush();
+  expect(isPhotoDirty('a')).toBe(false);
+  expect(host.library.save).toHaveBeenCalledTimes(1);
+  expect(useAppStore.getState().files[0]).toMatchObject({ editing: 'saved', editingNote: null });
+});
+it('reconciles an old save rejection after persistence remounts without a newer edit', async () => {
+  let reject!: (error: Error) => void;
+  vi.mocked(host.library.save).mockImplementationOnce(() => new Promise<void>((_resolve, fail) => { reject = fail; }));
+  useAppStore.getState().setFileLookPreset('a', 'umbra');
+  await flush();
+  stop();
+  stop = startPersistence();
+  reject(new Error('permission denied'));
+  await flush();
+  expect(unsavedEdits()[0]).toMatchObject({ error: 'permission denied' });
+  expect(host.library.save).toHaveBeenCalledTimes(1);
+  expect(useAppStore.getState().files[0]).toMatchObject({ editing: 'session', editingNote: 'permission denied' });
+});

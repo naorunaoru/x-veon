@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAppStore } from '@/app/store';
 import type { QueuedFile } from '@/app/store';
 import type { ProcessedImage } from '@/pipeline';
-import { startPersistence } from './persistence';
+import { startPersistence, unsavedEdits, cancelPhotoSave } from './persistence';
+import { switchFolder, startLibraryWatching } from './library';
 
 const processRaw = vi.fn();
 vi.mock('@/pipeline', () => ({ processRaw: (...args: unknown[]) => processRaw(...args) }));
@@ -19,7 +20,11 @@ vi.mock('@/app/storage/idb-storage', () => ({
   debouncedPutFile: vi.fn(),
   deleteFile: vi.fn().mockResolvedValue(undefined),
 }));
-vi.mock('@/app/services/library', () => ({ matchLensFor: vi.fn() }));
+vi.mock('@/app/lens/lensfun', () => ({ matchLens: vi.fn(async () => null) }));
+vi.mock('@/app/services/library', async (importOriginal) => ({
+  ...await importOriginal<typeof import('./library')>(),
+  matchLensFor: vi.fn(),
+}));
 
 import {
   processFile,
@@ -114,6 +119,55 @@ describe('processing service', () => {
   afterEach(() => {
     for (const id of ['a', 'b', 'c']) discardResult(id);
   });
+
+  it.each(['folder', 'watch'] as const)(
+    'ignores a discarded processing rejection after a same-ID %s replacement',
+    async (replacement) => {
+      vi.useFakeTimers();
+      const stop = startPersistence();
+      let stopWatching = () => {};
+      let reject!: (error: Error) => void;
+      readRaw.mockImplementationOnce(() => new Promise<ArrayBuffer>((_resolve, fail) => { reject = fail; }));
+      useAppStore.setState({ demosaicMethod: 'neural-net', folder: { id: 'A', name: 'A' } });
+      const processing = processFile('a');
+      useAppStore.getState().setFileLookPreset('a', 'umbra');
+      const revision = useAppStore.getState().files[0].editRevision;
+      const reopened = { photos: [fakePhoto('a')], folder: { id: 'A', name: 'A' }, complete: true };
+      try {
+        if (replacement === 'folder') {
+          await switchFolder(async () => ({ photos: [], folder: { id: 'B', name: 'B' }, complete: true }));
+          await switchFolder(async () => reopened);
+        } else {
+          let publish!: Parameters<NonNullable<typeof host.library.onChange>>[0];
+          host.library.onChange = listener => { publish = listener; return () => {}; };
+          stopWatching = startLibraryWatching();
+          publish({ kind: 'replace', snapshot: reopened });
+        }
+        const accepted = useAppStore.getState().files[0];
+        expect(accepted).toMatchObject({ status: 'queued', modelNeedsResolution: true, editRevision: revision });
+        reject(new Error('old RAW read failed'));
+        await processing;
+        expect(useAppStore.getState().files[0]).toBe(accepted);
+        expect(unsavedEdits()[0]).toMatchObject({ revision, deferred: true, error: null, facts: { status: 'queued', error: null } });
+        expect(host.library.save).not.toHaveBeenCalled();
+        const image = fakeImage();
+        image.meta.metadata.modelIdentity = { size: 'S', sha256: 'reopened' };
+        processRaw.mockResolvedValueOnce(image);
+        await processFile('a');
+        await vi.advanceTimersByTimeAsync(301);
+        expect(host.library.save).toHaveBeenCalledTimes(1);
+        expect(host.library.save).toHaveBeenCalledWith('a', expect.objectContaining({ model: { size: 'S', sha256: 'reopened' } }), expect.anything());
+        expect(unsavedEdits()).toEqual([]);
+      } finally {
+        reject(new Error('test cleanup'));
+        await processing;
+        stopWatching();
+        await Promise.all(unsavedEdits().map(entry => cancelPhotoSave(entry.id)));
+        stop();
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it('passes the photo model independently of defaults and preserves an unknown recorded identity', async () => {
     const photo = makeFile('a');
