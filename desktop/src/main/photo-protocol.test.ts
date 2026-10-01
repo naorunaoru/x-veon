@@ -21,7 +21,9 @@ it('streams only registered files in opened real roots and thumbnails in the rea
   let thumbPath: string | null = thumb;
   registerPhotoProtocol({ protocol: { handle: (_scheme, h) => { handler = h; } }, registry, roots: [root], cacheDir: cache, thumbnail: async () => thumbPath });
   const request = (kind: string, id: string) => handler({ url: `xveon-photo://${kind}/${id.repeat(22)}`, method: 'GET' });
-  expect(await (await request('raw', 'a')).text()).toBe('raw bytes');
+  const allowed = await request('raw', 'a');
+  expect(allowed.headers.get('Access-Control-Allow-Origin')).toBe('app://bundle');
+  expect(await allowed.text()).toBe('raw bytes');
   for (const id of ['b', 'c', 'z']) expect((await request('raw', id)).status).toBe(404);
   expect(await (await request('thumb', 'a')).text()).toBe('thumbnail'); thumbPath = outside; expect((await request('thumb', 'a')).status).toBe(404);
   expect((await handler({ url: `xveon-photo://raw/${'a'.repeat(22)}`, method: 'POST' })).status).toBe(404);

@@ -41,7 +41,7 @@ export function registerPhotoProtocol(deps: Deps) {
       if (!after.isFile() || after.dev !== opened.dev || after.ino !== opened.ino) return missing();
       // Node has no portable atomic beneath-root open. Repeated adversarial
       // ancestor renames between checks need native APIs; never reopen for streaming.
-      const response = new Response(Readable.toWeb(handle.createReadStream()) as ReadableStream, { headers: { 'Content-Type': parsed.kind === 'raw' ? 'application/octet-stream' : 'image/jpeg', 'Content-Length': String(opened.size) } });
+      const response = new Response(Readable.toWeb(handle.createReadStream()) as ReadableStream, { headers: { 'Access-Control-Allow-Origin': 'app://bundle', 'Content-Type': parsed.kind === 'raw' ? 'application/octet-stream' : 'image/jpeg', 'Content-Length': String(opened.size) } });
       handle = undefined; // The stream now owns and closes this checked descriptor.
       return response;
     } catch { return missing(); }

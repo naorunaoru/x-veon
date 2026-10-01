@@ -1,19 +1,15 @@
 import {
   app,
   powerMonitor,
-  screen,
   BrowserWindow,
   ipcMain,
-  MessageChannelMain,
   net,
   protocol,
   dialog,
   Menu,
   utilityProcess,
-  type UtilityProcess,
 } from 'electron';
 import path from 'node:path';
-import os from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { BUILD, channelLabel } from '@/lib/channel';
 import { createFolderStore } from './folders';
@@ -25,41 +21,18 @@ import { createMainWindow } from './window';
 import { createCloseGuard, unsavedQuitMessage } from './close-guard';
 import { registerDesktopIpc } from './desktop-ipc';
 import type { BridgeEvent } from '../protocol/bridge';
-import { readdir, mkdir, writeFile } from 'node:fs/promises';
+import { readdir, mkdir } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
-import { acceptsSender, assetName, isRequest, isBridgeEvent, CONTENT_SECURITY_POLICY } from '../protocol/security';
-import { waitForWorkerSpawn } from './worker-ready';
-const root = path.resolve(__dirname, '../../..');
-const evidence = path.join(root, 'tmp/m2-spike/runtime');
-const runArg =
-  process.argv.find((v) => v.startsWith('--spike-run='))?.split('=')[1] ??
-  'manual';
-if (!/^[a-z0-9-]+$/.test(runArg)) throw Error('Invalid spike run name');
+import { acceptsSender, assetName, isBridgeEvent, CONTENT_SECURITY_POLICY } from '../protocol/security';
 app.setName(BUILD.channel === 'stable' ? 'X-veon' : `X-veon ${channelLabel(BUILD.channel)}`);
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'xveon-photo', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
+  { scheme: 'xveon-photo', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } },
   {
     scheme: 'app',
     privileges: { standard: true, secure: true, supportFetchAPI: true },
   },
 ]);
-let worker: UtilityProcess | null = null;
 let win: BrowserWindow;
-async function startWorker() {
-  if (!worker) {
-    const child = utilityProcess.fork(path.join(__dirname, 'worker.js'), [], {
-      stdio: 'pipe',
-      serviceName: 'X-veon spike worker',
-    });
-    worker = child;
-    child.stdout?.on('data', (d) => console.log(String(d)));
-    child.stderr?.on('data', (d) => console.error(String(d)));
-    child.once('exit', () => {
-      if (worker === child) worker = null;
-    });
-  }
-  await waitForWorkerSpawn(worker);
-}
 async function assets(dir: string, prefix = ''): Promise<string[]> {
   const result: string[] = [];
   for (const file of await readdir(dir, { withFileTypes: true })) {
@@ -78,10 +51,6 @@ const trusted = (event: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent) =>
     event.senderFrame === win.webContents.mainFrame,
   );
 void app.whenReady().then(async () => {
-  if (process.argv.some(arg => arg.startsWith('--spike'))) {
-    await mkdir(evidence, { recursive: true });
-    await writeFile(path.join(evidence, `${runArg}-pid.json`), JSON.stringify({ pid: process.pid }));
-  }
   const bundle = path.resolve(__dirname, '../renderer'),
     files = new Set(await assets(bundle));
   protocol.handle('app', async (request) => {
@@ -126,7 +95,7 @@ void app.whenReady().then(async () => {
   registerPhotoProtocol({ protocol, registry: supervisor.registry, roots: supervisor.roots, cacheDir,
     thumbnail: async id => (await supervisor.request({ kind: 'thumbnail', id })).path,
   });
-  const stopWorkers = () => { supervisor.stop(); worker?.kill(); };
+  const stopWorkers = () => { supervisor.stop(); };
   const guard = createCloseGuard({ window: win, app: { on: (event, handler) => { app.on(event, handler); }, quit: () => app.quit(), exit: code => { stopWorkers(); app.exit(code); } },
     inventory: ipc.inventory, requestFlush: ipc.requestFlush,
     confirmQuit: async unsaved => (await dialog.showMessageBox(win, { type: 'warning', message: unsavedQuitMessage(unsaved), buttons: ['Quit anyway', 'Cancel'], defaultId: 1, cancelId: 1, noLink: true })).response === 0,
@@ -138,79 +107,9 @@ void app.whenReady().then(async () => {
   win.webContents.on('console-message', (event) =>
     console.log(`[renderer] ${event.message}`),
   );
-  ipcMain.handle('xveon-request', async (event, request) => {
-    if (!trusted(event) || !isRequest(request))
-      throw Error('Invalid bridge request');
-    if (request.kind === 'restart') {
-      if (worker) {
-        const old = worker;
-        await new Promise<void>((resolve, reject) => {
-          const timer = setTimeout(
-            () => reject(Error('Worker exit timed out')),
-            10_000,
-          );
-          old.once('exit', () => {
-            clearTimeout(timer);
-            resolve();
-          });
-          old.kill();
-        });
-      }
-      await startWorker();
-      return { restarted: true };
-    }
-    if (request.kind === 'diagnostics') {
-      return {
-        versions: process.versions,
-        os: { release: os.release(), version: os.version() },
-        onBatteryPower: powerMonitor.isOnBatteryPower(),
-        display: screen.getDisplayMatching(win.getBounds()),
-        launchArguments: process.argv,
-        platform: process.platform,
-        arch: process.arch,
-        gpu: await app.getGPUInfo('complete'),
-        metrics: app.getAppMetrics(),
-        preferences: {
-          sandbox: true,
-          contextIsolation: true,
-          nodeIntegration: false,
-        },
-      };
-    }
-    await startWorker();
-    const { port1, port2 } = new MessageChannelMain();
-    worker!.postMessage({ version: 1, kind: 'connect' }, [port1]);
-    event.senderFrame!.postMessage('xveon-port', null, [port2]);
-    return { connected: true };
-  });
-  ipcMain.handle('xveon-report', async (event, data) => {
-    if (
-      !trusted(event) ||
-      data?.version !== 1 ||
-      !['golden', 'timing', 'transport', 'capabilities', 'error'].includes(
-        data.name,
-      )
-    )
-      throw Error('Invalid report');
-    const text = JSON.stringify(data.value, null, 2);
-    if (text.length > 2_000_000) throw Error('Report too large');
-    await mkdir(evidence, { recursive: true });
-    await writeFile(path.join(evidence, `${runArg}-${data.name}.json`), text);
-    console.log(`[report] ${runArg}-${data.name}`);
-  });
-  const params = new URLSearchParams();
-  const mode = process.argv
-    .find((v) => v.startsWith('--spike='))
-    ?.split('=')[1];
-  if (mode === 'golden') params.set('golden', 'render');
-  else if (mode) params.set('spike', mode);
-  const sample = process.argv
-    .find((v) => v.startsWith('--spike-sample='))
-    ?.split('=')[1];
-  if (sample) params.set('sample', sample);
   if (goldenFile) {
     await win.loadURL('app://bundle/?golden=render');
     const { watchGoldenReport } = await import('./golden-report');
     await watchGoldenReport(win, goldenFile);
-  } else await win.loadURL('app://bundle/?' + params);
+  } else await win.loadURL('app://bundle/?');
 });

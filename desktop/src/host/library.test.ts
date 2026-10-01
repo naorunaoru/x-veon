@@ -1,27 +1,151 @@
-import { expect, it } from 'vitest';
-import { createFixtureLibrary } from './library';
-import { createExporter } from './exporter';
-it('keeps fixtures and edits in memory without exposing delete or clear', async () => {
-  const fixture = createFixtureLibrary(),
-    host = fixture.library;
-  expect(host.remove).toBeUndefined();
-  expect(host.clear).toBeUndefined();
-  await expect(host.addFiles([new File(['raw'], 'other.raf')])).rejects.toThrow(
-    'two sample',
-  );
-  const p = (await host.addFiles([new File(['raw'], 'DSCF3332.RAF')]))
-    .photos[0];
-  expect(new TextDecoder().decode(await host.readRaw(p.id))).toBe('raw');
-  await host.save(
-    p.id,
-    { ...p.edit, preProcessOverrides: { exposure: 1 } },
-    p.facts,
-  );
-  expect((await host.load()).photos[0].edit.preProcessOverrides.exposure).toBe(
-    1,
-  );
-  fixture.releaseFixture(p.id);
-  expect((await host.load()).photos).toEqual([]);
-  expect((await createFixtureLibrary().library.load()).photos).toEqual([]);
-  expect(await createExporter().status()).toMatchObject({ available: false });
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { createDesktopHost } from './index';
+import type { DesktopBridge, BridgeEvent } from '../protocol/bridge';
+import type { LibraryPhoto, Host, UnsavedSummary } from '@/host';
+import type { PortRequest } from '../protocol/rpc';
+import { listingFrames } from '../protocol/listing';
+import { fakePhoto } from '@/test/fake-host';
+vi.mock('@/app/services/processing', () => ({ discardResult: vi.fn() }));
+vi.mock('@/app/lens/lensfun', () => ({ matchLens: vi.fn(async () => null) }));
+vi.mock('@/app/storage/settings-storage', () => ({ getSetting: vi.fn(), putSetting: vi.fn(async () => {}), pauseSettings: vi.fn(), resumeSettings: vi.fn() }));
+import { useAppStore } from '@/app/store';
+import { fromLibraryPhoto } from '@/app/store/photo';
+import { setHost } from '@/app/services/host';
+import { switchFolder, openFolder, importFiles } from '@/app/services/library';
+import { startPersistence, flushPersistence, unsavedEdits, onUnsavedChange, cancelPhotoSave } from '@/app/services/persistence';
+const id = 'a'.repeat(22), folder = { id: 'A', name: 'A' };
+const photo = (): LibraryPhoto => ({ ...fakePhoto(id), name: 'photo.RAF', edit: { ...fakePhoto(id).edit, demosaicMethod: 'dht' } });
+class FakePort extends EventTarget {
+  sent: PortRequest[] = [];
+  closed = false;
+  sidecar: unknown;
+  hold = false;
+  error: string | null = null;
+  start() {}
+  close() { this.closed = true; }
+  receive(data: unknown) { this.dispatchEvent(new MessageEvent('message', { data })); }
+  postMessage(request: PortRequest, transfer?: unknown) {
+    expect(transfer).toBeUndefined();
+    this.sent.push(request);
+    if (!this.hold) queueMicrotask(() => this.confirm(request));
+  }
+  confirm(request: PortRequest) {
+    if (!this.error && request.op === 'saveEdit') this.sidecar = request.edit;
+    this.receive(this.error ? { v: 1, rid: request.rid, ok: false, error: this.error } : { v: 1, rid: request.rid, ok: true });
+  }
+}
+let bridge: DesktopBridge, host: Host, win: EventTarget, ports: FakePort[], listeners: Set<(e: BridgeEvent) => void>, stop = () => {};
+const emit = (event: BridgeEvent) => { for (const listener of listeners) listener(event); };
+const tick = async () => { for (let n = 0; n < 20; n++) await Promise.resolve(); };
+function frames(token: string, activation: string, purpose: 'open' | 'replace' = 'open', photos = [photo()], f = folder) {
+  for (const frame of listingFrames({ token, activation, purpose, folder: f }, photos)) emit({ kind: 'listing', frame });
+}
+async function accept(token: string, activation: string, f = folder) {
+  vi.mocked(bridge.openFolder).mockImplementationOnce(async () => { frames(token, activation, 'open', [photo()], f); return { token }; });
+  return host.library.openFolder!(f);
+}
+beforeEach(() => {
+  win = new EventTarget(); ports = []; listeners = new Set(); stop = () => {};
+  vi.stubGlobal('window', win); vi.stubGlobal('location', { origin: 'app://bundle' }); vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(dynamic-range: high)' }));
+  bridge = { version: 2, loadLast: vi.fn(async () => null), openFolder: vi.fn(async () => null), openDropped: vi.fn(async () => null), recentFolders: vi.fn(async () => [folder]), pathsForFiles: vi.fn((files: File[]) => files.map(f => '/test/' + f.name)),
+    requestWorkerPort: vi.fn(async () => { const port = new FakePort(); ports.push(port); const e = new MessageEvent('message', { data: { type: 'xveon-port', version: 2 }, origin: 'app://bundle' }); Object.defineProperty(e, 'source', { value: win }); Object.defineProperty(e, 'ports', { value: [port] }); win.dispatchEvent(e); }),
+    updateUnsaved: vi.fn(), respondFlush: vi.fn(), onEvent: listener => { listeners.add(listener); return () => listeners.delete(listener); } };
+  host = createDesktopHost(bridge);
+});
+afterEach(async () => { if (host.library) await Promise.all(unsavedEdits().map(e => cancelPhotoSave(e.id))); stop(); vi.useRealTimers(); vi.unstubAllGlobals(); });
+it('sends facts without an edit, and confirms both operations for an edit save', async () => {
+  expect(host.library).toBeDefined(); const p = photo();
+  await host.library.saveFacts(id, p.facts);
+  expect(ports[0].sent).toEqual([{ v: 1, rid: expect.any(Number), op: 'saveFacts', id, facts: p.facts }]);
+  await host.library.save(id, p.edit, p.facts);
+  expect(ports[0].sent.map(r => r.op)).toEqual(['saveFacts', 'saveEdit', 'saveFacts']);
+  ports[0].error = 'ENOSPC: no space left on device';
+  await expect(host.library.save(id, p.edit, p.facts)).rejects.toThrow('ENOSPC: no space left on device');
+});
+it('cannot overwrite a held newer edit with concurrently saved facts', async () => {
+  expect(host.library).toBeDefined(); await host.library.saveFacts(id, photo().facts); ports[0].sent = []; ports[0].hold = true;
+  const edit = { ...photo().edit, preProcessOverrides: { exposure: 2 } };
+  const saving = host.library.save(id, edit, photo().facts); await tick();
+  const facts = host.library.saveFacts(id, photo().facts); await tick();
+  expect(ports[0].sent[1]).not.toHaveProperty('edit'); ports[0].confirm(ports[0].sent[1]); await facts;
+  ports[0].hold = false; ports[0].confirm(ports[0].sent[0]); await saving;
+  expect(ports[0].sidecar).toEqual(edit);
+});
+it('folds the newest pre-token replacement into the opening snapshot and preserves drop selection', async () => {
+  expect(host.library).toBeDefined(); const changed = vi.fn(); host.library.onChange!(changed);
+  vi.mocked(bridge.openDropped).mockImplementationOnce(async () => {
+    frames('open', 'visit'); frames('watch1', 'visit', 'replace', [{ ...photo(), name: 'old.RAF' }]); frames('watch2', 'visit', 'replace', [{ ...photo(), name: 'latest.RAF' }]); return { token: 'open', selected: [id] };
+  });
+  setHost(host); await switchFolder(() => host.library.addFiles([new File(['raw'], 'photo.RAF')]));
+  expect(useAppStore.getState().files[0].name).toBe('latest.RAF'); expect(useAppStore.getState().selectedFileId).toBe(id); expect(changed).not.toHaveBeenCalled();
+});
+it('waits for complete frames after the token and rejects a superseded request snapshot', async () => {
+  expect(host.library).toBeDefined(); vi.mocked(bridge.openFolder).mockResolvedValueOnce({ token: 'old' }).mockResolvedValueOnce({ token: 'new' });
+  const old = host.library.openFolder!(); await tick(); const latest = host.library.openFolder!(); await tick();
+  frames('old', 'old'); frames('new', 'new');
+  expect(await old).toBeNull(); expect(await latest).toMatchObject({ folder, photos: [{ id }] });
+});
+it('drops stale listing and facts activations across A to B to A', async () => {
+  expect(host.library).toBeDefined(); await host.library.saveFacts(id, photo().facts); const changed = vi.fn(); host.library.onChange!(changed);
+  await accept('a1', 'A1'); await accept('b', 'B1', { id: 'B', name: 'B' }); await accept('a2', 'A2');
+  frames('stale', 'A1', 'replace'); ports[0].receive({ v: 1, event: 'facts', activation: 'A1', folder, photos: [photo()] });
+  expect(changed).not.toHaveBeenCalled();
+  frames('current', 'A2', 'replace'); ports[0].receive({ v: 1, event: 'facts', activation: 'A2', folder, photos: [photo()] });
+  expect(changed.mock.calls.map(c => c[0].kind)).toEqual(['replace', 'facts']); expect(changed.mock.calls[1][0].snapshot.folder).toEqual(folder);
+});
+it('awaits flush before replying with the latest shared inventory, and routes menu requests', async () => {
+  expect(host.library).toBeDefined(); let finish!: () => void;
+  host.library.onFlushRequest!(() => new Promise(resolve => { finish = resolve; }));
+  const inventory: UnsavedSummary[] = [{ id, name: 'photo.RAF', folder, error: 'read only' }]; host.library.reportUnsaved!(inventory);
+  emit({ kind: 'flush-request', requestId: 7 }); await tick(); expect(bridge.respondFlush).not.toHaveBeenCalled();
+  host.library.reportUnsaved!([]); finish(); await tick(); expect(bridge.updateUnsaved).toHaveBeenNthCalledWith(1, inventory); expect(bridge.updateUnsaved).toHaveBeenLastCalledWith([]); expect(bridge.respondFlush).toHaveBeenCalledWith(7, []);
+  setHost(host); host.library.onFolderRequest!(f => { void openFolder(f); }); emit({ kind: 'folder-request', folderId: 'A' }); await tick(); expect(bridge.openFolder).toHaveBeenCalledWith('A');
+});
+it('retries interrupted shared-ledger writes on the new port in revision order', async () => {
+  expect(host.library).toBeDefined(); setHost(host); useAppStore.setState({ files: [fromLibraryPhoto(photo())], folder });
+  await host.library.saveFacts(id, photo().facts); ports[0].hold = true;
+  stop = startPersistence(); host.library.onFlushRequest!(flushPersistence);
+  const unsubscribe = onUnsavedChange(edits => host.library.reportUnsaved!(edits.map(({ id, name, folder, error }) => ({ id, name, folder, error }))));
+  useAppStore.getState().setFilePreProcessOverride(id, 'exposure', 1); const first = flushPersistence(); await tick();
+  expect(ports[0].sent.at(-1)).toMatchObject({ op: 'saveEdit', edit: { preProcessOverrides: { exposure: 1 } } });
+  emit({ kind: 'worker-restarted' }); await tick();
+  expect(ports).toHaveLength(2); expect(ports[0].closed).toBe(true); expect(ports[1].sent[0]).toMatchObject({ op: 'saveEdit', edit: { preProcessOverrides: { exposure: 1 } } });
+  useAppStore.getState().setFilePreProcessOverride(id, 'exposure', 2); await first; await flushPersistence(); await tick();
+  expect(ports[1].sent.filter(r => r.op === 'saveEdit').map(r => r.edit.preProcessOverrides.exposure)).toEqual([1, 2]); expect(unsavedEdits()).toEqual([]); expect(bridge.updateUnsaved).toHaveBeenLastCalledWith([]); unsubscribe();
+});
+it('rejects non-disk drops, reads RAW URLs, rescans on focus and exposes desktop capabilities', async () => {
+  expect(host.library).toBeDefined(); vi.mocked(bridge.pathsForFiles).mockReturnValue(['']);
+  await expect(host.library.addFiles([new File(['raw'], 'photo.RAF')])).rejects.toThrow('Only files on disk can be opened.'); expect(bridge.openDropped).not.toHaveBeenCalled();
+  const bytes = new Uint8Array([1, 2]).buffer; vi.stubGlobal('fetch', vi.fn(async () => ({ arrayBuffer: async () => bytes })));
+  expect(await host.library.readRaw(id)).toBe(bytes); expect(fetch).toHaveBeenCalledWith('xveon-photo://raw/' + id);
+  win.dispatchEvent(new Event('focus')); await tick(); expect(ports[0].sent.at(-1)).toMatchObject({ op: 'rescan' });
+  expect(host.library.remove).toBeUndefined(); expect(host.library.clear).toBeUndefined(); expect(host.library.release).toBeUndefined();
+  expect(await host.exporter.status()).toEqual({ available: false, reason: 'Desktop export arrives in M3.' }); expect(await host.display.probe()).toMatchObject({ supported: true, headroom: 2, accurate: false }); expect(host.settingsDbName).toBe('xveon-desktop');
+});
+
+it('preserves the current folder without warning on cancelled and superseded drops', async () => {
+  expect(host.library).toBeDefined(); setHost(host); useAppStore.setState({ files: [fromLibraryPhoto(photo())], folder }); const warn = vi.spyOn(console, 'warn');
+  await importFiles([new File(['x'], 'x.RAF')]); expect(useAppStore.getState().folder).toEqual(folder); expect(warn).not.toHaveBeenCalled();
+  let finish!: (value: { token: string } | null) => void;
+  vi.mocked(bridge.openDropped).mockImplementationOnce(() => new Promise(resolve => { finish = resolve as typeof finish; }));
+  const dropped = importFiles([new File(['x'], 'x.RAF')]); await tick();
+  await accept('next', 'next', { id: 'B', name: 'B' }); finish({ token: 'old-drop' }); frames('old-drop', 'old-drop'); await dropped;
+  expect(warn).not.toHaveBeenCalled(); expect(useAppStore.getState().folder).toEqual(folder); warn.mockRestore();
+});
+it('does not post a request to a port replaced between connection and send', async () => {
+  await host.library.saveFacts(id, photo().facts); ports[0].sent = [];
+  const saving = host.library.saveFacts(id, photo().facts); void saving.catch(() => {});
+  emit({ kind: 'worker-restarted' }); await tick();
+  try { expect(ports[0].sent).toEqual([]); await expect(saving).rejects.toThrow('Worker connection replaced'); }
+  finally { emit({ kind: 'worker-stopped', reason: 'test cleanup' }); }
+});
+it('delivers current-folder watcher changes while a new folder picker is pending or cancelled', async () => {
+  await accept('a', 'A1'); const changed = vi.fn(); host.library.onChange!(changed);
+  let cancel!: (value: null) => void;
+  vi.mocked(bridge.openFolder).mockImplementationOnce(() => new Promise(resolve => { cancel = resolve; }));
+  const watch = listingFrames({ token: 'watch', activation: 'A1', folder, purpose: 'replace' }, [{ ...photo(), name: 'changed.RAF' }]);
+  emit({ kind: 'listing', frame: watch[0] }); const opening = host.library.openFolder!();
+  for (const frame of watch.slice(1)) emit({ kind: 'listing', frame });
+  try { expect(changed).toHaveBeenCalledWith({ kind: 'replace', snapshot: { folder, photos: [{ ...photo(), name: 'changed.RAF' }], complete: true } }); }
+  finally { cancel(null); await opening; }
 });

@@ -34,17 +34,6 @@ export function acceptsSender(url: string, mainFrame: boolean): boolean {
     return false;
   }
 }
-export type Request = {
-  version: 1;
-  kind: 'connect' | 'restart' | 'diagnostics';
-};
-export function isRequest(value: unknown): value is Request {
-  if (!value || typeof value !== 'object') return false;
-  const v = value as Request;
-  return (
-    v.version === 1 && ['connect', 'restart', 'diagnostics'].includes(v.kind)
-  );
-}
 export type DesktopRequest = { version: 2; kind: 'loadLast' | 'recentFolders' | 'requestWorkerPort' } | { version: 2; kind: 'openFolder'; folderId?: string } | { version: 2; kind: 'openDropped'; paths: string[] };
 export const CONTENT_SECURITY_POLICY = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; img-src 'self' blob: data: xveon-photo:; style-src 'self' 'unsafe-inline'; connect-src 'self' xveon-photo:; object-src 'none'; base-uri 'none'; frame-src 'none'";
 function object(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === 'object' && !Array.isArray(value); }

@@ -12,11 +12,11 @@ vi.mock('./worker', () => ({ createWorkerSupervisor: () => ({ roots: [], registr
 vi.mock('./golden-report', () => ({ watchGoldenReport: state.report }));
 const originalArgs = [...process.argv];
 afterEach(() => { process.argv = [...originalArgs]; vi.useRealTimers(); vi.unstubAllGlobals(); vi.clearAllMocks(); state.handles.clear(); state.listeners.clear(); });
-it('boots alongside spike routes, registers a secure streaming scheme, and defers worker cleanup until quit is accepted', async () => {
+it('boots with only the desktop route, registers a secure streaming scheme, and defers worker cleanup until quit is accepted', async () => {
   process.argv.push('--golden-report=/ignored.json');
   vi.useFakeTimers(); vi.stubGlobal('__XV_GOLDEN__', false); await import('./index'); await state.boot;
-  expect(state.handles.has('xveon-request')).toBe(true); expect(state.handles.has('xveon-report')).toBe(true); expect(state.handles.has('xveon-desktop')).toBe(true);
-  expect(state.privileges.mock.calls[0][0]).toContainEqual({ scheme: 'xveon-photo', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } });
+  expect([...state.handles.keys()]).toEqual(['xveon-desktop']); expect(state.handles.has('xveon-desktop')).toBe(true);
+  expect(state.privileges.mock.calls[0][0]).toContainEqual({ scheme: 'xveon-photo', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } });
   expect(state.name).toHaveBeenCalledWith('X-veon Dev'); expect(state.win.loadURL).toHaveBeenCalledWith('app://bundle/?');
   const preventDefault = vi.fn(); state.app.emit('before-quit', { preventDefault }); expect(preventDefault).toHaveBeenCalledOnce(); expect(state.stop).not.toHaveBeenCalled();
   state.app.emit('will-quit'); expect(state.stop).toHaveBeenCalledOnce();

@@ -46,7 +46,7 @@ export async function importFiles(files: File[]): Promise<void> {
       return;
     }
     const snapshot = await getHost().library.addFiles(files);
-    if (clearing || suspended) return;
+    if (!snapshot || clearing || suspended) return;
     const state = useAppStore.getState();
     state.addFiles(
       snapshot.photos.filter((p) => !state.files.some((f) => f.id === p.id)).map(fromLibraryPhoto),

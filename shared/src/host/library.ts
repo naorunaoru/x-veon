@@ -55,7 +55,7 @@ export interface LibraryHost {
   save(id: PhotoId, edit: PhotoEdit, facts: PhotoFacts): Promise<void>;
   /** Facts only; never changes the persisted edit. */
   saveFacts(id: PhotoId, facts: PhotoFacts): Promise<void>;
-  addFiles(files: File[]): Promise<LibrarySnapshot>;
+  addFiles(files: File[]): Promise<LibrarySnapshot | null>;
   onChange?(listener: (change: LibraryChange) => void): () => void;
   openFolder?(folder?: FolderRef): Promise<LibrarySnapshot | null>;
   onFolderRequest?(listener: (folder?: FolderRef) => void): () => void;

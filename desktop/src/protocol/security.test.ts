@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { assetName, acceptsSender, isRequest } from './security';
+import { assetName, acceptsSender } from './security';
 it('serves only exact bundle assets via GET', () => {
   const files = new Set(['index.html', 'assets/decoder.wasm']);
   expect(assetName('app://bundle/', 'GET', files)).toBe('index.html');
@@ -17,18 +17,11 @@ it('serves only exact bundle assets via GET', () => {
     expect(assetName(url, 'GET', files)).toBeNull();
   expect(assetName('app://bundle/', 'POST', files)).toBeNull();
 });
-it('requires the trusted top frame and versioned requests', () => {
+it('requires the trusted top frame', () => {
   expect(acceptsSender('app://bundle/?golden=render', true)).toBe(true);
   expect(acceptsSender('app://bundle/', false)).toBe(false);
   expect(acceptsSender('https://example.com/', true)).toBe(false);
-  expect(isRequest({ version: 1, kind: 'connect' })).toBe(true);
-  for (const value of [
-    null,
-    {},
-    { version: 2, kind: 'connect' },
-    { version: 1, kind: 'read-file' },
-  ])
-    expect(isRequest(value)).toBe(false);
+
 });
 it('validates bounded version-2 desktop requests and dense nested unsaved summaries', async () => {
   const { isDesktopRequest, isUnsavedUpdate, isFlushResponse, CONTENT_SECURITY_POLICY } = await import('./security');

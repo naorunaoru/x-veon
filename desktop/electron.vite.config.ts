@@ -23,6 +23,7 @@ export default defineConfig({
     },
   },
   preload: {
+    resolve: { alias: { '@': path.join(shared, 'src') } },
     build: {
       rollupOptions: {
         input: path.resolve(__dirname, 'src/preload/index.ts'),
@@ -36,7 +37,7 @@ export default defineConfig({
     publicDir: path.join(shared, 'public'),
     plugins: [react(), wasm()],
     resolve: { alias: { '@': path.join(shared, 'src') } },
-    define: { __XV_BUILD__: JSON.stringify(build), __XV_GOLDEN__: 'true' },
+    define: { __XV_BUILD__: JSON.stringify(build), __XV_GOLDEN__: JSON.stringify(process.env.XV_GOLDEN === '1') },
     build: {
       target: 'esnext',
       rollupOptions: { input: path.resolve(__dirname, 'index.html') },

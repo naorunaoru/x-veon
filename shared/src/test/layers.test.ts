@@ -365,3 +365,7 @@ it('keeps the host adapter surface aligned when desktop exists', () => {
     for (const name of names) expect(existsSync(join(directory, name))).toBe(true);
   }
 });
+
+it('keeps only golden harness modules in shared dev', () => {
+  expect(readdirSync(join(SRC, 'dev')).filter(name => !/^golden.*\.ts$/.test(name))).toEqual([]);
+});

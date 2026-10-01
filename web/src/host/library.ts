@@ -16,7 +16,7 @@ export function createWebLibrary(options: {
   dbName: string;
   opfsRoot: string;
   reload?: () => void;
-}): LibraryHost {
+}): Omit<LibraryHost, 'addFiles'> & { addFiles(files: File[]): Promise<LibrarySnapshot> } {
   const records = createFileStorage(options.dbName);
   const opfs = createOpfsStorage(options.opfsRoot);
   const photos = new Map<string, LibraryPhoto>();
