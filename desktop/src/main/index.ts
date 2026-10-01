@@ -16,6 +16,7 @@ import os from 'node:os';
 import { readdir, mkdir, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { acceptsSender, assetName, isRequest } from '../protocol/security';
+import { waitForWorkerSpawn } from './worker-ready';
 const root = path.resolve(__dirname, '../../..');
 const evidence = path.join(root, 'tmp/m2-spike/runtime');
 const runArg =
@@ -33,16 +34,19 @@ protocol.registerSchemesAsPrivileged([
 let worker: UtilityProcess | null = null;
 let win: BrowserWindow;
 async function startWorker() {
-  if (worker) return;
-  worker = utilityProcess.fork(path.join(__dirname, 'worker.js'), [], {
-    stdio: 'pipe',
-    serviceName: 'X-veon spike worker',
-  });
-  worker.stdout?.on('data', (d) => console.log(String(d)));
-  worker.stderr?.on('data', (d) => console.error(String(d)));
-  worker.once('exit', () => {
-    worker = null;
-  });
+  if (!worker) {
+    const child = utilityProcess.fork(path.join(__dirname, 'worker.js'), [], {
+      stdio: 'pipe',
+      serviceName: 'X-veon spike worker',
+    });
+    worker = child;
+    child.stdout?.on('data', (d) => console.log(String(d)));
+    child.stderr?.on('data', (d) => console.error(String(d)));
+    child.once('exit', () => {
+      if (worker === child) worker = null;
+    });
+  }
+  await waitForWorkerSpawn(worker);
 }
 async function assets(dir: string, prefix = ''): Promise<string[]> {
   const result: string[] = [];

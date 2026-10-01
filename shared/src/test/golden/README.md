@@ -7,6 +7,17 @@ and its encoded exports for two sample RAWs, produced by the `?golden` route in
 
 ## Provenance of the current baseline
 
+### Windows NVIDIA Blackwell (2026-10-01)
+
+Recorded on an RTX 5080, driver 32.0.16.1714, Windows 11 build 26300, Chrome
+154.0.8037.58 at `6bae195`. Two full HDR-enabled Chrome runs agreed on all 30
+scene/graded/dark hashes and all six export hashes and byte lengths. The user
+explicitly approved this baseline on October 1. Evidence is preserved in the
+Windows spike reports `windows-chrome-hdr-full-1.json` and
+`windows-chrome-hdr-full-2.json`. The Apple baseline is unchanged.
+
+### Apple Metal
+
 Re-recorded 2026-09-27 on Apple `metal-3` in Chrome 153, at `develop` `1c24dc6`, before the repository moved into `shared/` + `web/` (desktop M0). Two full runs agreed on every scene, graded-readback and export hash. The whole file was regenerated, so it supersedes the stale graded and export hashes described in the sections below. Against the 2026-09-04 baseline, the scene hashes changed for both neural-net runs and for every X-Trans run, which fits `88dd3f7` (no black first row/column in neural-net output) and `7780116` (black and white levels by CFA colour); the four Bayer traditional runs are unchanged.
 
 ## Earlier baseline (2026-09-04)

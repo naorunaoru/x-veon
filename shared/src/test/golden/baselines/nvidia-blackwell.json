@@ -1,0 +1,86 @@
+{
+  "adapter": {
+    "vendor": "nvidia",
+    "architecture": "blackwell"
+  },
+  "commit": "6bae195",
+  "recordedAt": "2026-10-01T14:59:07.308Z",
+  "entries": {
+    "DSCF3332.RAF|neural-net:S": {
+      "scene": "26af09a5375e2cf3db6e7b37552e7cbafc0b0d84718f5313f45c626c0d343090",
+      "display": "a5c01522914b6b511250b428dbeaa8dcf857c92d336626eaf7b6f569c905a7a3",
+      "displayDark": "ba14ac31acc5d5886ea3ec58152b35f37401193880cc25bbe8fc63c2e7103306"
+    },
+    "DSCF3332.RAF|markesteijn3": {
+      "scene": "110ebcc3de1525ac2029c6196f49483ece941104683e1d4fcb2dee342665a9a7",
+      "display": "cf579c0d6ac777ec11df8087449c75aa06ea054a9e9dd54355a03e6157128b43",
+      "displayDark": "9863ffe464b58a48c2e70a91e2c45fe333c1aca373a9ba42bdc67abc8a354f50"
+    },
+    "DSCF3332.RAF|markesteijn1": {
+      "scene": "ed07c5f6352e992dd0eb674c4e6e23cb7b67fc23c8cdfdd2223615c3464804bd",
+      "display": "e24364e16998b0c822494e4d377ba3a619982de1088c03328a697898f330792b",
+      "displayDark": "fac7b450801ce43dd27f9b4863b417e45f50ee728b40c0e6dd00239b3d96c086"
+    },
+    "DSCF3332.RAF|dht": {
+      "scene": "9961594545c3d288a99346e155c35fd7b61c1c8536480837ea27bb3d7c3e397b",
+      "display": "3bd946b706c39fd8ecd148872f71abb566fc47431d9096d47843c163f141f578",
+      "displayDark": "5fb56e1df97c8cdb3874b80ac84a7c86f7ce62087693824e7e1ac9d01dee8407"
+    },
+    "DSCF3332.RAF|bilinear": {
+      "scene": "7fc2859c67ffc2b8721d2db67cef6e065eeafeb07f562c03a02eadd7074bdbc5",
+      "display": "51376d5526f582145f5b3dd327f4108316a7605052f7aca54d8c5fc80c9ba59c",
+      "displayDark": "bdc7c7d13c9f7f55a9c2fb56dddeb202553a675303128b24735a309a403e7985"
+    },
+    "sony_a6400_21.arw|neural-net:S": {
+      "scene": "dab8e73abaa7ff135d7268a0a8da88907a2466ade6cd657000ec345f936add53",
+      "display": "f78e43ba97bb41dda409d58841d89e51d03c272dc1d262ff61596e02cef8ec7d",
+      "displayDark": "100f578af937a0ebfd58240cab4a16841fd38fcd9247b3148af0dd79c780bbec"
+    },
+    "sony_a6400_21.arw|ahd": {
+      "scene": "86b4d2e4b27185a9b0f909c64fc0ea53a8bb502bfa61df3014ae8e03a865a1a8",
+      "display": "c4f521c05d71d7e097cecd3c5f638534a7076a20ceef66537c8fbff9166e154b",
+      "displayDark": "7daf2dbedc3c6ef7dbda1edc1e2fd808630a1c79bed8c58a1803c70837959ce3"
+    },
+    "sony_a6400_21.arw|ppg": {
+      "scene": "17578843a9e72a2122a719419543d3431c8c2b3922e2b7e53baa68636d4794f7",
+      "display": "1fe3d71d24ca90482d600639d98ddc98519729fe68f30e71aa9472bf5534e319",
+      "displayDark": "51552fe87d303f9e0c57ad49b406e25b29e247afbb94b7a1cfd71fd64b6f5977"
+    },
+    "sony_a6400_21.arw|mhc": {
+      "scene": "ec72440a73e3b864ed39f33f915b41c24073c3cfc16a5d908432f27883a8a332",
+      "display": "acf3948554035eb9b25039103cb14ee22eefe0b5ade31b0aaa2aeb79156e14d2",
+      "displayDark": "998e73e023b13366367bafd90bf5025247ddcf169cf06a2b244d9ec491e6beb1"
+    },
+    "sony_a6400_21.arw|bilinear": {
+      "scene": "20cd483748cb722812a0a5b71bef0bf51695ca9feb125fbcbbd26a7f26722cf8",
+      "display": "2022201f7fdb2c8296ccabe990f479f7a1498f79faa06bec44ee951bc08083a7",
+      "displayDark": "0cf6faa1a755e0a91f525bb9c4b534610b4f7456275dbba597eca8bff45bb017"
+    }
+  },
+  "exports": {
+    "DSCF3332.RAF|jpeg-hdr": {
+      "bytes": 2393016,
+      "sha256": "82ab9e8ab68c60a5414044e08d199b5e51fd2018d68636df593bcbbfcc7875e7"
+    },
+    "DSCF3332.RAF|avif": {
+      "bytes": 791292,
+      "sha256": "7d5de79363fe622909009090748e08b2dc52f7f9c6a6a60a01d11cd860f1b82a"
+    },
+    "DSCF3332.RAF|tiff": {
+      "bytes": 97615310,
+      "sha256": "5a58e80bf9bc71369c5db426f1e0a537249094f946d42efe9152472e8730f611"
+    },
+    "sony_a6400_21.arw|jpeg-hdr": {
+      "bytes": 8201922,
+      "sha256": "3c9324e790c4741153c65559afd764cb0287ce2806f781f705a302d971ecf476"
+    },
+    "sony_a6400_21.arw|avif": {
+      "bytes": 4768564,
+      "sha256": "7443b35f7ef2961dbd4581981c4b46d0b39701740b3ad4c2fa5bc429506f3c25"
+    },
+    "sony_a6400_21.arw|tiff": {
+      "bytes": 145444806,
+      "sha256": "73f3937ca6d5bbb5d85ffee8b4cc5250b64c28ea73be9043170b4385d11d9166"
+    }
+  }
+}
