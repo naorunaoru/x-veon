@@ -69,3 +69,23 @@ it('reports failed recent-folder persistence but returns the accepted folder con
   expect(await opening).toEqual({ token: request.token }); expect(h.frames.at(-1).token).toBe(request.token); expect(h.worker.current?.path).toBe(h.B);
   expect(h.error).toHaveBeenCalledWith('B', 'ENOSPC: disk full');
 });
+it('publishes open before the newest replacement completed while folder persistence is held', async () => {
+  const h = await harness(); const gate = held<void>(); const flush = h.store.flush.bind(h.store);
+  vi.spyOn(h.store, 'flush').mockImplementationOnce(async () => { await gate.promise; await flush(); });
+  const opening = h.choose(h.A); const request = await h.listed(0); h.complete(request, 'a'); await vi.waitFor(() => expect(h.store.flush).toHaveBeenCalled());
+  h.complete({ ...request, purpose: 'replace', token: 'replacement-1' }, 'b');
+  h.complete({ ...request, purpose: 'replace', token: 'replacement-2' }, 'c');
+  expect(h.frames).toEqual([]);
+  gate.resolve(); expect(await opening).toEqual({ token: request.token });
+  expect(h.frames.filter(f => f.kind === 'listing-begin').map(f => [f.purpose, f.token])).toEqual([['open', request.token], ['replace', 'replacement-2']]);
+  expect(h.frames.filter(f => f.kind === 'listing-batch').at(-1).photos[0].id).toBe('c'.repeat(22));
+});
+it('reports an unpublishable replacement instead of throwing from the worker message callback', async () => {
+  const h = await harness(); const opening = h.choose(h.A); const request = await h.listed(0); h.complete(request, 'a'); await opening; h.frames.length = 0;
+  const huge = { ...photo(), editingNote: '' };
+  const batch = { v: 1 as const, kind: 'listing-batch' as const, token: 'huge', seq: 0, photos: [huge] };
+  huge.editingNote = 'x'.repeat(999_990 - Buffer.byteLength(JSON.stringify(batch)));
+  const frames = [{ v: 1, kind: 'listing-begin', token: 'huge', activation: request.activation, folder: { id: request.folderId, name: 'A' }, purpose: 'replace', total: 1 }, batch, { v: 1, kind: 'listing-end', token: 'huge', total: 1 }];
+  expect(() => { for (const frame of frames) h.child.emit('message', frame); }).not.toThrow();
+  expect(h.frames).toEqual([]); expect(h.error).toHaveBeenCalledWith('A', expect.stringContaining('listing message limit'));
+});

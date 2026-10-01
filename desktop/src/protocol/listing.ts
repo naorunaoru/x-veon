@@ -1,5 +1,5 @@
 import type { FolderRef, LibraryPhoto, PhotoId } from '@/host';
-import { isListingFrame } from './rpc';
+import { isListingFrame, MAX_MESSAGE_BYTES } from './rpc';
 export type ListingFrame =
   | { v: 1; kind: 'listing-begin'; token: string; activation: string; folder: FolderRef; total: number; purpose: 'open' | 'replace' }
   | { v: 1; kind: 'listing-batch'; token: string; seq: number; photos: LibraryPhoto[]; registry?: [PhotoId, string][] }
@@ -7,7 +7,8 @@ export type ListingFrame =
 type Header = Pick<Extract<ListingFrame, { kind: 'listing-begin' }>, 'token' | 'activation' | 'folder' | 'purpose'>;
 
 /** Splits by both count and serialized size, including long paths/large cached facts. */
-export function listingFrames(header: Header, photos: LibraryPhoto[], registry?: [PhotoId, string][]): ListingFrame[] {
+export function listingFrames(header: Header, photos: LibraryPhoto[], registry?: [PhotoId, string][], byteLimit = MAX_MESSAGE_BYTES): ListingFrame[] {
+  const fits = (frame: ListingFrame) => isListingFrame(frame) && (byteLimit === MAX_MESSAGE_BYTES || new TextEncoder().encode(JSON.stringify(frame)).byteLength <= byteLimit);
   const frames: ListingFrame[] = [{ v: 1, kind: 'listing-begin', ...header, total: photos.length }];
   const paths = registry && new Map(registry);
   let batch: Extract<ListingFrame, { kind: 'listing-batch' }> = { v: 1, kind: 'listing-batch', token: header.token, seq: 0, photos: [], ...(paths ? { registry: [] } : {}) };
@@ -20,14 +21,14 @@ export function listingFrames(header: Header, photos: LibraryPhoto[], registry?:
     const entry = paths?.get(photo.id);
     if (paths && entry === undefined) throw new Error('Missing registry entry');
     const next = { ...batch, photos: [...batch.photos, photo], ...(paths ? { registry: [...batch.registry!, [photo.id, entry!] as [PhotoId, string]] } : {}) };
-    if (!isListingFrame(next)) flush();
+    if (!fits(next)) flush();
     batch.photos.push(photo);
     if (paths) batch.registry!.push([photo.id, entry!]);
-    if (!isListingFrame(batch)) throw new Error('A photo exceeds the listing message limit or has invalid data');
+    if (!fits(batch)) throw new Error('A photo exceeds the listing message limit or has invalid data');
   }
   flush();
   frames.push({ v: 1, kind: 'listing-end', token: header.token, total: photos.length });
-  if (!frames.every(isListingFrame)) throw new Error('Invalid listing');
+  if (!frames.every(fits)) throw new Error('Invalid listing');
   return frames;
 }
 
@@ -64,4 +65,10 @@ export function createListingAssembler(
       onComplete(state.begin.folder, state.photos, state.begin.purpose);
     },
   };
+}
+
+/** Account for the exact main→preload event envelope, not just the worker frame. */
+export function bridgeListingFrames(header: Header, photos: LibraryPhoto[]): ListingFrame[] {
+  const overhead = new TextEncoder().encode(JSON.stringify({ version: 2, kind: 'listing', frame: null })).byteLength - 4;
+  return listingFrames(header, photos, undefined, MAX_MESSAGE_BYTES - overhead);
 }

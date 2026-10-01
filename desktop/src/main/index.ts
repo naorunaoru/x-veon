@@ -27,7 +27,7 @@ import { registerDesktopIpc } from './desktop-ipc';
 import type { BridgeEvent } from '../protocol/bridge';
 import { readdir, mkdir, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
-import { acceptsSender, assetName, isRequest, CONTENT_SECURITY_POLICY } from '../protocol/security';
+import { acceptsSender, assetName, isRequest, isBridgeEvent, CONTENT_SECURITY_POLICY } from '../protocol/security';
 import { waitForWorkerSpawn } from './worker-ready';
 const root = path.resolve(__dirname, '../../..');
 const evidence = path.join(root, 'tmp/m2-spike/runtime');
@@ -101,7 +101,11 @@ void app.whenReady().then(async () => {
   const goldenFile = typeof __XV_GOLDEN__ !== 'undefined' && __XV_GOLDEN__
     ? process.argv.find(arg => arg.startsWith('--golden-report='))?.slice('--golden-report='.length) : undefined;
   win = createMainWindow({ preload: path.resolve(__dirname, '../preload/index.js'), backgroundThrottling: !goldenFile });
-  const send = (event: BridgeEvent) => { if (!win.isDestroyed()) win.webContents.send('xveon-event', { version: 2, ...event }); };
+  const send = (event: BridgeEvent) => {
+    const message = { version: 2, ...event };
+    if (!isBridgeEvent(message)) throw new Error('Invalid bridge event');
+    if (!win.isDestroyed()) win.webContents.send('xveon-event', message);
+  };
   const cacheDir = path.join(app.getPath('userData'), 'cache');
   await mkdir(cacheDir, { recursive: true });
   const store = createFolderStore(path.join(app.getPath('userData'), 'folders.json'));

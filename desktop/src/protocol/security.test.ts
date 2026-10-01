@@ -41,3 +41,15 @@ it('validates bounded version-2 desktop requests and dense nested unsaved summar
   expect(isFlushResponse({ version: 2, requestId: NaN, unsaved: edits })).toBe(false);
   expect(CONTENT_SECURITY_POLICY).toMatch(/img-src[^;]*xveon-photo:/); expect(CONTENT_SECURITY_POLICY).toMatch(/connect-src[^;]*xveon-photo:/);
 });
+
+it('validates the complete outgoing bridge event and rejects oversized wrapped listings', async () => {
+  const { isBridgeEvent } = await import('./security');
+  const frame = { v: 1, kind: 'listing-begin', token: 't', activation: 'a', folder: { id: 'f', name: 'Photos' }, total: 0, purpose: 'open' };
+  expect(isBridgeEvent({ version: 2, kind: 'listing', frame })).toBe(true);
+  const large = { ...frame, folder: { id: 'f', name: '' } };
+  large.folder.name = 'x'.repeat(999_990 - Buffer.byteLength(JSON.stringify(large)));
+  expect(isBridgeEvent({ version: 2, kind: 'listing', frame: large })).toBe(false);
+  expect(isBridgeEvent({ version: 1, kind: 'worker-restarted' })).toBe(false);
+  expect(isBridgeEvent({ version: 2, kind: 'flush-request', requestId: 1 })).toBe(true);
+  expect(isBridgeEvent({ version: 2, kind: 'folder-request', folderId: 42 })).toBe(false);
+});

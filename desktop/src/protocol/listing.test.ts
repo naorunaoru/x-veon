@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { createListingAssembler, listingFrames } from './listing';
+import { createListingAssembler, listingFrames, bridgeListingFrames } from './listing';
 import type { ListingFrame } from './listing';
 import { isListingFrame } from './rpc';
 import { photo } from './test-fixtures';
@@ -39,4 +39,13 @@ it('drops a structured-cloned sparse photo batch without applying undefined phot
   assembler.push(structuredClone({ v: 1, kind: 'listing-batch', token: 't', seq: 0, photos: [photo(), , photo(2)] }) as ListingFrame);
   assembler.push({ v: 1, kind: 'listing-end', token: 't', total: 3 });
   expect(done).not.toHaveBeenCalled(); expect(error).toHaveBeenCalledExactlyOnceWith('t', 'Invalid listing frame');
+});
+
+it('includes the complete desktop event wrapper when splitting near-limit photo batches', () => {
+  const photos = [photo(), { ...photo(1), editingNote: '' }];
+  const bare = { v: 1, kind: 'listing-batch', token: 'near-limit', seq: 0, photos };
+  photos[1].editingNote = 'x'.repeat(999_990 - Buffer.byteLength(JSON.stringify(bare)));
+  const frames = bridgeListingFrames({ token: 'near-limit', activation: 'a', folder, purpose: 'open' }, photos);
+  expect(frames.filter(f => f.kind === 'listing-batch')).toHaveLength(2);
+  for (const frame of frames) expect(Buffer.byteLength(JSON.stringify({ version: 2, kind: 'listing', frame }))).toBeLessThanOrEqual(1_000_000);
 });

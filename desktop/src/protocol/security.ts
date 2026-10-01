@@ -1,3 +1,4 @@
+import { isListingFrame } from './rpc';
 export function assetName(
   raw: string,
   method: string,
@@ -72,3 +73,15 @@ export function isDesktopRequest(value: unknown): value is DesktopRequest {
 }
 export function isUnsavedUpdate(value: unknown): value is { version: 2; edits: import('@/host').UnsavedSummary[] } { return envelope(value) && unsaved(value.edits); }
 export function isFlushResponse(value: unknown): value is { version: 2; requestId: number; unsaved: import('@/host').UnsavedSummary[] } { return envelope(value) && Number.isSafeInteger(value.requestId) && (value.requestId as number) > 0 && unsaved(value.unsaved); }
+
+export function isBridgeEvent(value: unknown): value is import('./bridge').BridgeEvent & { version: 2 } {
+  if (!envelope(value)) return false;
+  switch (value.kind) {
+    case 'listing': return isListingFrame(value.frame) && !('registry' in value.frame);
+    case 'folder-request': return value.folderId === undefined || typeof value.folderId === 'string';
+    case 'flush-request': return Number.isSafeInteger(value.requestId) && (value.requestId as number) > 0;
+    case 'worker-restarted': return true;
+    case 'worker-stopped': return typeof value.reason === 'string';
+    default: return false;
+  }
+}

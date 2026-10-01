@@ -5,13 +5,14 @@ import { RAW_EXTENSIONS } from '@/lib/catalog';
 import type { PhotoId } from '@/host';
 import { folderId, type createFolderStore } from './folders';
 import type { createWorkerSupervisor } from './worker';
-import { createListingAssembler, listingFrames, type ListingFrame } from '../protocol/listing';
+import { createListingAssembler, bridgeListingFrames, type ListingFrame } from '../protocol/listing';
 import { isListingFrame } from '../protocol/rpc';
 type Deps = { store: ReturnType<typeof createFolderStore>; worker: ReturnType<typeof createWorkerSupervisor>; chooseFolder(): Promise<string | null>; send(frame: ListingFrame): void; error(folder: string, message: string): void; accepted(): void };
 type Choice = { path: string; selected?: string[] } | null;
 type Result = { token: string; selected?: PhotoId[] } | null;
 export function createFolderRequests(deps: Deps) {
   let pending: { token: string; cancel(): void } | undefined;
+  let publication: { activation: string; opened: boolean; replacement?: ListingFrame[] } | undefined;
   const replacements = new Map<string, { activation: string; entries: [PhotoId, string][]; assembler: ReturnType<typeof createListingAssembler> }>();
   deps.worker.onMessage(message => {
     if (!isListingFrame(message)) return;
@@ -22,7 +23,11 @@ export function createFolderRequests(deps: Deps) {
         replacements.delete(header.token);
         if (deps.worker.current?.activation !== header.activation) return;
         for (const [id, file] of replacement.entries) deps.worker.registry.set(id, file);
-        for (const frame of listingFrames({ folder, purpose, token: header.token, activation: header.activation }, photos)) deps.send(frame);
+        try {
+          const frames = bridgeListingFrames({ folder, purpose, token: header.token, activation: header.activation }, photos);
+          if (publication?.activation === header.activation && !publication.opened) publication.replacement = frames;
+          else for (const frame of frames) deps.send(frame);
+        } catch (error) { deps.error(header.folder.name, error instanceof Error ? error.message : String(error)); }
       }, (_token, reason) => { replacements.delete(header.token); deps.error(header.folder.name, reason); }) };
       replacements.set(message.token, replacement);
     }
@@ -48,13 +53,18 @@ export function createFolderRequests(deps: Deps) {
         const id = folderId(canonical);
         const listing = await deps.worker.request({ kind: 'list', path: canonical, folderId: id, token, activation: token, purpose: 'open' });
         if (!latest()) return null;
+        const frames = bridgeListingFrames({ token, activation: token, folder: listing.folder, purpose: 'open' }, listing.photos);
         const commit = await deps.worker.prepareCommit(); if (!latest()) return null;
         commit({ path: canonical, folderId: id, activation: token }, listing.registry, () => deps.store.remember(canonical));
+        publication = { activation: token, opened: false };
         deps.accepted();
         try { await deps.store.flush(); }
         catch (error) { if (latest()) deps.error(path.basename(canonical) || canonical, error instanceof Error ? error.message : String(error)); }
         if (!latest()) return null;
-        for (const frame of listingFrames({ token, activation: token, folder: listing.folder, purpose: 'open' }, listing.photos)) deps.send(frame);
+        for (const frame of frames) deps.send(frame);
+        publication.opened = true;
+        for (const frame of publication.replacement ?? []) deps.send(frame);
+        publication.replacement = undefined;
         const selected = choice.selected && listing.registry.filter(([, file]) => choice.selected!.includes(file)).map(([id]) => id);
         return { token, ...(selected ? { selected } : {}) };
       } catch (error) {
