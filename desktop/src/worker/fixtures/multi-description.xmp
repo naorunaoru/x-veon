@@ -1,0 +1,7 @@
+<?xpacket begin="test"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<!-- keep this comment -->
+<rdf:Description rdf:about="urn:first" xmlns:foreign="urn:foreign" foreign:One="1"/>
+<rdf:Description rdf:about="" xmlns:xmpMM="http://ns.adobe.com/xap/1.0/mm/" xmpMM:DocumentID="example"><xmpMM:History><rdf:Seq><rdf:li>created</rdf:li></rdf:Seq></xmpMM:History></rdf:Description>
+<rdf:Description rdf:about="urn:third" xmlns:other="urn:other" other:Three="3"/>
+</rdf:RDF></x:xmpmeta>
