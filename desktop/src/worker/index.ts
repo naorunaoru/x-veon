@@ -1,6 +1,16 @@
 import type {} from 'electron';
+import { createWorkerController } from './controller';
+const controller = createWorkerController({ postToMain: message => process.parentPort.postMessage(message) });
 import { createReceiver, TOTAL_BYTES } from '../protocol/transfer';
 process.parentPort.on('message', (event) => {
+  if (event.data?.v === 1) {
+    void controller.handleMain(event.data, event.ports).catch(error => {
+      // Invalid control/session state is fatal; the supervisor restores a fresh worker.
+      console.error(error); process.exit(1);
+    });
+    return;
+  }
+  // Keep the M1 spike route until its main/renderer callers move in Task 10.
   if (
     event.data?.version !== 1 ||
     event.data.kind !== 'connect' ||
