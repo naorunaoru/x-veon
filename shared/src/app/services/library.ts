@@ -30,7 +30,8 @@ export async function switchFolder(load: () => Promise<LibrarySnapshot | null>):
   useAppStore.setState({
     files, folder: snapshot.folder ?? null,
     selectedFileId: snapshot.selectedIds?.[0] ?? files[0]?.id ?? null,
-    processingFileId: null, hydrationVersion: state.hydrationVersion + 1,
+    // The processing service clears its busy gate when the discarded run settles.
+    hydrationVersion: state.hydrationVersion + 1,
   });
   for (const photo of snapshot.photos) matchLensFor(photo.id);
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FloatingPanel } from '../FloatingPanel';
 import { useAppStore } from '@/app/store';
 import { useModelSizes } from '@/app/hooks/useModelSizes';
@@ -17,6 +17,17 @@ export function SettingsPanel() {
   const [confirm, setConfirm] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [exportReason, setExportReason] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    setExportReason(null);
+    void host.exporter.status().then(status => {
+      if (active && !status.available) setExportReason(status.reason);
+    }).catch(cause => {
+      if (active) setExportReason(cause instanceof Error ? cause.message : String(cause));
+    });
+    return () => { active = false; };
+  }, [host]);
   const methods = demosaicMethodsFor(file?.cfaType ?? null);
   async function clear() {
     setClearing(true);
@@ -130,6 +141,12 @@ export function SettingsPanel() {
           )}
         </div>
       </div>
+      {exportReason && (
+        <div className="xv-field">
+          <span className="xv-field__label">Export</span>
+          <div className="xv-readout">{exportReason}</div>
+        </div>
+      )}
       <div className="xv-field">
         <span className="xv-field__label">Build</span>
         <div className="xv-readout" data-testid="xv-build">

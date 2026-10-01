@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { SettingsPanel } from './SettingsPanel';
 import { useAppStore } from '@/app/store';
 import { fakeHost, fakePhoto } from '@/test/fake-host';
@@ -55,4 +55,16 @@ it('omits absent capabilities and disables selected edits for view-only photos',
   expect(screen.queryByRole('button', { name: 'Clear library' })).toBeNull();
   expect(screen.getByLabelText('Photo demosaic method')).toBeDisabled();
   expect(screen.getByLabelText('Default demosaic method')).not.toBeDisabled();
+});
+
+it('shows the host supplied export-unavailable reason in Settings', async () => {
+  vi.mocked(host.exporter.status).mockResolvedValue({ available: false, reason: 'Desktop export arrives in M3.' });
+  render(<SettingsPanel />);
+  expect(await screen.findByText('Desktop export arrives in M3.')).toBeVisible();
+  expect(screen.getByText('Export')).toBeVisible();
+});
+it('omits the unavailable readout when the web exporter is available', async () => {
+  await act(async () => { render(<SettingsPanel />); });
+  expect(screen.queryByText('Export')).toBeNull();
+  expect(screen.queryByText('Desktop export arrives in M3.')).toBeNull();
 });

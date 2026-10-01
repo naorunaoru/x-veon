@@ -1,4 +1,6 @@
 import { setHost } from './host';
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { useAutoProcess } from '@/app/hooks/useAutoProcess';
 import { fakeHost } from '@/test/fake-host';
 import { factsOf, fromLibraryPhoto } from '@/app/store/photo';
 import { fakePhoto, defaultEdit } from '@/test/fake-host';
@@ -119,6 +121,33 @@ describe('processing service', () => {
 
   afterEach(() => {
     for (const id of ['a', 'b', 'c']) discardResult(id);
+  });
+
+  it.each(['success', 'failure', 'same-id'] as const)('automatically processes the accepted folder after an old run ends: %s', async outcome => {
+    let finish!: (image: ProcessedImage) => void;
+    let fail!: (error: Error) => void;
+    const oldImage = fakeImage(), nextImage = fakeImage();
+    processRaw.mockImplementationOnce(() => new Promise<ProcessedImage>((resolve, reject) => { finish = resolve; fail = reject; }))
+      .mockResolvedValueOnce(nextImage);
+    useAppStore.setState({ initialized: true, folder: { id: 'A', name: 'A' } });
+    const hook = renderHook(useAutoProcess);
+    try {
+      await waitFor(() => expect(processRaw).toHaveBeenCalledTimes(1));
+      const nextId = outcome === 'same-id' ? 'a' : 'b';
+      await act(async () => { await switchFolder(async () => ({ folder: { id: 'B', name: 'B' }, photos: [fakePhoto(nextId)], complete: true })); });
+      expect(getResult(nextId)).toBeNull();
+      expect(useAppStore.getState().files[0].edit).toEqual(defaultEdit());
+      await act(async () => { if (outcome === 'failure') fail(new Error('old decode failed')); else finish(oldImage); });
+      await waitFor(() => expect(useAppStore.getState().files[0].status).toBe('done'));
+      expect(useAppStore.getState()).toMatchObject({ folder: { id: 'B' }, selectedFileId: nextId, processingFileId: null });
+      expect(getResult(nextId)).toBe(nextImage);
+      expect(useAppStore.getState().files[0].edit).toEqual(defaultEdit());
+      expect(oldImage.disposed).toBe(outcome === 'failure' ? 0 : 1);
+    } finally {
+      hook.unmount();
+      finish?.(oldImage);
+      await vi.waitFor(() => expect(isProcessing()).toBe(false));
+    }
   });
 
   it.each(['focus', 'own-save', 'unrelated-add', 'in-flight'] as const)('retains live work and history during an unchanged %s replacement', async cause => {
