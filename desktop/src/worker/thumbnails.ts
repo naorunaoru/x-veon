@@ -2,7 +2,6 @@ import fs from 'node:fs/promises';
 import { extractRafThumbnail, extractRafQuickMetadata } from '@/pipeline/decode/raf-thumbnail';
 import type { QuickMetadata } from '@/pipeline/decode/raf-thumbnail';
 import type { FolderEntry } from './folder';
-import { queuedFacts } from './cache';
 import type { createCache } from './cache';
 
 type Cache = ReturnType<typeof createCache>;
@@ -34,8 +33,7 @@ async function readHead(entry: FolderEntry, cache: Cache, key: string): Promise<
   const jpeg = extractRafThumbnail(head);
   const metadata = extractRafQuickMetadata(head);
   if (jpeg) await cache.putThumb(key, new Uint8Array(await jpeg.arrayBuffer()));
-  const facts = await cache.getFacts(key) ?? queuedFacts();
-  await cache.putFacts(key, { ...facts, metadata: facts.metadata ?? metadata });
+  const facts = await cache.putHeadMetadata(key, metadata);
   await cache.markHead(key);
-  return { thumbnail: jpeg ? cache.thumbPath(key) : null, metadata: facts.metadata ?? metadata };
+  return { thumbnail: jpeg ? cache.thumbPath(key) : null, metadata: facts.metadata };
 }

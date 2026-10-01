@@ -72,3 +72,25 @@ it('propagates failed rename and ENOSPC without losing the original sidecar', as
  await lib.saveEdit(id(), edit); const original = await fs.readFile(raw + '.xmp', 'utf8');
  vi.spyOn(fs, 'rename').mockRejectedValueOnce(Object.assign(new Error('ENOSPC: no space left'), { code: 'ENOSPC' })); await expect(lib.saveEdit(id(), { ...edit, preProcessOverrides: { exposure: 2 } })).rejects.toThrow('ENOSPC: no space left'); expect(await fs.readFile(raw + '.xmp', 'utf8')).toBe(original); expect(await fs.readdir(folder)).toEqual(['a.RAF', 'a.RAF.xmp']);
 });
+
+it('retains extracted metadata after incomplete facts saves, including a fresh library instance', async () => {
+  const bytes = Buffer.alloc(0x80);
+  bytes.write('FUJIFILMCCD-RAW'); bytes.write('X-T5', 0x1c);
+  bytes.writeUInt32BE(0x70, 0x54); bytes.writeUInt32BE(4, 0x58);
+  bytes.set([255, 216, 255, 217], 0x70);
+  await fs.writeFile(raw, bytes);
+  const extracted = await lib.thumbnail(id());
+  expect(extracted.facts?.metadata?.camera).toBe('Fujifilm X-T5');
+
+  await lib.saveFacts(id(), { ...facts, metadata: null });
+  const open = vi.spyOn(fs, 'open');
+  const restored = createWorkerLibrary({ sessionKey, cacheDir: path.join(dir, 'cache') });
+  restored.register([[id(), raw]]);
+  for (const library of [lib, restored]) {
+    const result = await library.thumbnail(id());
+    expect(result.path).toBe(extracted.path);
+    expect(result.facts).toEqual({ ...facts, metadata: { camera: 'Fujifilm X-T5', lensModel: '', focalLength: 0, fNumber: 0 } });
+    expect((await collect(library))[0].photos[0].facts).toEqual(result.facts);
+  }
+  expect(open).not.toHaveBeenCalled();
+});
