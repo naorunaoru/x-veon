@@ -173,8 +173,9 @@ describe('processing service', () => {
       useAppStore.setState({ demosaicMethod: 'neural-net' });
       await processFile('a');
       await vi.advanceTimersByTimeAsync(301);
-      expect(host.library.save).toHaveBeenCalledTimes(1);
-      expect(host.library.save).toHaveBeenCalledWith('a', expect.objectContaining({ demosaicMethod: null, model: null }), expect.objectContaining({ resultMethod: 'neural-net' }));
+      expect(host.library.save).not.toHaveBeenCalled();
+      expect(host.library.saveFacts).toHaveBeenCalledTimes(1);
+      expect(host.library.saveFacts).toHaveBeenCalledWith('a', expect.objectContaining({ resultMethod: 'neural-net' }));
     } finally {
       stop();
       vi.useRealTimers();

@@ -10,7 +10,7 @@ vi.mock('@/pipeline', () => ({
   initPipeline: async () => ({ models: { backend: 'webgpu', availableSizes: m.availableSizes } }),
 }));
 vi.mock('./processing', () => ({ setPipeline: vi.fn() }));
-vi.mock('./library', () => ({ matchLensFor: vi.fn() }));
+vi.mock('./library', () => ({ matchLensFor: vi.fn(), folderSwitchVersion: () => 0 }));
 import { initApp } from './bootstrap';
 let serial = 0;
 beforeEach(() => {

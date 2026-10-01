@@ -53,6 +53,11 @@ export function createFixtureLibrary() {
       if (!file) throw Error('Unknown fixture');
       return file.arrayBuffer();
     },
+    async saveFacts(id, facts) {
+      const p = photos.get(id);
+      if (!p) throw Error('Unknown fixture');
+      photos.set(id, { ...p, facts });
+    },
     async save(id, edit, facts) {
       const p = photos.get(id);
       if (!p) throw Error('Unknown fixture');

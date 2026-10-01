@@ -1,7 +1,7 @@
 import type { CfaType, DemosaicMethod, LookPreset, ModelIdentity, SerializableResultMeta } from '@/lib/types';
 import type { LensProfile } from '@/app/lens/lensfun';
 import type { LibraryPhoto, PhotoEdit, PhotoFacts } from '@/host';
-import { transact } from '@/app/storage/database';
+import { transact, openDatabase, assertDatabaseActive } from '@/app/storage/database';
 export interface PersistedFile {
   id: string;
   name: string;
@@ -31,6 +31,25 @@ export function createFileStorage(dbName: string) {
     getAllFiles: () => transact<PersistedFile[]>(dbName, 'files', 'readonly', (store) => store.getAll()),
     putFile: (file: PersistedFile) =>
       transact(dbName, 'files', 'readwrite', (store) => store.put(file)).then(() => {}),
+    mergeFacts: async (id: string, facts: PhotoFacts): Promise<PersistedFile> => {
+      const db = await openDatabase(dbName);
+      assertDatabaseActive(dbName);
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction('files', 'readwrite');
+        const store = tx.objectStore('files');
+        let merged: PersistedFile;
+        let missing = false;
+        tx.oncomplete = () => resolve(merged);
+        tx.onerror = () => reject(tx.error ?? new Error('Facts write failed.'));
+        tx.onabort = () => reject(missing ? new Error('Photo is no longer in the library.') : tx.error ?? new Error('Facts write aborted.'));
+        const request = store.get(id);
+        request.onsuccess = () => {
+          if (!request.result) { missing = true; tx.abort(); return; }
+          merged = { ...request.result, ...recordFacts(facts) };
+          store.put(merged);
+        };
+      });
+    },
     deleteFile: (id: string) => transact(dbName, 'files', 'readwrite', (store) => store.delete(id)),
   };
 }
@@ -80,6 +99,20 @@ export function toRecord(
     name: photo.name,
     originalName: photo.originalName,
     fileSize: photo.fileSize,
+    ...recordFacts(facts),
+    editMethod: edit.demosaicMethod,
+    cachedMethods: [],
+    lookPreset: edit.lookPreset,
+    openDrtOverrides: edit.openDrtOverrides,
+    preProcessOverrides: edit.preProcessOverrides,
+    model: edit.model,
+    addedAt,
+  };
+}
+
+/** This explicit field list is the only record data a facts transaction may change. */
+function recordFacts(facts: PhotoFacts) {
+  return {
     cfaType: facts.cfaType,
     camera: facts.metadata?.camera ?? null,
     lensModel: facts.metadata?.lensModel ?? null,
@@ -89,13 +122,6 @@ export function toRecord(
     error: facts.error,
     resultMeta: facts.resultMeta,
     resultMethod: facts.resultMethod,
-    editMethod: edit.demosaicMethod,
-    cachedMethods: [],
     lensProfile: facts.lensProfile,
-    lookPreset: edit.lookPreset,
-    openDrtOverrides: edit.openDrtOverrides,
-    preProcessOverrides: edit.preProcessOverrides,
-    model: edit.model,
-    addedAt,
   };
 }

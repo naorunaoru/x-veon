@@ -35,6 +35,8 @@ export interface LibrarySnapshot {
   photos: LibraryPhoto[];
   complete: boolean;
   selectedIds?: PhotoId[];
+  /** Present in every folder-host snapshot; absent on the web. */
+  folder?: FolderRef | null;
 }
 export interface FolderRef {
   id: string;
@@ -44,13 +46,21 @@ export interface LibraryChange {
   snapshot: LibrarySnapshot;
   kind?: 'facts' | 'replace';
 }
+export interface UnsavedSummary {
+  id: PhotoId; name: string; folder: FolderRef | null; error: string | null;
+}
 export interface LibraryHost {
   load(): Promise<LibrarySnapshot>;
   readRaw(id: PhotoId): Promise<ArrayBuffer>;
   save(id: PhotoId, edit: PhotoEdit, facts: PhotoFacts): Promise<void>;
+  /** Facts only; never changes the persisted edit. */
+  saveFacts(id: PhotoId, facts: PhotoFacts): Promise<void>;
   addFiles(files: File[]): Promise<LibrarySnapshot>;
   onChange?(listener: (change: LibraryChange) => void): () => void;
-  openFolder?(): Promise<LibrarySnapshot | null>;
+  openFolder?(folder?: FolderRef): Promise<LibrarySnapshot | null>;
+  onFolderRequest?(listener: (folder?: FolderRef) => void): () => void;
+  onFlushRequest?(flush: () => Promise<void>): () => void;
+  reportUnsaved?(edits: UnsavedSummary[]): void;
   recentFolders?(): Promise<FolderRef[]>;
   remove?(id: PhotoId): Promise<void>;
   clear?(): Promise<void>;

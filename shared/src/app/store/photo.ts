@@ -2,6 +2,9 @@ import type { LibraryPhoto, PhotoEdit, PhotoFacts } from '@/host';
 import { deserializeResultMeta, serializeResultMeta, type DemosaicMethod, type ModelSize } from '@/lib/types';
 import type { QueuedFile } from './types';
 import { effectiveMethod } from '@/app/photo-edit';
+let revision = 0;
+/** Unique for every user edit throughout this window session. */
+export function nextRevision(): number { return ++revision; }
 export function fromLibraryPhoto(photo: LibraryPhoto): QueuedFile {
   const { facts, ...base } = photo;
   return {
@@ -59,7 +62,8 @@ export function editPhoto(file: QueuedFile, patch: Partial<PhotoEdit>, defaults:
       edit.demosaicMethod === 'neural-net' &&
       !file.actualModel &&
       !('model' in patch),
-    editRevision: file.editRevision + 1,
+    editRevision: nextRevision(),
+    editing: 'session',
     modelNote: edit.model?.sha256 === file.actualModel?.sha256 ? null : file.modelNote,
   };
 }

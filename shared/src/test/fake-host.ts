@@ -1,5 +1,5 @@
 import { vi } from 'vitest';
-import type { Host, LibraryPhoto, PhotoEdit } from '@/host';
+import type { Host, LibraryPhoto, PhotoEdit, LibraryHost } from '@/host';
 export function defaultEdit(): PhotoEdit {
   return {
     version: 1,
@@ -31,13 +31,15 @@ export function fakePhoto(id = 'a'): LibraryPhoto {
     },
   };
 }
-export function fakeHost(): Host {
+export function fakeHost(library: Partial<LibraryHost> = {}): Host {
   return {
     library: {
       load: vi.fn(async () => ({ photos: [], complete: true })),
       readRaw: vi.fn(async () => new ArrayBuffer(4)),
       save: vi.fn(async () => {}),
+      saveFacts: vi.fn(async () => {}),
       addFiles: vi.fn(async () => ({ photos: [], complete: true })),
+      ...library,
     },
     exporter: {
       status: vi.fn(async () => ({ available: true as const })),

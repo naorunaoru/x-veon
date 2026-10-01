@@ -76,7 +76,7 @@ describe('web library', () => {
     setPipeline({} as never);
     useAppStore.setState({ files: [fromLibraryPhoto(photo)], selectedFileId: photo.id, demosaicMethod: 'markesteijn3', modelSize: 'S', processingFileId: null, initialized: true });
     processRaw.mockImplementation(async (_bytes, options: { method: DemosaicMethod }) => processedImage(options.method));
-    const save = vi.spyOn(host, 'save');
+    const save = vi.spyOn(host, 'saveFacts');
     const stop = startPersistence();
     try {
       await processFile(photo.id);
@@ -326,4 +326,19 @@ it('reports an OPFS failure after database deletion and retries without restorin
   await host.clear!();
   expect(reload).toHaveBeenCalledOnce();
   expect((await indexedDB.databases()).some((db) => db.name === dbName)).toBe(false);
+});
+
+it('merges facts atomically without replacing an edit saved by another adapter', async () => {
+  const { host, dbName } = setup();
+  const { photos: [photo] } = await host.addFiles([raw()]);
+  await host.save(photo.id, defaultEdit(), photo.facts);
+  const stale = createWebLibrary({ dbName, opfsRoot: 'dev' });
+  await stale.load();
+  const newer = { ...defaultEdit(), lookPreset: 'umbra' as const, demosaicMethod: 'dht' as const, preProcessOverrides: { exposure: 2 } };
+  const editing = host.save(photo.id, newer, photo.facts);
+  const facts = { ...photo.facts, resultMethod: 'bilinear' as const, error: 'fact' };
+  await Promise.all([editing, stale.saveFacts(photo.id, facts)]);
+  const record = (await createFileStorage(dbName).getAllFiles())[0];
+  expect(record).toMatchObject({ lookPreset: 'umbra', editMethod: 'dht', preProcessOverrides: { exposure: 2 }, resultMethod: 'bilinear', error: 'fact' });
+  await closeDatabase(dbName);
 });

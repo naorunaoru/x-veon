@@ -1,14 +1,50 @@
+import type { FolderRef, LibrarySnapshot } from '@/host';
 import { useAppStore } from '@/app/store';
 import { fromLibraryPhoto } from '@/app/store/photo';
 import { matchLens } from '@/app/lens/lensfun';
 import { discardResult } from './processing';
 import { getHost } from './host';
-import { cancelPhotoSave, pausePersistence, resumePersistence } from './persistence';
+import {
+  cancelPhotoSave, pausePersistence, resumePersistence, flushPersistence, restoreFromLedger, retryUnsaved,
+} from './persistence';
 let clearing = false;
 let suspended = false;
+let folderGeneration = 0;
+/** Lets startup reject a restore overtaken by any folder request. */
+export function folderSwitchVersion(): number { return folderGeneration; }
+/** Every folder entry point shares this ordering and stale-result guard. */
+export async function switchFolder(load: () => Promise<LibrarySnapshot | null>): Promise<void> {
+  if (clearing || suspended) return;
+  const generation = ++folderGeneration;
+  await flushPersistence();
+  if (generation !== folderGeneration || clearing || suspended) return;
+  const snapshot = await load();
+  if (!snapshot) return;
+  if (generation !== folderGeneration || clearing || suspended) {
+    getHost().library.release?.(snapshot.photos);
+    return;
+  }
+  const state = useAppStore.getState();
+  const files = snapshot.photos.map(photo => restoreFromLedger(fromLibraryPhoto(photo)));
+  for (const file of state.files) discardResult(file.id);
+  useAppStore.setState({
+    files, folder: snapshot.folder ?? null,
+    selectedFileId: snapshot.selectedIds?.[0] ?? files[0]?.id ?? null,
+    processingFileId: null, hydrationVersion: state.hydrationVersion + 1,
+  });
+  for (const photo of snapshot.photos) matchLensFor(photo.id);
+}
+export async function openFolder(folder?: FolderRef): Promise<void> {
+  const library = getHost().library;
+  if (library.openFolder) await switchFolder(() => library.openFolder!(folder));
+}
 export async function importFiles(files: File[]): Promise<void> {
   if (clearing || suspended) return;
   try {
+    if (getHost().library.openFolder) {
+      await switchFolder(() => getHost().library.addFiles(files));
+      return;
+    }
     const snapshot = await getHost().library.addFiles(files);
     if (clearing || suspended) return;
     const state = useAppStore.getState();
@@ -25,6 +61,7 @@ export function startLibraryWatching(): () => void {
   return (
     getHost().library.onChange?.(({ snapshot, kind }) => {
       if (clearing || suspended) return;
+      if (snapshot.folder?.id !== useAppStore.getState().folder?.id) return;
       if (kind === 'facts') {
         useAppStore.setState((state) => ({
           files: state.files.map((file) => {
@@ -42,15 +79,12 @@ export function startLibraryWatching(): () => void {
         }));
       } else {
         const state = useAppStore.getState();
-        state.restoreFromDb(
-          snapshot.photos.map((photo) => {
-            const local = state.files.find((f) => f.id === photo.id);
-            return local?.editing === 'session' || (local?.editRevision ?? 0) > 0
-              ? local!
-              : fromLibraryPhoto(photo);
-          }),
-          {},
-        );
+        const files = snapshot.photos.map(photo => restoreFromLedger(fromLibraryPhoto(photo)));
+        for (const file of state.files) discardResult(file.id);
+        const selection = snapshot.selectedIds?.[0] ?? state.selectedFileId;
+        useAppStore.setState({ files, hydrationVersion: state.hydrationVersion + 1,
+          selectedFileId: files.some(f => f.id === selection) ? selection : files[0]?.id ?? null });
+        retryUnsaved();
       }
       for (const photo of snapshot.photos) matchLensFor(photo.id);
     }) ?? (() => {})
@@ -77,6 +111,7 @@ export async function clearLibrary(): Promise<void> {
   const clear = getHost().library.clear;
   if (!clear || clearing) return;
   clearing = true;
+  ++folderGeneration;
   try {
     await pausePersistence();
     for (const file of useAppStore.getState().files) discardResult(file.id);

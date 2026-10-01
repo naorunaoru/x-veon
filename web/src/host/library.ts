@@ -186,6 +186,17 @@ export function createWebLibrary(options: {
     persisted.set(id, record);
     photos.set(id, { ...photo, edit, facts });
   }
+  async function saveFacts(id: string, facts: PhotoFacts): Promise<void> {
+    assertDatabaseActive(options.dbName);
+    if (clearing || removed.has(id)) throw new Error('Photo is no longer in the library.');
+    await imports.get(id);
+    assertDatabaseActive(options.dbName);
+    if (clearing || removed.has(id)) throw new Error('Photo is no longer in the library.');
+    const record = await records.mergeFacts(id, facts);
+    persisted.set(id, record);
+    const photo = photos.get(id);
+    if (photo) photos.set(id, { ...photo, facts });
+  }
   async function remove(id: string): Promise<void> {
     assertDatabaseActive(options.dbName);
     removed.add(id);
@@ -233,6 +244,7 @@ export function createWebLibrary(options: {
       if (!bytes) throw new Error('RAW file not found in storage. Please re-add this file.');
       return bytes;
     },
+    saveFacts: (id, facts) => track(saveFacts(id, facts)),
     save: (id, edit, facts) => track(save(id, edit, facts)),
     remove: (id) => track(remove(id)),
     clear,

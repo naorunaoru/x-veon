@@ -1,3 +1,4 @@
+import type { FolderRef } from '@/host';
 import type { ModelIdentity, ModelSize } from '@/lib/types';
 import { editPhoto } from './photo';
 import type { DemosaicMethod, ExportFormat, ProcessingResultMeta } from '@/lib/types';
@@ -15,6 +16,7 @@ export interface RestoredSettings {
 
 export interface LibrarySlice {
   hydrationVersion: number;
+  folder: FolderRef | null;
   files: QueuedFile[];
   setFileDemosaicMethod: (id: string, method: DemosaicMethod) => void;
   setFileModel: (id: string, model: ModelIdentity) => void;
@@ -35,6 +37,7 @@ export interface LibrarySlice {
 
 export const createLibrarySlice: Slice<LibrarySlice> = (set, get) => ({
   hydrationVersion: 0,
+  folder: null,
   files: [],
   setFileDemosaicMethod: (id, method) => set(state => ({ files: state.files.map(f => f.id === id ? editPhoto(f, { demosaicMethod: method }, state) : f) })),
   setFileModel: (id, model) => set(state => ({ files: state.files.map(f => f.id === id ? editPhoto(f, { model, demosaicMethod: 'neural-net' }, state) : f) })),

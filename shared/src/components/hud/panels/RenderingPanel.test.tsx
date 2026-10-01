@@ -83,6 +83,7 @@ describe('RenderingPanel', () => {
     expect(file()).toMatchObject({
       ...original,
       edit: { ...original.edit, demosaicMethod: 'neural-net' },
+      editing: 'session',
       editRevision: expect.any(Number),
       modelNeedsResolution: expect.any(Boolean),
     });
@@ -178,6 +179,7 @@ describe('RenderingPanel', () => {
     expect(file()).toMatchObject({
       ...original,
       edit: { ...original.edit, demosaicMethod: 'neural-net' },
+      editing: 'session',
       editRevision: expect.any(Number),
       modelNeedsResolution: expect.any(Boolean),
     });

@@ -8,16 +8,19 @@ const m = vi.hoisted(() => ({
   setPipeline: vi.fn(),
   matchLensFor: vi.fn(),
   cleanupOrphans: vi.fn(),
+  folderSwitchVersion: vi.fn(() => 0),
+  openFolder: vi.fn(), flushPersistence: vi.fn(), onUnsavedChange: vi.fn(), unsavedEdits: vi.fn(() => []),
 }));
 vi.mock('@/pipeline', () => ({ initPipeline: m.initPipeline }));
-vi.mock('./persistence', () => ({ restore: m.restore }));
+vi.mock('./persistence', () => ({ restore: m.restore, flushPersistence: m.flushPersistence, onUnsavedChange: m.onUnsavedChange, unsavedEdits: m.unsavedEdits }));
 vi.mock('./processing', () => ({ setPipeline: m.setPipeline }));
-vi.mock('./library', () => ({ matchLensFor: m.matchLensFor, cleanupOrphans: m.cleanupOrphans }));
+vi.mock('./library', () => ({ matchLensFor: m.matchLensFor, folderSwitchVersion: m.folderSwitchVersion, openFolder: m.openFolder, cleanupOrphans: m.cleanupOrphans }));
 
 import { useAppStore, type QueuedFile } from '@/app/store';
-import { initApp } from './bootstrap';
+import { initApp, startHostCoordination } from './bootstrap';
 beforeEach(() => {
   vi.resetAllMocks();
+  m.openFolder.mockResolvedValue(undefined);
   const host = fakeHost();
   host.display.probe = m.probeHdrDisplay;
   host.display.requestAccurateHeadroom = vi.fn();
@@ -118,4 +121,44 @@ it('does not show an HDR permission dialog without the capability', async () => 
   setHost(host);
   await initApp({ cancelled: false });
   expect(useAppStore.getState().hdrPermissionNeeded).toBe(false);
+});
+
+it('wires folder and flush requests, reports summaries and releases subscriptions', async () => {
+  const host = fakeHost();
+  let request!: (folder?: { id: string; name: string }) => void;
+  let flush!: () => Promise<void>;
+  const stopFolder = vi.fn(), stopFlush = vi.fn(), stopUnsaved = vi.fn();
+  host.library.onFolderRequest = cb => { request = cb; return stopFolder; };
+  host.library.onFlushRequest = cb => { flush = cb; return stopFlush; };
+  host.library.reportUnsaved = vi.fn();
+  m.onUnsavedChange.mockReturnValue(stopUnsaved);
+  setHost(host);
+  const stop = startHostCoordination();
+  expect(host.library.reportUnsaved).toHaveBeenCalledWith([]);
+  request({ id: 'A', name: 'A' });
+  expect(m.openFolder).toHaveBeenCalledWith({ id: 'A', name: 'A' });
+  await flush();
+  expect(m.flushPersistence).toHaveBeenCalledOnce();
+  m.onUnsavedChange.mock.calls[0][0]([{ id: 'a', name: 'a', folder: { id: 'A', name: 'A' }, error: 'disk full', revision: 1, edit: {}, facts: {}, deferred: false }]);
+  expect(host.library.reportUnsaved).toHaveBeenLastCalledWith([{ id: 'a', name: 'a', folder: { id: 'A', name: 'A' }, error: 'disk full' }]);
+  stop();
+  expect(stopFolder).toHaveBeenCalledOnce(); expect(stopFlush).toHaveBeenCalledOnce(); expect(stopUnsaved).toHaveBeenCalledOnce();
+});
+it('coordination supports a host without folder capabilities', () => {
+  const stop = startHostCoordination();
+  expect(() => stop()).not.toThrow();
+});
+
+it('does not merge a late initial folder restore into a newer folder switch', async () => {
+  const host = fakeHost({ openFolder: vi.fn() });
+  host.display.probe = m.probeHdrDisplay;
+  setHost(host);
+  let finish!: (value: object) => void;
+  m.restore.mockImplementation(() => new Promise(r => { finish = r; }));
+  const run = initApp({ cancelled: false });
+  m.folderSwitchVersion.mockReturnValue(1);
+  useAppStore.setState({ files: [{ id: 'B' } as QueuedFile], selectedFileId: 'B', folder: { id: 'B', name: 'B' } });
+  finish({ files: [{ id: 'A' } as QueuedFile], settings: {}, complete: true, folder: { id: 'A', name: 'A' } });
+  await run;
+  expect(useAppStore.getState()).toMatchObject({ files: [{ id: 'B' }], folder: { id: 'B' }, selectedFileId: 'B' });
 });
