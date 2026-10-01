@@ -11,6 +11,7 @@ const build = {
 };
 export default defineConfig({
   main: {
+    resolve: { alias: { '@': path.join(shared, 'src') } },
     build: {
       rollupOptions: {
         input: {

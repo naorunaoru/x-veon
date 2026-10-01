@@ -1,0 +1,22 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+import { beforeEach, afterEach, it, expect, vi } from 'vitest';
+import { listFolder } from './folder';
+let dir: string;
+beforeEach(async () => { dir = await fs.mkdtemp(path.join(os.tmpdir(), 'xveon-folder-')); });
+afterEach(async () => { vi.restoreAllMocks(); await fs.rm(dir, { recursive: true, force: true }); });
+it('lists RAW files case-insensitively, naturally, without contents or subfolders', async () => {
+  await Promise.all(['DSCF10.RAF', 'DSCF2.rAf', 'a.ARW', 'note.txt'].map(n => fs.writeFile(path.join(dir, n), 'raw')));
+  await fs.mkdir(path.join(dir, 'nested.raf'));
+  const read = vi.spyOn(fs, 'readFile'); const open = vi.spyOn(fs, 'open');
+  expect((await listFolder(dir)).map(e => e.name)).toEqual(['a.ARW', 'DSCF2.rAf', 'DSCF10.RAF']);
+  expect(read).not.toHaveBeenCalled(); expect(open).not.toHaveBeenCalled();
+});
+it('skips symlinked RAWs outside the folder but accepts internal regular targets', async () => {
+  await fs.mkdir(path.join(dir, 'photos')); await fs.writeFile(path.join(dir, 'outside.RAF'), 'raw');
+  const folder = path.join(dir, 'photos'); await fs.writeFile(path.join(folder, 'inside.RAF'), 'raw');
+  await fs.symlink('../outside.RAF', path.join(folder, 'escape.RAF'));
+  await fs.symlink('inside.RAF', path.join(folder, 'alias.RAF'));
+  expect((await listFolder(folder)).map(e => e.name)).toEqual(['alias.RAF', 'inside.RAF']);
+});
