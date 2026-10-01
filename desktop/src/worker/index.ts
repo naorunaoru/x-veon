@@ -1,6 +1,11 @@
 import type {} from 'electron';
 import { createWorkerController } from './controller';
-const controller = createWorkerController({ postToMain: message => process.parentPort.postMessage(message) });
+import { createWatchHandler } from './watch';
+const controller = createWorkerController({
+  postToMain: message => process.parentPort.postMessage(message),
+  onWatch: folder => watch(folder),
+});
+const watch = createWatchHandler(() => controller.replace());
 import { createReceiver, TOTAL_BYTES } from '../protocol/transfer';
 process.parentPort.on('message', (event) => {
   if (event.data?.v === 1) {
