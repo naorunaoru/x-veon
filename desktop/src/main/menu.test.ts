@@ -9,3 +9,14 @@ it('keeps recent order and emits folder requests from open commands', () => {
   expect(events).toEqual([{ kind: 'folder-request' }, { kind: 'folder-request', folderId: 'a' }]);
   expect(items.some(m => m.role === 'quit')).toBe(true); expect(template.some(m => m.role === 'editMenu')).toBe(true); expect(template.some(m => m.role === 'windowMenu')).toBe(true);
 });
+
+it.each(['darwin', 'win32', 'linux'] as const)('provides the native close command on %s', platform => {
+  const template = buildMenuTemplate([], () => {}, platform);
+  const items = template.find(menu => menu.label === 'File')!.submenu as any[];
+  const close = items.find(item => item.role === 'close');
+  expect(close).toBeDefined();
+  // Electron supplies the standard accelerator and closes the focused window,
+  // which reaches the existing unsaved-edit guard.
+  expect(close.accelerator).toBeUndefined();
+  expect(close.click).toBeUndefined();
+});

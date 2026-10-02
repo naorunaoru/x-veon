@@ -29,3 +29,20 @@ it('uses pushed inventory on timeout, shares concurrent flows and permits Quit a
 it('shutdown flushes best effort then exits without a dialog', async () => {
   vi.useFakeTimers(); const h = setup(() => new Promise(() => {})); h.guard.onSessionEnd(); await vi.advanceTimersByTimeAsync(20); expect(h.app.exit).toHaveBeenCalledWith(0); expect(h.confirm).not.toHaveBeenCalled();
 });
+
+it('names every unsaved photo beside its folder', () => {
+  expect(unsavedQuitMessage(unsaved)).toBe(
+    "2 photos have edits that aren't saved.\n\none — Alps\ntwo — Beach",
+  );
+});
+it('uses singular grammar and names the photo when its folder is unknown', () => {
+  expect(unsavedQuitMessage([{ id: 'x', name: 'DSCF3332.RAF', folder: null, error: null }])).toBe(
+    "1 photo has edits that aren't saved.\n\nDSCF3332.RAF — Unknown folder",
+  );
+});
+it('keeps identically named photos from different folders in the warning', () => {
+  const photos = unsaved.map(photo => ({ ...photo, name: 'same.RAF' }));
+  expect(unsavedQuitMessage(photos)).toBe(
+    "2 photos have edits that aren't saved.\n\nsame.RAF — Alps\nsame.RAF — Beach",
+  );
+});

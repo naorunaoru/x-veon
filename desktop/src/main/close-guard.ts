@@ -1,8 +1,11 @@
 import type { UnsavedSummary } from '@/host';
 type Deps = { window: { on(event: 'close', handler: (e: { preventDefault(): void }) => void): void; destroy(): void }; app: { on(event: 'before-quit', handler: (e: { preventDefault(): void }) => void): void; quit(): void; exit(code?: number): void }; inventory: () => UnsavedSummary[]; requestFlush: () => Promise<UnsavedSummary[]>; confirmQuit: (unsaved: UnsavedSummary[]) => Promise<boolean>; timeoutMs?: number };
 export function unsavedQuitMessage(unsaved: UnsavedSummary[]) {
-  const names = [...new Set(unsaved.map(edit => edit.folder?.name ?? 'Unknown folder'))];
-  return `${unsaved.length} photos in ${names.join(', ')} have edits that aren't saved.`;
+  const summary = unsaved.length === 1
+    ? "1 photo has edits that aren't saved."
+    : `${unsaved.length} photos have edits that aren't saved.`;
+  const photos = unsaved.map(edit => `${edit.name} — ${edit.folder?.name ?? 'Unknown folder'}`);
+  return `${summary}\n\n${photos.join('\n')}`;
 }
 export function createCloseGuard(deps: Deps) {
   let allowExit = false, running = false, ending = false;

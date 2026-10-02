@@ -7,7 +7,7 @@ export function buildMenuTemplate(recent: FolderRef[], send: (action: MenuAction
     { label: 'File', submenu: [
       { label: 'Open Folder…', accelerator: 'CmdOrCtrl+O', click: () => send({ kind: 'folder-request' }) },
       { label: 'Open Recent', enabled: recent.length > 0, submenu: recent.map(folder => ({ label: folder.name, click: () => send({ kind: 'folder-request', folderId: folder.id }) })) },
-      { type: 'separator' }, { role: 'quit' },
+      { type: 'separator' }, { role: 'close' }, { role: 'quit' },
     ] },
     { role: 'editMenu' }, { role: 'windowMenu' },
   ];

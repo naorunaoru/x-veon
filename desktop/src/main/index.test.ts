@@ -53,7 +53,7 @@ it.each([false, true])('offers Restart after cancelling crash-dialog Quit unless
   state.quit.mockImplementationOnce(() => state.app.emit('before-quit', { preventDefault: vi.fn() }));
   state.workerEvent({ stopped: 'The background worker stopped.' });
   await vi.advanceTimersByTimeAsync(3001);
-  expect(dialog.showMessageBox).toHaveBeenNthCalledWith(2, state.win, expect.objectContaining({ message: expect.stringContaining('1 photos in Photos'), buttons: ['Quit anyway', 'Cancel'] }));
+  expect(dialog.showMessageBox).toHaveBeenNthCalledWith(2, state.win, expect.objectContaining({ message: "1 photo has edits that aren't saved.\n\na — Photos", buttons: ['Quit anyway', 'Cancel'] }));
   if (ending) state.win.emit('session-end');
   cancel({ response: 1, checkboxChecked: false }); await vi.advanceTimersByTimeAsync(3001);
   if (ending) expect(dialog.showMessageBox).toHaveBeenCalledTimes(2);
