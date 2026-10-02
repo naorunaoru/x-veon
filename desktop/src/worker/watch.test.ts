@@ -3,10 +3,36 @@ import { EventEmitter } from 'node:events';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createWorkerController } from './controller';
 import { createWatchHandler } from './watch';
 import type { WorkerToMain } from '../protocol/rpc';
+
+const nativeWatch = fs.watch;
+let events: Array<Record<string, unknown>>;
+let omittedEvents: number;
+let startedAt: number;
+let watchers: fs.FSWatcher[];
+function record(kind: string, detail: Record<string, unknown> = {}) {
+  if (events.length < 200) events.push({ ms: Date.now() - startedAt, kind, ...detail });
+  else omittedEvents++;
+}
+beforeEach(() => {
+  events = []; omittedEvents = 0; startedAt = Date.now(); watchers = [];
+  vi.spyOn(fs, 'watch').mockImplementation(((...args: unknown[]) => {
+    record('attach', { path: String(args[0]) });
+    const callback = args.at(-1) as (...event: unknown[]) => void;
+    try {
+      const watcher = (nativeWatch as (...args: unknown[]) => fs.FSWatcher)(...args.slice(0, -1), (...event: unknown[]) => {
+        record('callback', { event: event[0], filename: String(event[1]) });
+        callback(...event);
+      });
+      watchers.push(watcher);
+      watcher.on('error', error => record('watcher-error', { error: String(error) }));
+      return watcher;
+    } catch (error) { record('attach-error', { error: String(error) }); throw error; }
+  }) as typeof fs.watch);
+});
 
 let temp: string | undefined;
 const stop: Array<() => void> = [];
@@ -31,7 +57,11 @@ function worker(folder: string, debounceMs = 40) {
     postToMain: message => sent.push(message),
     onWatch: value => onWatch(value),
   });
-  onWatch = createWatchHandler(() => controller.replace(), { debounceMs });
+  onWatch = createWatchHandler(async () => {
+    record('replace-start');
+    try { await controller.replace(); record('replace-end'); }
+    catch (error) { record('replace-error', { error: String(error) }); throw error; }
+  }, { debounceMs });
   stop.push(() => onWatch(null));
   const ready = (async () => {
     await controller.handleMain({ v: 1, kind: 'session', key: 'a2V5', cacheDir: path.join(temp!, 'cache') });
@@ -53,30 +83,53 @@ function listings(messages: WorkerToMain[]) {
   const ends = messages.filter(m => m.kind === 'listing-end');
   return ends.map(end => ({
     token: end.token,
-    begin: messages.find(m => m.kind === 'listing-begin' && m.token === end.token),
+    begin: messages.find((m): m is Extract<WorkerToMain, { kind: 'listing-begin' }> => m.kind === 'listing-begin' && m.token === end.token),
     photos: messages.filter((m): m is Extract<WorkerToMain, { kind: 'listing-batch' }> => m.kind === 'listing-batch' && m.token === end.token).flatMap(m => m.photos),
   }));
 }
 
-async function until(predicate: () => boolean, timeoutMs = 3000) {
-  const deadline = Date.now() + timeoutMs;
+type TestWorker = ReturnType<typeof worker>;
+type Listing = ReturnType<typeof listings>[number];
+async function until(predicate: () => boolean, w: TestWorker, label: string) {
+  const deadline = Date.now() + 3000;
   while (!predicate()) {
-    if (Date.now() > deadline) throw new Error('Timed out waiting for watcher listing');
+    if (Date.now() > deadline) {
+      const completed = listings(w.sent);
+      throw new Error(`Timed out waiting for ${label}: ${JSON.stringify({
+        completedCount: completed.length,
+        listings: completed.slice(-20).map(listing => ({
+          token: listing.token, begin: listing.begin,
+          photos: listing.photos.slice(0, 50).map(photo => ({ name: photo.originalName, exposure: photo.edit.preProcessOverrides.exposure })),
+          photoCount: listing.photos.length,
+        })),
+        events, omittedEvents,
+      })}`);
+    }
     await new Promise(resolve => setTimeout(resolve, 10));
   }
+}
+async function replacement(w: TestWorker, label: string, matches: (listing: Listing) => boolean, after = 0) {
+  const latest = () => {
+    const completed = listings(w.sent), listing = completed.at(-1);
+    return completed.length > after && listing?.begin?.purpose === 'replace'
+      && listing.begin.activation === 'a' && listing.begin.folder.id === 'f' && matches(listing) ? listing : undefined;
+  };
+  await until(() => !!latest(), w, label);
+  return latest()!;
+}
+function hasNames(listing: Listing, names: string[]) {
+  return JSON.stringify(listing.photos.map(photo => photo.originalName).sort()) === JSON.stringify([...names].sort());
 }
 
 it('replaces the listing after a RAW is added and removed', async () => {
   const folder = await setup();
   const w = worker(folder); await w.ready;
   await fsp.writeFile(path.join(folder, 'new.RAF'), 'raw');
-  await until(() => listings(w.sent).length === 1);
-  expect(listings(w.sent)[0].photos.map(p => p.originalName)).toEqual(['new.RAF']);
-  expect(listings(w.sent)[0].begin).toMatchObject({ purpose: 'replace', activation: 'a' });
+  const added = await replacement(w, 'added RAW', listing => hasNames(listing, ['new.RAF']));
+  const beforeRemove = listings(w.sent).length;
   await fsp.unlink(path.join(folder, 'new.RAF'));
-  await until(() => listings(w.sent).length === 2);
-  expect(listings(w.sent)[1].photos).toEqual([]);
-  expect(listings(w.sent)[1].token).not.toBe(listings(w.sent)[0].token);
+  const removed = await replacement(w, 'removed RAW', listing => listing.token !== added.token && hasNames(listing, []), beforeRemove);
+  expect(removed.token).not.toBe(added.token);
 });
 
 it('re-lists a foreign sidecar edit', async () => {
@@ -84,32 +137,23 @@ it('re-lists a foreign sidecar edit', async () => {
   await fsp.writeFile(path.join(folder, 'a.RAF'), 'raw');
   const w = worker(folder); await w.ready;
   await fsp.writeFile(path.join(folder, 'a.RAF.xmp'), `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:xveon="https://naorunaoru.github.io/x-veon/ns/1.0/" xveon:SchemaVersion="1" xveon:Exposure="1.5"/></rdf:RDF></x:xmpmeta>`);
-  await until(() => listings(w.sent).length === 1);
-  expect(listings(w.sent)[0].photos[0].edit.preProcessOverrides.exposure).toBe(1.5);
+  await replacement(w, 'foreign sidecar exposure', listing => hasNames(listing, ['a.RAF'])
+    && listing.photos[0].edit.preProcessOverrides.exposure === 1.5);
 });
 
-it('coalesces 50 changes into one replacement listing', async () => {
+it('lists all 50 RAW files after native filesystem changes', async () => {
   const folder = await setup();
   const w = worker(folder, 120); await w.ready;
   await Promise.all(Array.from({ length: 50 }, (_, i) => fsp.writeFile(path.join(folder, `${i}.RAF`), 'raw')));
-  await until(() => listings(w.sent).length >= 1);
-  await new Promise(resolve => setTimeout(resolve, 250));
-  expect(listings(w.sent)).toHaveLength(1);
-  expect(listings(w.sent)[0].photos).toHaveLength(50);
+  await replacement(w, 'all 50 added RAWs', listing => hasNames(listing, Array.from({ length: 50 }, (_, i) => `${i}.RAF`)));
 });
 
 it('reports a watcher error once and a port rescan still replaces the listing', async () => {
   const folder = await setup();
-  let watcher: fs.FSWatcher | undefined;
-  const original = fs.watch;
-  vi.spyOn(fs, 'watch').mockImplementation(((...args: Parameters<typeof fs.watch>) => {
-    watcher = original(...args);
-    return watcher;
-  }) as typeof fs.watch);
   const log = vi.spyOn(console, 'error').mockImplementation(() => {});
   const w = worker(folder); await w.ready;
-  watcher!.emit('error', new Error('forced watcher error'));
-  watcher!.emit('error', new Error('second watcher error'));
+  watchers.at(-1)!.emit('error', new Error('forced watcher error'));
+  watchers.at(-1)!.emit('error', new Error('second watcher error'));
   expect(log).toHaveBeenCalledTimes(1);
   expect(String(log.mock.calls[0][0])).toContain(folder);
   expect(String(log.mock.calls[0][0])).toContain('forced watcher error');
@@ -118,10 +162,8 @@ it('reports a watcher error once and a port rescan still replaces the listing', 
   await w.controller.handleMain({ v: 1, kind: 'connect' }, [a]);
   const replies: unknown[] = []; b.on('message', ({ data }) => replies.push(data));
   b.postMessage({ v: 1, rid: 1, op: 'rescan' });
-  await until(() => listings(w.sent).length === 1);
+  await replacement(w, 'port rescan after watcher failure', listing => hasNames(listing, ['after.RAF']));
   expect(replies).toEqual([{ v: 1, rid: 1, ok: true }]);
-  expect(listings(w.sent)).toHaveLength(1);
-  expect(listings(w.sent)[0].photos.map(p => p.originalName)).toEqual(['after.RAF']);
 });
 
 it('re-establishes watching when a fresh worker receives watch again', async () => {
@@ -130,7 +172,26 @@ it('re-establishes watching when a fresh worker receives watch again', async () 
   first.close();
   const fresh = worker(folder); await fresh.ready;
   await fsp.writeFile(path.join(folder, 'fresh.RAF'), 'raw');
-  await until(() => listings(fresh.sent).length === 1);
-  expect(listings(fresh.sent)[0].photos.map(p => p.originalName)).toEqual(['fresh.RAF']);
+  await replacement(fresh, 'fresh worker RAW', listing => hasNames(listing, ['fresh.RAF']));
   expect(listings(first.sent)).toHaveLength(0);
+});
+
+
+it('retains the replacement state across notifications separated by quiet intervals', async () => {
+  const folder = await setup();
+  const source = new EventEmitter();
+  vi.spyOn(fs, 'watch').mockImplementationOnce(((...args: unknown[]) => {
+    source.on('change', args.at(-1) as (...args: unknown[]) => void);
+    return Object.assign(source, { close() { source.removeAllListeners(); } });
+  }) as typeof fs.watch);
+  const w = worker(folder); await w.ready;
+  await fsp.writeFile(path.join(folder, 'new.RAF'), 'raw');
+  source.emit('change', 'rename', 'new.RAF');
+  const first = await replacement(w, 'first controlled notification', listing => hasNames(listing, ['new.RAF']));
+  const beforeSecond = listings(w.sent).length;
+  source.emit('change', 'change', 'new.RAF');
+  const second = await replacement(w, 'later controlled notification', listing => hasNames(listing, ['new.RAF']), beforeSecond);
+  // Both scans completed correctly, with a quiet interval between notifications.
+  expect(listings(w.sent)).toHaveLength(2);
+  expect(second.token).not.toBe(first.token);
 });
