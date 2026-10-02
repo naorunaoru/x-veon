@@ -36,7 +36,7 @@ export function HudRoot() {
     <div className="xv-hud-root">
       {hasFiles && <PhotoStage />}
       <div className={`xv-hud-overlay${chromeHidden ? ' xv-hud-overlay--folder-only' : ''}`} data-chrome-hidden={(hasFiles && chromeHidden) || undefined}>
-        <TopBar folderOnly={chromeHidden} />
+        <TopBar folderOnly={hasFiles && chromeHidden} />
         {hasFiles && (
           <>
             <Filmstrip />

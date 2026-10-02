@@ -4,7 +4,8 @@ export function unsavedQuitMessage(unsaved: UnsavedSummary[]) {
   const summary = unsaved.length === 1
     ? "1 photo has edits that aren't saved."
     : `${unsaved.length} photos have edits that aren't saved.`;
-  const photos = unsaved.map(edit => `${edit.name} — ${edit.folder?.name ?? 'Unknown folder'}`);
+  const photos = unsaved.slice(0, 10).map(edit => `${edit.name} — ${edit.folder?.name ?? 'Unknown folder'}`);
+  if (unsaved.length > 10) photos.push(`and ${unsaved.length - 10} more`);
   return `${summary}\n\n${photos.join('\n')}`;
 }
 export function createCloseGuard(deps: Deps) {

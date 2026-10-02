@@ -24,10 +24,21 @@ export function createCache(opts: { dir: string; limitBytes?: number }) {
     try { await fs.utimes(target, now, now); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
   }
+  let eviction: ReturnType<typeof setTimeout> | undefined;
+  let evicting: Promise<void> | undefined;
+  function scheduleEviction() {
+    if (eviction) return;
+    eviction = setTimeout(() => {
+      eviction = undefined;
+      if (evicting) { scheduleEviction(); return; }
+      evicting = cache.evict().catch(error => console.warn('Cache eviction failed:', error)).finally(() => { evicting = undefined; });
+    }, 1000);
+    eviction.unref?.();
+  }
   async function put(target: string, data: string | Uint8Array) {
     await fs.mkdir(dir, { recursive: true });
     const temp = path.join(dir, `.${randomUUID()}.tmp`);
-    try { await fs.writeFile(temp, data); await fs.rename(temp, target); }
+    try { await fs.writeFile(temp, data); await fs.rename(temp, target); scheduleEviction(); }
     finally { await fs.rm(temp, { force: true }); }
   }
   async function getFacts(key: string): Promise<PhotoFacts | null> {
@@ -54,7 +65,7 @@ export function createCache(opts: { dir: string; limitBytes?: number }) {
     void settled.then(() => { if (factsWrites.get(target) === settled) factsWrites.delete(target); });
     return update;
   }
-  return {
+  const cache = {
     key(entry: FolderEntry): string {
       return createHash('sha256').update(`${entry.path}\0${entry.size}\0${entry.mtimeMs}`).digest('hex');
     },
@@ -103,4 +114,5 @@ export function createCache(opts: { dir: string; limitBytes?: number }) {
       }
     },
   };
+  return cache;
 }

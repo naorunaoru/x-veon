@@ -15,9 +15,9 @@ it('persists ordered deduplicated recent folders capped at ten and last', async 
   expect(createFolderStore(file).recent()).toEqual(store.recent());
   const saved = JSON.parse(readFileSync(file, 'utf8')); expect(saved.version).toBe(1); expect(saved.last).toBe(chosen.id); expect(saved.recent[0].openedAt).toEqual(expect.any(String));
 });
-it('drops missing folders and clears a missing last', async () => {
+it('retains recent paths for lazy validation without touching missing/offline folders', async () => {
   const { dir, file } = setup(); const folder = path.join(dir, 'gone'); mkdirSync(folder); const store = createFolderStore(file); store.remember(folder); await store.flush(); rmSync(folder, { recursive: true });
-  const restored = createFolderStore(file); expect(restored.recent()).toEqual([]); expect(restored.last()).toBeNull();
+  const restored = createFolderStore(file); expect(restored.recent()).toEqual(store.recent()); expect(restored.last()).toEqual(store.last());
 });
 it('quarantines corrupt files and starts empty', () => {
   const { file } = setup(); writeFileSync(file, '{invalid'); const store = createFolderStore(file);

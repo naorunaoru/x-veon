@@ -11,14 +11,16 @@ export function createLibrary(bridge: DesktopBridge): LibraryHost {
   let flush: (() => Promise<void>) | undefined;
   // This is the ledger's last report, never an independent edit inventory.
   let inventory: UnsavedSummary[] = [];
-  let activation: string | undefined, generation = 0, opening = false;
+  let activation: string | undefined, generation = 0, issued = 0, requests = 0, opening = false;
   let worker: string | undefined, acknowledged = 0;
   const retiredWorkers = new Set<string>();
   const scanOrders = new Map<string, number>();
   function fresh(stamp?: ListingStamp): boolean {
     return stamp ? !retiredWorkers.has(stamp.worker) && (worker === undefined || stamp.worker === worker) && stamp.revision >= acknowledged : worker === undefined;
   }
-  let wake: (() => void) | undefined;
+  const sleepers = new Set<() => void>();
+  const wake = () => { for (const resolve of sleepers) resolve(); sleepers.clear(); };
+  const sleep = () => new Promise<void>(resolve => sleepers.add(resolve));
   const assemblies = new Map<string, { activation: string; assembler: ReturnType<typeof createListingAssembler> }>();
   const opens = new Map<string, Completed | Error>(), replacements = new Map<string, Completed>();
   const publish = (change: LibraryChange) => { for (const listener of listeners) listener(change); };
@@ -67,15 +69,14 @@ export function createLibrary(bridge: DesktopBridge): LibraryHost {
     assemblies.get(frame.token)?.assembler.push(frame);
   }
   async function request(invoke: () => Promise<{ token: string; selected?: string[] } | null>): Promise<LibrarySnapshot | null> {
-    const attempt = ++generation;
-    wake?.(); opening = true; opens.clear(); replacements.clear();
-    // A picker does not deactivate the current folder or interrupt its watcher.
-    for (const [token, listing] of assemblies) if (listing.activation !== activation) assemblies.delete(token);
+    const attempt = ++issued;
+    requests++; opening = true;
     try {
       const result = await invoke();
-      if (attempt !== generation || !result) return null;
+      if (!result || attempt < generation) return null;
+      generation = attempt; wake();
       while (!opens.has(result.token)) {
-        await new Promise<void>(resolve => { wake = resolve; });
+        await sleep();
         if (attempt !== generation) return null;
       }
       const initial = opens.get(result.token)!;
@@ -92,15 +93,13 @@ export function createLibrary(bridge: DesktopBridge): LibraryHost {
           rescanned = latest;
           void client.request({ op: 'rescan' }).catch(error => { opens.set(result.token, error instanceof Error ? error : new Error(String(error))); wake?.(); });
         }
-        await new Promise<void>(resolve => { wake = resolve; });
+        await sleep();
         if (attempt !== generation) return null;
         const failed = opens.get(result.token); if (failed instanceof Error) throw failed;
       }
     } finally {
-      if (attempt === generation) {
-        opening = false; wake = undefined;
-        opens.clear(); replacements.clear();
-      }
+      opening = --requests > 0;
+      if (!opening) { opens.clear(); replacements.clear(); assemblies.clear(); }
     }
   }
   bridge.onEvent(event => {
@@ -122,14 +121,10 @@ export function createLibrary(bridge: DesktopBridge): LibraryHost {
   return {
     async load() { return await request(() => bridge.loadLast()) ?? { photos: [], complete: true, folder: null }; },
     openFolder: folder => request(() => bridge.openFolder(folder?.id)),
-    async addFiles(files) {
-      const paths = bridge.pathsForFiles(files);
-      if (paths.length !== files.length || paths.some(path => !path)) throw new Error('Only files on disk can be opened.');
-      return request(() => bridge.openDropped(paths));
-    },
+    addFiles: files => request(() => bridge.openDropped(files)),
     recentFolders: () => bridge.recentFolders(),
     async readRaw(id) { return (await fetch(photoUrl('raw', id))).arrayBuffer(); },
-    async save(id, edit, facts) { await client.request({ op: 'saveEdit', id, edit }); await client.request({ op: 'saveFacts', id, facts }); },
+    async save(id, edit, facts) { await client.request({ op: 'saveEdit', id, edit }); void client.request({ op: 'saveFacts', id, facts }).catch(error => console.warn('Photo facts cache failed:', error)); },
     saveFacts: (id, facts) => client.request({ op: 'saveFacts', id, facts }),
     reportUnsaved(edits) { inventory = edits; bridge.updateUnsaved(edits); },
     onFlushRequest(handler) { flush = handler; return () => { if (flush === handler) flush = undefined; }; },

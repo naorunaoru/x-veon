@@ -50,7 +50,17 @@ const trusted = (event: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent) =>
     event.senderFrame?.url ?? '',
     event.senderFrame === win.webContents.mainFrame,
   );
-void app.whenReady().then(async () => {
+// Explicit profiles get their own settings, cache and single-instance lock.
+const profile = process.argv.find(arg => arg.startsWith('--user-data-dir='))?.slice('--user-data-dir='.length);
+if (profile) app.setPath('userData', path.resolve(profile));
+const ownsInstance = app.requestSingleInstanceLock();
+if (!ownsInstance) app.quit();
+else app.on('second-instance', () => {
+  if (!win || win.isDestroyed()) return;
+  if (win.isMinimized()) win.restore();
+  win.focus();
+});
+if (ownsInstance) void app.whenReady().then(async () => {
   const bundle = path.resolve(__dirname, '../renderer'),
     files = new Set(await assets(bundle));
   protocol.handle('app', async (request) => {
@@ -118,7 +128,7 @@ void app.whenReady().then(async () => {
   const guard = createCloseGuard({ window: win, app: { on: (event, handler) => { app.on(event, handler); }, quit: () => app.quit(), exit: code => { stopWorkers(); app.exit(code); } },
     inventory: ipc.inventory, requestFlush: ipc.requestFlush,
     confirmQuit: async unsaved => {
-      const quit = (await dialog.showMessageBox(win, { type: 'warning', message: unsavedQuitMessage(unsaved), buttons: ['Quit anyway', 'Cancel'], defaultId: 1, cancelId: 1, noLink: true })).response === 0;
+      const quit = (await dialog.showMessageBox(win, { type: 'warning', message: 'Unsaved edits', detail: unsavedQuitMessage(unsaved), buttons: ['Quit anyway', 'Cancel'], defaultId: 1, cancelId: 1, noLink: true })).response === 0;
       if (!quit) void recoverWorker().catch(() => {});
       return quit;
     },

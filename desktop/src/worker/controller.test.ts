@@ -147,17 +147,54 @@ it('rereads a held pre-edit snapshot after the real ledger has acknowledged the 
   } finally { stop(); await cancelPhotoSave(id); vi.unstubAllGlobals(); }
 });
 
-it.each(['saveFacts', 'thumbnail'] as const)('rereads cached facts when %s completes during a held listing', async operation => {
+it.each(['saveFacts'] as const)('rereads cached facts when %s completes during a held listing', async operation => {
   const h = heldListings(); await initHeld(h);
   const [a, b] = ports(); await h.controller.handleMain({ v: 1, kind: 'connect' }, [a]);
   const scan = h.controller.replace(); await tick();
-  if (operation === 'thumbnail') await h.controller.handleMain({ v: 1, rid: 9, kind: 'thumbnail', id: 'a'.repeat(22) });
-  else {
+  {
     b.postMessage({ v: 1, rid: 9, op: 'saveFacts', id: 'a'.repeat(22), facts: { ...fakePhoto().facts, metadata: { camera: 'saved', lensModel: '', focalLength: 0, fNumber: 0 } } });
     await tick();
   }
   h.scans[0].release(); await tick();
   expect(h.published).toEqual([]); expect(h.scans).toHaveLength(2);
   h.scans[1].release(); await scan;
-  expect(h.published[0][0].facts.metadata?.camera).toBe(operation === 'thumbnail' ? 'extracted' : 'saved');
+  expect(h.published[0][0].facts.metadata?.camera).toBe('saved');
+});
+
+it.each(['thumbnail', 'saveEdit'] as const)('lists B promptly while unrelated A %s is held', async operation => {
+ let release!: () => void; const gate = new Promise<void>(r => { release = r; }); const started = vi.fn();
+ const messages: any[] = [];
+ const c = createWorkerController({ postToMain: m => messages.push(m), createLibrary: () => ({
+   async *list() { yield { photos: [], registry: [] }; }, register() {}, setRoots() {},
+   async saveEdit() { started(); await gate; }, async saveFacts() {}, async thumbnail() { started(); await gate; return { path: null, facts: null }; },
+ }) });
+ await c.handleMain({ v: 1, kind: 'session', key: 'a2V5', cacheDir: '/cache' });
+ await c.handleMain({ v: 1, kind: 'register', entries: [['a'.repeat(22), '/A/a.RAF']] });
+ const [a, b] = ports(); await c.handleMain({ v: 1, kind: 'connect' }, [a]);
+ const pending = operation === 'thumbnail' ? c.handleMain({ v: 1, rid: 1, kind: 'thumbnail', id: 'a'.repeat(22) }) : Promise.resolve(b.postMessage({ v: 1, rid: 1, op: 'saveEdit', id: 'a'.repeat(22), edit: defaultPhotoEdit() }));
+ await tick(); expect(started).toHaveBeenCalledOnce();
+ const listing = c.handleMain({ v: 1, rid: 2, kind: 'list', path: '/B', folderId: 'B', token: 'B', activation: 'B', purpose: 'open' });
+ await tick();
+ try { expect(messages.some(m => m.kind === 'listing-end' && m.token === 'B')).toBe(true); }
+ finally { release(); await pending; await listing; }
+});
+
+it('folds completed thumbnail metadata into a held listing without restarting its scan', async () => {
+ const h = heldListings(); await initHeld(h);
+ const scan = h.controller.replace(); await tick();
+ await h.controller.handleMain({ v: 1, rid: 9, kind: 'thumbnail', id: 'a'.repeat(22) });
+ h.scans[0].release(); await scan;
+ expect(h.scans).toHaveLength(1); expect(h.published[0][0].facts.metadata?.camera).toBe('extracted');
+});
+
+it('does not carry thumbnail metadata across a RAW source revision', async () => {
+ const messages: any[] = []; const item = { ...fakePhoto('a'.repeat(22)), sourceVersion: 'b'.repeat(64) };
+ const c = createWorkerController({ postToMain: m => messages.push(m), createLibrary: () => ({
+   async *list() { yield { photos: [item], registry: [[item.id, '/photos/a.RAF']] as [string, string][] }; }, register() {}, setRoots() {}, async saveEdit() {}, async saveFacts() {},
+   async thumbnail() { return { path: null, sourceVersion: 'a'.repeat(64), facts: { ...item.facts, metadata: { camera: 'old RAW', lensModel: '', focalLength: 0, fNumber: 0 } } }; },
+ }) });
+ await c.handleMain({ v: 1, kind: 'session', key: 'a2V5', cacheDir: '/cache' });
+ await c.handleMain({ v: 1, rid: 1, kind: 'thumbnail', id: item.id });
+ await c.handleMain({ v: 1, rid: 2, kind: 'list', path: '/photos', folderId: 'f', token: 't', activation: 't', purpose: 'open' });
+ expect(messages.find(m => m.kind === 'listing-batch').photos[0].facts.metadata).toBeNull();
 });

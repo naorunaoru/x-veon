@@ -287,7 +287,7 @@ describe('processing service', () => {
     await processFile('a');
     expect(processRaw).toHaveBeenCalledWith(
       expect.any(ArrayBuffer),
-      { method: 'neural-net', modelSize: 'S', model: null, resolveDefault: true },
+      { method: 'markesteijn3', modelSize: 'S', model: null, resolveDefault: true },
       ctx,
     );
     expect(useAppStore.getState().files[0].edit).toEqual(defaultEdit());
@@ -550,4 +550,15 @@ describe('processing service', () => {
       edit: { demosaicMethod: 'bilinear' },
     });
   });
+});
+
+it.each(['ahd', 'ppg', 'mhc'] as const)('resolves %s against decoded Bayer data despite a stale X-Trans guess', async method => {
+ const file = makeFile('wrong-cfa'); useAppStore.setState({ files: [file], demosaicMethod: method });
+ processRaw.mockImplementationOnce(async (_bytes, options) => {
+   expect(options).toMatchObject({ method, resolveDefault: true });
+   const image = fakeImage(); Object.defineProperty(image, 'method', { value: method });
+   Object.assign(image.meta.metadata, { cfaType: 'bayer' }); return image;
+ });
+ await processFile(file.id);
+ expect(useAppStore.getState().files[0]).toMatchObject({ status: 'done', cfaType: 'bayer', resultMethod: method, edit: { demosaicMethod: null } });
 });

@@ -8,27 +8,34 @@ type Header = Pick<Extract<ListingFrame, { kind: 'listing-begin' }>, 'token' | '
 
 /** Splits by both count and serialized size, including long paths/large cached facts. */
 export function listingFrames(header: Header, photos: LibraryPhoto[], registry?: [PhotoId, string][], byteLimit = MAX_MESSAGE_BYTES): ListingFrame[] {
-  const fits = (frame: ListingFrame) => isListingFrame(frame) && (byteLimit === MAX_MESSAGE_BYTES || new TextEncoder().encode(JSON.stringify(frame)).byteLength <= byteLimit);
+  const encoder = new TextEncoder();
+  const bytes = (value: unknown) => encoder.encode(JSON.stringify(value)).byteLength;
+  const valid = (frame: ListingFrame) => isListingFrame(frame) && (byteLimit === MAX_MESSAGE_BYTES || bytes(frame) <= byteLimit);
   const frames: ListingFrame[] = [{ v: 1, kind: 'listing-begin', ...header, total: photos.length }];
   const paths = registry && new Map(registry);
-  let batch: Extract<ListingFrame, { kind: 'listing-batch' }> = { v: 1, kind: 'listing-batch', token: header.token, seq: 0, photos: [], ...(paths ? { registry: [] } : {}) };
+  const empty = (seq: number): Extract<ListingFrame, { kind: 'listing-batch' }> => ({ v: 1, kind: 'listing-batch', token: header.token, seq, photos: [], ...(paths ? { registry: [] } : {}) });
+  let batch = empty(0), size = bytes(batch);
   function flush() {
     if (!batch.photos.length) return;
+    if (!valid(batch)) throw new Error('A photo exceeds the listing message limit or has invalid data');
     frames.push(batch);
-    batch = { v: 1, kind: 'listing-batch', token: header.token, seq: batch.seq + 1, photos: [], ...(paths ? { registry: [] } : {}) };
+    batch = empty(batch.seq + 1); size = bytes(batch);
   }
   for (const photo of photos) {
     const entry = paths?.get(photo.id);
     if (paths && entry === undefined) throw new Error('Missing registry entry');
-    const next = { ...batch, photos: [...batch.photos, photo], ...(paths ? { registry: [...batch.registry!, [photo.id, entry!] as [PhotoId, string]] } : {}) };
-    if (!fits(next)) flush();
+    const pair: [PhotoId, string] | undefined = paths ? [photo.id, entry!] : undefined;
+    const payload = bytes(photo) + (pair ? bytes(pair) : 0);
+    const commas = () => batch.photos.length ? (pair ? 2 : 1) : 0;
+    if (batch.photos.length >= 250 || size + payload + commas() > byteLimit) flush();
+    size += payload + commas();
+    if (size > byteLimit) throw new Error('A photo exceeds the listing message limit or has invalid data');
     batch.photos.push(photo);
-    if (paths) batch.registry!.push([photo.id, entry!]);
-    if (!fits(batch)) throw new Error('A photo exceeds the listing message limit or has invalid data');
+    if (pair) batch.registry!.push(pair);
   }
   flush();
   frames.push({ v: 1, kind: 'listing-end', token: header.token, total: photos.length });
-  if (!frames.every(fits)) throw new Error('Invalid listing');
+  if (!valid(frames[0]) || !valid(frames[frames.length - 1])) throw new Error('Invalid listing');
   return frames;
 }
 

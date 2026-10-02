@@ -2,9 +2,9 @@ import { createServer } from 'node:http';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 const root = process.cwd(),
-  evidence = path.join(root, 'tmp/m2-spike/browser');
+  evidence = path.join(root, 'tmp/m2-golden/browser');
 await mkdir(evidence, { recursive: true });
-const capture = `<script>const t=setInterval(()=>{const p=window.__spike||window.__golden;if(!p)return;clearInterval(t);fetch('/report/'+(new URLSearchParams(location.search).get('report')||'report'),{method:'POST',body:JSON.stringify(p)});},500);</script>`;
+const capture = `<script>const t=setInterval(()=>{const p=window.__golden;if(!p)return;clearInterval(t);fetch('/report/'+(new URLSearchParams(location.search).get('report')||'report'),{method:'POST',body:JSON.stringify(p)});},500);</script>`;
 createServer(async (req, res) => {
   try {
     const u = new URL(req.url, 'http://localhost');

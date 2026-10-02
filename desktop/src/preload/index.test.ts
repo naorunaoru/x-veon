@@ -5,11 +5,10 @@ afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); m.handlers.clear();
 it('exposes only the version-2 API and sends typed channel envelopes', async () => {
   vi.stubGlobal('window', { postMessage: m.post }); vi.stubGlobal('location', { origin: 'app://bundle' }); await import('./index');
   expect(m.exposed.version).toBe(2);
-  expect(Object.keys(m.exposed).sort()).toEqual(['version', 'loadLast', 'openFolder', 'openDropped', 'recentFolders', 'pathsForFiles', 'requestWorkerPort', 'updateUnsaved', 'respondFlush', 'onEvent'].sort());
-  await m.exposed.loadLast(); await m.exposed.openFolder('f'); await m.exposed.openDropped(['/raw']); m.invoke.mockResolvedValueOnce([] as any); await m.exposed.recentFolders(); await m.exposed.requestWorkerPort('00000000-0000-4000-8000-000000000001');
+  expect(Object.keys(m.exposed).sort()).toEqual(['version', 'loadLast', 'openFolder', 'openDropped', 'recentFolders', 'requestWorkerPort', 'updateUnsaved', 'respondFlush', 'onEvent'].sort());
+  await m.exposed.loadLast(); await m.exposed.openFolder('f'); m.path.mockReturnValueOnce('/raw'); await m.exposed.openDropped([new File(['x'], 'x.RAF')]); m.invoke.mockResolvedValueOnce([] as any); await m.exposed.recentFolders(); await m.exposed.requestWorkerPort('00000000-0000-4000-8000-000000000001');
   expect(m.invoke.mock.calls).toEqual([['xveon-desktop', { version: 2, kind: 'loadLast' }], ['xveon-desktop', { version: 2, kind: 'openFolder', folderId: 'f' }], ['xveon-desktop', { version: 2, kind: 'openDropped', paths: ['/raw'] }], ['xveon-desktop', { version: 2, kind: 'recentFolders' }], ['xveon-desktop', { version: 2, kind: 'requestWorkerPort', requestId: '00000000-0000-4000-8000-000000000001' }]]);
   m.exposed.updateUnsaved([]); m.exposed.respondFlush(4, []); expect(m.send.mock.calls).toEqual([['xveon-unsaved', { version: 2, edits: [] }], ['xveon-flush', { version: 2, requestId: 4, unsaved: [] }]]);
-  expect(m.exposed.pathsForFiles([new File(['x'], 'x')])).toEqual(['']);
 });
 it('filters invalid event and port envelopes and unsubscribes precisely', async () => {
   vi.stubGlobal('window', { postMessage: m.post }); vi.stubGlobal('location', { origin: 'app://bundle' }); await import('./index');
@@ -21,7 +20,7 @@ it('filters invalid event and port envelopes and unsubscribes precisely', async 
 it('rejects malformed or oversized invoke results before exposing them to the renderer', async () => {
   vi.stubGlobal('window', { postMessage: m.post }); vi.stubGlobal('location', { origin: 'app://bundle' }); await import('./index');
   m.invoke.mockResolvedValueOnce({ token: 7 } as any); await expect(m.exposed.openFolder()).rejects.toThrow('Invalid bridge response');
-  m.invoke.mockResolvedValueOnce({ token: 't', selected: ['bad'] } as any); await expect(m.exposed.openDropped(['/raw'])).rejects.toThrow('Invalid bridge response');
+  m.invoke.mockResolvedValueOnce({ token: 't', selected: ['bad'] } as any); m.path.mockReturnValueOnce('/raw'); await expect(m.exposed.openDropped([new File(['x'], 'x.RAF')])).rejects.toThrow('Invalid bridge response');
   m.invoke.mockResolvedValueOnce([{ id: 'f', name: 'x'.repeat(1_000_000) }] as any); await expect(m.exposed.recentFolders()).rejects.toThrow('Invalid bridge response');
 });
 
@@ -36,4 +35,11 @@ it.each(['stale-first', 'current-first'])('closes stale deliveries without forwa
   if (order === 'stale-first') { stale(); fresh(); } else { fresh(); stale(); }
   expect(m.post.mock.calls).toEqual([[{ type: 'xveon-port', version: 2, requestId: current }, 'app://bundle', [currentPort]]]);
   expect(stalePort.close).toHaveBeenCalledOnce(); expect(currentPort.close).not.toHaveBeenCalled();
+});
+
+it('rejects forged path strings and empty File paths before invoking main', async () => {
+ await import('./index');
+ await expect(m.exposed.openDropped(['/private/arbitrary.RAF'])).rejects.toThrow(); expect(m.invoke).not.toHaveBeenCalled();
+ m.path.mockReturnValueOnce(''); await expect(m.exposed.openDropped([new File(['x'], 'x.RAF')])).rejects.toThrow(/disk/); expect(m.invoke).not.toHaveBeenCalled();
+ expect(m.exposed.pathsForFiles).toBeUndefined();
 });

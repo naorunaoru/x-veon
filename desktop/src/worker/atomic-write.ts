@@ -24,13 +24,21 @@ export async function writeFileAtomic(target: string, data: string, opts?: { ren
   await checkDirectory(directory);
   const destination = path.join(dir, path.basename(target));
   const temp = path.join(dir, `.${path.basename(target)}.${randomUUID()}.tmp`);
+  let owned: { dev: number; ino: number } | undefined;
+  let committed = false;
   try {
-    await fs.writeFile(temp, data, { flag: 'wx' });
+    const handle = await fs.open(temp, 'wx');
+    try {
+      owned = await handle.stat();
+      await fs.writeFile(handle, data);
+      await handle.sync();
+    } finally { await handle.close(); }
     const delays = opts?.renameRetries ?? [50, 100, 200, 400, 800];
     for (let attempt = 0; ; attempt++) {
       try {
         await checkDirectory(directory);
         await fs.rename(temp, destination);
+        committed = true;
         break;
       } catch (error) {
         if (!['EBUSY', 'EPERM', 'EACCES'].includes((error as NodeJS.ErrnoException).code ?? '') || attempt >= delays.length) throw error;
@@ -38,14 +46,28 @@ export async function writeFileAtomic(target: string, data: string, opts?: { ren
       }
     }
   } finally {
-    // Never follow a changed parent even while cleaning a failed write.
-    await checkDirectory(directory);
-    await removeIfExists(temp);
+    // A successful rename is the commit point. Later directory changes cannot undo it.
+    if (!committed && owned) {
+      try {
+        await checkDirectory(directory);
+        const current = await fs.lstat(temp);
+        if (current.isFile() && current.dev === owned.dev && current.ino === owned.ino)
+          await removeIfExists(temp, directory);
+      } catch (error) { console.warn('Could not safely clean sidecar temp:', temp, error); }
+    }
   }
 }
 
 export async function removeIfExists(target: string, directory?: DirectoryIdentity): Promise<void> {
-  if (directory) await checkDirectory(directory);
-  try { await fs.unlink(target); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+  const delays = [50, 100, 200, 400, 800];
+  for (let attempt = 0; ; attempt++) {
+    if (directory) await checkDirectory(directory);
+    try { await fs.unlink(target); return; }
+    catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') return;
+      if (!['EBUSY', 'EPERM', 'EACCES'].includes(code ?? '') || attempt >= delays.length) throw error;
+      await setTimeout(delays[attempt]);
+    }
+  }
 }

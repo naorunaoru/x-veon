@@ -11,6 +11,7 @@ type Deps = { store: ReturnType<typeof createFolderStore>; worker: ReturnType<ty
 type Choice = { path: string; selected?: string[] } | null;
 type Result = { token: string; selected?: PhotoId[] } | null;
 export function createFolderRequests(deps: Deps) {
+  let issued = 0, accepted = 0;
   let pending: { token: string; cancel(): void } | undefined;
   let publication: { activation: string; opened: boolean; replacement?: ListingFrame[] } | undefined;
   const replacements = new Map<string, { activation: string; entries: [PhotoId, string][]; assembler: ReturnType<typeof createListingAssembler> }>();
@@ -38,18 +39,23 @@ export function createFolderRequests(deps: Deps) {
     replacement.assembler.push(message);
   });
   function start(choose: () => Promise<Choice>): Promise<Result> {
-    if (pending) { pending.cancel(); void deps.worker.send({ v: 1, kind: 'cancel-list', token: pending.token }).catch(() => {}); }
+    const order = ++issued;
     const token = randomUUID();
     let cancel!: () => void;
     const cancelled = new Promise<null>(resolve => { cancel = () => resolve(null); });
-    const request = { token, cancel }; pending = request;
-    const latest = () => pending === request;
+    const request = { token, cancel };
+    const latest = () => order >= accepted;
     const run = (async (): Promise<Result> => {
       let folderPath = '';
       try {
         const choice = await choose(); if (!choice || !latest()) return null;
         folderPath = choice.path;
-        const canonical = await realpath(folderPath); if (!latest()) return null;
+        const canonical = await realpath(folderPath);
+        if (!(await stat(canonical)).isDirectory()) throw new Error('The selected path is not a folder');
+        if (!latest()) return null;
+        accepted = order;
+        if (pending) { pending.cancel(); void deps.worker.send({ v: 1, kind: 'cancel-list', token: pending.token }).catch(() => {}); }
+        pending = request;
         const id = folderId(canonical);
         const listing = await deps.worker.request({ kind: 'list', path: canonical, folderId: id, token, activation: token, purpose: 'open' });
         if (!latest()) return null;
@@ -58,19 +64,17 @@ export function createFolderRequests(deps: Deps) {
         commit({ path: canonical, folderId: id, activation: token }, listing.registry, () => deps.store.remember(canonical));
         publication = { activation: token, opened: false };
         deps.accepted();
-        try { await deps.store.flush(); }
-        catch (error) { if (latest()) deps.error(path.basename(canonical) || canonical, error instanceof Error ? error.message : String(error)); }
-        if (!latest()) return null;
         for (const frame of frames) deps.send(frame);
         publication.opened = true;
         for (const frame of publication.replacement ?? []) deps.send(frame);
         publication.replacement = undefined;
+        void deps.store.flush().catch(error => deps.error(path.basename(canonical) || canonical, error instanceof Error ? error.message : String(error)));
         const selected = choice.selected && listing.registry.filter(([, file]) => choice.selected!.includes(file)).map(([id]) => id);
         return { token, ...(selected ? { selected } : {}) };
       } catch (error) {
         if (latest()) deps.error(path.basename(folderPath) || folderPath, error instanceof Error ? error.message : String(error));
         return null;
-      } finally { if (latest()) pending = undefined; }
+      } finally { if (pending === request) pending = undefined; }
     })();
     return Promise.race([run, cancelled]);
   }

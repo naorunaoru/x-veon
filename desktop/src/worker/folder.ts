@@ -9,7 +9,7 @@ export async function listFolder(folderPath: string): Promise<FolderEntry[]> {
   const folder = await fs.realpath(folderPath);
   const entries: FolderEntry[] = [];
   for (const name of await fs.readdir(folder)) {
-    if (!RAW_EXTENSIONS.includes(path.extname(name).toLowerCase())) continue;
+    if (name.startsWith('._') || !RAW_EXTENSIONS.includes(path.extname(name).toLowerCase())) continue;
     const file = path.join(folder, name);
     try {
       const real = await fs.realpath(file);

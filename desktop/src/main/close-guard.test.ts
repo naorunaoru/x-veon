@@ -46,3 +46,9 @@ it('keeps identically named photos from different folders in the warning', () =>
     "2 photos have edits that aren't saved.\n\nsame.RAF — Alps\nsame.RAF — Beach",
   );
 });
+
+it('bounds warning names at ten without changing the full unsaved inventory', () => {
+ const all = Array.from({ length: 350 }, (_, i) => ({ ...unsaved[0], id: String(i), name: `photo-${i}` }));
+ const text = unsavedQuitMessage(all);
+ expect(text).toContain('350 photos'); expect(text).toContain('photo-9'); expect(text).not.toContain('photo-10'); expect(text).toContain('340 more'); expect(all).toHaveLength(350);
+});

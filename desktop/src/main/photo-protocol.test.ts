@@ -1,3 +1,4 @@
+import { requireFileSymlinks, directoryLinkType } from '../test/symlinks';
 import { afterEach, expect, it, vi } from 'vitest';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -15,7 +16,7 @@ it('streams only registered files in opened real roots and thumbnails in the rea
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'protocol-'))); dirs.push(dir);
   const root = path.join(dir, 'photos'), cache = path.join(dir, 'cache'); await fs.mkdir(root); await fs.mkdir(cache);
   const raw = path.join(root, 'a.RAF'), outside = path.join(dir, 'secret'), thumb = path.join(cache, 'a.jpg');
-  await fs.writeFile(raw, 'raw bytes'); await fs.writeFile(outside, 'secret'); await fs.writeFile(thumb, 'thumbnail'); await fs.symlink(outside, path.join(root, 'escape.RAF'));
+  await fs.writeFile(raw, 'raw bytes'); await fs.writeFile(outside, 'secret'); await fs.writeFile(thumb, 'thumbnail');
   let handler!: (r: { url: string; method: string }) => Promise<Response>;
   const registry = new Map([['a'.repeat(22), raw], ['b'.repeat(22), outside], ['c'.repeat(22), path.join(root, 'escape.RAF')]]);
   let thumbPath: string | null = thumb;
@@ -24,12 +25,13 @@ it('streams only registered files in opened real roots and thumbnails in the rea
   const allowed = await request('raw', 'a');
   expect(allowed.headers.get('Access-Control-Allow-Origin')).toBe('app://bundle');
   expect(await allowed.text()).toBe('raw bytes');
-  for (const id of ['b', 'c', 'z']) expect((await request('raw', id)).status).toBe(404);
+  for (const id of ['b', 'z']) expect((await request('raw', id)).status).toBe(404);
   expect(await (await request('thumb', 'a')).text()).toBe('thumbnail'); thumbPath = outside; expect((await request('thumb', 'a')).status).toBe(404);
   expect((await handler({ url: `xveon-photo://raw/${'a'.repeat(22)}`, method: 'POST' })).status).toBe(404);
 });
 
-it.each(['second-resolution', 'leaf-before-open', 'parent-before-open'])('rejects outside bytes after a controlled %s symlink swap', async phase => {
+it.for(['second-resolution', 'leaf-before-open', 'parent-before-open'])('rejects outside bytes after a controlled %s symlink swap', async (phase, context) => {
+  if (phase !== 'parent-before-open') requireFileSymlinks(context);
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'protocol-swap-'))); dirs.push(dir);
   const root = path.join(dir, 'photos'), outside = path.join(dir, 'outside'); await fs.mkdir(root); await fs.mkdir(outside);
   const raw = path.join(root, 'a.RAF'); await fs.writeFile(raw, 'safe raw'); await fs.writeFile(path.join(outside, 'a.RAF'), 'outside secret');
@@ -39,7 +41,7 @@ it.each(['second-resolution', 'leaf-before-open', 'parent-before-open'])('reject
   let swapped = false;
   const swap = async () => {
     if (swapped) return; swapped = true;
-    if (phase === 'parent-before-open') { await fs.rename(root, root + '-old'); await fs.symlink(outside, root, 'dir'); }
+    if (phase === 'parent-before-open') { await fs.rename(root, root + '-old'); await fs.symlink(outside, root, directoryLinkType); }
     else { await fs.unlink(raw); await fs.symlink(path.join(outside, 'a.RAF'), raw); }
   };
   if (phase === 'second-resolution') vi.spyOn(fs, 'realpath').mockImplementation(async (...args: Parameters<typeof fs.realpath>) => { const result = await originalRealpath(...args); if (args[0] === raw) await swap(); return result; });

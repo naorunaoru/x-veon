@@ -25,3 +25,5 @@ it('keeps fixtures and edits in memory without exposing delete or clear', async 
   expect((await createGoldenHost().host.library.load()).photos).toEqual([]);
   expect(await createExporter().status()).toMatchObject({ available: false });
 });
+
+it('isolates golden settings from production', () => { expect(createGoldenHost().host.settingsDbName).toBe('xveon-desktop-golden'); });

@@ -1,3 +1,4 @@
+import { requireFileSymlinks, directoryLinkType } from '../test/symlinks';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
@@ -43,10 +44,10 @@ it('creates nothing for default edits and deletes an only-ours sidecar on reset'
 });
 it('rejects a RAW deleted after registration', async () => { await fs.unlink(raw); await expect(lib.saveEdit(id(), edit)).rejects.toThrow('The photo is no longer in its folder'); expect(await fs.readdir(folder)).toEqual([]); });
 it('rejects a parent replaced by an outside symlink without writing outside', async () => {
- const outside = path.join(dir, 'outside'); await fs.mkdir(outside); await fs.writeFile(path.join(outside, 'a.RAF'), 'outside'); await fs.rename(folder, folder + '-old'); await fs.symlink(outside, folder);
+ const outside = path.join(dir, 'outside'); await fs.mkdir(outside); await fs.writeFile(path.join(outside, 'a.RAF'), 'outside'); await fs.rename(folder, folder + '-old'); await fs.symlink(outside, folder, directoryLinkType);
  await expect(lib.saveEdit(id(), edit)).rejects.toThrow(/outside|opened/i); expect(await fs.readdir(outside)).toEqual(['a.RAF']);
 });
-it('rejects a sidecar that became a symlink, retaining its target bytes', async () => {
+it('rejects a sidecar that became a symlink, retaining its target bytes', async context => { requireFileSymlinks(context);
  const target = path.join(dir, 'target'); await fs.writeFile(target, 'unchanged'); await fs.symlink(target, raw + '.xmp'); await expect(lib.saveEdit(id(), edit)).rejects.toThrow(/sidecar.*symlink/i); expect(await fs.readFile(target, 'utf8')).toBe('unchanged');
 });
 it('refuses malformed and newer-schema sidecars and lists them as view-only', async () => {
@@ -106,7 +107,7 @@ it.each(['write', 'reset'] as const)('rejects a persistent parent swap after val
   vi.spyOn(fs, 'realpath').mockImplementation(async target => {
     if (String(target) === folder && ++parents === 3) {
       await fs.rename(folder, folder + '-old');
-      await fs.symlink(outside, folder);
+      await fs.symlink(outside, folder, directoryLinkType);
     }
     return realpath(target);
   });
@@ -119,7 +120,7 @@ it('rejects a parent swap between a locked rename and its retry', async () => {
   const outside = path.join(dir, 'outside'); await fs.mkdir(outside);
   await fs.writeFile(path.join(outside, 'a.RAF.xmp'), 'outside sidecar');
   vi.spyOn(fs, 'rename').mockImplementationOnce(async () => {
-    await fs.rename(folder, folder + '-old'); await fs.symlink(outside, folder);
+    await fs.rename(folder, folder + '-old'); await fs.symlink(outside, folder, directoryLinkType);
     throw Object.assign(new Error('busy'), { code: 'EBUSY' });
   });
   await expect(lib.saveEdit(id(), edit)).rejects.toThrow(/directory|folder/i);

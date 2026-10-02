@@ -130,3 +130,12 @@ it('restarts after the crash circuit with the same session, roots, registry and 
   expect(events.at(-1)).toBe('restarted'); s.stop();
   await expect(s.restart()).rejects.toThrow(/stopped/);
 });
+
+it('consumes worker stdout and stderr with the worker identity', async () => {
+ const child = Object.assign(new Child(), { stdout: new EventEmitter(), stderr: new EventEmitter() });
+ const log = vi.spyOn(console, 'log').mockImplementation(() => {}), warn = vi.spyOn(console, 'error').mockImplementation(() => {});
+ const supervisor = createWorkerSupervisor({ fork: () => child as any, sessionKey: Buffer.from('key'), cacheDir: '/cache', onEvent() {} });
+ try { const ready = supervisor.ready(); child.spawn(); await ready; child.stdout.emit('data', Buffer.from('watch attached')); child.stderr.emit('data', Buffer.from('watch failed'));
+ expect(log).toHaveBeenCalledWith(expect.stringContaining(supervisor.instance), 'watch attached'); expect(warn).toHaveBeenCalledWith(expect.stringContaining(supervisor.instance), 'watch failed'); }
+ finally { supervisor.stop(); log.mockRestore(); warn.mockRestore(); }
+});

@@ -21,19 +21,19 @@ async function harness() {
   const store = createFolderStore(path.join(dir, 'folders.json')); const child = new Child();
   const worker = createWorkerSupervisor({ fork: () => child, sessionKey: Buffer.alloc(32), cacheDir: dir, onEvent() {} }); await worker.ready();
   cleanups.push(async () => { worker.stop(); await store.flush(); await fs.rm(dir, { recursive: true, force: true }); });
-  let chosen = A; const frames: any[] = [], error = vi.fn(); const requests = createFolderRequests({ store, worker, chooseFolder: async () => chosen, send: f => frames.push(f), error, accepted() {} });
-  const choose = (value: string) => { chosen = value; return requests.openFolder(); };
+  let chosen: string | null = A; const frames: any[] = [], error = vi.fn(); const picker = vi.fn(async () => chosen); const requests = createFolderRequests({ store, worker, chooseFolder: picker, send: f => frames.push(f), error, accepted() {} });
+  const choose = (value: string | null) => { chosen = value; return requests.openFolder(); };
   async function listed(index: number) { await vi.waitFor(() => expect(child.sent.filter(m => m.kind === 'list').length).toBeGreaterThan(index)); return child.sent.filter(m => m.kind === 'list')[index]; }
   function complete(request: any, name: string) {
     const p = { ...photo(), id: name.repeat(22) }; const folder = { id: request.folderId, name: path.basename(request.path) };
     for (const frame of listingFrames({ token: request.token, activation: request.activation, purpose: request.purpose, folder, stamp: request.stamp }, [p], [[p.id, path.join(request.path, name + '.RAF')]])) child.emit('message', frame);
   }
-  return { A, B, dir, store, worker, child, requests, choose, frames, error, listed, complete };
+  return { A, B, dir, store, worker, child, requests, choose, picker, frames, error, listed, complete };
 }
 it('latest listing wins; A resolves null and late A cannot change any committed state', async () => {
   const h = await harness(); const a = h.choose(h.A); const first = await h.listed(0); const b = h.choose(h.B); const second = await h.listed(1);
   await expect(a).resolves.toBeNull(); h.complete(second, 'b'); expect(await b).toEqual({ token: second.token }); h.complete(first, 'a');
-  expect(h.worker.current).toEqual({ path: h.B, folderId: second.folderId, activation: second.activation }); expect(h.store.last()?.name).toBe('B'); expect(JSON.parse(await fs.readFile(path.join(h.dir, 'folders.json'), 'utf8')).last).toBe(second.folderId);
+  expect(h.worker.current).toEqual({ path: h.B, folderId: second.folderId, activation: second.activation }); expect(h.store.last()?.name).toBe('B'); await h.store.flush(); expect(JSON.parse(await fs.readFile(path.join(h.dir, 'folders.json'), 'utf8')).last).toBe(second.folderId);
   expect(h.worker.roots).toEqual([h.B]); expect(h.child.sent.filter(m => m.kind === 'watch').map(m => m.path)).toEqual([h.B]); expect(h.worker.registry.has('a'.repeat(22))).toBe(false); expect(h.frames.every(f => f.token === second.token)).toBe(true); expect(h.child.sent).toContainEqual({ v: 1, kind: 'cancel-list', token: first.token });
 });
 it('A → B → A rejects first-visit replacements and preserves the final watcher', async () => {
@@ -51,12 +51,17 @@ it('cancels during prepared-worker readiness without committing the older listin
   const b = h.choose(h.B); const second = await h.listed(1); h.complete(second, 'b'); await b; gate.resolve(); await expect(a).resolves.toBeNull(); await Promise.resolve();
   expect(h.store.recent().map(f => f.name)).toEqual(['B']); expect(h.worker.roots).toEqual([h.B]);
 });
-it('superseding a request awaiting persistence resolves it null and publishes only newest frames', async () => {
+it.each(['cancel', 'empty-drop', 'non-raw-drop', 'missing-recent', 'failed-path'])('publishes committed A before persistence, preserving it through %s', async kind => {
   const h = await harness(); const gate = held<void>(); const flush = h.store.flush.bind(h.store);
   vi.spyOn(h.store, 'flush').mockImplementationOnce(async () => { await gate.promise; await flush(); });
-  const a = h.choose(h.A); const first = await h.listed(0); h.complete(first, 'a'); await vi.waitFor(() => expect(h.store.flush).toHaveBeenCalled());
-  const b = h.choose(h.B); const second = await h.listed(1); h.complete(second, 'b'); await b; await expect(a).resolves.toBeNull(); gate.resolve(); await Promise.resolve();
-  expect(h.store.last()?.name).toBe('B'); expect(h.frames.every(f => f.token === second.token)).toBe(true);
+  const a = h.choose(h.A); const first = await h.listed(0); h.complete(first, 'a');
+  await vi.waitFor(() => expect(h.store.flush).toHaveBeenCalled());
+  const text = path.join(h.dir, 'notes.txt'); await fs.writeFile(text, 'not RAW');
+  const next = kind === 'non-raw-drop' ? h.requests.openDropped([text]) : kind === 'cancel' ? h.choose(null) : kind === 'empty-drop' ? h.requests.openDropped([]) : kind === 'missing-recent' ? h.requests.openFolder('missing') : h.choose(path.join(h.dir, 'missing'));
+  await expect(next).resolves.toBeNull();
+  try { expect(h.frames.some(f => f.kind === 'listing-end' && f.token === first.token)).toBe(true); }
+  finally { gate.resolve(); }
+  expect(await a).toEqual({ token: first.token }); expect(h.worker.current?.path).toBe(h.A);
 });
 it('drops open the first RAW containing folder and select only dropped files in it', async () => {
   const h = await harness(); await fs.writeFile(path.join(h.A, 'a.RAF'), 'raw'); await fs.writeFile(path.join(h.B, 'b.RAF'), 'raw');
@@ -75,9 +80,9 @@ it('publishes open before the newest replacement completed while folder persiste
   const opening = h.choose(h.A); const request = await h.listed(0); h.complete(request, 'a'); await vi.waitFor(() => expect(h.store.flush).toHaveBeenCalled());
   h.complete({ ...request, purpose: 'replace', token: 'replacement-1' }, 'b');
   h.complete({ ...request, purpose: 'replace', token: 'replacement-2' }, 'c');
-  expect(h.frames).toEqual([]);
+  expect(h.frames.filter(f => f.kind === 'listing-begin').map(f => f.token)).toEqual([request.token, 'replacement-1', 'replacement-2']);
   gate.resolve(); expect(await opening).toEqual({ token: request.token });
-  expect(h.frames.filter(f => f.kind === 'listing-begin').map(f => [f.purpose, f.token])).toEqual([['open', request.token], ['replace', 'replacement-2']]);
+  expect(h.frames.filter(f => f.kind === 'listing-begin').map(f => [f.purpose, f.token])).toEqual([['open', request.token], ['replace', 'replacement-1'], ['replace', 'replacement-2']]);
   expect(h.frames.filter(f => f.kind === 'listing-batch').at(-1).photos[0].id).toBe('c'.repeat(22));
 });
 it('reports an unpublishable replacement instead of throwing from the worker message callback', async () => {
@@ -98,4 +103,10 @@ it('preserves worker revision and scan stamps when main republishes open and rep
   const replacementStamp = { ...stamp, revision: 6, scan: 2 };
   h.complete({ ...request, token: 'replacement', purpose: 'replace', stamp: replacementStamp }, 'b');
   expect(h.frames[0].stamp).toEqual(replacementStamp);
+});
+
+it('a picker that resolves late cannot override a later accepted choice', async () => {
+ const h = await harness(); const selection = held<string | null>(); h.picker.mockImplementationOnce(() => selection.promise);
+ const a = h.requests.openFolder(); const b = h.choose(h.B); const second = await h.listed(0); h.complete(second, 'b'); await b;
+ selection.resolve(h.A); await expect(a).resolves.toBeNull(); expect(h.worker.current?.path).toBe(h.B); expect(h.child.sent.filter(m => m.kind === 'list')).toHaveLength(1);
 });

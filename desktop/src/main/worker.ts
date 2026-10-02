@@ -9,6 +9,8 @@ import type { MainToWorker, WorkerToMain, ListingStamp } from '../protocol/rpc';
 
 export type UtilityProcessLike = EventEmitter & {
   readonly pid?: number;
+  readonly stdout?: NodeJS.ReadableStream | null;
+  readonly stderr?: NodeJS.ReadableStream | null;
   postMessage(message: unknown, ports?: MessagePortMain[]): void;
   kill(): boolean;
 };
@@ -65,6 +67,9 @@ export function createWorkerSupervisor(opts: {
   function start(restarting = false): Promise<void> {
     if (stopped) return Promise.reject(new Error(stoppedMessage));
     const target = opts.fork(); child = target; instance = randomUUID();
+    const identity = instance;
+    target.stdout?.on('data', chunk => console.log(`[library ${identity} stdout]`, String(chunk).trimEnd()));
+    target.stderr?.on('data', chunk => console.error(`[library ${identity} stderr]`, String(chunk).trimEnd()));
     target.on('message', value => received(target, value));
     target.once('exit', () => {
       if (child !== target || stopped) return;

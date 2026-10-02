@@ -111,6 +111,6 @@ Electron, with driver and runtime versions saved alongside the reports.
 
 `?golden=render` runs all ten processing cases once and checks exact scene, graded and
 dark-graded hashes. It does not exercise exports. Electron uses this mode because its
-spike exporter is unavailable; desktop exports wait for M3. `?golden=full` continues to
+desktop exporter is unavailable; desktop exports wait for M3. `?golden=full` continues to
 require all ten cases and all six exports. Missing expected cases fail in either mode.
-See `desktop/SPIKE.md` for the built Electron commands and cross-machine handoff.
+See `README.md` and `desktop/scripts/` for built Electron commands. Acceptance and cross-machine evidence live in the M2 plan and handoff.

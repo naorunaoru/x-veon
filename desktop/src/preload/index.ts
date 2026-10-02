@@ -28,9 +28,13 @@ const bridge: DesktopBridge = {
   version: 2,
   loadLast: () => invoke({ version: 2, kind: 'loadLast' }) as ReturnType<DesktopBridge['loadLast']>,
   openFolder: folderId => invoke({ version: 2, kind: 'openFolder', folderId }) as ReturnType<DesktopBridge['openFolder']>,
-  openDropped: paths => invoke({ version: 2, kind: 'openDropped', paths }) as ReturnType<DesktopBridge['openDropped']>,
+  async openDropped(files) {
+    if (!Array.isArray(files) || files.some(file => !(file instanceof File))) throw new Error('Only files on disk can be opened.');
+    const paths = Array.from(files, file => webUtils.getPathForFile(file));
+    if (paths.some(path => !path)) throw new Error('Only files on disk can be opened.');
+    return invoke({ version: 2, kind: 'openDropped', paths }) as ReturnType<DesktopBridge['openDropped']>;
+  },
   recentFolders: () => invoke({ version: 2, kind: 'recentFolders' }) as ReturnType<DesktopBridge['recentFolders']>,
-  pathsForFiles: files => files.map(file => webUtils.getPathForFile(file)),
   async requestWorkerPort(requestId) {
     const request = { version: 2 as const, kind: 'requestWorkerPort' as const, requestId };
     if (!isDesktopRequest(request)) throw new Error('Invalid bridge request');

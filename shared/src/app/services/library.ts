@@ -9,21 +9,22 @@ import {
 } from './persistence';
 let clearing = false;
 let suspended = false;
-let folderGeneration = 0;
-/** Lets startup reject a restore overtaken by any folder request. */
+let folderGeneration = 0, issued = 0, accepted = 0;
+/** Lets startup reject a restore overtaken by an accepted folder choice. */
 export function folderSwitchVersion(): number { return folderGeneration; }
 /** Every folder entry point shares this ordering and stale-result guard. */
 export async function switchFolder(load: () => Promise<LibrarySnapshot | null>): Promise<void> {
   if (clearing || suspended) return;
-  const generation = ++folderGeneration;
+  const order = ++issued;
   await flushPersistence();
-  if (generation !== folderGeneration || clearing || suspended) return;
+  if (order < accepted || clearing || suspended) return;
   const snapshot = await load();
   if (!snapshot) return;
-  if (generation !== folderGeneration || clearing || suspended) {
+  if (order < accepted || clearing || suspended) {
     getHost().library.release?.(snapshot.photos);
     return;
   }
+  accepted = order; ++folderGeneration;
   const state = useAppStore.getState();
   const files = snapshot.photos.map(photo => restoreFromLedger(fromLibraryPhoto(photo)));
   for (const file of state.files) discardResult(file.id);
@@ -120,7 +121,7 @@ export async function clearLibrary(): Promise<void> {
   const clear = getHost().library.clear;
   if (!clear || clearing) return;
   clearing = true;
-  ++folderGeneration;
+  ++folderGeneration; accepted = ++issued;
   try {
     await pausePersistence();
     for (const file of useAppStore.getState().files) discardResult(file.id);

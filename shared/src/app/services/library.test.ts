@@ -129,3 +129,14 @@ it('ignores facts and replacement snapshots from an earlier folder', () => {
   expect(useAppStore.getState().files).toMatchObject([{ id: 'a', thumbnailUrl: null }]);
   stop();
 });
+
+it.each(['loading', 'flushing'])('cancellation preserves the earlier %s choice and bootstrap version', async phase => {
+ const { folderSwitchVersion } = await import('./library'); const version = folderSwitchVersion();
+ let finish!: () => void; const gate = new Promise<void>(r => { finish = r; });
+ if (phase === 'flushing') vi.mocked(flushPersistence).mockImplementationOnce(() => gate);
+ const first = switchFolder(async () => { if (phase === 'loading') await gate; return snapshot('kept'); });
+ await Promise.resolve(); await switchFolder(async () => null);
+ expect(folderSwitchVersion()).toBe(version);
+ finish(); await first; expect(useAppStore.getState().folder?.id).toBe('kept');
+ expect(folderSwitchVersion()).toBeGreaterThan(version);
+});

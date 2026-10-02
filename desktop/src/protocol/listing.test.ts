@@ -49,3 +49,14 @@ it('includes the complete desktop event wrapper when splitting near-limit photo 
   expect(frames.filter(f => f.kind === 'listing-batch')).toHaveLength(2);
   for (const frame of frames) expect(Buffer.byteLength(JSON.stringify({ version: 2, kind: 'listing', frame }))).toBeLessThanOrEqual(1_000_000);
 });
+
+it('serializes each photo a constant number of times, with exact UTF-8 and registry budgets', () => {
+ const photos = Array.from({ length: 2000 }, (_, i) => ({ ...photo(i), editingNote: '撮影📷'.repeat(100) }));
+ const registry: [string, string][] = photos.map(p => [p.id, '/写真/📷/' + p.originalName]);
+ const stringify = vi.spyOn(JSON, 'stringify');
+ const frames = listingFrames({ token: '測定', activation: 'a', folder, purpose: 'open' }, photos, registry);
+ const calls = stringify.mock.calls.reduce((n, args) => n + ((args[0] as any)?.photos?.length ?? 1), 0); stringify.mockRestore();
+ expect(calls).toBeLessThan(10_000);
+ expect(frames.every(f => Buffer.byteLength(JSON.stringify(f)) <= 1_000_000)).toBe(true);
+ expect(frames.filter(f => f.kind === 'listing-batch').every(f => f.photos.length <= 250)).toBe(true);
+});

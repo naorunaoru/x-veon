@@ -10,9 +10,8 @@ export interface DesktopBridge {
   version: 2;
   loadLast(): Promise<{ token: string } | null>;
   openFolder(folderId?: string): Promise<{ token: string } | null>;
-  openDropped(paths: string[]): Promise<{ token: string; selected: PhotoId[] } | null>;
+  openDropped(files: File[]): Promise<{ token: string; selected: PhotoId[] } | null>;
   recentFolders(): Promise<FolderRef[]>;
-  pathsForFiles(files: File[]): string[];
   requestWorkerPort(requestId: string): Promise<void>;
   updateUnsaved(edits: UnsavedSummary[]): void;
   respondFlush(requestId: number, unsaved: UnsavedSummary[]): void;

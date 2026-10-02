@@ -15,6 +15,6 @@ it('starts the golden host, cleans fixture ownership, and publishes a terminal r
     (window as any).__golden = { status: 'PASS', results: [1] };
   });
   await module!.runGoldenApp(root);
-  expect(m.start).toHaveBeenCalledWith(root, expect.objectContaining({ library: expect.any(Object), settingsDbName: 'xveon-desktop' }));
+  expect(m.start).toHaveBeenCalledWith(root, expect.objectContaining({ library: expect.any(Object), settingsDbName: 'xveon-desktop-golden' }));
   expect((window as any).__goldenRun).toEqual({ status: 'PASS', totalMs: expect.any(Number), report: { status: 'PASS', results: [1] } }); expect((window as any).__goldenRun.totalMs).toBeGreaterThanOrEqual(0);
 });

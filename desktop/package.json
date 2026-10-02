@@ -7,14 +7,11 @@
     "build": "electron-vite build",
     "dist": "electron-vite build && electron-builder --config electron-builder.config.cjs",
     "start": "electron .",
-    "test": "vitest run",
+    "test": "vitest run --exclude src/worker/watch.test.ts && vitest run src/worker/watch.test.ts --no-file-parallelism",
     "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {
-    "@xmldom/xmldom": "0.9.12",
-    "@xveon/shared": "*",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "@xmldom/xmldom": "0.9.12"
   },
   "devDependencies": {
     "@electron/asar": "4.3.1",
@@ -27,6 +24,9 @@
     "typescript": "^5.9.3",
     "vite": "^6.0.0",
     "vite-plugin-wasm": "^3.4.1",
-    "vitest": "3.2.6"
+    "vitest": "3.2.6",
+    "@xveon/shared": "*",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
   }
 }

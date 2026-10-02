@@ -18,7 +18,7 @@ export interface WorkerLibrary {
  setRoots(realRoots: string[]): void;
  saveEdit(id: PhotoId, edit: PhotoEdit): Promise<void>;
  saveFacts(id: PhotoId, facts: PhotoFacts): Promise<void>;
- thumbnail(id: PhotoId): Promise<{ path: string | null; facts: PhotoFacts | null }>;
+ thumbnail(id: PhotoId): Promise<{ path: string | null; facts: PhotoFacts | null; sourceVersion?: string }>;
 }
 
 function message(error: unknown): string { return error instanceof Error ? error.message : String(error); }
@@ -51,7 +51,7 @@ export function createWorkerLibrary(opts: { sessionKey: Buffer; cacheDir: string
     async *list(folderPath, _folderId) {
       const entries = await listFolder(folderPath);
       let folderNote: string | null = null;
-      try { await fs.access(folderPath, constants.W_OK); }
+      try { if (process.platform !== 'win32') await fs.access(folderPath, constants.W_OK); }
       catch (error) { folderNote = `This folder can't be written: ${message(error)}`; }
       for (let offset = 0; offset < entries.length; offset += 250) {
         const photos: LibraryPhoto[] = [];
@@ -87,7 +87,6 @@ export function createWorkerLibrary(opts: { sessionKey: Buffer; cacheDir: string
     async saveEdit(id, edit) {
       const raw = registered(id);
       const checked = await roots.checkWrite(raw);
-      await fs.access(checked.realDir, constants.W_OK);
       const existing = await sidecarText(checked.sidecarPath);
       const merged = mergeSidecar(existing, edit);
       if (merged === existing) return;
@@ -98,14 +97,12 @@ export function createWorkerLibrary(opts: { sessionKey: Buffer; cacheDir: string
     },
     async saveFacts(id, facts) {
       await cache.putFacts(cache.key(await currentEntry(id)), facts);
-      await cache.evict();
     },
     async thumbnail(id) {
       const entry = await currentEntry(id);
       const head = await ensureHead(entry, cache);
       const facts = await cache.getFacts(cache.key(entry));
-      await cache.evict();
-      return { path: head.thumbnail, facts };
+      return { path: head.thumbnail, facts, sourceVersion: cache.key(entry) };
     },
   };
 }

@@ -68,7 +68,7 @@ export function createGoldenHost() {
     },
   };
   return {
-    host: { library, exporter: createExporter(), display: createDisplayHost(), build: BUILD, settingsDbName: 'xveon-desktop' } satisfies Host,
+    host: { library, exporter: createExporter(), display: createDisplayHost(), build: BUILD, settingsDbName: 'xveon-desktop-golden' } satisfies Host,
     releaseFixture(id: string) {
       photos.delete(id);
       files.delete(id);

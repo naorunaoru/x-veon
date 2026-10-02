@@ -28,6 +28,7 @@ import { processFile, setPipeline, discardResult } from '@/app/services/processi
 import { startPersistence } from '@/app/services/persistence';
 import { useAutoProcess } from '@/app/hooks/useAutoProcess';
 import type { DemosaicMethod } from '@/lib/types';
+import { isMethodValidForCfa } from '@/lib/catalog';
 let serial = 0;
 function setup() {
   const dbName = `library-test-${++serial}`;
@@ -76,12 +77,12 @@ describe('web library', () => {
     setHost(appHost);
     setPipeline({} as never);
     useAppStore.setState({ files: [fromLibraryPhoto(photo)], selectedFileId: photo.id, demosaicMethod: 'markesteijn3', modelSize: 'S', processingFileId: null, initialized: true });
-    processRaw.mockImplementation(async (_bytes, options: { method: DemosaicMethod }) => processedImage(options.method));
+    processRaw.mockImplementation(async (_bytes, options: { method: DemosaicMethod; resolveDefault?: boolean }) => processedImage(options.resolveDefault && !isMethodValidForCfa(options.method, 'bayer') ? 'neural-net' : options.method));
     const save = vi.spyOn(host, 'saveFacts');
     const stop = startPersistence();
     try {
       await processFile(photo.id);
-      expect(processRaw).toHaveBeenCalledWith(expect.any(ArrayBuffer), expect.objectContaining({ method: 'neural-net' }), expect.anything());
+      expect(processRaw).toHaveBeenCalledWith(expect.any(ArrayBuffer), expect.objectContaining({ method: 'markesteijn3', resolveDefault: true }), expect.anything());
       await vi.waitFor(async () => {
         expect(save).toHaveBeenCalledTimes(1);
         expect((await createFileStorage(dbName).getAllFiles())[0]).toMatchObject({ resultMethod: 'neural-net', editMethod: null, status: 'done' });
@@ -345,4 +346,13 @@ it('merges facts atomically without replacing an edit saved by another adapter',
   const record = (await createFileStorage(dbName).getAllFiles())[0];
   expect(record).toMatchObject({ lookPreset: 'umbra', editMethod: 'dht', preProcessOverrides: { exposure: 2 }, resultMethod: 'bilinear', error: 'fact' });
   await closeDatabase(dbName);
+});
+
+it.each(['ahd', 'ppg', 'mhc'] as const)('processes a Bayer RAF with default %s despite its web extension guess', async method => {
+ const { host } = setup(); const p = (await host.addFiles([raw('bayer.RAF')])).photos[0]; expect(p.facts.cfaType).toBe('xtrans');
+ const appHost = fakeHost(); appHost.library = host; setHost(appHost); setPipeline({} as never);
+ useAppStore.setState({ files: [fromLibraryPhoto(p)], selectedFileId: p.id, demosaicMethod: method, modelSize: 'S', processingFileId: null });
+ processRaw.mockImplementationOnce(async (_bytes, options) => { expect(options).toMatchObject({ method, resolveDefault: true }); return processedImage(method); });
+ try { await processFile(p.id); const file = useAppStore.getState().files[0]; expect(file).toMatchObject({ status: 'done', cfaType: 'bayer', resultMethod: method }); await host.saveFacts(p.id, factsOf(file)); expect((await host.load()).photos[0].edit.demosaicMethod).toBeNull(); }
+ finally { discardResult(p.id); }
 });

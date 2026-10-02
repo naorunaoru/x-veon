@@ -45,7 +45,8 @@ export function createFileStorage(dbName: string) {
         const request = store.get(id);
         request.onsuccess = () => {
           if (!request.result) { missing = true; tx.abort(); return; }
-          merged = { ...request.result, ...recordFacts(facts) };
+          const stored = request.result as PersistedFile;
+          merged = { ...stored, editMethod: 'editMethod' in stored ? stored.editMethod : stored.resultMethod, ...recordFacts(facts) };
           store.put(merged);
         };
       });

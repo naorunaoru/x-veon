@@ -53,3 +53,11 @@ it('stores and restores the edit method separately from the result method', asyn
   expect(queued.resultMethod).toBe('neural-net');
   expect(factsOf(queued).resultMethod).toBe('neural-net');
 });
+
+it.each([null, 'ahd'] as const)('facts migration preserves legacy edit method %s', async method => {
+ const storage = createFileStorage('legacy-facts-' + method); const p = fakePhoto();
+ const record = toRecord(p, defaultEdit(), { ...p.facts, resultMethod: method }, 1); delete record.editMethod;
+ await storage.putFile(record); await storage.mergeFacts(p.id, { ...p.facts, resultMethod: 'neural-net' });
+ const restored = fromRecord((await storage.getAllFiles())[0], null);
+ expect(restored.edit.demosaicMethod).toBe(method); expect(restored.facts.resultMethod).toBe('neural-net');
+});

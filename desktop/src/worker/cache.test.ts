@@ -41,3 +41,11 @@ it.each(['head-first', 'facts-first'] as const)('preserves both owners during co
   await Promise.all([first, second]);
   expect(await createCache({ dir }).getFacts(key)).toEqual({ ...completed, metadata });
 });
+
+it('coalesces eviction after writes and never schedules scans for cache hits', async () => {
+ vi.useFakeTimers(); const cache = createCache({ dir }); const evict = vi.spyOn(cache, 'evict').mockResolvedValue(); const key = 'e'.repeat(64);
+ try { await Promise.all([cache.putFacts(key, facts), cache.putThumb(key, new Uint8Array(3)), cache.markHead(key)]);
+ expect(evict).not.toHaveBeenCalled(); await vi.advanceTimersByTimeAsync(1000); expect(evict).toHaveBeenCalledOnce();
+ await Promise.all(Array.from({ length: 150 }, () => cache.hasHead(key))); await vi.advanceTimersByTimeAsync(60_000); expect(evict).toHaveBeenCalledOnce(); }
+ finally { vi.useRealTimers(); }
+});

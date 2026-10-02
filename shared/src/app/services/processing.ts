@@ -49,7 +49,7 @@ export async function processFile(fileId: string): Promise<void> {
   if (!entry) return;
 
   const requestedKey = processingKey(entry, store);
-  const method = effectiveMethod(entry.edit, store.demosaicMethod, entry.cfaType);
+  const method = entry.edit.demosaicMethod ?? store.demosaicMethod;
   const modelSize = store.modelSize;
   const model = entry.edit.model;
   runDiscarded = false;

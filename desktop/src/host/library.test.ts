@@ -48,13 +48,13 @@ async function accept(token: string, activation: string, f = folder) {
 beforeEach(() => {
   win = new EventTarget(); ports = []; listeners = new Set(); stop = () => {};
   vi.stubGlobal('window', win); vi.stubGlobal('location', { origin: 'app://bundle' }); vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(dynamic-range: high)' }));
-  bridge = { version: 2, loadLast: vi.fn(async () => null), openFolder: vi.fn(async () => null), openDropped: vi.fn(async () => null), recentFolders: vi.fn(async () => [folder]), pathsForFiles: vi.fn((files: File[]) => files.map(f => '/test/' + f.name)),
+  bridge = { version: 2, loadLast: vi.fn(async () => null), openFolder: vi.fn(async () => null), openDropped: vi.fn(async () => null), recentFolders: vi.fn(async () => [folder]),
     requestWorkerPort: vi.fn(async (requestId: string) => { const port = new FakePort(); ports.push(port); const e = new MessageEvent('message', { data: { type: 'xveon-port', version: 2, requestId }, origin: 'app://bundle' }); Object.defineProperty(e, 'source', { value: win }); Object.defineProperty(e, 'ports', { value: [port] }); win.dispatchEvent(e); }),
     updateUnsaved: vi.fn(), respondFlush: vi.fn(), onEvent: listener => { listeners.add(listener); return () => listeners.delete(listener); } };
   host = createDesktopHost(bridge);
 });
 afterEach(async () => { if (host.library) await Promise.all(unsavedEdits().map(e => cancelPhotoSave(e.id))); stop(); vi.useRealTimers(); vi.unstubAllGlobals(); });
-it('sends facts without an edit, and confirms both operations for an edit save', async () => {
+it('sends facts without an edit and starts best-effort facts caching after an edit acknowledgement', async () => {
   expect(host.library).toBeDefined(); const p = photo();
   await host.library.saveFacts(id, p.facts);
   expect(ports[0].sent).toEqual([{ v: 1, rid: expect.any(Number), op: 'saveFacts', id, facts: p.facts }]);
@@ -115,8 +115,8 @@ it('retries interrupted shared-ledger writes on the new port in revision order',
   expect(ports[1].sent.filter(r => r.op === 'saveEdit').map(r => r.edit.preProcessOverrides.exposure)).toEqual([1, 2]); expect(unsavedEdits()).toEqual([]); expect(bridge.updateUnsaved).toHaveBeenLastCalledWith([]); unsubscribe();
 });
 it('rejects non-disk drops, reads RAW URLs, rescans on focus and exposes desktop capabilities', async () => {
-  expect(host.library).toBeDefined(); vi.mocked(bridge.pathsForFiles).mockReturnValue(['']);
-  await expect(host.library.addFiles([new File(['raw'], 'photo.RAF')])).rejects.toThrow('Only files on disk can be opened.'); expect(bridge.openDropped).not.toHaveBeenCalled();
+  expect(host.library).toBeDefined(); vi.mocked(bridge.openDropped).mockRejectedValueOnce(new Error('Only files on disk can be opened.'));
+  await expect(host.library.addFiles([new File(['raw'], 'photo.RAF')])).rejects.toThrow('Only files on disk can be opened.'); expect(bridge.openDropped).toHaveBeenCalledWith([expect.any(File)]);
   const bytes = new Uint8Array([1, 2]).buffer; vi.stubGlobal('fetch', vi.fn(async () => ({ arrayBuffer: async () => bytes })));
   expect(await host.library.readRaw(id)).toBe(bytes); expect(fetch).toHaveBeenCalledWith('xveon-photo://raw/' + id);
   win.dispatchEvent(new Event('focus')); await tick(); expect(ports[0].sent.at(-1)).toMatchObject({ op: 'rescan' });
@@ -248,10 +248,10 @@ it.each([false, true])('rejects old scan/worker identities while a picker is pen
   try { expect(changed).toHaveBeenCalledTimes(2); } finally { if (picker) cancel(null); await opening; }
 });
 
-it.each([false, true])('refreshes an opening snapshot held in main across direct-port saves (second save: %s)', async secondSave => {
+it.each(['ordinary', 'second-save', 'cancel', 'empty-drop', 'missing-recent', 'failed-choice', 'startup-cancel', 'startup-empty-drop', 'startup-missing-recent'])('refreshes an opening snapshot across saves and %s', async mode => {
   let finish!: (value: { token: string }) => void;
-  vi.mocked(bridge.openFolder).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
-  const opening = host.library.openFolder!(); await tick();
+  vi.mocked(mode.startsWith('startup-') ? bridge.loadLast : bridge.openFolder).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const opening = mode.startsWith('startup-') ? host.library.load() : host.library.openFolder!(); await tick();
   for (const frame of listingFrames({ token: 'open', activation: 'visit', purpose: 'open', folder, stamp: { worker: workerA, revision: 0, scan: 1 } }, [photo()])) emit({ kind: 'listing', frame });
   ports[0].hold = true;
   const saving = host.library.save(id, { ...photo().edit, lookPreset: 'umbra' }, photo().facts); await tick();
@@ -259,6 +259,10 @@ it.each([false, true])('refreshes an opening snapshot held in main across direct
   ports[0].receive({ v: 1, rid: ports[0].sent[1].rid, ok: true, stamp: { worker: workerA, revision: 4 } }); await saving;
   ports[0].hold = false; finish({ token: 'open' }); await tick();
   expect(ports[0].sent.at(-1)).toMatchObject({ op: 'rescan' });
+  const secondSave = mode === 'second-save';
+  if (mode.includes('empty-drop')) await expect(host.library.addFiles([])).resolves.toBeNull();
+  else if (mode.includes('missing-recent')) await expect(host.library.openFolder!({ id: 'missing', name: 'Missing' })).resolves.toBeNull();
+  else if (mode === 'cancel' || mode === 'startup-cancel' || mode === 'failed-choice') await expect(host.library.openFolder!()).resolves.toBeNull();
   if (secondSave) {
     ports[0].hold = true;
     const facts = host.library.saveFacts(id, photo().facts); await tick();
@@ -269,4 +273,29 @@ it.each([false, true])('refreshes an opening snapshot held in main across direct
   }
   for (const frame of stamped('fresh', secondSave ? 6 : 4, 3, workerA, [{ ...photo(), edit: { ...photo().edit, lookPreset: 'umbra' } }])) emit({ kind: 'listing', frame });
   expect((await opening)?.photos[0].edit.lookPreset).toBe('umbra');
+});
+
+it.each(['held', 'rejected', 'invalid'])('confirms the edit independently of %s facts', async mode => {
+ await host.library.saveFacts(id, photo().facts); const port = ports[0]; port.hold = true;
+ const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+ let confirmed = false; const facts = mode === 'invalid' ? { ...photo().facts, cfaType: 'invalid' } as any : photo().facts;
+ const saving = host.library.save(id, photo().edit, facts).then(() => { confirmed = true; });
+ await tick(); port.confirm(port.sent.at(-1)!); await tick();
+ expect(confirmed).toBe(true);
+ if (mode === 'rejected') { port.error = 'facts cache full'; port.confirm(port.sent.at(-1)!); await tick(); expect(warn).toHaveBeenCalled(); }
+ if (mode === 'held') { port.confirm(port.sent.at(-1)!); await tick(); }
+ if (mode === 'invalid') expect(warn).toHaveBeenCalled();
+ await saving; warn.mockRestore();
+});
+
+it.each(['held', 'rejected', 'invalid'])('clears the shared edit ledger after sidecar ack with %s facts', async mode => {
+ setHost(host); useAppStore.setState({ files: [fromLibraryPhoto(photo())], folder });
+ await host.library.saveFacts(id, photo().facts); const port = ports[0]; port.hold = true; port.sent = [];
+ const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+ if (mode === 'invalid') useAppStore.setState(state => ({ files: state.files.map(file => ({ ...file, cfaType: 'invalid' as any })) }));
+ stop = startPersistence(); useAppStore.getState().setFilePreProcessOverride(id, 'exposure', 1); const flushing = flushPersistence(); await tick();
+ port.confirm(port.sent.find(r => r.op === 'saveEdit')!); await flushing;
+ expect(unsavedEdits()).toEqual([]); expect(useAppStore.getState().files[0].editing).toBe('saved');
+ if (mode !== 'invalid') { port.error = mode === 'rejected' ? 'cache denied' : null; port.confirm(port.sent.find(r => r.op === 'saveFacts')!); }
+ await tick(); if (mode !== 'held') expect(warn).toHaveBeenCalled(); warn.mockRestore();
 });

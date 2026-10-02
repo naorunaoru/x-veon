@@ -137,3 +137,11 @@ The app no longer requests persistent browser storage. A browser's existing pers
 ### Host boundary
 
 `shared/src/host/` defines the host contracts. Shared startup is `startApp(root, host)`; browser library storage, encoder workers, downloads and HDR detection live in `web/src/host/`. Shared app settings use the host-supplied IndexedDB name. `npm test` runs both workspace suites; `npm test --workspace web` runs just the browser adapters. The layers test enforces the workspace boundary and prevents host detection in shared code.
+
+### Desktop filesystem validation
+
+`npm test --workspace desktop` runs the native watcher separately after the other desktop tests, keeping its 3-second deadline. A central file-symlink probe skips only file-link cases on Windows `EPERM` (missing privilege); record the explicit reason and skipped case count. Directory swaps use junctions. Unexpected capability errors fail. No Developer Mode change is needed.
+
+For Windows write-denial acceptance, apply an actual ACL denial to a copied fixture folder, then restore its original ACL. A read-only attribute is not equivalent. Viewing creates no probe sidecars; the real save/reset result determines session state. Record the OS error and retained edit. macOS tests do not prove Windows ACL behavior.
+
+Use `--user-data-dir=/absolute/isolated-profile` for a separate desktop test/golden profile, including its settings, cache and single-instance lock.
