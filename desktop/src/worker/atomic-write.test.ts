@@ -38,3 +38,25 @@ it('rechecks parent identity before retrying a locked deletion', async () => {
  try { await expect(removeIfExists(target, identity)).rejects.toThrow('directory changed'); expect(await fs.readFile(target, 'utf8')).toBe('replacement directory'); expect(await fs.readFile(path.join(moved, 'a.xmp'), 'utf8')).toBe('original'); }
  finally { await fs.rm(moved, { recursive: true, force: true }); }
 });
+
+it('preserves a replacement temp leaf across a cleanup retry and retains the save error', async () => {
+ const rename = fs.rename.bind(fs);
+ const saveError = Object.assign(new Error('EIO: original rename failure'), { code: 'EIO' });
+ vi.spyOn(fs, 'rename').mockRejectedValue(saveError);
+ const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+ let temp = '', ownedInode = 0, replacementInode = 0;
+ const unlink = vi.spyOn(fs, 'unlink').mockImplementationOnce(async file => {
+   temp = String(file); ownedInode = (await fs.lstat(temp)).ino;
+   await rename(temp, temp + '.retained');
+   await fs.writeFile(temp, 'replacement must survive', { flag: 'wx' });
+   replacementInode = (await fs.lstat(temp)).ino;
+   throw Object.assign(new Error('busy owned temp'), { code: 'EBUSY' });
+ });
+ await expect(writeFileAtomic(target, 'owned edit')).rejects.toBe(saveError);
+ expect(replacementInode).not.toBe(ownedInode);
+ expect(await fs.readFile(temp, 'utf8')).toBe('replacement must survive');
+ expect(await fs.readFile(temp + '.retained', 'utf8')).toBe('owned edit');
+ expect(await fs.readFile(target, 'utf8')).toBe('original');
+ expect(unlink).toHaveBeenCalledTimes(1);
+ expect(warn).toHaveBeenCalledExactlyOnceWith('Could not safely clean sidecar temp:', temp, expect.objectContaining({ message: 'The sidecar temp changed' }));
+});

@@ -49,20 +49,26 @@ export async function writeFileAtomic(target: string, data: string, opts?: { ren
     // A successful rename is the commit point. Later directory changes cannot undo it.
     if (!committed && owned) {
       try {
-        await checkDirectory(directory);
-        const current = await fs.lstat(temp);
-        if (current.isFile() && current.dev === owned.dev && current.ino === owned.ino)
-          await removeIfExists(temp, directory);
+        await removeIfExists(temp, directory, owned);
       } catch (error) { console.warn('Could not safely clean sidecar temp:', temp, error); }
     }
   }
 }
 
-export async function removeIfExists(target: string, directory?: DirectoryIdentity): Promise<void> {
+export async function removeIfExists(target: string, directory?: DirectoryIdentity, owned?: { dev: number; ino: number }): Promise<void> {
   const delays = [50, 100, 200, 400, 800];
   for (let attempt = 0; ; attempt++) {
     if (directory) await checkDirectory(directory);
-    try { await fs.unlink(target); return; }
+    try {
+      // A retry delay can replace the leaf without changing its parent.
+      // Cleanup may unlink only the same regular file this task created.
+      if (owned) {
+        const current = await fs.lstat(target);
+        if (!current.isFile() || current.dev !== owned.dev || current.ino !== owned.ino)
+          throw new Error('The sidecar temp changed');
+      }
+      await fs.unlink(target); return;
+    }
     catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code === 'ENOENT') return;

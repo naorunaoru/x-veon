@@ -55,13 +55,22 @@ beforeEach(() => {
 });
 afterEach(async () => { if (host.library) await Promise.all(unsavedEdits().map(e => cancelPhotoSave(e.id))); stop(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 it('sends facts without an edit and starts best-effort facts caching after an edit acknowledgement', async () => {
-  expect(host.library).toBeDefined(); const p = photo();
-  await host.library.saveFacts(id, p.facts);
-  expect(ports[0].sent).toEqual([{ v: 1, rid: expect.any(Number), op: 'saveFacts', id, facts: p.facts }]);
-  await host.library.save(id, p.edit, p.facts);
-  expect(ports[0].sent.map(r => r.op)).toEqual(['saveFacts', 'saveEdit', 'saveFacts']);
-  ports[0].error = 'ENOSPC: no space left on device';
-  await expect(host.library.save(id, p.edit, p.facts)).rejects.toThrow('ENOSPC: no space left on device');
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    expect(host.library).toBeDefined(); const p = photo();
+    await host.library.saveFacts(id, p.facts);
+    const port = ports[0];
+    expect(port.sent).toEqual([{ v: 1, rid: expect.any(Number), op: 'saveFacts', id, facts: p.facts }]);
+    port.hold = true;
+    const saving = host.library.save(id, p.edit, p.facts); await tick();
+    port.confirm(port.sent[1]); await saving;
+    expect(port.sent.map(r => r.op)).toEqual(['saveFacts', 'saveEdit', 'saveFacts']);
+    port.error = 'ENOSPC: no space left on device';
+    port.confirm(port.sent[2]);
+    await vi.waitFor(() => expect(warn).toHaveBeenCalledExactlyOnceWith('Photo facts cache failed:', expect.objectContaining({ message: 'ENOSPC: no space left on device' })));
+    port.hold = false;
+    await expect(host.library.save(id, p.edit, p.facts)).rejects.toThrow('ENOSPC: no space left on device');
+  } finally { warn.mockRestore(); }
 });
 it('cannot overwrite a held newer edit with concurrently saved facts', async () => {
   expect(host.library).toBeDefined(); await host.library.saveFacts(id, photo().facts); ports[0].sent = []; ports[0].hold = true;

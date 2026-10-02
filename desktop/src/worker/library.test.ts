@@ -117,6 +117,7 @@ it.each(['write', 'reset'] as const)('rejects a persistent parent swap after val
 });
 
 it('rejects a parent swap between a locked rename and its retry', async () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   const outside = path.join(dir, 'outside'); await fs.mkdir(outside);
   await fs.writeFile(path.join(outside, 'a.RAF.xmp'), 'outside sidecar');
   vi.spyOn(fs, 'rename').mockImplementationOnce(async () => {
@@ -124,6 +125,7 @@ it('rejects a parent swap between a locked rename and its retry', async () => {
     throw Object.assign(new Error('busy'), { code: 'EBUSY' });
   });
   await expect(lib.saveEdit(id(), edit)).rejects.toThrow(/directory|folder/i);
+  expect(warn).toHaveBeenCalledExactlyOnceWith('Could not safely clean sidecar temp:', expect.stringMatching(/\.a\.RAF\.xmp\..+\.tmp$/), expect.objectContaining({ message: 'The photo directory changed' }));
   expect(await fs.readFile(path.join(outside, 'a.RAF.xmp'), 'utf8')).toBe('outside sidecar');
 });
 
