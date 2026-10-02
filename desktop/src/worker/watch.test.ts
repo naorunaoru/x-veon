@@ -10,15 +10,15 @@ import type { WorkerToMain } from '../protocol/rpc';
 
 const nativeWatch = fs.watch;
 let events: Array<Record<string, unknown>>;
-let omittedEvents: number;
+let evictedEvents: number;
 let startedAt: number;
 let watchers: fs.FSWatcher[];
 function record(kind: string, detail: Record<string, unknown> = {}) {
-  if (events.length < 200) events.push({ ms: Date.now() - startedAt, kind, ...detail });
-  else omittedEvents++;
+  if (events.length === 200) { events.shift(); evictedEvents++; }
+  events.push({ ms: Date.now() - startedAt, kind, ...detail });
 }
 beforeEach(() => {
-  events = []; omittedEvents = 0; startedAt = Date.now(); watchers = [];
+  events = []; evictedEvents = 0; startedAt = Date.now(); watchers = [];
   vi.spyOn(fs, 'watch').mockImplementation(((...args: unknown[]) => {
     record('attach', { path: String(args[0]) });
     const callback = args.at(-1) as (...event: unknown[]) => void;
@@ -102,7 +102,7 @@ async function until(predicate: () => boolean, w: TestWorker, label: string) {
           photos: listing.photos.slice(0, 50).map(photo => ({ name: photo.originalName, exposure: photo.edit.preProcessOverrides.exposure })),
           photoCount: listing.photos.length,
         })),
-        events, omittedEvents,
+        events, evictedEvents,
       })}`);
     }
     await new Promise(resolve => setTimeout(resolve, 10));
@@ -194,4 +194,22 @@ it('retains the replacement state across notifications separated by quiet interv
   // Both scans completed correctly, with a quiet interval between notifications.
   expect(listings(w.sent)).toHaveLength(2);
   expect(second.token).not.toBe(first.token);
+});
+
+
+it('keeps a late watcher error in bounded timeout diagnostics after a burst', async () => {
+  const folder = await setup();
+  const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+  const w = worker(folder); await w.ready;
+  const watcher = watchers.at(-1)!;
+  for (let i = 0; i < 205; i++) watcher.emit('change', 'rename', `${i}.RAF`);
+  watcher.emit('error', new Error('late watcher failure'));
+  const error = await replacement(w, 'RAW after burst', listing => hasNames(listing, ['new.RAF'])).catch(error => error);
+  expect(error).toBeInstanceOf(Error);
+  const diagnostic = JSON.parse(error.message.slice(error.message.indexOf('{')));
+  expect(diagnostic.completedCount).toBe(0);
+  expect(diagnostic.events).toHaveLength(200);
+  expect(diagnostic.evictedEvents).toBeGreaterThan(0);
+  expect(diagnostic.events).toContainEqual(expect.objectContaining({ kind: 'watcher-error', error: 'Error: late watcher failure' }));
+  expect(log).toHaveBeenCalledTimes(1);
 });
