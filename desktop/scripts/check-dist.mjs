@@ -1,6 +1,6 @@
 import { listPackage, extractFile, uncache } from '@electron/asar';
 import { statSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // Bundled output is about 47 MB. 80 MiB leaves room for model/runtime growth,
@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 export const ARCHIVE_BUDGET_BYTES = 80 * 1024 ** 2;
 export function checkArchive(archive) {
  uncache(archive);
- const entries = listPackage(archive).map(entry => entry.replace(/^\//, ''));
+ const entries = listPackage(archive).map(entry => entry.replace(/\\/g, '/').replace(/^\//, ''));
  const required = ['out/renderer/index.html', 'out/renderer/checkpoints/models.json', 'out/renderer/lensfun/index.json'];
  const failures = required.filter(file => !entries.includes(file)).map(file => `missing ${file}`);
  const size = statSync(archive).size;
@@ -23,7 +23,7 @@ export function checkArchive(archive) {
    const scripts = entries.filter(file => file.startsWith(`out/${area}/`) && /\.[cm]?js$/.test(file));
    if (!scripts.length) failures.push(`missing ${area} JavaScript`);
    for (const file of scripts) {
-     const source = extractFile(archive, file).toString('utf8');
+     const source = extractFile(archive, normalize(file)).toString('utf8');
      for (const forbidden of ['createGoldenHost', 'runSpike', 'spike-timing', '__golden', 'golden-report'])
        if (source.includes(forbidden)) failures.push(`${file} contains ${forbidden}`);
    }

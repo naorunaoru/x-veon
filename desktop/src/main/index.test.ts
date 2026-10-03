@@ -1,4 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
+import os from 'node:os';
+import path from 'node:path';
 const state = vi.hoisted(() => ({ boot: undefined as Promise<unknown> | undefined, handles: new Map<string, any>(), listeners: new Map<string, any>(), privileges: vi.fn(), name: vi.fn(), quit: vi.fn(), stop: vi.fn(), win: undefined as any, windowOptions: undefined as any, app: undefined as any, report: vi.fn(async () => {}), workerEvent: undefined as any, restart: vi.fn(async () => {}), lock: vi.fn(() => true) }));
 vi.mock('electron', async () => {
   const { EventEmitter } = await import('node:events');
@@ -71,7 +73,8 @@ it('stops a second instance before starting services and focuses the owned windo
 });
 
 it('sets the explicit isolated profile before acquiring its instance lock', async () => {
- vi.resetModules(); process.argv.push('--user-data-dir=/tmp/xveon-isolated-profile'); await import('./index'); await state.boot;
- expect(state.app.setPath).toHaveBeenCalledWith('userData', '/tmp/xveon-isolated-profile');
+ const profile = path.join(os.tmpdir(), 'xveon-isolated-profile');
+ vi.resetModules(); process.argv.push(`--user-data-dir=${profile}`); await import('./index'); await state.boot;
+ expect(state.app.setPath).toHaveBeenCalledWith('userData', profile);
  expect(state.app.setPath.mock.invocationCallOrder.at(-1)).toBeLessThan(state.lock.mock.invocationCallOrder.at(-1)!);
 });
