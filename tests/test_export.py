@@ -19,8 +19,8 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 import export_onnx  # noqa: E402
-from cfa import CFA_REGISTRY, cfa_period  # noqa: E402
-from export_onnx import app_key, export_checkpoint, export_selected, select  # noqa: E402
+from cfa import CFA_REGISTRY, cfa_period, make_channel_masks, make_model_input  # noqa: E402
+from export_onnx import app_key, export_checkpoint, export_selected, select, verify_tiles  # noqa: E402
 from model import XTransUNet  # noqa: E402
 
 PATCH = 48      # small tiles keep the test quick; a multiple of 12 as the packing needs
@@ -74,6 +74,9 @@ class ExportTest(unittest.TestCase):
             out.mkdir()
             other = {"file": "xtrans_w16_base.onnx", "source_sha256": "old", "base_width": 16}
             (out / "models.json").write_text(json.dumps({"xtrans_w16_base": other, "unrelated": {"x": 1}}))
+            patcher = mock.patch.object(export_onnx, "verify", wraps=export_onnx.verify)
+            verify = patcher.start()
+            self.addCleanup(patcher.stop)
 
             manifest = export_selected(registry, out, version="v7.0.0", cfa_type="bayer", patch_size=PATCH)
             self.assertEqual(manifest["xtrans_w16_base"], other)          # untouched
@@ -94,6 +97,9 @@ class ExportTest(unittest.TestCase):
             manifest = export_selected(registry, out, version="v7.0.0", cfa_type="xtrans", patch_size=PATCH)
             self.assertEqual(manifest["xtrans_w16_base"]["checkpoint_version"], "v7.0.0")
             self.assertEqual(manifest["bayer_w16_base"], entry)
+            # Each CFA type's export went through verify (spec 11.1).
+            self.assertEqual(sorted(Path(c.args[0]).name for c in verify.call_args_list),
+                             ["bayer-v7.0.0.pt", "xtrans-v7.0.0.pt"])
 
     def test_a_single_checkpoint_file_is_exported_under_its_app_key_and_merged(self) -> None:
         with tempfile.TemporaryDirectory() as d:
@@ -111,6 +117,22 @@ class ExportTest(unittest.TestCase):
                 export_selected(_registry(Path(d)), out, version="v6.1.4", patch_size=PATCH)
             self.assertIn("architecture tag v6", str(ctx.exception))
             self.assertFalse((out / "xtrans_w16_base.onnx").exists())
+
+
+class VerifyTilesTest(unittest.TestCase):
+    def test_the_verify_batch_holds_what_the_app_sends(self) -> None:
+        tiles = verify_tiles(PATCH)
+        names = list(tiles)
+        mosaic = torch.cat(list(tiles.values()))
+        self.assertGreaterEqual(mosaic.shape[0], 2)                     # the app sends tiles in batches
+        x = make_model_input(mosaic, make_channel_masks(PATCH, PATCH, CFA_REGISTRY["xtrans"]))
+        clipped = x[names.index("tile with clipped photosites")]
+        self.assertEqual(float(clipped[0].max()), 1.0)                  # photosites at the clip level
+        self.assertGreater(int(((clipped[0] > 0.95) & (clipped[0] < 1.0)).sum()), 0)   # and just below it
+        self.assertGreater(float(clipped[4].min(dim=1).values.max()), 0.9)               # whole rows near clipping
+        zero = x[names.index("all-zero tile")]
+        self.assertEqual((float(zero[0].abs().max()), float(zero[4].abs().max())), (0.0, 0.0))
+        self.assertLess(float(x[names.index("tile")][0].max()), 0.5)     # an ordinary tile, clip channel empty
 
 
 class SafeExportTest(unittest.TestCase):

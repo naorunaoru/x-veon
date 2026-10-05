@@ -110,8 +110,22 @@ def export(checkpoint_path: str, output_path: str, patch_size: int = 288, opset:
     return metadata
 
 
+def verify_tiles(patch_size: int) -> dict[str, torch.Tensor]:
+    """Mosaics [1, 1, P, P] that verify() sends through both models as one batch."""
+    g = torch.Generator().manual_seed(0)
+    p = patch_size
+    clipped = torch.rand(1, 1, p, p, generator=g)                     # half above half the clip level
+    clipped[..., : p // 4, :] = 1.0                                     # saturated photosites
+    clipped[..., p // 4 : p // 2, :] = 1.0 - 0.03 * torch.rand(1, 1, p // 4, p, generator=g)   # just below
+    return {
+        "tile": torch.rand(1, 1, p, p, generator=g) * 0.2,
+        "tile with clipped photosites": clipped,
+        "all-zero tile": torch.zeros(1, 1, p, p),                       # image-border padding in the app
+    }
+
+
 def verify(checkpoint_path: str, onnx_path: str, patch_size: int = 288) -> None:
-    """Compare PyTorch and ONNX on a realistic tile and on an all-zero one. Exits on a mismatch."""
+    """Compare PyTorch and ONNX on a batch of tiles like the app's, each on its own scale. Exits on a mismatch."""
     import onnxruntime as ort
 
     ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
@@ -122,19 +136,18 @@ def verify(checkpoint_path: str, onnx_path: str, patch_size: int = 288) -> None:
     if len(inputs) != 1 or list(inputs[0].shape)[1:] != [5, patch_size, patch_size]:
         raise SystemExit(f"{onnx_path}: unexpected inputs {[(i.name, i.shape) for i in inputs]}")
 
-    tiles = {
-        "tile": torch.rand(1, 1, patch_size, patch_size) * 0.2,
-        "all-zero tile": torch.zeros(1, 1, patch_size, patch_size),   # image-border padding in the app
-    }
-    for name, mosaic in tiles.items():
-        x = make_model_input(mosaic, masks)
-        with torch.no_grad():
-            expected = model(x).numpy()
-        got = session.run(None, {inputs[0].name: x.numpy()})[0]
-        if not np.isfinite(got).all():
+    tiles = verify_tiles(patch_size)
+    x = make_model_input(torch.cat(list(tiles.values())), masks)
+    with torch.no_grad():
+        expected = model(x).numpy()
+    got = session.run(None, {inputs[0].name: x.numpy()})[0]
+    if got.shape != expected.shape:
+        raise SystemExit(f"{onnx_path}: output shape {got.shape} for a batch of {len(tiles)}, expected {expected.shape}")
+    for i, name in enumerate(tiles):
+        if not np.isfinite(got[i]).all():
             raise SystemExit(f"{onnx_path}: non-finite output for the {name}")
-        max_diff = float(np.max(np.abs(expected - got)))
-        scale = float(np.max(np.abs(expected))) or 1.0
+        max_diff = float(np.max(np.abs(expected[i] - got[i])))
+        scale = float(np.max(np.abs(expected[i]))) or 1.0
         print(f"  verify, {name}: max difference {max_diff:.2e} (output up to {scale:.2e})")
         if max_diff > 1e-4 * scale + 1e-7:
             raise SystemExit(f"{onnx_path}: ONNX and PyTorch disagree on the {name}")
