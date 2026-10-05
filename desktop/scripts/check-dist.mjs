@@ -46,11 +46,27 @@ function isDirectInvocation() {
  try { return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url)); }
  catch { return false; } // An importing program may use a non-file argv[1].
 }
+function cliArguments(args) {
+ let archive, addon;
+ const usage = 'Usage: check-dist.mjs [archive.asar] [--addon xveon-native.<darwin-arm64|win32-x64-msvc>.node]';
+ for (let index = 0; index < args.length; index++) {
+   const argument = args[index];
+   if (argument === '--addon') {
+     if (addon !== undefined || !/^xveon-native\.(darwin-arm64|win32-x64-msvc)\.node$/.test(args[index + 1] ?? '')) throw new Error(usage);
+     addon = args[++index];
+   } else if (argument.startsWith('-') || archive !== undefined) throw new Error(usage);
+   else archive = resolve(argument);
+ }
+ return { archive: archive ?? fileURLToPath(new URL('../dist/mac-arm64/X-veon Beta.app/Contents/Resources/app.asar', import.meta.url)), addon };
+}
 if (isDirectInvocation()) {
- const archive = process.argv[2] ? resolve(process.argv[2])
-   : fileURLToPath(new URL('../dist/mac-arm64/X-veon Beta.app/Contents/Resources/app.asar', import.meta.url));
- const { size, failures } = checkArchive(archive);
- if (failures.length) {
-   console.error(`Package check failed (${archive}):\n${failures.map(message => `- ${message}`).join('\n')}`); process.exitCode = 1;
- } else console.log(`Package check passed (${archive}): ${size} bytes; required data and unpacked native addon present; samples, RAWs, workspace sources and development code absent`);
+ try {
+   const { archive, addon } = cliArguments(process.argv.slice(2));
+   const { size, failures } = checkArchive(archive, { addon });
+   if (failures.length) {
+     console.error(`Package check failed (${archive}):\n${failures.map(message => `- ${message}`).join('\n')}`); process.exitCode = 1;
+   } else console.log(`Package check passed (${archive}): ${size} bytes; required data and unpacked native addon present; samples, RAWs, workspace sources and development code absent`);
+ } catch (error) {
+   console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1;
+ }
 }
