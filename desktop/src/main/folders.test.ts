@@ -1,7 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { realpathSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import fs from 'node:fs/promises';
 import os from 'node:os';
 import { createFolderStore } from './folders';
 const dirs: string[] = [];
@@ -32,31 +31,4 @@ it('surfaces an atomic-write failure and lets a later accepted snapshot recover'
     store.remember(path.join(dir, 'A')); await expect(store.flush()).rejects.toThrow('ENOSPC');
     const last = store.remember(path.join(dir, 'B')); await store.flush(); expect(JSON.parse(readFileSync(file, 'utf8')).last).toBe(last.id);
   } finally { rename.mockRestore(); }
-});
-
-it('prunes missing recents independently of an unresolved network entry and refreshes the menu', async () => {
- const { dir, file } = setup(), store = createFolderStore(file);
- const gone = path.join(dir, 'gone'), offline = path.join(dir, 'offline'), current = path.join(dir, 'current');
- mkdirSync(current); store.remember(gone); store.remember(offline); const last = store.remember(current); await store.flush();
- let release!: () => void; const gate = new Promise<void>(resolve => { release = resolve; });
- const original = fs.stat.bind(fs), menu = vi.fn();
- const probe = vi.spyOn(fs, 'stat').mockImplementation(async target => { if (target === offline) { await gate; throw Object.assign(new Error('EHOSTUNREACH'), { code: 'EHOSTUNREACH' }); } return original(target); });
- try {
-   store.pruneMissing(menu);
-   expect(store.last()).toEqual(last); expect(store.recent()).toHaveLength(3);
-   await vi.waitFor(() => expect(menu).toHaveBeenCalledOnce()); await store.flush();
-   expect(store.recent().map(f => f.name)).toEqual(['current', 'offline']);
-   expect(createFolderStore(file).recent()).toEqual(store.recent()); expect(store.last()).toEqual(last);
- } finally { release(); await gate; probe.mockRestore(); }
-});
-it('a late missing check cannot delete a re-remembered folder', async () => {
- const { dir, file } = setup(), store = createFolderStore(file), target = path.join(dir, 'folder');
- store.remember(target); await store.flush();
- let reject!: (reason: Error) => void; const gate = new Promise<never>((_, r) => { reject = r; });
- const probe = vi.spyOn(fs, 'stat').mockImplementationOnce(() => gate);
- try {
-   const menu = vi.fn(); store.pruneMissing(menu); mkdirSync(target); const latest = store.remember(target);
-   reject(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })); await Promise.resolve(); await Promise.resolve(); await store.flush();
-   expect(store.last()).toEqual(latest); expect(store.recent()).toEqual([latest]); expect(menu).not.toHaveBeenCalled();
- } finally { probe.mockRestore(); }
 });

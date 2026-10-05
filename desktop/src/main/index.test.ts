@@ -1,15 +1,19 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import os from 'node:os';
+import fs from 'node:fs/promises';
 import path from 'node:path';
-const state = vi.hoisted(() => ({ boot: undefined as Promise<unknown> | undefined, handles: new Map<string, any>(), listeners: new Map<string, any>(), privileges: vi.fn(), name: vi.fn(), quit: vi.fn(), stop: vi.fn(), win: undefined as any, windowOptions: undefined as any, app: undefined as any, report: vi.fn(async () => {}), workerEvent: undefined as any, restart: vi.fn(async () => {}), lock: vi.fn(() => true) }));
+const state = vi.hoisted(() => ({ folderFile: undefined as string | undefined, boot: undefined as Promise<unknown> | undefined, handles: new Map<string, any>(), listeners: new Map<string, any>(), privileges: vi.fn(), name: vi.fn(), quit: vi.fn(), stop: vi.fn(), win: undefined as any, windowOptions: undefined as any, app: undefined as any, report: vi.fn(async () => {}), workerEvent: undefined as any, restart: vi.fn(async () => {}), lock: vi.fn(() => true) }));
 vi.mock('electron', async () => {
   const { EventEmitter } = await import('node:events');
   const app = Object.assign(new EventEmitter(), { setName: state.name, requestSingleInstanceLock: state.lock, setPath: vi.fn(), getPath: () => '/tmp/task9-userdata', whenReady: () => ({ then: (fn: () => Promise<unknown>) => { state.boot = fn(); return state.boot; } }), quit: state.quit, exit: vi.fn() }); state.app = app;
   const win = Object.assign(new EventEmitter(), { webContents: Object.assign(new EventEmitter(), { send: vi.fn(), setWindowOpenHandler: vi.fn(), mainFrame: {}, executeJavaScript: vi.fn() }), loadURL: vi.fn(async () => {}), destroy: vi.fn(), isDestroyed: () => false, isMinimized: () => true, restore: vi.fn(), focus: vi.fn() }); state.win = win;
   return { app, BrowserWindow: class { constructor(options: unknown) { state.windowOptions = options; return win; } }, powerMonitor: new EventEmitter(), screen: {}, ipcMain: { handle: (name: string, fn: any) => state.handles.set(name, fn), on: (name: string, fn: any) => state.listeners.set(name, fn) }, MessageChannelMain: class {}, net: {}, protocol: { registerSchemesAsPrivileged: state.privileges, handle: vi.fn() }, session: { defaultSession: { setPermissionRequestHandler: vi.fn(), setPermissionCheckHandler: vi.fn() } }, utilityProcess: {}, Menu: { buildFromTemplate: (t: unknown) => t, setApplicationMenu: vi.fn() }, dialog: { showOpenDialog: vi.fn(async () => ({ canceled: true, filePaths: [] })), showErrorBox: vi.fn(), showMessageBox: vi.fn(async () => ({ response: 1 })) }, shell: {} };
 });
-vi.mock('node:fs/promises', () => ({ readdir: vi.fn(async () => []), mkdir: vi.fn(async () => {}), writeFile: vi.fn(async () => {}) }));
-vi.mock('./folders', () => ({ createFolderStore: () => ({ recent: () => [], pruneMissing: vi.fn(), forgetPath: () => false, last: () => null, resolve: () => null }), isMissingFolder: () => false, folderId: () => 'f' }));
+vi.mock('node:fs/promises', async importOriginal => ({ ...await importOriginal<typeof import('node:fs/promises')>(), readdir: vi.fn(async () => []), mkdir: vi.fn(async () => {}), writeFile: vi.fn(async () => {}) }));
+vi.mock('./folders', async importOriginal => {
+ const actual = await importOriginal<typeof import('./folders')>();
+ return { ...actual, createFolderStore: () => state.folderFile ? actual.createFolderStore(state.folderFile) : ({ recent: () => [], forgetPath: () => false, last: () => null, resolve: () => null }) };
+});
 vi.mock('./worker', () => ({ createWorkerSupervisor: (opts: any) => { state.workerEvent = opts.onEvent; return ({ restart: state.restart, roots: [], registry: new Map(), onMessage() {}, stop: state.stop, request: vi.fn(), connect: vi.fn() }); } }));
 vi.mock('./golden-report', () => ({ watchGoldenReport: state.report }));
 const originalArgs = [...process.argv];
@@ -88,4 +92,23 @@ it('reports folder failures using an asynchronous error dialog owned by the main
  await expect(state.handles.get('xveon-desktop')(event, { version: 2, kind: 'openFolder' })).resolves.toBeNull();
  expect(dialog.showMessageBox).toHaveBeenCalledWith(state.win, expect.objectContaining({ type: 'error', detail: 'EACCES: unavailable folder' }));
  expect(dialog.showErrorBox).not.toHaveBeenCalled();
+});
+
+it('boots and serves saved recent folders without probing their potentially offline paths', async () => {
+ const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'startup-recents-'));
+ const recent = Array.from({ length: 10 }, (_, i) => ({ id: `recent-${i}`, name: `Offline ${i}`, path: path.join(dir, `offline-${i}`), openedAt: '2026-10-05' }));
+ const paths = new Set(recent.map(entry => entry.path));
+ state.folderFile = path.join(dir, 'folders.json');
+ await fs.writeFile(state.folderFile, JSON.stringify({ version: 1, last: recent[0].id, recent }));
+ const originalStat = fs.stat.bind(fs), originalRealpath = fs.realpath.bind(fs);
+ const stat = vi.spyOn(fs, 'stat').mockImplementation(target => paths.has(String(target)) ? new Promise(() => {}) : originalStat(target));
+ const realpath = vi.spyOn(fs, 'realpath').mockImplementation(target => paths.has(String(target)) ? new Promise(() => {}) : originalRealpath(target));
+ try {
+   vi.resetModules(); await import('./index'); await state.boot;
+   const event = { sender: state.win.webContents, senderFrame: Object.assign(state.win.webContents.mainFrame, { url: 'app://bundle/?' }) };
+   const expected = recent.map(({ id, name }) => ({ id, name }));
+   await expect(state.handles.get('xveon-desktop')(event, { version: 2, kind: 'recentFolders' })).resolves.toEqual(expected);
+   expect(state.win.loadURL).toHaveBeenCalledWith('app://bundle/?');
+   expect([...stat.mock.calls, ...realpath.mock.calls].filter(([target]) => paths.has(String(target)))).toEqual([]);
+ } finally { state.folderFile = undefined; stat.mockRestore(); realpath.mockRestore(); await fs.rm(dir, { recursive: true, force: true }); }
 });

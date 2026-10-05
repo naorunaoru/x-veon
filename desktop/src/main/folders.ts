@@ -1,6 +1,5 @@
 import { readFileSync, renameSync } from 'node:fs';
 import path from 'node:path';
-import fs from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import type { FolderRef } from '@/host';
 import { writeFileAtomic } from '../worker/atomic-write';
@@ -37,7 +36,6 @@ export function createFolderStore(file: string) {
     if (lastId === entry.id) lastId = null;
     persist(); return true;
   }
-  const checking = new Set<Entry>();
   const ref = ({ id, name }: Entry): FolderRef => ({ id, name });
   return {
     recent: () => entries.map(ref),
@@ -46,17 +44,6 @@ export function createFolderStore(file: string) {
     forgetPath(folder: string): boolean {
       const entry = entries.find(e => e.path === folder);
       return entry ? forget(entry) : false;
-    },
-    pruneMissing(changed: () => void): void {
-      // Each path finishes independently; an offline network mount cannot hold
-      // startup or the other checks. Identity protects newly remembered entries.
-      for (const entry of entries) {
-        if (checking.has(entry)) continue;
-        checking.add(entry);
-        void fs.stat(entry.path).catch(error => {
-          if (isMissingFolder(error) && forget(entry)) changed();
-        }).finally(() => checking.delete(entry));
-      }
     },
     remember(folder: string): FolderRef {
       const realPath = folder;

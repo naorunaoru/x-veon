@@ -137,7 +137,6 @@ if (ownsInstance) void app.whenReady().then(async () => {
   win.on('session-end', () => { endingSession = true; guard.onSessionEnd(); });
   app.on('will-quit', stopWorkers);
   refreshMenu();
-  store.pruneMissing(refreshMenu);
   win.webContents.on('console-message', (event) =>
     console.log(`[renderer] ${event.message}`),
   );
