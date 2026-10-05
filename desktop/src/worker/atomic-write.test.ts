@@ -35,7 +35,7 @@ it('rechecks parent identity before retrying a locked deletion', async () => {
    await fs.rename(dir, moved); await fs.mkdir(dir); await fs.writeFile(target, 'replacement directory');
    throw Object.assign(new Error('locked'), { code: 'EPERM' });
  });
- try { await expect(removeIfExists(target, identity)).rejects.toThrow('directory changed'); expect(await fs.readFile(target, 'utf8')).toBe('replacement directory'); expect(await fs.readFile(path.join(moved, 'a.xmp'), 'utf8')).toBe('original'); }
+ try { await expect(removeIfExists(target, identity)).rejects.toThrow('The folder changed while saving'); expect(await fs.readFile(target, 'utf8')).toBe('replacement directory'); expect(await fs.readFile(path.join(moved, 'a.xmp'), 'utf8')).toBe('original'); }
  finally { await fs.rm(moved, { recursive: true, force: true }); }
 });
 
@@ -59,4 +59,29 @@ it('preserves a replacement temp leaf across a cleanup retry and retains the sav
  expect(await fs.readFile(target, 'utf8')).toBe('original');
  expect(unlink).toHaveBeenCalledTimes(1);
  expect(warn).toHaveBeenCalledExactlyOnceWith('Could not safely clean sidecar temp:', temp, expect.objectContaining({ message: 'The sidecar temp changed' }));
+});
+
+it('writes exact binary bytes', async () => { await writeFileAtomic(target, new Uint8Array([0, 128, 255])); expect(await fs.readFile(target)).toEqual(Buffer.from([0, 128, 255])); });
+it('reports a moved folder while preserving ENOENT and cause', async () => {
+ const directory = await directoryIdentity(dir), moved = dir + '-moved'; await fs.rename(dir, moved);
+ try { await expect(writeFileAtomic(target, 'new', { directory })).rejects.toMatchObject({ message: expect.stringMatching(/The folder changed while saving.*ENOENT/), code: 'ENOENT', cause: expect.objectContaining({ code: 'ENOENT' }) }); }
+ finally { await fs.rename(moved, dir); }
+});
+it('cancels a partial write before rename and cleans its own temp', async () => {
+ const abort = new AbortController(); const write = fs.writeFile.bind(fs);
+ vi.spyOn(fs, 'writeFile').mockImplementationOnce(async (...args) => { await write(...args); abort.abort(new Error('Export cancelled')); });
+ await expect(writeFileAtomic(target, 'new', { signal: abort.signal })).rejects.toThrow('Export cancelled');
+ expect(await fs.readFile(target, 'utf8')).toBe('original'); expect(await fs.readdir(dir)).toEqual(['a.xmp']);
+});
+it('checks cancellation after directory validation and before rename', async () => {
+ const abort = new AbortController(); const stat = fs.stat.bind(fs); let calls = 0;
+ vi.spyOn(fs, 'stat').mockImplementation(async (...args) => { const result = await stat(...args); if (++calls === 3) abort.abort(new Error('Export cancelled')); return result; });
+ await expect(writeFileAtomic(target, 'new', { signal: abort.signal })).rejects.toThrow('Export cancelled');
+ expect(await fs.readFile(target, 'utf8')).toBe('original'); expect(await fs.readdir(dir)).toEqual(['a.xmp']);
+});
+it('retains a successful commit when cancelled after rename', async () => {
+ const abort = new AbortController(); const rename = fs.rename.bind(fs);
+ vi.spyOn(fs, 'rename').mockImplementationOnce(async (...args) => { await rename(...args); abort.abort(new Error('Export cancelled')); });
+ await expect(writeFileAtomic(target, 'committed', { signal: abort.signal })).resolves.toBeUndefined();
+ expect(await fs.readFile(target, 'utf8')).toBe('committed');
 });

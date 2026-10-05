@@ -7,18 +7,23 @@ export interface DirectoryIdentity { realDir: string; dev: number; ino: number }
 export async function directoryIdentity(directory: string): Promise<DirectoryIdentity> {
   const realDir = await fs.realpath(directory);
   const stat = await fs.stat(realDir);
-  if (!stat.isDirectory()) throw new Error('The photo directory changed');
+  if (!stat.isDirectory()) throw new Error('The folder changed while saving');
   return { realDir, dev: stat.dev, ino: stat.ino };
 }
 export async function checkDirectory(identity: DirectoryIdentity): Promise<void> {
-  const current = await directoryIdentity(identity.realDir);
+  let current: DirectoryIdentity;
+  try { current = await directoryIdentity(identity.realDir); }
+  catch (cause) {
+    throw Object.assign(new Error(`The folder changed while saving: ${cause instanceof Error ? cause.message : String(cause)}`, { cause }), { code: (cause as NodeJS.ErrnoException).code });
+  }
   if (current.realDir !== identity.realDir || current.dev !== identity.dev || current.ino !== identity.ino)
-    throw new Error('The photo directory changed');
+    throw new Error('The folder changed while saving');
 }
 
 // Portable Node checks reject persistent directory swaps. They cannot atomically exclude
 // repeated malicious ancestor renames between these checks and filesystem syscalls.
-export async function writeFileAtomic(target: string, data: string, opts?: { renameRetries?: number[]; directory?: DirectoryIdentity }): Promise<void> {
+export async function writeFileAtomic(target: string, data: string | Uint8Array, opts?: { renameRetries?: number[]; directory?: DirectoryIdentity; signal?: AbortSignal }): Promise<void> {
+  opts?.signal?.throwIfAborted();
   const directory = opts?.directory ?? await directoryIdentity(path.dirname(target));
   const dir = directory.realDir;
   await checkDirectory(directory);
@@ -27,16 +32,21 @@ export async function writeFileAtomic(target: string, data: string, opts?: { ren
   let owned: { dev: number; ino: number } | undefined;
   let committed = false;
   try {
+    opts?.signal?.throwIfAborted();
     const handle = await fs.open(temp, 'wx');
     try {
       owned = await handle.stat();
+      opts?.signal?.throwIfAborted();
       await fs.writeFile(handle, data);
+      opts?.signal?.throwIfAborted();
       await handle.sync();
     } finally { await handle.close(); }
     const delays = opts?.renameRetries ?? [50, 100, 200, 400, 800];
     for (let attempt = 0; ; attempt++) {
       try {
+        opts?.signal?.throwIfAborted();
         await checkDirectory(directory);
+        opts?.signal?.throwIfAborted();
         await fs.rename(temp, destination);
         committed = true;
         break;

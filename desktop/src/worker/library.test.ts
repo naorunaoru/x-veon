@@ -128,7 +128,7 @@ it('rejects a parent swap between a locked rename and its retry', async () => {
     throw Object.assign(new Error('busy'), { code: 'EBUSY' });
   });
   await expect(lib.saveEdit(id(), edit)).rejects.toThrow(/directory|folder/i);
-  expect(warn).toHaveBeenCalledExactlyOnceWith('Could not safely clean sidecar temp:', expect.stringMatching(/\.a\.RAF\.xmp\..+\.tmp$/), expect.objectContaining({ message: 'The photo directory changed' }));
+  expect(warn).toHaveBeenCalledExactlyOnceWith('Could not safely clean sidecar temp:', expect.stringMatching(/\.a\.RAF\.xmp\..+\.tmp$/), expect.objectContaining({ message: 'The folder changed while saving' }));
   expect(await fs.readFile(path.join(outside, 'a.RAF.xmp'), 'utf8')).toBe('outside sidecar');
 });
 

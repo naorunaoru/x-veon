@@ -18,7 +18,7 @@ type CommittedFolder = { path: string; folderId: string; activation: string };
 type ListRequest = Omit<Extract<MainToWorker, { kind: 'list' }>, 'v' | 'rid'>;
 type ThumbnailRequest = Omit<Extract<MainToWorker, { kind: 'thumbnail' }>, 'v' | 'rid'>;
 export type ListingResult = { folder: FolderRef; photos: LibraryPhoto[]; purpose: 'open' | 'replace'; token: string; activation: string; registry: [PhotoId, string][]; stamp?: ListingStamp };
-type Pending = { reject(error: Error): void; resolve(value: ListingResult | Extract<WorkerToMain, { kind: 'thumbnail' }>): void; token?: string; assembler?: ReturnType<typeof createListingAssembler>; entries: [PhotoId, string][] };
+type Pending = { reject(error: Error): void; resolve(value: ListingResult | Extract<WorkerToMain, { kind: 'thumbnail' | 'export-destination' }>): void; token?: string; assembler?: ReturnType<typeof createListingAssembler>; entries: [PhotoId, string][] };
 const stoppedMessage = 'The background worker stopped.';
 
 export function createWorkerSupervisor(opts: {
@@ -115,7 +115,7 @@ export function createWorkerSupervisor(opts: {
   }
   function request(message: ListRequest): Promise<ListingResult>;
   function request(message: ThumbnailRequest): Promise<Extract<WorkerToMain, { kind: 'thumbnail' }>>;
-  async function request(message: ListRequest | ThumbnailRequest): Promise<ListingResult | Extract<WorkerToMain, { kind: 'thumbnail' }>> {
+  async function request(message: ListRequest | ThumbnailRequest): Promise<ListingResult | Extract<WorkerToMain, { kind: 'thumbnail' | 'export-destination' }>> {
     const initialized = ready(), target = child;
     try { await initialized; }
     catch { throw new Error(stoppedMessage); }

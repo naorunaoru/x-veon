@@ -198,3 +198,43 @@ it('does not carry thumbnail metadata across a RAW source revision', async () =>
  await c.handleMain({ v: 1, rid: 2, kind: 'list', path: '/photos', folderId: 'f', token: 't', activation: 't', purpose: 'open' });
  expect(messages.find(m => m.kind === 'listing-batch').photos[0].facts.metadata).toBeNull();
 });
+
+import { createExportService } from './exports';
+function portRequest(port: Port, message: any) {
+ const response = new Promise<any>(resolve => { const listener = ({ data }: any) => { if (data.rid === message.rid) { port.off('message', listener); resolve(data); } }; port.on('message', listener); }); port.postMessage(message); return response;
+}
+it('acknowledges export destinations and routes export status/chunks/receipt without library mutations', async () => {
+ dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'xveon-export-port-')));
+ const service = createExportService({ native: () => ({ ok: true, encoder: { encode: async () => new Uint8Array([1, 2, 3]) } }) });
+ const main: any[] = []; const c = createWorkerController({ postToMain: m => main.push(m), exports: service }); const [a, b] = ports(); await c.handleMain({ v: 1, kind: 'connect' }, [a]);
+ await c.handleMain({ v: 1, rid: 50, kind: 'export-destination', token: 'dest-001', path: path.join(dir, 'export.avif') });
+ expect(main).toEqual([{ v: 1, rid: 50, kind: 'export-destination', token: 'dest-001' }]); expect(isWorkerToMain(main[0])).toBe(true);
+ expect(await portRequest(b, { v: 1, rid: 1, op: 'exportStatus' })).toEqual({ v: 1, rid: 1, ok: true, availability: { available: true } });
+ expect(await portRequest(b, { v: 1, rid: 2, op: 'exportBegin', job: 'job-0001', destination: 'dest-001', format: 'avif', width: 1, height: 1, planes: 1, orientation: '', quality: 95, peakLuminance: 1000 })).toEqual({ v: 1, rid: 2, ok: true });
+ expect(await portRequest(b, { v: 1, rid: 3, op: 'exportChunk', job: 'job-0001', plane: 0, offset: 0, data: new ArrayBuffer(12) })).toEqual({ v: 1, rid: 3, ok: true });
+ expect(await portRequest(b, { v: 1, rid: 4, op: 'exportCommit', job: 'job-0001' })).toMatchObject({ ok: true, receipt: { name: 'export.avif', bytes: 3 } });
+ expect(await fs.readFile(path.join(dir, 'export.avif'))).toEqual(Buffer.from([1, 2, 3]));
+});
+it('cancels old-port work on reconnect and ignores further requests from that port', async () => {
+ dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'xveon-reconnect-')));
+ let release!: () => void; const wait = new Promise<void>(r => { release = r; }); const encode = vi.fn(async () => { await wait; return new Uint8Array([1]); });
+ const service = createExportService({ native: () => ({ ok: true, encoder: { encode } }) }); const c = createWorkerController({ postToMain: () => {}, exports: service });
+ const [a, b] = ports(); await c.handleMain({ v: 1, kind: 'connect' }, [a]); await c.handleMain({ v: 1, kind: 'export-destination', token: 'dest-001', path: path.join(dir, 'old.avif') });
+ await portRequest(b, { v: 1, rid: 1, op: 'exportBegin', job: 'job-0001', destination: 'dest-001', format: 'avif', width: 1, height: 1, planes: 1, orientation: '', quality: 95, peakLuminance: 1000 });
+ await portRequest(b, { v: 1, rid: 2, op: 'exportChunk', job: 'job-0001', plane: 0, offset: 0, data: new ArrayBuffer(12) });
+ const pending = portRequest(b, { v: 1, rid: 3, op: 'exportCommit', job: 'job-0001' }); await vi.waitFor(() => expect(encode).toHaveBeenCalledOnce());
+ const [next] = ports(); await c.handleMain({ v: 1, kind: 'connect' }, [next]); expect(a.closed).toBe(true); release(); expect(await pending).toMatchObject({ ok: false, error: 'Export cancelled' });
+ b.postMessage({ v: 1, rid: 4, op: 'exportStatus' }); await tick(); expect(a.sent.map(m => m.rid)).toEqual([1, 2, 3]); expect(await fs.readdir(dir)).toEqual([]);
+});
+it('rejects invalid destination paths through the acknowledged main error channel', async () => {
+ const service = createExportService({ native: () => ({ ok: false, reason: 'unavailable' }) }); const main: any[] = [];
+ const c = createWorkerController({ postToMain: m => main.push(m), exports: service });
+ await c.handleMain({ v: 1, rid: 70, kind: 'export-destination', token: 'dest-001', path: 'relative.avif' });
+ expect(main).toEqual([{ v: 1, rid: 70, kind: 'error', error: 'Invalid export destination' }]);
+});
+it('ignores a relative legacy destination registration without stopping the worker', async () => {
+ const service = createExportService({ native: () => ({ ok: false, reason: 'unavailable' }) });
+ const c = createWorkerController({ postToMain: () => {}, exports: service }); const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+ try { await expect(c.handleMain({ v: 1, kind: 'export-destination', token: 'dest-001', path: 'relative.avif' })).resolves.toBeUndefined(); expect(log).toHaveBeenCalledWith('Ignored a relative export destination'); }
+ finally { log.mockRestore(); }
+});

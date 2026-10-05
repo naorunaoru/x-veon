@@ -1,3 +1,4 @@
+import type { createExportService } from './exports';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { FolderRef, LibraryPhoto } from '@/host';
@@ -18,6 +19,7 @@ const reason = (e: unknown) => e instanceof Error ? e.message : String(e);
 export function createWorkerController(opts: {
   postToMain: (message: WorkerToMain) => void;
   createLibrary?: (options: { sessionKey: Buffer; cacheDir: string }) => WorkerLibrary;
+  exports?: ReturnType<typeof createExportService>;
   onWatch?: (folder: WatchedFolder | null) => void;
 }) {
   let library: WorkerLibrary | undefined;
@@ -86,11 +88,22 @@ export function createWorkerController(opts: {
     const write = Promise.resolve().then(operation); writes.set(write, folder);
     try { return await write; } finally { writes.delete(write); changed(); }
   }
+  function getExports() { if (!opts.exports) throw new Error('Export service is unavailable'); return opts.exports; }
   async function handlePort(target: WorkerPort, message: PortRequest) {
     try {
-      if (message.op === 'rescan') await replace();
-      else await mutate(message.id, () => message.op === 'saveEdit' ? getLibrary().saveEdit(message.id, message.edit) : getLibrary().saveFacts(message.id, message.facts));
-      reply(target, { v: 1, rid: message.rid, ok: true, ...(message.op === 'rescan' ? {} : { stamp: { worker, revision: mutation } }) });
+      const rid = message.rid;
+      switch (message.op) {
+        case 'exportStatus': reply(target, { v: 1, rid, ok: true, availability: getExports().status() }); return;
+        case 'exportBegin': await getExports().begin(message); break;
+        case 'exportChunk': getExports().chunk(message.job, message.plane, message.offset, message.data); break;
+        case 'exportCommit': reply(target, { v: 1, rid, ok: true, receipt: await getExports().commit(message.job) }); return;
+        case 'exportCancel': getExports().cancel(message.job); break;
+        case 'rescan': await replace(); break;
+        case 'saveEdit': await mutate(message.id, () => getLibrary().saveEdit(message.id, message.edit)); break;
+        case 'saveFacts': await mutate(message.id, () => getLibrary().saveFacts(message.id, message.facts)); break;
+      }
+      const saved = message.op === 'saveEdit' || message.op === 'saveFacts';
+      reply(target, { v: 1, rid, ok: true, ...(saved ? { stamp: { worker, revision: mutation } } : {}) });
     } catch (error) { reply(target, { v: 1, rid: message.rid, ok: false, error: reason(error).slice(0, 10_000) }); }
   }
   return {
@@ -107,8 +120,14 @@ export function createWorkerController(opts: {
             library = (opts.createLibrary ?? createWorkerLibrary)({ sessionKey: Buffer.from(message.key, 'base64'), cacheDir: message.cacheDir }); break;
           case 'connect':
             if (ports.length !== 1) return;
+            opts.exports?.cancelAll();
             port?.close(); port = ports[0];
             { const target = port; target.on('message', event => { if (port === target && isPortRequest(event.data)) void handlePort(target, event.data); }); target.start(); }
+            break;
+          case 'export-destination':
+            if (message.rid !== undefined && !path.isAbsolute(message.path)) throw new Error('Invalid export destination');
+            getExports().register(message.token, message.path);
+            if (message.rid !== undefined) post({ v: 1, rid: message.rid, kind: 'export-destination', token: message.token });
             break;
           case 'register': getLibrary().register(message.entries); for (const [id, file] of message.entries) photoFolders.set(id, path.dirname(file)); break;
           case 'roots': getLibrary().setRoots(message.realRoots); break;
@@ -132,7 +151,7 @@ export function createWorkerController(opts: {
           }
         }
       } catch (error) {
-        if ('rid' in message) post({ v: 1, rid: message.rid, kind: 'error', error: reason(error).slice(0, 10_000) });
+        if ('rid' in message && message.rid !== undefined) post({ v: 1, rid: message.rid, kind: 'error', error: reason(error).slice(0, 10_000) });
         else throw error;
       }
     },
