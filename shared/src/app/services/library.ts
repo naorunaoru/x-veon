@@ -10,15 +10,24 @@ import {
 let clearing = false;
 let suspended = false;
 let folderGeneration = 0, issued = 0, accepted = 0;
+let dispatch = Promise.resolve();
 /** Lets startup reject a restore overtaken by an accepted folder choice. */
 export function folderSwitchVersion(): number { return folderGeneration; }
 /** Every folder entry point shares this ordering and stale-result guard. */
 export async function switchFolder(load: () => Promise<LibrarySnapshot | null>): Promise<void> {
   if (clearing || suspended) return;
   const order = ++issued;
-  await flushPersistence();
-  if (order < accepted || clearing || suspended) return;
-  const snapshot = await load();
+  // Only order flush → host invocation. Picker/list completion stays concurrent,
+  // so a later valid choice can supersede an earlier unresolved picker.
+  const prepared = dispatch.then(async () => {
+    await flushPersistence();
+    if (order < accepted || clearing || suspended) return null;
+    return { loading: load() };
+  });
+  dispatch = prepared.then(() => {}, () => {});
+  const pending = await prepared;
+  if (!pending) return;
+  const snapshot = await pending.loading;
   if (!snapshot) return;
   if (order < accepted || clearing || suspended) {
     getHost().library.release?.(snapshot.photos);

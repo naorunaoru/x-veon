@@ -1,9 +1,13 @@
 import { readFileSync, renameSync } from 'node:fs';
 import path from 'node:path';
+import fs from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import type { FolderRef } from '@/host';
 import { writeFileAtomic } from '../worker/atomic-write';
 type Entry = FolderRef & { path: string; openedAt: string };
+export function isMissingFolder(error: unknown): boolean {
+  return ['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException)?.code ?? '');
+}
 export function folderId(realPath: string): string {
   return createHash('sha256').update(process.platform === 'win32' ? realPath.toLowerCase() : realPath).digest('base64url').slice(0, 22);
 }
@@ -21,19 +25,44 @@ export function createFolderStore(file: string) {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') renameSync(file, file + '.bad');
   }
+  function persist() {
+    const snapshot = JSON.stringify({ version: 1, recent: entries, last: lastId });
+    pending = pending.catch(() => {}).then(() => writeFileAtomic(file, snapshot));
+    // Keep the error observable through flush without an unhandled rejection.
+    void pending.catch(() => {});
+  }
+  function forget(entry: Entry): boolean {
+    if (!entries.includes(entry)) return false;
+    entries = entries.filter(e => e !== entry);
+    if (lastId === entry.id) lastId = null;
+    persist(); return true;
+  }
+  const checking = new Set<Entry>();
   const ref = ({ id, name }: Entry): FolderRef => ({ id, name });
   return {
     recent: () => entries.map(ref),
     resolve: (id: string) => entries.find(e => e.id === id)?.path ?? null,
     last: () => { const entry = entries.find(e => e.id === lastId); return entry ? ref(entry) : null; },
+    forgetPath(folder: string): boolean {
+      const entry = entries.find(e => e.path === folder);
+      return entry ? forget(entry) : false;
+    },
+    pruneMissing(changed: () => void): void {
+      // Each path finishes independently; an offline network mount cannot hold
+      // startup or the other checks. Identity protects newly remembered entries.
+      for (const entry of entries) {
+        if (checking.has(entry)) continue;
+        checking.add(entry);
+        void fs.stat(entry.path).catch(error => {
+          if (isMissingFolder(error) && forget(entry)) changed();
+        }).finally(() => checking.delete(entry));
+      }
+    },
     remember(folder: string): FolderRef {
       const realPath = folder;
       const entry: Entry = { id: folderId(realPath), path: realPath, name: path.basename(realPath) || realPath, openedAt: new Date().toISOString() };
       entries = [entry, ...entries.filter(e => e.id !== entry.id)].slice(0, 10); lastId = entry.id;
-      const snapshot = JSON.stringify({ version: 1, recent: entries, last: lastId });
-      pending = pending.catch(() => {}).then(() => writeFileAtomic(file, snapshot));
-      // Keep the error observable through flush without an unhandled rejection.
-      void pending.catch(() => {});
+      persist();
       return ref(entry);
     },
     flush: () => pending,

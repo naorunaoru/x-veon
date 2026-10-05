@@ -9,7 +9,7 @@ vi.mock('electron', async () => {
   return { app, BrowserWindow: class { constructor(options: unknown) { state.windowOptions = options; return win; } }, powerMonitor: new EventEmitter(), screen: {}, ipcMain: { handle: (name: string, fn: any) => state.handles.set(name, fn), on: (name: string, fn: any) => state.listeners.set(name, fn) }, MessageChannelMain: class {}, net: {}, protocol: { registerSchemesAsPrivileged: state.privileges, handle: vi.fn() }, session: { defaultSession: { setPermissionRequestHandler: vi.fn(), setPermissionCheckHandler: vi.fn() } }, utilityProcess: {}, Menu: { buildFromTemplate: (t: unknown) => t, setApplicationMenu: vi.fn() }, dialog: { showOpenDialog: vi.fn(async () => ({ canceled: true, filePaths: [] })), showErrorBox: vi.fn(), showMessageBox: vi.fn(async () => ({ response: 1 })) }, shell: {} };
 });
 vi.mock('node:fs/promises', () => ({ readdir: vi.fn(async () => []), mkdir: vi.fn(async () => {}), writeFile: vi.fn(async () => {}) }));
-vi.mock('./folders', () => ({ createFolderStore: () => ({ recent: () => [], last: () => null, resolve: () => null }), folderId: () => 'f' }));
+vi.mock('./folders', () => ({ createFolderStore: () => ({ recent: () => [], pruneMissing: vi.fn(), forgetPath: () => false, last: () => null, resolve: () => null }), isMissingFolder: () => false, folderId: () => 'f' }));
 vi.mock('./worker', () => ({ createWorkerSupervisor: (opts: any) => { state.workerEvent = opts.onEvent; return ({ restart: state.restart, roots: [], registry: new Map(), onMessage() {}, stop: state.stop, request: vi.fn(), connect: vi.fn() }); } }));
 vi.mock('./golden-report', () => ({ watchGoldenReport: state.report }));
 const originalArgs = [...process.argv];
@@ -77,4 +77,15 @@ it('sets the explicit isolated profile before acquiring its instance lock', asyn
  vi.resetModules(); process.argv.push(`--user-data-dir=${profile}`); await import('./index'); await state.boot;
  expect(state.app.setPath).toHaveBeenCalledWith('userData', profile);
  expect(state.app.setPath.mock.invocationCallOrder.at(-1)).toBeLessThan(state.lock.mock.invocationCallOrder.at(-1)!);
+});
+
+it('reports folder failures using an asynchronous error dialog owned by the main window', async () => {
+ vi.resetModules(); await import('./index'); await state.boot;
+ const { dialog } = await import('electron');
+ vi.mocked(dialog.showOpenDialog).mockRejectedValueOnce(new Error('EACCES: unavailable folder'));
+ vi.mocked(dialog.showMessageBox).mockImplementationOnce(() => new Promise(() => {}));
+ const event = { sender: state.win.webContents, senderFrame: Object.assign(state.win.webContents.mainFrame, { url: 'app://bundle/?' }) };
+ await expect(state.handles.get('xveon-desktop')(event, { version: 2, kind: 'openFolder' })).resolves.toBeNull();
+ expect(dialog.showMessageBox).toHaveBeenCalledWith(state.win, expect.objectContaining({ type: 'error', detail: 'EACCES: unavailable folder' }));
+ expect(dialog.showErrorBox).not.toHaveBeenCalled();
 });

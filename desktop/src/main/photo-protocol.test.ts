@@ -18,7 +18,7 @@ it('streams only registered files in opened real roots and thumbnails in the rea
   const raw = path.join(root, 'a.RAF'), outside = path.join(dir, 'secret'), thumb = path.join(cache, 'a.jpg');
   await fs.writeFile(raw, 'raw bytes'); await fs.writeFile(outside, 'secret'); await fs.writeFile(thumb, 'thumbnail');
   let handler!: (r: { url: string; method: string }) => Promise<Response>;
-  const registry = new Map([['a'.repeat(22), raw], ['b'.repeat(22), outside], ['c'.repeat(22), path.join(root, 'escape.RAF')]]);
+  const registry = new Map([['a'.repeat(22), raw], ['b'.repeat(22), outside]]);
   let thumbPath: string | null = thumb;
   registerPhotoProtocol({ protocol: { handle: (_scheme, h) => { handler = h; } }, registry, roots: [root], cacheDir: cache, thumbnail: async () => thumbPath });
   const request = (kind: string, id: string) => handler({ url: `xveon-photo://${kind}/${id.repeat(22)}`, method: 'GET' });
@@ -49,4 +49,16 @@ it.for(['second-resolution', 'leaf-before-open', 'parent-before-open'])('rejects
   const response = await handler({ url: `xveon-photo://raw/${'a'.repeat(22)}`, method: 'GET' });
   const bytes = await response.text();
   expect(swapped).toBe(true); expect(response.status).toBe(404); expect(bytes).not.toContain('outside secret');
+});
+
+it('rejects an already registered RAW symlink escaping its opened root', async context => {
+  requireFileSymlinks(context);
+  const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'protocol-escape-'))); dirs.push(dir);
+  const root = path.join(dir, 'photos'); await fs.mkdir(root);
+  const outside = path.join(dir, 'secret'), escape = path.join(root, 'escape.RAF');
+  await fs.writeFile(outside, 'outside secret'); await fs.symlink(outside, escape, 'file');
+  let handler!: (r: { url: string; method: string }) => Promise<Response>;
+  registerPhotoProtocol({ protocol: { handle: (_scheme, h) => { handler = h; } }, registry: new Map([['c'.repeat(22), escape]]), roots: [root], cacheDir: dir, thumbnail: async () => null });
+  const response = await handler({ url: `xveon-photo://raw/${'c'.repeat(22)}`, method: 'GET' });
+  expect(response.status).toBe(404); expect(await response.text()).not.toContain('outside secret');
 });

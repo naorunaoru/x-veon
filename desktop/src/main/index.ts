@@ -118,7 +118,7 @@ if (ownsInstance) void app.whenReady().then(async () => {
   const refreshMenu = () => Menu.setApplicationMenu(Menu.buildFromTemplate(buildMenuTemplate(store.recent(), send, process.platform)));
   const folders = createFolderRequests({ store, worker: supervisor, send: frame => send({ kind: 'listing', frame }), accepted: refreshMenu,
     chooseFolder: async () => { const result = await dialog.showOpenDialog(win, { properties: ['openDirectory'] }); return result.canceled ? null : result.filePaths[0] ?? null; },
-    error: (folder, message) => dialog.showErrorBox(`Could not open ${folder}`, message),
+    error: (folder, message) => { void dialog.showMessageBox(win, { type: 'error', message: `Could not open ${folder || 'folder'}`, detail: message }).catch(() => {}); },
   });
   const ipc = registerDesktopIpc({ ipc: ipcMain, trusted, folders, recent: store.recent, connect: supervisor.connect, send });
   registerPhotoProtocol({ protocol, registry: supervisor.registry, roots: supervisor.roots, cacheDir,
@@ -137,6 +137,7 @@ if (ownsInstance) void app.whenReady().then(async () => {
   win.on('session-end', () => { endingSession = true; guard.onSessionEnd(); });
   app.on('will-quit', stopWorkers);
   refreshMenu();
+  store.pruneMissing(refreshMenu);
   win.webContents.on('console-message', (event) =>
     console.log(`[renderer] ${event.message}`),
   );

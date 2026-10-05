@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { realpath, stat } from 'node:fs/promises';
 import { RAW_EXTENSIONS } from '@/lib/catalog';
 import type { PhotoId } from '@/host';
-import { folderId, type createFolderStore } from './folders';
+import { folderId, isMissingFolder, type createFolderStore } from './folders';
 import type { createWorkerSupervisor } from './worker';
 import { createListingAssembler, bridgeListingFrames, type ListingFrame } from '../protocol/listing';
 import { isListingFrame } from '../protocol/rpc';
@@ -12,7 +12,7 @@ type Choice = { path: string; selected?: string[] } | null;
 type Result = { token: string; selected?: PhotoId[] } | null;
 export function createFolderRequests(deps: Deps) {
   let issued = 0, accepted = 0;
-  let pending: { token: string; cancel(): void } | undefined;
+  const active = new Map<number, { token: string; listing: boolean; cancel(): void }>();
   let publication: { activation: string; opened: boolean; replacement?: ListingFrame[] } | undefined;
   const replacements = new Map<string, { activation: string; entries: [PhotoId, string][]; assembler: ReturnType<typeof createListingAssembler> }>();
   deps.worker.onMessage(message => {
@@ -38,12 +38,13 @@ export function createFolderRequests(deps: Deps) {
     if (message.kind === 'listing-batch' && message.registry) replacement.entries.push(...message.registry);
     replacement.assembler.push(message);
   });
-  function start(choose: () => Promise<Choice>): Promise<Result> {
+  function start(choose: () => Promise<Choice>, quiet = false): Promise<Result> {
     const order = ++issued;
     const token = randomUUID();
     let cancel!: () => void;
-    const cancelled = new Promise<null>(resolve => { cancel = () => resolve(null); });
-    const request = { token, cancel };
+    const cancelled = new Promise<null>(resolve => { cancel = () => { active.delete(order); resolve(null); }; });
+    const request = { token, cancel, listing: false };
+    active.set(order, request);
     const latest = () => order >= accepted;
     const run = (async (): Promise<Result> => {
       let folderPath = '';
@@ -54,8 +55,12 @@ export function createFolderRequests(deps: Deps) {
         if (!(await stat(canonical)).isDirectory()) throw new Error('The selected path is not a folder');
         if (!latest()) return null;
         accepted = order;
-        if (pending) { pending.cancel(); void deps.worker.send({ v: 1, kind: 'cancel-list', token: pending.token }).catch(() => {}); }
-        pending = request;
+        // Release even requests still waiting for the picker or an OS path lookup.
+        for (const [older, previous] of active) if (older < order) {
+          previous.cancel();
+          if (previous.listing) void deps.worker.send({ v: 1, kind: 'cancel-list', token: previous.token }).catch(() => {});
+        }
+        request.listing = true;
         const id = folderId(canonical);
         const listing = await deps.worker.request({ kind: 'list', path: canonical, folderId: id, token, activation: token, purpose: 'open' });
         if (!latest()) return null;
@@ -72,14 +77,17 @@ export function createFolderRequests(deps: Deps) {
         const selected = choice.selected && listing.registry.filter(([, file]) => choice.selected!.includes(file)).map(([id]) => id);
         return { token, ...(selected ? { selected } : {}) };
       } catch (error) {
-        if (latest()) deps.error(path.basename(folderPath) || folderPath, error instanceof Error ? error.message : String(error));
+        if (latest()) {
+          if (isMissingFolder(error) && deps.store.forgetPath(folderPath)) deps.accepted();
+          if (!quiet) deps.error(path.basename(folderPath) || folderPath, error instanceof Error ? error.message : String(error));
+        }
         return null;
-      } finally { if (pending === request) pending = undefined; }
+      } finally { active.delete(order); }
     })();
     return Promise.race([run, cancelled]);
   }
   return {
-    loadLast: () => start(async () => { const last = deps.store.last(); const folder = last && deps.store.resolve(last.id); return folder ? { path: folder } : null; }),
+    loadLast: () => start(async () => { const last = deps.store.last(); const folder = last && deps.store.resolve(last.id); return folder ? { path: folder } : null; }, true),
     openFolder: (id?: string) => start(async () => { const folder = id === undefined ? await deps.chooseFolder() : deps.store.resolve(id); return folder ? { path: folder } : null; }),
     openDropped: (paths: string[]) => start(async () => {
       const existing: { path: string; directory: boolean }[] = [];

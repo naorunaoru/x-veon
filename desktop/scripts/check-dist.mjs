@@ -1,5 +1,5 @@
 import { listPackage, extractFile, uncache } from '@electron/asar';
-import { statSync } from 'node:fs';
+import { realpathSync, statSync } from 'node:fs';
 import { normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -30,7 +30,7 @@ export function checkArchive(archive) {
  }
  return { size, entries: entries.length, failures };
 }
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
  const archive = process.argv[2] ? resolve(process.argv[2])
    : fileURLToPath(new URL('../dist/mac-arm64/X-veon Beta.app/Contents/Resources/app.asar', import.meta.url));
  const { size, failures } = checkArchive(archive);

@@ -96,15 +96,17 @@ it('ignores a late A snapshot after B, including returning to A', async () => {
   await first;
   expect(useAppStore.getState().selectedFileId).toBe('second');
 });
-it('never loads an older request held in its flush step', async () => {
+it('dispatches host loads in request order even when an earlier flush is held', async () => {
   let finish!: () => void;
   vi.mocked(flushPersistence).mockImplementationOnce(() => new Promise(r => { finish = r; }));
   const load = vi.fn(async () => snapshot('A'));
   const a = switchFolder(load);
-  await switchFolder(async () => snapshot('B'));
-  finish();
-  await a;
-  expect(load).not.toHaveBeenCalled();
+  const newer = vi.fn(async () => snapshot('B'));
+  const b = switchFolder(newer);
+  await vi.waitFor(() => expect(flushPersistence).toHaveBeenCalled());
+  expect(load).not.toHaveBeenCalled(); expect(newer).not.toHaveBeenCalled();
+  finish(); await Promise.all([a, b]);
+  expect(load.mock.invocationCallOrder[0]).toBeLessThan(newer.mock.invocationCallOrder[0]);
   expect(useAppStore.getState().folder?.id).toBe('B');
 });
 it('replaces on a folder-host drop and appends on a web drop', async () => {
@@ -135,8 +137,9 @@ it.each(['loading', 'flushing'])('cancellation preserves the earlier %s choice a
  let finish!: () => void; const gate = new Promise<void>(r => { finish = r; });
  if (phase === 'flushing') vi.mocked(flushPersistence).mockImplementationOnce(() => gate);
  const first = switchFolder(async () => { if (phase === 'loading') await gate; return snapshot('kept'); });
- await Promise.resolve(); await switchFolder(async () => null);
+ await Promise.resolve(); const cancelled = switchFolder(async () => null);
+ if (phase === 'loading') await cancelled;
  expect(folderSwitchVersion()).toBe(version);
- finish(); await first; expect(useAppStore.getState().folder?.id).toBe('kept');
+ finish(); await Promise.all([first, cancelled]); expect(useAppStore.getState().folder?.id).toBe('kept');
  expect(folderSwitchVersion()).toBeGreaterThan(version);
 });

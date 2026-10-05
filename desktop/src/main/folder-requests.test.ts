@@ -8,6 +8,7 @@ import { createWorkerSupervisor } from './worker';
 import { createFolderRequests } from './folder-requests';
 import { listingFrames } from '../protocol/listing';
 import { photo } from '../protocol/test-fixtures';
+vi.mock('node:fs/promises', async importOriginal => { const original = await importOriginal<typeof import('node:fs/promises') & { default: typeof fs }>(); return { ...original, realpath: (...args: Parameters<typeof fs.realpath>) => original.default.realpath(...args) }; });
 class Child extends EventEmitter {
   pid = 1; sent: any[] = [];
   postMessage(message: unknown) { this.sent.push(message); }
@@ -109,4 +110,22 @@ it('a picker that resolves late cannot override a later accepted choice', async 
  const h = await harness(); const selection = held<string | null>(); h.picker.mockImplementationOnce(() => selection.promise);
  const a = h.requests.openFolder(); const b = h.choose(h.B); const second = await h.listed(0); h.complete(second, 'b'); await b;
  selection.resolve(h.A); await expect(a).resolves.toBeNull(); expect(h.worker.current?.path).toBe(h.B); expect(h.child.sent.filter(m => m.kind === 'list')).toHaveLength(1);
+});
+
+it('quietly prunes a missing startup folder and persists the removal', async () => {
+ const h = await harness(); const ref = h.store.remember(h.A); await h.store.flush(); await fs.rmdir(h.A);
+ expect(await h.requests.loadLast()).toBeNull(); await h.store.flush();
+ expect(h.error).not.toHaveBeenCalled(); expect(h.store.resolve(ref.id)).toBeNull(); expect(h.store.last()).toBeNull();
+ expect(JSON.parse(await fs.readFile(path.join(h.dir, 'folders.json'), 'utf8'))).toMatchObject({ last: null, recent: [] });
+});
+it('prunes a confirmed missing recent but retains the current folder and transiently inaccessible recents', async () => {
+ const h = await harness(); const absent = h.store.remember(h.A);
+ const opening = h.choose(h.B); const request = await h.listed(0); h.complete(request, 'b'); await opening;
+ await fs.rmdir(h.A); expect(await h.requests.openFolder(absent.id)).toBeNull(); await h.store.flush();
+ expect(h.store.resolve(absent.id)).toBeNull(); expect(h.store.last()?.name).toBe('B'); expect(h.worker.current?.path).toBe(h.B);
+ await fs.mkdir(h.A); const offline = h.store.remember(h.A);
+ const original = fs.realpath.bind(fs);
+ vi.spyOn(fs, 'realpath').mockImplementation(async target => { if (target === h.A) throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' }); return original(target); });
+ expect(await h.requests.openFolder(offline.id)).toBeNull(); expect(h.store.resolve(offline.id)).toBe(h.A);
+ expect(h.error).toHaveBeenLastCalledWith('A', 'EACCES: permission denied'); expect(h.worker.current?.path).toBe(h.B);
 });

@@ -407,3 +407,30 @@ it('reconciles an old save rejection after persistence remounts without a newer 
   expect(host.library.save).toHaveBeenCalledTimes(1);
   expect(useAppStore.getState().files[0]).toMatchObject({ editing: 'session', editingNote: 'permission denied' });
 });
+
+it.each(['edit', 'facts', 'remount'])('a concurrent flush includes another photo introduced during an earlier drain: %s', async kind => {
+  useAppStore.getState().addFiles([{ ...photo(), id: 'b' }]);
+  let release!: () => void;
+  vi.mocked(host.library.save).mockImplementationOnce(() => new Promise<void>(resolve => { release = resolve; }));
+  useAppStore.getState().setFilePreProcessOverride('a', 'exposure', 1);
+  const first = flushPersistence(); await vi.advanceTimersByTimeAsync(0);
+  expect(host.library.save).toHaveBeenCalledTimes(1);
+  if (kind === 'facts') useAppStore.setState(state => ({ files: state.files.map(f => f.id === 'b' ? { ...f, error: 'new fact' } : f) }));
+  else useAppStore.getState().setFilePreProcessOverride('b', 'exposure', 2);
+  if (kind === 'remount') { stop(); stop = startPersistence(); }
+  const second = flushPersistence(); release(); await Promise.all([first, second]);
+  if (kind === 'facts') expect(host.library.saveFacts).toHaveBeenCalledWith('b', expect.objectContaining({ error: 'new fact' }));
+  else expect(host.library.save).toHaveBeenCalledWith('b', expect.objectContaining({ preProcessOverrides: { exposure: 2 } }), expect.anything());
+  expect(unsavedEdits()).toEqual([]);
+});
+
+it('concurrent drains do not retry a revision that fails while both callers are waiting', async () => {
+  let reject!: (reason: Error) => void;
+  vi.mocked(host.library.save).mockImplementationOnce(() => new Promise<void>((_, fail) => { reject = fail; }));
+  useAppStore.getState().setFilePreProcessOverride('a', 'exposure', 1);
+  const first = flushPersistence(); await vi.advanceTimersByTimeAsync(0);
+  const second = flushPersistence(); reject(new Error('EACCES: permission denied'));
+  await Promise.all([first, second]);
+  expect(host.library.save).toHaveBeenCalledTimes(1);
+  expect(unsavedEdits()).toEqual([expect.objectContaining({ id: 'a', error: 'EACCES: permission denied' })]);
+});

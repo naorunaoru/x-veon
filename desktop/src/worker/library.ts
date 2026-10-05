@@ -86,14 +86,22 @@ export function createWorkerLibrary(opts: { sessionKey: Buffer; cacheDir: string
     setRoots: roots.set,
     async saveEdit(id, edit) {
       const raw = registered(id);
-      const checked = await roots.checkWrite(raw);
-      const existing = await sidecarText(checked.sidecarPath);
-      const merged = mergeSidecar(existing, edit);
-      if (merged === existing) return;
-      const current = await roots.checkWrite(raw);
-      if (current.sidecarPath !== checked.sidecarPath || current.dev !== checked.dev || current.ino !== checked.ino) throw new Error('The photo is no longer in its folder');
-      if (merged === null) await removeIfExists(current.sidecarPath, checked);
-      else await writeFileAtomic(current.sidecarPath, merged, { directory: checked });
+      try {
+        const checked = await roots.checkWrite(raw);
+        const existing = await sidecarText(checked.sidecarPath);
+        const merged = mergeSidecar(existing, edit);
+        if (merged === existing) return;
+        const current = await roots.checkWrite(raw);
+        if (current.sidecarPath !== checked.sidecarPath || current.dev !== checked.dev || current.ino !== checked.ino) throw new Error('The photo is no longer in its folder');
+        if (merged === null) await removeIfExists(current.sidecarPath, checked);
+        else await writeFileAtomic(current.sidecarPath, merged, { directory: checked });
+      } catch (error) {
+        const failedPath = (error as NodeJS.ErrnoException)?.path;
+        const temporary = typeof failedPath === 'string' && path.dirname(failedPath) === path.dirname(raw)
+          && path.basename(failedPath).startsWith(`.${path.basename(raw)}.xmp.`) && failedPath.endsWith('.tmp');
+        const detail = temporary ? message(error).replaceAll(failedPath, raw + '.xmp') : message(error);
+        throw new Error(`Could not save edits for ${path.basename(raw)} in ${path.dirname(raw)}: ${detail}`, { cause: error });
+      }
     },
     async saveFacts(id, facts) {
       await cache.putFacts(cache.key(await currentEntry(id)), facts);

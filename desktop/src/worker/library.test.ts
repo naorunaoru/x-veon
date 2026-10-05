@@ -57,7 +57,10 @@ it('refuses malformed and newer-schema sidecars and lists them as view-only', as
 });
 it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('reports POSIX read-only folders as session and rejects with the OS message', async () => {
  await fs.chmod(folder, 0o555); const photo = (await collect())[0].photos[0]; expect(photo.editing).toBe('session'); expect(photo.editingNote).toMatch(/This folder can't be written:.*EACCES/);
- await expect(lib.saveEdit(id(), edit)).rejects.toThrow(/EACCES/); expect(await fs.readdir(folder)).toEqual(['a.RAF']);
+ const failure = await lib.saveEdit(id(), edit).catch(error => error);
+ expect(failure.message).toContain(`Could not save edits for a.RAF in ${folder}`); expect(failure.message).toMatch(/EACCES/);
+ expect(failure.message).not.toMatch(/\.a\.RAF\.xmp\..+\.tmp/); expect(failure.cause.message).toMatch(/\.a\.RAF\.xmp\..+\.tmp/);
+ expect(await fs.readdir(folder)).toEqual(['a.RAF']);
 });
 it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('refuses unreadable sidecars without changing bytes', async () => {
  await fs.writeFile(raw + '.xmp', 'unchanged'); await fs.chmod(raw + '.xmp', 0o000); expect((await collect())[0].photos[0].editing).toBe('view-only'); await expect(lib.saveEdit(id(), edit)).rejects.toThrow(/EACCES/); await fs.chmod(raw + '.xmp', 0o644); expect(await fs.readFile(raw + '.xmp', 'utf8')).toBe('unchanged');
@@ -136,4 +139,16 @@ it('changes the opaque RAW revision for same-size content changed at the same re
   expect(before.sourceVersion).toMatch(/^[a-f0-9]{64}$/);
   expect(after).toMatchObject({ id: before.id, fileSize: before.fileSize });
   expect(after.sourceVersion).not.toBe(before.sourceVersion);
+});
+
+it('identifies the RAW and folder on a save failure while retaining the OS error as its cause', async () => {
+ const diagnostic = Object.assign(new Error(`EACCES: permission denied, open '${folder}/.a.RAF.xmp.hidden.tmp'`), { code: 'EACCES', syscall: 'open', path: `${folder}/.a.RAF.xmp.hidden.tmp` });
+ vi.spyOn(fs, 'open').mockRejectedValueOnce(diagnostic);
+ const failure = await lib.saveEdit(id(), edit).catch(error => error);
+ expect(failure.message).toContain(`Could not save edits for a.RAF in ${folder}`);
+ expect(failure.message).toContain('EACCES: permission denied');
+ expect(failure.message).toContain(raw + '.xmp');
+ expect(failure.message).not.toContain('.a.RAF.xmp.hidden.tmp');
+ expect(failure.cause).toBe(diagnostic);
+ expect(await fs.readdir(folder)).toEqual(['a.RAF']);
 });
