@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 import tempfile
@@ -33,6 +34,11 @@ def _checkpoint(folder: Path, cfa_type: str, *, tag: str = "v7", version: str = 
     torch.save({"epoch": 3, "model": model.state_dict(), "base_width": 16, "stages": 2, "cfa_type": cfa_type,
                 "architecture_tag": tag, "checkpoint_version": version, "checkpoint_major": int(version[1])}, path)
     return str(path)
+
+
+def _digests(folder: Path) -> dict[str, str]:
+    """File name -> sha256 of every file in folder; compares fast and diffs short when it fails."""
+    return {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in folder.iterdir()}
 
 
 def _registry(folder: Path) -> dict:
@@ -147,7 +153,7 @@ class SafeExportTest(unittest.TestCase):
     def test_a_failed_verify_leaves_the_previous_file_and_manifest_untouched(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             registry, out = self._first_export(Path(d))
-            before = {p.name: p.read_bytes() for p in out.iterdir()}
+            before = _digests(out)
             # A retrained checkpoint whose export comes out wrong: the file written holds other weights.
             registry["bayer"]["v7.0.0"]["stable"]["best"]["path"] = _checkpoint(Path(d), "bayer", seed=1)
             wrong = _checkpoint(Path(d), "bayer", seed=2)
@@ -158,7 +164,7 @@ class SafeExportTest(unittest.TestCase):
                     export_selected(registry, out, version="v7.0.0", cfa_type="bayer", patch_size=PATCH)
             self.assertIn("disagree", str(ctx.exception))
             # Nothing replaced and nothing left behind: same files, byte for byte.
-            self.assertEqual({p.name: p.read_bytes() for p in out.iterdir()}, before)
+            self.assertEqual(_digests(out), before)
 
     def test_an_up_to_date_entry_is_verified_before_it_is_skipped(self) -> None:
         with tempfile.TemporaryDirectory() as d:
