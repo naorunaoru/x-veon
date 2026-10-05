@@ -11,19 +11,17 @@ This policy applies to:
 - checkpoint directories under `checkpoints/`
 - ONNX exports derived from those checkpoints
 - `checkpoint_registry.json`
-- browser manifests such as `web/public/checkpoints/models.json`
+- browser manifests such as `shared/public/checkpoints/models.json`
 
 ## Current baseline
 
 The current supported checkpoint baseline is:
 
-- **`v6.1.4`**
+- **`v7.0.0`**
 
-Historically this run was labeled `v6.1.4q`, where `q` meant base width 16. Under this policy, the `q` suffix is dropped because width 16 is now the default model size.
+v7 is the packed family (`ARCHITECTURE_TAG = "v7"` in `model.py`). The model takes the app's five-channel input (mosaic, three colour masks, clip ratio), divides the mosaic by its mean over the tile and packs it by space-to-depth: 3×3 for X-Trans, 2×2 for Bayer. A checkpoint records `stages` (2 for the S model) next to `base_width`.
 
-Historical `_nowb` / `_wb` track distinctions are also deprecated. The current architecture should be treated as a single compatible family, and checkpoint naming should not encode that distinction.
-
-All checkpoint families before major version 6 are considered **legacy / unsupported** unless explicitly stated otherwise.
+All checkpoint families before major version 7 are **legacy / unsupported**: `train.py`, `export_onnx.py`, `infer_hdr.py` and `ui.py` refuse to load them. `v6.1.4` (mosaic plus white-balance input) stays on the `train-v6` branch.
 
 ## Versioning
 
@@ -179,11 +177,11 @@ Each checkpoint family must record enough metadata to determine compatibility an
 At minimum, `config.json` should include:
 - `cfa_type`
 - `base_width`
+- `stages`
 - `mode`
 - `epochs`
 - `patch_size`
 - `batch_size`
-- `best_metric`
 - whether the model/inference path requires any extra conditioning inputs
 - `from_checkpoint`
 - `resume`
@@ -191,8 +189,8 @@ At minimum, `config.json` should include:
 - the declared compatibility major version
 
 Recommended extra fields:
-- `checkpoint_version`: e.g. `v6.1.4`
-- `checkpoint_major`: e.g. `6`
+- `checkpoint_version`: e.g. `v7.0.0`
+- `checkpoint_major`: e.g. `7`
 - `architecture_tag`: short human-readable architecture/inference family label
 - `export_compatible`: boolean
 - `notes`: optional free-form summary of what changed in this family
@@ -219,11 +217,13 @@ Promotion to stable should be explicit. A checkpoint is not stable just because 
 
 ### Export policy
 
-Browser ONNX exports and `web/public/checkpoints/models.json` should point only to:
+Browser ONNX exports and `shared/public/checkpoints/models.json` should point only to:
 - the intended **stable** family for the current deployment, or
 - an explicitly chosen beta family during active testing
 
 The web manifest must not silently mix families from incompatible majors.
+
+`export_onnx.py` exports one version per run (`--version` is required), refuses a checkpoint whose `architecture_tag` is not the one `model.py` declares, and writes the app's keys `{cfa}_w{base_width}_base`. It replaces only the manifest entries it exports.
 
 ## ONNX export policy
 
@@ -239,13 +239,13 @@ Rules:
 ### Baseline
 
 The current baseline is:
-- `v6.1.4`
+- `v7.0.0`
 
 This is the reference compatible family for current work unless a new version is explicitly introduced.
 
 ### Legacy checkpoints
 
-Checkpoint lines before major version 6 are legacy.
+Checkpoint lines before major version 7 are legacy.
 
 Legacy checkpoints may still be useful for analysis or comparison, but they are not part of the supported forward-compatible family and should not be treated as drop-in alternatives.
 
@@ -323,5 +323,5 @@ X-veon checkpoint policy is:
 - **Patch** = compatible tune / fine-tune / hyperparameter iteration
 - **base width 16 is the default** and uses no suffix
 - **non-default widths use explicit suffixes** like `-w32`
-- **`v6.1.4` is the current baseline**
-- pre-6 families are legacy unless explicitly revived
+- **`v7.0.0` is the current baseline**
+- pre-7 families are legacy unless explicitly revived
