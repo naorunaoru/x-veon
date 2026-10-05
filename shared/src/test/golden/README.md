@@ -110,7 +110,19 @@ Its provenance above still applies. Windows recording must use the same physical
 Electron, with driver and runtime versions saved alongside the reports.
 
 `?golden=render` runs all ten processing cases once and checks exact scene, graded and
-dark-graded hashes. It does not exercise exports. Electron uses this mode because its
-desktop exporter is unavailable; desktop exports wait for M3. `?golden=full` continues to
+dark-graded hashes. It does not exercise exports. Electron defaults to `?golden=full`, with all six exports
+through the native encoder. Use `--golden-mode=render` for the old render-only route.
+`--golden-mode=bench` is reserved for the Task 10 benchmark workflow. `?golden=full` continues to
 require all ten cases and all six exports. Missing expected cases fail in either mode.
 See `README.md` and `desktop/scripts/` for built Electron commands. Acceptance and cross-machine evidence live in the M2 plan and handoff.
+
+Run the native Electron gate on macOS with an isolated profile:
+
+```bash
+npm run build:native --workspace desktop
+XV_GOLDEN=1 npm run build --workspace desktop
+npx electron desktop --golden-report="$PWD/.m3-evidence/task9-electron-golden.json" --user-data-dir="$(mktemp -d)"
+```
+
+Main creates `<report>.exports` for fixed native destinations. The harness compares the
+worker's SHA-256 and byte receipts against the unchanged adapter baseline.

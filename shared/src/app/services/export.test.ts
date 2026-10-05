@@ -3,7 +3,7 @@ import { fakeHost, fakePhoto } from '@/test/fake-host';
 import { fromLibraryPhoto } from '@/app/store/photo';
 import { useAppStore } from '@/app/store';
 import { setHost } from './host';
-import { enqueueExport } from './export';
+import { enqueueExport, renderExport } from './export';
 const m = vi.hoisted(() => ({ readback: vi.fn(), dispose: vi.fn(), release: vi.fn(), setImage: vi.fn() }));
 vi.mock('@/renderer', () => ({
   createRenderer: vi.fn(async () => ({ readback: m.readback, setImage: m.setImage, dispose: m.dispose })),
@@ -223,4 +223,14 @@ it.each(['failed', 'cancelled'] as const)('returns plane capacity when an encode
   expect(m.readback).toHaveBeenCalledTimes(3);
   finishSecond();
   await second.promise;
+});
+
+it('preserves the native receipt for golden exports', async () => {
+ const receipt = { bytes: 42, sha256: 'a'.repeat(64), encodeMs: 12, name: 'a.avif' };
+ vi.mocked(host.exporter.encode).mockResolvedValue(receipt);
+ await expect(renderExport('a', 'avif')).resolves.toEqual({ ...receipt, ext: 'avif' });
+});
+it('reports a cancelled golden export', async () => {
+ vi.mocked(host.exporter.chooseDestination).mockResolvedValue(null);
+ await expect(renderExport('a', 'avif')).rejects.toThrow('The export was cancelled.');
 });

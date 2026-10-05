@@ -219,8 +219,8 @@ export async function renderExport(
   fileId: string,
   format = useAppStore.getState().exportFormat,
   quality = useAppStore.getState().exportQuality,
-): Promise<{ blob: Blob; ext: string }> {
+): Promise<ExportResult & { ext: string }> {
   const result = await enqueueExport(fileId, format, quality).promise;
-  if (!result?.blob) throw new Error('The exporter returned no bytes for the golden check.');
-  return { blob: result.blob, ext: exportFormatInfo(format).ext };
+  if (result === null) throw new Error('The export was cancelled.');
+  return { ...result, ext: exportFormatInfo(format).ext };
 }

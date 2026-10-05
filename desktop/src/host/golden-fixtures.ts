@@ -1,16 +1,14 @@
 import type { Host, LibraryHost, LibraryPhoto } from '@/host';
 import { BUILD } from '@/lib/channel';
-import type { ExportHost } from '@/host';
-// Task 9 supplies the native golden export flow.
-const exporter: ExportHost = {
-  async status() { return { available: false, reason: 'Golden native export is unavailable until Task 9.' }; },
-  async chooseDestination() { return null; },
-  async encode() { throw new Error('Golden native export is unavailable until Task 9.'); },
-};
+import type { DesktopBridge } from '../protocol/bridge';
+import { createWorkerClient } from './port';
+import { createExporter } from './exporter';
 import { createDisplayHost } from './display';
 const NAMES = new Set(['DSCF3332.RAF', 'sony_a6400_21.arw']);
 /** Golden fixtures keep edits and fetched RAW files in memory. */
-export function createGoldenHost() {
+export function createGoldenHost(bridge: DesktopBridge) {
+  const client = createWorkerClient(bridge, () => {});
+  const exporter = createExporter(bridge, client);
   const photos = new Map<string, LibraryPhoto>(),
     files = new Map<string, File>();
   const library: LibraryHost = {
@@ -22,7 +20,7 @@ export function createGoldenHost() {
         throw Error('The golden host accepts only its two sample RAWs.');
       const added = incoming.map((file) => {
         const photo: LibraryPhoto = {
-          id: crypto.randomUUID(),
+          id: crypto.randomUUID().replaceAll('-', '').slice(0, 22),
           name: file.name,
           originalName: file.name,
           fileSize: file.size,

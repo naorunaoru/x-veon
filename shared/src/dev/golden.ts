@@ -112,9 +112,15 @@ async function readbackHashes(): Promise<{ scene: string; display: string; displ
   return { scene, display, displayDark };
 }
 
-async function exportOnce(id: string, format: ExportFormat): Promise<{ bytes: number; sha256: string }> {
-  const { blob } = await renderExport(id, format, useAppStore.getState().exportQuality);
-  const bytes = new Uint8Array(await blob.arrayBuffer());
+export async function exportOnce(id: string, format: ExportFormat): Promise<{ bytes: number; sha256: string }> {
+  const result = await renderExport(id, format, useAppStore.getState().exportQuality);
+  if (result.sha256 !== undefined) {
+    if (!/^[a-f0-9]{64}$/.test(result.sha256) || !Number.isSafeInteger(result.bytes) || result.bytes! <= 0)
+      throw new Error('The exporter returned an invalid golden receipt.');
+    return { bytes: result.bytes!, sha256: result.sha256 };
+  }
+  if (!result.blob) throw new Error('The exporter returned no bytes for the golden check.');
+  const bytes = new Uint8Array(await result.blob.arrayBuffer());
   return { bytes: bytes.byteLength, sha256: await hashBytes(bytes) };
 }
 

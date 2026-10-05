@@ -1,7 +1,12 @@
-import { expect, it } from 'vitest';
+vi.stubGlobal('navigator', { platform: 'MacIntel' });
+import { expect, it, vi } from 'vitest';
+import type { DesktopBridge } from '../protocol/bridge';
+const request = vi.hoisted(() => vi.fn(async () => ({ availability: { available: true } })));
+vi.mock('./port', () => ({ createWorkerClient: () => ({ request }) }));
+const bridge = { chooseExportDestination: vi.fn(async () => ({ token: 'golden' })) } as unknown as DesktopBridge;
 import { createGoldenHost } from './golden-fixtures';
 it('keeps fixtures and edits in memory without exposing delete or clear', async () => {
-  const fixture = createGoldenHost(),
+  const fixture = createGoldenHost(bridge),
     host = fixture.host.library;
   expect(host.remove).toBeUndefined();
   expect(host.clear).toBeUndefined();
@@ -21,8 +26,11 @@ it('keeps fixtures and edits in memory without exposing delete or clear', async 
   );
   fixture.releaseFixture(p.id);
   expect((await host.load()).photos).toEqual([]);
-  expect((await createGoldenHost().host.library.load()).photos).toEqual([]);
-  expect(await createGoldenHost().host.exporter.status()).toMatchObject({ available: false });
+  expect((await createGoldenHost(bridge).host.library.load()).photos).toEqual([]);
+  expect(p.id).toMatch(/^[A-Za-z0-9_-]{22}$/);
+  expect(await fixture.host.exporter.status()).toEqual({ available: true });
+  expect(await fixture.host.exporter.chooseDestination(p.id, 'x.avif', 'avif')).toEqual({ token: 'golden' });
+  expect(bridge.chooseExportDestination).toHaveBeenCalledWith(p.id, 'avif');
 });
 
-it('isolates golden settings from production', () => { expect(createGoldenHost().host.settingsDbName).toBe('xveon-desktop-golden'); });
+it('isolates golden settings from production', () => { expect(createGoldenHost(bridge).host.settingsDbName).toBe('xveon-desktop-golden'); });

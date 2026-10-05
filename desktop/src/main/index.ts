@@ -81,6 +81,11 @@ if (ownsInstance) void app.whenReady().then(async () => {
   });
   const goldenFile = typeof __XV_GOLDEN__ !== 'undefined' && __XV_GOLDEN__
     ? process.argv.find(arg => arg.startsWith('--golden-report='))?.slice('--golden-report='.length) : undefined;
+  const requestedGoldenMode = typeof __XV_GOLDEN__ !== 'undefined' && __XV_GOLDEN__
+    ? process.argv.find(arg => arg.startsWith('--golden-mode='))?.slice('--golden-mode='.length) : undefined;
+  const goldenMode = requestedGoldenMode === 'render' || requestedGoldenMode === 'bench' ? requestedGoldenMode : 'full';
+  const fixedDir = goldenFile ? `${goldenFile}.exports` : undefined;
+  if (fixedDir) await mkdir(fixedDir, { recursive: true });
   win = createMainWindow({ preload: path.resolve(__dirname, '../preload/index.js') });
   const send = (event: BridgeEvent) => {
     const message = { version: 2, ...event };
@@ -123,6 +128,7 @@ if (ownsInstance) void app.whenReady().then(async () => {
     error: (folder, message) => { void dialog.showMessageBox(win, { type: 'error', message: `Could not open ${folder || 'folder'}`, detail: message }).catch(() => {}); },
   });
   const exports = createExportDestinations({
+    fixedDir,
     showSaveDialog: options => dialog.showSaveDialog(win, options),
     rawPath: id => supervisor.registry.get(id),
     register: async (token, target) => { await supervisor.request({ kind: 'export-destination', token, path: target }); },
@@ -150,7 +156,7 @@ if (ownsInstance) void app.whenReady().then(async () => {
     console.log(`[renderer] ${event.message}`),
   );
   if (goldenFile) {
-    await win.loadURL('app://bundle/?golden=render');
+    await win.loadURL(`app://bundle/?golden=${goldenMode}`);
     const { watchGoldenReport } = await import('./golden-report');
     await watchGoldenReport(win, goldenFile);
   } else await win.loadURL('app://bundle/?');

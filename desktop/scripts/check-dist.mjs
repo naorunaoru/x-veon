@@ -24,7 +24,7 @@ export function checkArchive(archive) {
    if (!scripts.length) failures.push(`missing ${area} JavaScript`);
    for (const file of scripts) {
      const source = extractFile(archive, normalize(file)).toString('utf8');
-     for (const forbidden of ['createGoldenHost', 'runSpike', 'spike-timing', '__golden', 'golden-report'])
+     for (const forbidden of ['createGoldenHost', 'runSpike', 'spike-timing', '__golden', 'golden-report', '--golden-mode'])
        if (source.includes(forbidden)) failures.push(`${file} contains ${forbidden}`);
    }
  }

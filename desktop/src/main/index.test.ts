@@ -2,20 +2,21 @@ import { afterEach, expect, it, vi } from 'vitest';
 import os from 'node:os';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-const state = vi.hoisted(() => ({ folderFile: undefined as string | undefined, boot: undefined as Promise<unknown> | undefined, handles: new Map<string, any>(), listeners: new Map<string, any>(), privileges: vi.fn(), name: vi.fn(), quit: vi.fn(), stop: vi.fn(), win: undefined as any, windowOptions: undefined as any, app: undefined as any, report: vi.fn(async () => {}), workerEvent: undefined as any, restart: vi.fn(async () => {}), lock: vi.fn(() => true) }));
+const state = vi.hoisted(() => ({ mkdir: vi.fn(async () => {}), destinations: vi.fn(), folderFile: undefined as string | undefined, boot: undefined as Promise<unknown> | undefined, handles: new Map<string, any>(), listeners: new Map<string, any>(), privileges: vi.fn(), name: vi.fn(), quit: vi.fn(), stop: vi.fn(), win: undefined as any, windowOptions: undefined as any, app: undefined as any, report: vi.fn(async () => {}), workerEvent: undefined as any, restart: vi.fn(async () => {}), lock: vi.fn(() => true) }));
 vi.mock('electron', async () => {
   const { EventEmitter } = await import('node:events');
   const app = Object.assign(new EventEmitter(), { setName: state.name, requestSingleInstanceLock: state.lock, setPath: vi.fn(), getPath: () => '/tmp/task9-userdata', whenReady: () => ({ then: (fn: () => Promise<unknown>) => { state.boot = fn(); return state.boot; } }), quit: state.quit, exit: vi.fn() }); state.app = app;
   const win = Object.assign(new EventEmitter(), { webContents: Object.assign(new EventEmitter(), { send: vi.fn(), setWindowOpenHandler: vi.fn(), mainFrame: {}, executeJavaScript: vi.fn() }), loadURL: vi.fn(async () => {}), destroy: vi.fn(), isDestroyed: () => false, isMinimized: () => true, restore: vi.fn(), focus: vi.fn() }); state.win = win;
   return { app, BrowserWindow: class { constructor(options: unknown) { state.windowOptions = options; return win; } }, powerMonitor: new EventEmitter(), screen: {}, ipcMain: { handle: (name: string, fn: any) => state.handles.set(name, fn), on: (name: string, fn: any) => state.listeners.set(name, fn) }, MessageChannelMain: class {}, net: {}, protocol: { registerSchemesAsPrivileged: state.privileges, handle: vi.fn() }, session: { defaultSession: { setPermissionRequestHandler: vi.fn(), setPermissionCheckHandler: vi.fn() } }, utilityProcess: {}, Menu: { buildFromTemplate: (t: unknown) => t, setApplicationMenu: vi.fn() }, dialog: { showSaveDialog: vi.fn(async () => ({ canceled: true })), showOpenDialog: vi.fn(async () => ({ canceled: true, filePaths: [] })), showErrorBox: vi.fn(), showMessageBox: vi.fn(async () => ({ response: 1 })) }, shell: { showItemInFolder: vi.fn() } };
 });
-vi.mock('node:fs/promises', async importOriginal => ({ ...await importOriginal<typeof import('node:fs/promises')>(), readdir: vi.fn(async () => []), mkdir: vi.fn(async () => {}), writeFile: vi.fn(async () => {}) }));
+vi.mock('node:fs/promises', async importOriginal => ({ ...await importOriginal<typeof import('node:fs/promises')>(), readdir: vi.fn(async () => []), mkdir: state.mkdir, writeFile: vi.fn(async () => {}) }));
 vi.mock('./folders', async importOriginal => {
  const actual = await importOriginal<typeof import('./folders')>();
  return { ...actual, createFolderStore: () => state.folderFile ? actual.createFolderStore(state.folderFile) : ({ recent: () => [], forgetPath: () => false, last: () => null, resolve: () => null }) };
 });
 vi.mock('./worker', () => ({ createWorkerSupervisor: (opts: any) => { state.workerEvent = opts.onEvent; return ({ restart: state.restart, roots: [], registry: new Map(), onMessage() {}, stop: state.stop, request: vi.fn(), connect: vi.fn() }); } }));
 vi.mock('./golden-report', () => ({ watchGoldenReport: state.report }));
+vi.mock('./exports', async importOriginal => { const actual = await importOriginal<typeof import('./exports')>(); return { createExportDestinations: (deps: Parameters<typeof actual.createExportDestinations>[0]) => { state.destinations(deps); return actual.createExportDestinations(deps); } }; });
 const originalArgs = [...process.argv];
 afterEach(async () => { const { dialog, powerMonitor } = await import('electron'); state.app?.removeAllListeners(); state.win?.removeAllListeners(); state.win?.webContents.removeAllListeners(); powerMonitor.removeAllListeners(); state.quit.mockReset(); vi.mocked(dialog.showMessageBox).mockReset().mockResolvedValue({ response: 1, checkboxChecked: false }); process.argv = [...originalArgs]; vi.useRealTimers(); vi.unstubAllGlobals(); vi.clearAllMocks(); state.handles.clear(); state.listeners.clear(); });
 it('boots with only the desktop route, registers a secure streaming scheme, and defers worker cleanup until quit is accepted', async () => {
@@ -29,10 +30,12 @@ it('boots with only the desktop route, registers a secure streaming scheme, and 
   state.app.emit('will-quit'); expect(state.stop).toHaveBeenCalledOnce();
 });
 
-it('loads the render golden route and starts the reporter only in a golden build', async () => {
-  vi.resetModules(); vi.stubGlobal('__XV_GOLDEN__', true); process.argv.push('--golden-report=/report.json');
+it.each([undefined, 'full', 'render', 'bench', 'unknown'])('loads golden mode %s and fixes its export destination', async mode => {
+  vi.resetModules(); vi.stubGlobal('__XV_GOLDEN__', true); process.argv.push('--golden-report=/report.json'); if (mode) process.argv.push(`--golden-mode=${mode}`);
   await import('./index'); await state.boot;
-  expect(state.win.loadURL).toHaveBeenCalledWith('app://bundle/?golden=render'); expect(state.report).toHaveBeenCalledWith(state.win, '/report.json');
+  expect(state.win.loadURL).toHaveBeenCalledWith(`app://bundle/?golden=${mode === 'render' || mode === 'bench' ? mode : 'full'}`);
+  expect(state.mkdir).toHaveBeenCalledWith('/report.json.exports', { recursive: true });
+  expect(state.destinations).toHaveBeenCalledWith(expect.objectContaining({ fixedDir: '/report.json.exports' })); expect(state.report).toHaveBeenCalledWith(state.win, '/report.json');
   expect(state.windowOptions.webPreferences.backgroundThrottling).toBe(false);
 });
 

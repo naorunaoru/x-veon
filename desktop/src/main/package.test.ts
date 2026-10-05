@@ -68,3 +68,16 @@ it.each(['stdin', 'eval-missing', 'eval-checker', 'file-missing'])('allows progr
    expect(result.stdout.trim()).toBe('imported; archive errors remain observable'); expect(result.stderr).toBe('');
  } finally { await fs.rm(dir, { recursive: true, force: true }); }
 });
+
+it('rejects golden mode flags in normal bundles', async () => {
+ const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'xveon-golden-mode-'));
+ try {
+  const source = path.join(dir, 'source'), archive = path.join(dir, 'app.asar');
+  for (const file of ['out/main/index.js', 'out/preload/index.js', 'out/renderer/index.js', 'out/renderer/index.html', 'out/renderer/checkpoints/models.json', 'out/renderer/lensfun/index.json']) {
+   await fs.mkdir(path.dirname(path.join(source, file)), { recursive: true }); await fs.writeFile(path.join(source, file), '{}');
+  }
+  await fs.writeFile(path.join(source, 'out/main/index.js'), 'process.argv.find(arg => arg.startsWith("--golden-mode="))');
+  await createPackage(source, archive);
+  expect(checkArchive(archive).failures).toContain('out/main/index.js contains --golden-mode');
+ } finally { await fs.rm(dir, { recursive: true, force: true }); }
+});
