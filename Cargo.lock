@@ -381,6 +381,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "libm"
+version = "0.2.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
+
+[[package]]
 name = "log"
 version = "0.4.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -393,6 +399,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ea1f30cedd69f0a2954655f7188c6a834246d2bcf1e315e2ac40c4b24dc9519"
 dependencies = [
  "cfg-if",
+ "rayon",
 ]
 
 [[package]]
@@ -416,6 +423,15 @@ name = "mutate_once"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13d2233c9842d08cfe13f9eac96e207ca6a2ea10b80259ebe8ad0268be27d2af"
+
+[[package]]
+name = "nasm-rs"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe4d98d0065f4b1daf164b3eafb11974c94662e5e2396cf03f32d0bb5c17da51"
+dependencies = [
+ "rayon",
+]
 
 [[package]]
 name = "new_debug_unreachable"
@@ -600,6 +616,7 @@ dependencies = [
  "av1-grain",
  "bitstream-io",
  "built",
+ "cc",
  "cfg-if",
  "interpolate_name",
  "itertools",
@@ -607,6 +624,7 @@ dependencies = [
  "libfuzzer-sys",
  "log",
  "maybe-rayon",
+ "nasm-rs",
  "new_debug_unreachable",
  "noop_proc_macro",
  "num-derive",
@@ -975,13 +993,20 @@ checksum = "d7249219f66ced02969388cf2bb044a09756a083d0fab1e566056b04d9fbcaa5"
 name = "xtrans-encoder-wasm"
 version = "0.1.0"
 dependencies = [
- "avif-serialize",
  "console_error_panic_hook",
+ "wasm-bindgen",
+ "xveon-encode",
+]
+
+[[package]]
+name = "xveon-encode"
+version = "0.1.0"
+dependencies = [
+ "avif-serialize",
  "jpeg-encoder",
- "js-sys",
+ "libm",
  "rav1e",
  "tiff",
- "wasm-bindgen",
 ]
 
 [[package]]

@@ -4,8 +4,9 @@ use crate::encode_uhdr;
 use crate::exif;
 use crate::rotation::{self, Orientation};
 use crate::transfer;
+use crate::{math, EncodeOptions};
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum Format {
     Avif,
     JpegHdr,
@@ -39,6 +40,7 @@ pub fn encode(
     format: Format,
     quality: u8,
     peak_luminance: f32,
+    options: EncodeOptions,
 ) -> Result<Vec<u8>, String> {
     match format {
         Format::JpegHdr => {
@@ -65,10 +67,9 @@ pub fn encode(
             for i in 0..num {
                 let idx = i * 3;
                 for c in 0..3 {
-                    let gain = ((hdr_data[idx + c] * peak_ratio + offset)
+                    let gain = math::log2f(((hdr_data[idx + c] * peak_ratio + offset)
                         / (data[idx + c] + offset))
-                        .max(1e-10)
-                        .log2();
+                        .max(1e-10));
                     gains[idx + c] = gain;
                     gain_min[c] = gain_min[c].min(gain);
                     gain_max[c] = gain_max[c].max(gain);
@@ -95,7 +96,7 @@ pub fn encode(
                 &sdr_rgb8, width, height, quality,
                 &gain_rgb8,
                 gain_min, gain_max, offset,
-                peak_ratio.log2(),
+                math::log2f(peak_ratio),
                 &exif_app1,
             )
         }
@@ -125,14 +126,14 @@ pub fn encode(
             let mut rgb10 = vec![0u16; num * 3];
             for i in 0..num {
                 let idx = i * 3;
-                let r = rotated[idx].max(0.0).powf(1.0 / 1.2);
-                let g = rotated[idx + 1].max(0.0).powf(1.0 / 1.2);
-                let b = rotated[idx + 2].max(0.0).powf(1.0 / 1.2);
+                let r = math::powf(rotated[idx].max(0.0), 1.0 / 1.2);
+                let g = math::powf(rotated[idx + 1].max(0.0), 1.0 / 1.2);
+                let b = math::powf(rotated[idx + 2].max(0.0), 1.0 / 1.2);
                 rgb10[idx]     = (transfer::hlg_oetf(r) * 1023.0 + 0.5).clamp(0.0, 1023.0) as u16;
                 rgb10[idx + 1] = (transfer::hlg_oetf(g) * 1023.0 + 0.5).clamp(0.0, 1023.0) as u16;
                 rgb10[idx + 2] = (transfer::hlg_oetf(b) * 1023.0 + 0.5).clamp(0.0, 1023.0) as u16;
             }
-            encode_avif::encode(&rgb10, rw, rh, quality)
+            encode_avif::encode(&rgb10, rw, rh, quality, options)
         }
     }
 }

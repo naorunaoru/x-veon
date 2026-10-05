@@ -3,9 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build:wasm": "npm run build:wasm:decoder && npm run build:wasm:encoder && npm run build:wasm:demosaic",
+    "build:wasm": "npm run build:wasm:decoder && npm run build:wasm:demosaic",
     "build:wasm:decoder": "wasm-pack build crates/rawloader-wasm --target web --profile release-small",
-    "build:wasm:encoder": "wasm-pack build crates/encode --target web --release",
     "build:wasm:demosaic": "wasm-pack build crates/demosaic-wasm --target web --release",
     "build:lensfun": "tsx scripts/convert-lensfun-db.ts",
     "test": "vitest run",

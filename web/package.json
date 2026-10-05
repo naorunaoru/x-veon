@@ -7,7 +7,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:wasm": "wasm-pack build crates/encode-wasm --target web --release"
   },
   "dependencies": {
     "@xveon/shared": "*",
@@ -28,6 +29,7 @@
     "typescript": "^5.9.3",
     "vite": "^6.0.0",
     "vite-plugin-wasm": "^3.4.1",
-    "vitest": "^3.2.6"
+    "vitest": "^3.2.6",
+    "wasm-pack": "0.15.0"
   }
 }

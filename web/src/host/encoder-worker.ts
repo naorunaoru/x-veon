@@ -1,4 +1,4 @@
-import init, { encode_image } from '../../../shared/crates/encode/pkg/xtrans_encoder_wasm.js';
+import init, { encode_image } from '../../crates/encode-wasm/pkg/xtrans_encoder_wasm.js';
 
 let ready = false;
 

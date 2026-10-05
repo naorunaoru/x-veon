@@ -19,7 +19,9 @@ npm ci --workspace shared --workspace web --workspace desktop
 npm test --workspace shared
 npm test --workspace web
 npm test --workspace desktop
+cargo test --locked -p xveon-encode
 npm run build:wasm --workspace shared
+npm run build:wasm --workspace web
 npm run build:lensfun --workspace shared
 XV_CHANNEL="$channel" npm run build --workspace web
 npm run typecheck --workspace shared --workspace web --workspace desktop

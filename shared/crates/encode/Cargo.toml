@@ -1,25 +1,22 @@
 [package]
-name = "xtrans-encoder-wasm"
+name = "xveon-encode"
 version = "0.1.0"
 edition = "2021"
+publish = false
+description = "X-veon's export encoders (AVIF, Ultra HDR JPEG, TIFF): the core the WASM and native builds share"
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = ["rlib"]
 
 [features]
-default = ["console_error_panic_hook"]
+# Desktop only (spec §7): rav1e's assembly (NASM on x86_64) and its thread pool.
+asm = ["rav1e/asm"]
+threading = ["rav1e/threading"]
+native = ["asm", "threading"]
 
 [dependencies]
-wasm-bindgen = "0.2"
-js-sys = "0.3"
-console_error_panic_hook = { version = "0.1", optional = true }
-
-# Phase 1: JPEG
 jpeg-encoder = "0.6"
-
-# Phase 2: TIFF
 tiff = "0.9"
-
-# Phase 3: HDR AVIF
 rav1e = { version = "0.7", default-features = false }
 avif-serialize = "0.8"
+libm = "=0.2.16"

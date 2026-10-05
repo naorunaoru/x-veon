@@ -145,3 +145,5 @@ The app no longer requests persistent browser storage. A browser's existing pers
 For Windows write-denial acceptance, apply an actual ACL denial to a copied fixture folder, then restore its original ACL. A read-only attribute is not equivalent. Viewing creates no probe sidecars; the real save/reset result determines session state. Record the OS error and retained edit. macOS tests do not prove Windows ACL behavior.
 
 Use `--user-data-dir=/absolute/isolated-profile` for a separate desktop test/golden profile, including its settings, cache and single-instance lock.
+
+The export encoder core is `shared/crates/encode`; its browser WASM wrapper builds in `web/crates/encode-wasm` and generates its package in that crate’s `pkg/` directory. `npm run build:wasm` builds the shared decoder and demosaic crates and the web encoder wrapper.

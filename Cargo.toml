@@ -1,11 +1,12 @@
 # One Rust workspace for every crate (desktop-app spec §4.4). wasm-pack builds each member from here;
-# the build output goes to /target/ and each crate's package to shared/crates/<crate>/pkg/.
+# the build output goes to /target/ and each crate's package goes to its own `pkg/`.
 [workspace]
 resolver = "2"
 members = [
   "shared/crates/rawloader-wasm",
   "shared/crates/demosaic-wasm",
   "shared/crates/encode",
+  "web/crates/encode-wasm",
 ]
 # The vendored decoder is a path dependency of rawloader-wasm, not a member.
 exclude = ["shared/crates/vendor/rawloader"]

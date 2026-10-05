@@ -8,7 +8,7 @@
   ],
   "scripts": {
     "setup": "rustup target add wasm32-unknown-unknown && npm install && npm run build:wasm",
-    "build:wasm": "npm run build:wasm --workspace shared",
+    "build:wasm": "npm run build:wasm --workspace shared && npm run build:wasm --workspace web",
     "build:lensfun": "npm run build:lensfun --workspace shared",
     "dev": "npm run build:wasm && npm run dev --workspace web",
     "build": "npm run build:wasm && npm run build:lensfun && npm run build --workspace web",

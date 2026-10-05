@@ -6,7 +6,7 @@ fn quality_to_quantizer(quality: u8) -> usize {
     (20.0 + q * 2.35).round() as usize
 }
 
-pub fn encode(rgb10: &[u16], width: u32, height: u32, quality: u8) -> Result<Vec<u8>, String> {
+pub fn encode(rgb10: &[u16], width: u32, height: u32, quality: u8, options: crate::EncodeOptions) -> Result<Vec<u8>, String> {
     let w = width as usize;
     let h = height as usize;
 
@@ -29,7 +29,7 @@ pub fn encode(rgb10: &[u16], width: u32, height: u32, quality: u8) -> Result<Vec
         ..Default::default()
     };
 
-    let cfg = Config::new().with_encoder_config(enc).with_threads(1);
+    let cfg = Config::new().with_encoder_config(enc).with_threads(options.threads.max(1));
     let mut ctx: Context<u16> =
         cfg.new_context().map_err(|e| format!("rav1e context error: {e}"))?;
 
