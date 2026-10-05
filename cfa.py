@@ -170,3 +170,20 @@ def detect_cfa_from_raw(raw_pattern: np.ndarray) -> tuple[str, np.ndarray]:
         f"Could not identify CFA pattern from raw_pattern "
         f"(shape={raw_pattern.shape}, top-left 2x2={raw_pattern[:2, :2].tolist()})"
     )
+
+
+def make_model_input(mosaic: torch.Tensor, masks: torch.Tensor) -> torch.Tensor:
+    """The five channels the model takes: mosaic, R/G/B masks, clip ratio.
+
+    Args:
+        mosaic: (B, 1, H, W) in raw units, 1.0 = the sensor's clip level.
+        masks:  (3, H, W) or (1, 3, H, W) channel masks for the same H and W.
+
+    The clip ratio is 0 below half of the clip level and ramps to 1 at it, the
+    formula the app uses with a clip level of 1.0.
+    """
+    if masks.dim() == 3:
+        masks = masks.unsqueeze(0)
+    masks = masks.to(dtype=mosaic.dtype, device=mosaic.device).expand(mosaic.shape[0], -1, -1, -1)
+    clip = (mosaic.clamp(0.0, 1.0) * 2.0 - 1.0).clamp(0.0, 1.0)
+    return torch.cat([mosaic, masks, clip], dim=1)
