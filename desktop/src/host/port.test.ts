@@ -19,3 +19,30 @@ it('an already cancelled handshake never requests or listens for a port', async 
   await expect(waitForWorkerPort(bridge, abort.signal)).rejects.toThrow('Worker stopped');
   expect(bridge.requestWorkerPort).not.toHaveBeenCalled(); expect(added).not.toHaveBeenCalled();
 });
+
+it('returns receipt, availability and stamp and applies each request timeout independently', async () => {
+  vi.useFakeTimers();
+  const win = new EventTarget(); vi.stubGlobal('window', win); vi.stubGlobal('location', { origin: 'app://bundle' });
+  class Port extends EventTarget {
+    sent: { rid: number }[] = [];
+    start() {} close() {}
+    postMessage(request: { rid: number }, transfer?: unknown) { expect(transfer).toBeUndefined(); this.sent.push(request); }
+  }
+  const port = new Port();
+  const bridge = { requestWorkerPort: vi.fn(async requestId => {
+    const event = new MessageEvent('message', { data: { type: 'xveon-port', version: 2, requestId }, origin: 'app://bundle' });
+    Object.defineProperties(event, { source: { value: win }, ports: { value: [port] } }); win.dispatchEvent(event);
+  }) } as unknown as DesktopBridge;
+  const { createWorkerClient } = await import('./port');
+  const acknowledged = vi.fn(); const client = createWorkerClient(bridge, () => {}, acknowledged);
+  const short = client.request({ op: 'exportStatus' }, { timeoutMs: 100 });
+  const long = client.request({ op: 'exportStatus' }); let longSettled = false;
+  void long.then(() => { longSettled = true; });
+  const failed = expect(short).rejects.toThrow('Worker response timed out');
+  await vi.advanceTimersByTimeAsync(100); await failed; expect(longSettled).toBe(false);
+  const reply = { v: 1, rid: port.sent[1].rid, ok: true, availability: { available: true },
+    stamp: { worker: '11111111-1111-4111-8111-111111111111', revision: 2 },
+    receipt: { bytes: 20, sha256: 'a'.repeat(64), encodeMs: 12, name: 'x.avif' } };
+  port.dispatchEvent(new MessageEvent('message', { data: reply }));
+  expect(await long).toEqual(reply); expect(acknowledged).toHaveBeenCalledWith(reply.stamp); expect(vi.getTimerCount()).toBe(0);
+});

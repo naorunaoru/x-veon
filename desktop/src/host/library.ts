@@ -6,6 +6,9 @@ import { photoUrl } from '../protocol/photo-url';
 import { createWorkerClient } from './port';
 type Completed = { activation: string; snapshot: LibrarySnapshot; stamp?: ListingStamp };
 export function createLibrary(bridge: DesktopBridge): LibraryHost {
+  return createLibraryWithClient(bridge).library;
+}
+export function createLibraryWithClient(bridge: DesktopBridge) {
   const listeners = new Set<(change: LibraryChange) => void>();
   const folderListeners = new Set<(folder?: FolderRef) => void>();
   let flush: (() => Promise<void>) | undefined;
@@ -118,17 +121,18 @@ export function createLibrary(bridge: DesktopBridge): LibraryHost {
     }
   });
   window.addEventListener('focus', () => { void client.request({ op: 'rescan' }).catch(() => {}); });
-  return {
+  const library: LibraryHost = {
     async load() { return await request(() => bridge.loadLast()) ?? { photos: [], complete: true, folder: null }; },
     openFolder: folder => request(() => bridge.openFolder(folder?.id)),
     addFiles: files => request(() => bridge.openDropped(files)),
     recentFolders: () => bridge.recentFolders(),
     async readRaw(id) { return (await fetch(photoUrl('raw', id))).arrayBuffer(); },
     async save(id, edit, facts) { await client.request({ op: 'saveEdit', id, edit }); void client.request({ op: 'saveFacts', id, facts }).catch(error => console.warn('Photo facts cache failed:', error)); },
-    saveFacts: (id, facts) => client.request({ op: 'saveFacts', id, facts }),
+    async saveFacts(id, facts) { await client.request({ op: 'saveFacts', id, facts }); },
     reportUnsaved(edits) { inventory = edits; bridge.updateUnsaved(edits); },
     onFlushRequest(handler) { flush = handler; return () => { if (flush === handler) flush = undefined; }; },
     onFolderRequest(listener) { folderListeners.add(listener); return () => folderListeners.delete(listener); },
     onChange(listener) { listeners.add(listener); return () => listeners.delete(listener); },
   };
+  return { library, client };
 }

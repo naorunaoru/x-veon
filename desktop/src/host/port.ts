@@ -1,6 +1,6 @@
 import type { DesktopBridge } from '../protocol/bridge';
 import { isWorkerPortDelivery } from '../protocol/security';
-import { isPortEvent, isPortReply, isPortRequest, type PortEvent, type PortRequest, type StateStamp } from '../protocol/rpc';
+import { isPortEvent, isPortReply, isPortRequest, type PortEvent, type PortRequest, type PortReply, type StateStamp } from '../protocol/rpc';
 /** Install the listener before invoking main: the transferred port may arrive first. */
 export function waitForWorkerPort(bridge: DesktopBridge, signal?: AbortSignal): Promise<MessagePort> {
   const requestId = crypto.randomUUID();
@@ -30,12 +30,13 @@ export function waitForWorkerPort(bridge: DesktopBridge, signal?: AbortSignal): 
   });
 }
 
+export type PortReplyOk = Extract<PortReply, { ok: true }>;
 type Request = PortRequest extends infer R ? R extends PortRequest ? Omit<R, 'v' | 'rid'> : never : never;
 export function createWorkerClient(bridge: DesktopBridge, onFacts: (event: PortEvent) => void, onAcknowledged?: (stamp: StateStamp) => void) {
   let port: MessagePort | null = null, connecting: Promise<MessagePort> | null = null;
   let handshake: AbortController | undefined;
   let generation = 0, rid = 0, stopped: string | null = null;
-  const pending = new Map<number, { resolve: () => void; reject: (error: Error) => void }>();
+  const pending = new Map<number, { resolve: (reply: PortReplyOk) => void; reject: (error: Error) => void }>();
   function disconnect(reason: string) {
     ++generation; handshake?.abort(new Error(reason)); handshake = undefined; port?.close(); port = null; connecting = null;
     for (const request of pending.values()) request.reject(new Error(reason));
@@ -55,7 +56,7 @@ export function createWorkerClient(bridge: DesktopBridge, onFacts: (event: PortE
         if (isPortReply(event.data)) {
           const request = pending.get(event.data.rid); if (!request) return;
           pending.delete(event.data.rid);
-          if (event.data.ok) { if (event.data.stamp) onAcknowledged?.(event.data.stamp); request.resolve(); } else request.reject(new Error(event.data.error));
+          if (event.data.ok) { if (event.data.stamp) onAcknowledged?.(event.data.stamp); request.resolve(event.data); } else request.reject(new Error(event.data.error));
         } else if (isPortEvent(event.data)) onFacts(event.data);
       });
       const closed = () => { if (port === next) disconnect('Worker port closed'); };
@@ -67,16 +68,26 @@ export function createWorkerClient(bridge: DesktopBridge, onFacts: (event: PortE
   // Establish the facts subscription even when the user has not edited anything.
   void connect().catch(() => {});
   return {
-    async request(value: Request): Promise<void> {
+    get generation() { return generation; },
+    async request(value: Request, opts: { timeoutMs?: number; generation?: number; signal?: AbortSignal } = {}): Promise<PortReplyOk> {
+      const check = () => {
+        if (opts.signal?.aborted) throw new DOMException('Export cancelled', 'AbortError');
+        if (opts.generation !== undefined && opts.generation !== generation) throw new Error('Worker restarted');
+      };
+      check();
       const current = await connect();
+      check();
       if (current !== port) throw new Error('Worker connection replaced');
       const message = { ...value, v: 1, rid: ++rid };
       if (!isPortRequest(message)) throw new Error('Invalid worker request');
-      return new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => { pending.delete(message.rid); reject(new Error('Worker response timed out')); }, 30_000);
-        pending.set(message.rid, { resolve: () => { clearTimeout(timer); resolve(); }, reject: error => { clearTimeout(timer); reject(error); } });
+      return new Promise<PortReplyOk>((resolve, reject) => {
+        const abort = () => { pending.delete(message.rid); cleanup(); reject(new DOMException('Export cancelled', 'AbortError')); };
+        const cleanup = () => { clearTimeout(timer); opts.signal?.removeEventListener('abort', abort); };
+        const timer = setTimeout(() => { pending.delete(message.rid); cleanup(); reject(new Error('Worker response timed out')); }, opts.timeoutMs ?? 30_000);
+        pending.set(message.rid, { resolve: reply => { cleanup(); resolve(reply); }, reject: error => { cleanup(); reject(error); } });
+        opts.signal?.addEventListener('abort', abort, { once: true });
         try { current.postMessage(message); } catch (error) {
-          pending.delete(message.rid); clearTimeout(timer); reject(error);
+          pending.delete(message.rid); cleanup(); reject(error);
         }
       });
     },
@@ -84,3 +95,5 @@ export function createWorkerClient(bridge: DesktopBridge, onFacts: (event: PortE
     stop(reason: string) { stopped = reason; disconnect(reason); },
   };
 }
+
+export type WorkerClient = ReturnType<typeof createWorkerClient>;

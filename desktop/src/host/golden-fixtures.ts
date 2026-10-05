@@ -1,6 +1,12 @@
 import type { Host, LibraryHost, LibraryPhoto } from '@/host';
 import { BUILD } from '@/lib/channel';
-import { createExporter } from './exporter';
+import type { ExportHost } from '@/host';
+// Task 9 supplies the native golden export flow.
+const exporter: ExportHost = {
+  async status() { return { available: false, reason: 'Golden native export is unavailable until Task 9.' }; },
+  async chooseDestination() { return null; },
+  async encode() { throw new Error('Golden native export is unavailable until Task 9.'); },
+};
 import { createDisplayHost } from './display';
 const NAMES = new Set(['DSCF3332.RAF', 'sony_a6400_21.arw']);
 /** Golden fixtures keep edits and fetched RAW files in memory. */
@@ -68,7 +74,7 @@ export function createGoldenHost() {
     },
   };
   return {
-    host: { library, exporter: createExporter(), display: createDisplayHost(), build: BUILD, settingsDbName: 'xveon-desktop-golden' } satisfies Host,
+    host: { library, exporter, display: createDisplayHost(), build: BUILD, settingsDbName: 'xveon-desktop-golden' } satisfies Host,
     releaseFixture(id: string) {
       photos.delete(id);
       files.delete(id);

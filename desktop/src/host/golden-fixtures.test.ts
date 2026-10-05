@@ -1,6 +1,5 @@
 import { expect, it } from 'vitest';
 import { createGoldenHost } from './golden-fixtures';
-import { createExporter } from './exporter';
 it('keeps fixtures and edits in memory without exposing delete or clear', async () => {
   const fixture = createGoldenHost(),
     host = fixture.host.library;
@@ -23,7 +22,7 @@ it('keeps fixtures and edits in memory without exposing delete or clear', async 
   fixture.releaseFixture(p.id);
   expect((await host.load()).photos).toEqual([]);
   expect((await createGoldenHost().host.library.load()).photos).toEqual([]);
-  expect(await createExporter().status()).toMatchObject({ available: false });
+  expect(await createGoldenHost().host.exporter.status()).toMatchObject({ available: false });
 });
 
 it('isolates golden settings from production', () => { expect(createGoldenHost().host.settingsDbName).toBe('xveon-desktop-golden'); });

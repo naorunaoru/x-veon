@@ -58,13 +58,13 @@ it('omits absent capabilities and disables selected edits for view-only photos',
 });
 
 it('shows the host supplied export-unavailable reason in Settings', async () => {
-  vi.mocked(host.exporter.status).mockResolvedValue({ available: false, reason: 'Desktop export arrives in M3.' });
+  vi.mocked(host.exporter.status).mockResolvedValue({ available: false, reason: 'The native encoder could not be loaded: test' });
   render(<SettingsPanel />);
-  expect(await screen.findByText('Desktop export arrives in M3.')).toBeVisible();
+  expect(await screen.findByText('The native encoder could not be loaded: test')).toBeVisible();
   expect(screen.getByText('Export')).toBeVisible();
 });
 it('omits the unavailable readout when the web exporter is available', async () => {
   await act(async () => { render(<SettingsPanel />); });
   expect(screen.queryByText('Export')).toBeNull();
-  expect(screen.queryByText('Desktop export arrives in M3.')).toBeNull();
+  expect(screen.queryByText('The native encoder could not be loaded: test')).toBeNull();
 });

@@ -32,7 +32,7 @@ class FakePort extends EventTarget {
   }
   confirm(request: PortRequest) {
     if (!this.error && request.op === 'saveEdit') this.sidecar = request.edit;
-    this.receive(this.error ? { v: 1, rid: request.rid, ok: false, error: this.error } : { v: 1, rid: request.rid, ok: true });
+    this.receive(this.error ? { v: 1, rid: request.rid, ok: false, error: this.error } : { v: 1, rid: request.rid, ok: true, ...(request.op === 'exportStatus' ? { availability: { available: true } } : {}) });
   }
 }
 let bridge: DesktopBridge, host: Host, win: EventTarget, ports: FakePort[], listeners: Set<(e: BridgeEvent) => void>, stop = () => {};
@@ -130,7 +130,7 @@ it('rejects non-disk drops, reads RAW URLs, rescans on focus and exposes desktop
   expect(await host.library.readRaw(id)).toBe(bytes); expect(fetch).toHaveBeenCalledWith('xveon-photo://raw/' + id);
   win.dispatchEvent(new Event('focus')); await tick(); expect(ports[0].sent.at(-1)).toMatchObject({ op: 'rescan' });
   expect(host.library.remove).toBeUndefined(); expect(host.library.clear).toBeUndefined(); expect(host.library.release).toBeUndefined();
-  expect(await host.exporter.status()).toEqual({ available: false, reason: 'Desktop export arrives in M3.' }); expect(await host.display.probe()).toMatchObject({ supported: true, headroom: 2, accurate: false }); expect(host.settingsDbName).toBe('xveon-desktop');
+  expect(await host.exporter.status()).toEqual({ available: true }); expect(bridge.requestWorkerPort).toHaveBeenCalledTimes(1); expect(ports.filter(port => !port.closed)).toHaveLength(1); expect(await host.display.probe()).toMatchObject({ supported: true, headroom: 2, accurate: false }); expect(host.settingsDbName).toBe('xveon-desktop');
 });
 
 it('preserves the current folder without warning on cancelled and superseded drops', async () => {
