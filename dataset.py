@@ -286,6 +286,10 @@ class PatchCacheDataset(LinearDataset):
             (n_physical, es, es, 3), np.float32)
         self._patch_img_idx, self._mmap_idx = _shared_array(
             (n_physical,), np.int32)
+        # Size each slot was cut at: the patch size instead of the extract size when the
+        # image is too small for a 2x crop (the rest of such a slot is padding)
+        self._patch_crop, self._mmap_crop = _shared_array(
+            (n_physical,), np.int32)
         # Logical → physical slot indirection (shared with forked workers)
         self._slot_map, self._mmap_map = _shared_array(
             (n_slots,), np.int32)
@@ -358,6 +362,7 @@ class PatchCacheDataset(LinearDataset):
                 else:
                     self._patch_data[slot] = norm_patch
                 self._patch_img_idx[slot] = img_i
+                self._patch_crop[slot] = crop_size
 
         with ThreadPoolExecutor(max_workers=8) as pool:
             list(pool.map(_extract_image, range(n_images)))
@@ -413,6 +418,7 @@ class PatchCacheDataset(LinearDataset):
             else:
                 self._patch_data[physical] = norm_patch
             self._patch_img_idx[physical] = img_i
+            self._patch_crop[physical] = crop_size
 
             # Queue for swap into a random active slot
             logical = rng.randint(0, n_slots - 1)
@@ -466,8 +472,9 @@ class PatchCacheDataset(LinearDataset):
         self.stop_streaming()
         self._patch_data = None
         self._patch_img_idx = None
+        self._patch_crop = None
         self._slot_map = None
-        for buf in (self._mmap_patches, self._mmap_idx, self._mmap_map):
+        for buf in (self._mmap_patches, self._mmap_idx, self._mmap_crop, self._mmap_map):
             buf.close()
 
     def __del__(self):
@@ -496,7 +503,12 @@ class PatchCacheDataset(LinearDataset):
         # Single-copy HWC→CHW: transpose view + ascontiguousarray does the
         # layout conversion in one memcpy.  Safe without defensive copy because
         # staging swap guarantees active slots are never written during training.
-        if es > ps:
+        if es > ps and self._patch_crop[physical] < es:
+            # Cut from an image too small for a 2x crop: the slot holds one patch at its
+            # top left, the crop LinearDataset takes from such an image; the rest is padding.
+            rgb = torch.from_numpy(np.ascontiguousarray(
+                self._patch_data[physical, :ps, :ps].transpose(2, 0, 1)))
+        elif es > ps:
             do_downscale = self.augment and rng.random() < self.downscale_prob
             if do_downscale:
                 rgb = torch.from_numpy(np.ascontiguousarray(

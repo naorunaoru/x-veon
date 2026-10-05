@@ -150,6 +150,44 @@ class PatchCacheTest(unittest.TestCase):
                     finally:
                         ds.cleanup()
 
+    def test_an_image_too_small_for_a_double_size_slot_is_cut_as_without_the_cache(self) -> None:
+        """At least the patch but under twice it: one patch-size crop, as LinearDataset takes, no padding."""
+        patch = 48
+        values = [30000, 3000]
+        with tempfile.TemporaryDirectory() as d:
+            kwargs = dict(files=_write(d, [_flat(values[0], 60, 60), _flat(values[1])]), patch_size=patch,
+                          cfa_type="xtrans", augment=True, noise_sigma=(0.0, 0.0), downscale_prob=0.75,
+                          patches_per_image=8)
+            uncached = LinearDataset(**kwargs)
+            for i in range(len(uncached)):
+                _, target = uncached[i]
+                expected = values[i // 8] / 65535.0
+                self.assertTrue(torch.allclose(target, torch.full_like(target, expected), atol=1e-7))
+            ds = PatchCacheDataset(seed=0, **kwargs)
+            try:
+                self.assertEqual(ds._extract_size, 2 * patch)
+
+                def check() -> None:
+                    for _ in range(3):
+                        for i in range(len(ds)):
+                            mosaic, target = ds[i]
+                            self.assertEqual(tuple(target.shape), (3, patch, patch))
+                            expected = values[int(ds._patch_img_idx[int(ds._slot_map[i])])] / 65535.0
+                            self.assertTrue(torch.allclose(target, torch.full_like(target, expected), atol=1e-7),
+                                            f"slot {i}: {float(target.min())}..{float(target.max())}, "
+                                            f"expected {expected}")
+                            self.assertTrue(torch.allclose(mosaic, torch.full_like(mosaic, expected), atol=1e-7))
+
+                check()                                          # the first fill
+                ds.start_streaming()
+                deadline = time.time() + 10
+                while ds._ready_swaps.qsize() < len(ds) and time.time() < deadline:
+                    time.sleep(0.05)
+                self.assertGreater(ds.swap_staging(), 0)
+                check()                                          # patches from the streaming threads
+            finally:
+                ds.cleanup()
+
 
 class SamplerTest(unittest.TestCase):
     def test_every_index_once_and_batches_mix_images(self) -> None:
