@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -22,7 +23,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from dataset_record import claim_destination, new_record  # noqa: E402
 from model import XTransUNet  # noqa: E402
-from train import load_weights, pick_resume_checkpoint  # noqa: E402
+from train import build_schedule, load_weights, pick_resume_checkpoint  # noqa: E402
 
 MODULES = ["train.py", "model.py", "dataset.py", "dataset_record.py", "losses.py", "cfa.py",
            "checkpoint_registry.py", "dashboard.py", "observer.py", "state_server.py", "state_client.py"]
@@ -70,6 +71,52 @@ class LoadWeightsTest(unittest.TestCase):
             with self.assertRaises(SystemExit) as ctx:
                 load_weights(model, ckpt, "old/best.pt")
             self.assertIn("old/best.pt is a checkpoint of another model layout", str(ctx.exception))
+
+
+def _optimizer(lr: float) -> torch.optim.Optimizer:
+    return torch.optim.AdamW(torch.nn.Linear(2, 2).parameters(), lr=lr, weight_decay=1e-4)
+
+
+def _rates(optimizer: torch.optim.Optimizer, scheduler: torch.optim.lr_scheduler.LRScheduler, n: int) -> list[float]:
+    """The rate each of n epochs runs at, with one optimizer step and one scheduler step per epoch."""
+    rates = []
+    for _ in range(n):
+        rates.append(optimizer.param_groups[0]["lr"])
+        for group in optimizer.param_groups:
+            for p in group["params"]:
+                p.grad = torch.ones_like(p)
+        optimizer.step()
+        scheduler.step()
+    return rates
+
+
+def _cosine(lr: float, total: int, epochs: range) -> list[float]:
+    return [lr * (1 + math.cos(math.pi * e / total)) / 2 for e in epochs]
+
+
+class ScheduleTest(unittest.TestCase):
+    """Learning rates as train.py runs them, without the training: one step of each per epoch."""
+
+    def _schedule(self, lr: float, epochs: int, *, warmup: int = 0, start_epoch: int = 0, ckpt: dict | None = None,
+                  same_run: bool = False) -> tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LRScheduler]:
+        optimizer = _optimizer(lr)
+        return optimizer, build_schedule(optimizer, epochs=epochs, warmup_epochs=warmup, start_epoch=start_epoch,
+                                         ckpt=ckpt, same_run=same_run)
+
+    def _finished(self, lr: float, epochs: int, warmup: int = 0) -> dict:
+        optimizer, scheduler = self._schedule(lr, epochs, warmup=warmup)
+        _rates(optimizer, scheduler, epochs)
+        return {"epoch": epochs - 1, "optimizer": optimizer.state_dict(), "scheduler": scheduler.state_dict()}
+
+    def test_a_new_run_from_finished_weights_starts_at_its_own_rate(self) -> None:
+        ckpt = self._finished(1e-3, 2)
+        self.assertAlmostEqual(ckpt["optimizer"]["param_groups"][0]["lr"], 0.0, delta=1e-12)   # annealed out
+        optimizer, scheduler = self._schedule(5e-4, 4, ckpt=ckpt, same_run=False)
+        self.assertEqual(optimizer.state_dict()["state"], {})              # nothing of the old optimizer kept
+        rates = _rates(optimizer, scheduler, 4)
+        self.assertEqual(rates[0], 5e-4)
+        for got, want in zip(rates, _cosine(5e-4, 4, range(4))):
+            self.assertAlmostEqual(got, want, delta=1e-12)
 
 
 class TrainingRunTest(unittest.TestCase):
@@ -129,6 +176,16 @@ class TrainingRunTest(unittest.TestCase):
                 self.assertIn(str(self.data), config["datasets"])
                 self.assertIsNone(config["resume"])
                 saved_epoch = int(ckpt["epoch"])            # best.pt is the only checkpoint after two epochs
+                # A new run from these finished weights anneals from its own rate, not the old run's last one.
+                new = Path(self.tmp) / f"new_{cfa_type}" / "v7.0.0"
+                r = self._run("--from-checkpoint", str(out), "--output-dir", str(new), "--epochs", "2", "--lr", "5e-4")
+                self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
+                self.assertEqual(json.loads((new / "config.json").read_text())["resume"], str(out / "best.pt"))
+                first = torch.load(new / "best.pt", map_location="cpu", weights_only=True)   # saved after its first epoch
+                self.assertEqual(first["optimizer"]["param_groups"][0]["initial_lr"], 5e-4)
+                # history records the rate after each epoch's scheduler step: half the start after one of two epochs
+                self.assertAlmostEqual(json.loads((new / "history.json").read_text())[0]["lr"],
+                                       5e-4 * (1 + math.cos(math.pi / 2)) / 2, delta=1e-12)
                 # Continue the same run for one more epoch: it starts after the last saved epoch.
                 r = self._run("--from-checkpoint", str(out), "--epochs", "3")
                 self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])

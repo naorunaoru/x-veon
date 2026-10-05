@@ -186,6 +186,29 @@ def pick_resume_checkpoint(ckpt_dir: Path, same_run: bool) -> Path | None:
     return max(candidates, key=saved_epoch)
 
 
+def build_schedule(optimizer: torch.optim.Optimizer, *, epochs: int, warmup_epochs: int, start_epoch: int,
+                   ckpt: dict | None, same_run: bool) -> torch.optim.lr_scheduler.LRScheduler:
+    """The run's learning-rate schedule, with the optimizer state of the run it continues.
+
+    A new run, from scratch or from another run's weights, starts at the optimizer's rate and
+    anneals over its own epochs: nothing of an earlier optimizer is kept. Continuing the same
+    run restores the saved optimizer and schedule.
+    """
+    # For a new run from checkpoint, cosine schedule spans the remaining epochs.
+    # For same-run resume, use original T_max and restore scheduler state.
+    t_max = epochs if same_run else max(epochs - start_epoch, 1)
+    cosine = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=t_max)
+    scheduler: torch.optim.lr_scheduler.LRScheduler = cosine
+    if warmup_epochs > 0:
+        warmup = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1e-3, total_iters=warmup_epochs)
+        scheduler = torch.optim.lr_scheduler.SequentialLR(
+            optimizer, schedulers=[warmup, cosine], milestones=[warmup_epochs])
+    if same_run and ckpt is not None and "optimizer" in ckpt:
+        optimizer.load_state_dict(ckpt["optimizer"])
+        scheduler.load_state_dict(ckpt["scheduler"])
+    return scheduler
+
+
 def load_weights(model: torch.nn.Module, ckpt: dict, source: str) -> None:
     """Load weights strictly. A checkpoint of another layout is refused, never partly loaded."""
     tag = ckpt.get("architecture_tag")
@@ -700,27 +723,10 @@ def main():
         loss_info += f" [recon-only, known={criterion.known_pixel_weight}]"
     dash.log(loss_info)
 
-    # Optimizer
+    # Optimizer and learning-rate schedule; their state is restored only when continuing the same run
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=1e-4)
-    # For a new run from checkpoint, cosine schedule spans the remaining epochs.
-    # For same-run resume, use original T_max and restore scheduler state.
-    remaining = cfg.epochs - start_epoch
-    t_max = cfg.epochs if same_run else max(remaining, 1)
-    cosine = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=t_max)
-    if cfg.warmup_epochs > 0:
-        warmup = torch.optim.lr_scheduler.LinearLR(
-            optimizer, start_factor=1e-3, total_iters=cfg.warmup_epochs)
-        scheduler = torch.optim.lr_scheduler.SequentialLR(
-            optimizer, schedulers=[warmup, cosine],
-            milestones=[cfg.warmup_epochs])
-    else:
-        scheduler = cosine
-
-    # Restore optimizer/scheduler state if continuing same training
-    if ckpt is not None and cfg.mode == "train" and "optimizer" in ckpt:
-        optimizer.load_state_dict(ckpt["optimizer"])
-        if same_run:
-            scheduler.load_state_dict(ckpt["scheduler"])
+    scheduler = build_schedule(optimizer, epochs=cfg.epochs, warmup_epochs=cfg.warmup_epochs,
+                               start_epoch=start_epoch, ckpt=ckpt, same_run=same_run)
 
     if cfg.amp:
         dash.log("AMP enabled (bfloat16 mixed precision)")
