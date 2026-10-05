@@ -7,6 +7,7 @@ members = [
   "shared/crates/demosaic-wasm",
   "shared/crates/encode",
   "web/crates/encode-wasm",
+  "desktop/crates/native",
 ]
 # The vendored decoder is a path dependency of rawloader-wasm, not a member.
 exclude = ["shared/crates/vendor/rawloader"]

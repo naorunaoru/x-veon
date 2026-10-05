@@ -1,0 +1,23 @@
+[package]
+name = "xveon-native"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "X-veon desktop addon: argument conversion and threading over xveon-encode"
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+default = ["native"]
+native = ["xveon-encode/native"]
+asm = ["xveon-encode/asm"]
+threading = ["xveon-encode/threading"]
+
+[dependencies]
+napi = { version = "=3.14.1", features = ["napi8"] }
+napi-derive = "=3.6.11"
+xveon-encode = { path = "../../../shared/crates/encode" }
+
+[build-dependencies]
+napi-build = "=2.6.0"

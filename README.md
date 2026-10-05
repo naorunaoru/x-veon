@@ -92,6 +92,15 @@ This keeps your samples and lens data and removes the old layout's build output 
 
 ## Desktop beta
 
+The native encoder needs Rust stable. On macOS, install the Xcode command-line tools. On Windows, install the MSVC build tools and NASM 2.15 or later, with NASM on `PATH`.
+
+```bash
+npm run build:native --workspace desktop
+npm run test:native --workspace desktop
+```
+
+Run `npm run build:wasm` before the native tests when running the parity test, which compares the native and WASM encoders.
+
 Set up the repository as described above, then run the desktop app from the repository root:
 
 ```bash
