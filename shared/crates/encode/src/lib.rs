@@ -1,3 +1,4 @@
+mod par;
 mod encode_avif; mod encode_jpeg; mod encode_tiff; mod encode_uhdr; mod exif; mod math; mod pipeline; mod rotation; mod transfer;
 pub use pipeline::Format;
 /// The only thing a wrapper chooses. The WASM build passes 1; the native build passes the

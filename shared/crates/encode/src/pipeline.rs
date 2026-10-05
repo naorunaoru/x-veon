@@ -4,7 +4,7 @@ use crate::encode_uhdr;
 use crate::exif;
 use crate::rotation::{self, Orientation};
 use crate::transfer;
-use crate::{math, EncodeOptions};
+use crate::{math, par, EncodeOptions};
 
 #[derive(Clone, Copy, Debug)]
 pub enum Format {
@@ -49,12 +49,12 @@ pub fn encode(
 
             // SDR: apply sRGB OETF, quantize to u8
             let mut sdr_rgb8 = vec![0u8; num * 3];
-            for i in 0..num {
-                let idx = i * 3;
-                sdr_rgb8[idx]     = (transfer::srgb_oetf(data[idx].clamp(0.0, 1.0)) * 255.0 + 0.5) as u8;
-                sdr_rgb8[idx + 1] = (transfer::srgb_oetf(data[idx + 1].clamp(0.0, 1.0)) * 255.0 + 0.5) as u8;
-                sdr_rgb8[idx + 2] = (transfer::srgb_oetf(data[idx + 2].clamp(0.0, 1.0)) * 255.0 + 0.5) as u8;
-            }
+            par::fill(&mut sdr_rgb8, options.threads, |start, chunk| {
+                for (k, v) in chunk.iter_mut().enumerate() {
+                    let i = start + k;
+                    *v = (transfer::srgb_oetf(data[i].clamp(0.0, 1.0)) * 255.0 + 0.5) as u8;
+                }
+            });
 
             // Compute gain map from display-linear SDR and HDR values
             let sdr_peak: f32 = 100.0;
@@ -64,16 +64,16 @@ pub fn encode(
             let mut gain_min = [f32::MAX; 3];
             let mut gain_max = [f32::MIN; 3];
 
-            for i in 0..num {
-                let idx = i * 3;
-                for c in 0..3 {
-                    let gain = math::log2f(((hdr_data[idx + c] * peak_ratio + offset)
-                        / (data[idx + c] + offset))
-                        .max(1e-10));
-                    gains[idx + c] = gain;
-                    gain_min[c] = gain_min[c].min(gain);
-                    gain_max[c] = gain_max[c].max(gain);
+            par::fill(&mut gains, options.threads, |start, chunk| {
+                for (k, v) in chunk.iter_mut().enumerate() {
+                    let i = start + k;
+                    *v = math::log2f(((hdr_data[i] * peak_ratio + offset) / (data[i] + offset)).max(1e-10));
                 }
+            });
+            for (i, &gain) in gains.iter().enumerate() {
+                let c = i % 3;
+                gain_min[c] = gain_min[c].min(gain);
+                gain_max[c] = gain_max[c].max(gain);
             }
 
             let range = [
@@ -82,14 +82,13 @@ pub fn encode(
                 (gain_max[2] - gain_min[2]).max(1e-6),
             ];
             let mut gain_rgb8 = vec![0u8; num * 3];
-            for i in 0..num {
-                let idx = i * 3;
-                for c in 0..3 {
-                    gain_rgb8[idx + c] =
-                        ((gains[idx + c] - gain_min[c]) / range[c] * 255.0 + 0.5)
-                            .clamp(0.0, 255.0) as u8;
+            par::fill(&mut gain_rgb8, options.threads, |start, chunk| {
+                for (k, v) in chunk.iter_mut().enumerate() {
+                    let i = start + k;
+                    let c = i % 3;
+                    *v = ((gains[i] - gain_min[c]) / range[c] * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
                 }
-            }
+            });
 
             let exif_app1 = exif::build_orientation_app1(orientation);
             encode_uhdr::encode(
@@ -108,12 +107,12 @@ pub fn encode(
             let num = (rw as usize) * (rh as usize);
 
             let mut rgb16 = vec![0u16; num * 3];
-            for i in 0..num {
-                let idx = i * 3;
-                rgb16[idx]     = (rotated[idx].clamp(0.0, 1.0) * 65535.0 + 0.5) as u16;
-                rgb16[idx + 1] = (rotated[idx + 1].clamp(0.0, 1.0) * 65535.0 + 0.5) as u16;
-                rgb16[idx + 2] = (rotated[idx + 2].clamp(0.0, 1.0) * 65535.0 + 0.5) as u16;
-            }
+            par::fill(&mut rgb16, options.threads, |start, chunk| {
+                for (k, v) in chunk.iter_mut().enumerate() {
+                    let i = start + k;
+                    *v = (rotated[i].clamp(0.0, 1.0) * 65535.0 + 0.5) as u16;
+                }
+            });
             encode_tiff::encode(&rgb16, rw, rh)
         }
 
@@ -124,15 +123,12 @@ pub fn encode(
             let num = (rw as usize) * (rh as usize);
 
             let mut rgb10 = vec![0u16; num * 3];
-            for i in 0..num {
-                let idx = i * 3;
-                let r = math::powf(rotated[idx].max(0.0), 1.0 / 1.2);
-                let g = math::powf(rotated[idx + 1].max(0.0), 1.0 / 1.2);
-                let b = math::powf(rotated[idx + 2].max(0.0), 1.0 / 1.2);
-                rgb10[idx]     = (transfer::hlg_oetf(r) * 1023.0 + 0.5).clamp(0.0, 1023.0) as u16;
-                rgb10[idx + 1] = (transfer::hlg_oetf(g) * 1023.0 + 0.5).clamp(0.0, 1023.0) as u16;
-                rgb10[idx + 2] = (transfer::hlg_oetf(b) * 1023.0 + 0.5).clamp(0.0, 1023.0) as u16;
-            }
+            par::fill(&mut rgb10, options.threads, |start, chunk| {
+                for (k, v) in chunk.iter_mut().enumerate() {
+                    let i = start + k;
+                    *v = (transfer::hlg_oetf(math::powf(rotated[i].max(0.0), 1.0 / 1.2)) * 1023.0 + 0.5).clamp(0.0, 1023.0) as u16;
+                }
+            });
             encode_avif::encode(&rgb10, rw, rh, quality, options)
         }
     }

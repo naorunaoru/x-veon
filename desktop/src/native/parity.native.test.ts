@@ -33,6 +33,7 @@ for (const quality of [95, 40]) {
     if (format !== 'jpeg-hdr') cases.push({ format, width: 4200, height: 128, orientation: 'Normal', quality, peakLuminance: 1000 });
   }
 }
+cases.push({ format: 'avif', width: 3000, height: 3200, orientation: 'Normal', quality: 95, peakLuminance: 1000 });
 const hash = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 for (const input of cases) {
   const { format, width: w, height: h, orientation, quality, peakLuminance: peak } = input;
@@ -56,13 +57,13 @@ for (const quality of [95, 40]) it(`avif 4200x128 q${quality} threads=1 equals d
   results.push({ name: `avif threads q${quality}`, equal, defaultSha256: hash(defaultBytes), singleSha256: hash(singleBytes) });
   expect(equal).toBe(true);
 });
-it('informational 3000x2000 AVIF q95 speed', async () => {
-  const data = syntheticImage(3000, 2000, 20261005, 6);
+it('informational 6240x4160 AVIF q95 speed', async () => {
+  const data = syntheticImage(6240, 4160, 20261005, 6);
   const startWasm = performance.now();
-  wasm.encode_image(data, new Float32Array(0), 3000, 2000, 'Normal', 'avif', 95, 1000);
+  wasm.encode_image(data, new Float32Array(0), 6240, 4160, 'Normal', 'avif', 95, 1000);
   const wasmMs = performance.now() - startWasm;
   const startNative = performance.now();
-  await native.encode(data, null, { format: 'avif', width: 3000, height: 2000, orientation: 'Normal', quality: 95, peakLuminance: 1000 });
+  await native.encode(data, null, { format: 'avif', width: 6240, height: 4160, orientation: 'Normal', quality: 95, peakLuminance: 1000 });
   const nativeMs = performance.now() - startNative;
   fs.mkdirSync(evidenceDir, { recursive: true });
   fs.writeFileSync(path.join(evidenceDir, variant === 'default' ? 'task4-speed.json' : `task4-speed-${variant}.json`), JSON.stringify({ wasmMs, nativeMs, ratio: wasmMs / nativeMs }, null, 2));

@@ -11,7 +11,7 @@ crate-type = ["rlib"]
 [features]
 # Desktop only (spec §7): rav1e's assembly (NASM on x86_64) and its thread pool.
 asm = ["rav1e/asm"]
-threading = ["rav1e/threading"]
+threading = ["rav1e/threading", "dep:rayon"]
 native = ["asm", "threading"]
 
 [dependencies]
@@ -20,3 +20,4 @@ tiff = "0.9"
 rav1e = { version = "0.7", default-features = false }
 avif-serialize = "0.8"
 libm = "=0.2.16"
+rayon = { version = "1", optional = true }

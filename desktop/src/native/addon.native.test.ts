@@ -17,7 +17,7 @@ function encoder() {
   if (!loaded.ok) throw new Error(loaded.reason);
   return loaded.encoder;
 }
-const input: NativeEncodeInput = { format: 'avif', width: 64, height: 48, orientation: '1', quality: 50, peakLuminance: 1000, threads: 2 };
+const input: NativeEncodeInput = { format: 'avif', width: 64, height: 48, orientation: 'Normal', quality: 50, peakLuminance: 1000, threads: 2 };
 describe('native addon', () => {
   it('loads', () => { encoder(); });
   it.each(['avif', 'jpeg-hdr', 'tiff'] as const)('encodes %s', async format => {

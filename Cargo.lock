@@ -1230,6 +1230,7 @@ dependencies = [
  "jpeg-encoder",
  "libm",
  "rav1e",
+ "rayon",
  "tiff",
 ]
 

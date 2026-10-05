@@ -38,3 +38,14 @@ fn image(w: u32, h: u32, scale: f32) -> Vec<f32> {
 #[test] fn ultra_hdr_rejects_jpeg_sized_overflow() {
     assert!(encode(&vec![0.0; 70_000 * 3], &vec![0.0; 70_000 * 3], 70_000, 1, "Normal", Format::JpegHdr, 95, 1000.0, ONE).is_err());
 }
+
+#[test] fn threads_do_not_change_any_format() {
+    let (sdr, hdr) = (image(700, 500, 1.0), image(700, 500, 6.0));
+    let four = EncodeOptions { threads: 4 };
+    let a = |t| encode(&hdr, &[], 700, 500, "Normal", Format::Avif, 90, 1000.0, t).unwrap();
+    let j = |t| encode(&sdr, &hdr, 700, 500, "Rotate90", Format::JpegHdr, 90, 1000.0, t).unwrap();
+    let f = |t| encode(&sdr, &[], 700, 500, "Rotate180", Format::Tiff, 90, 100.0, t).unwrap();
+    assert_eq!(a(ONE), a(four));
+    assert_eq!(j(ONE), j(four));
+    assert_eq!(f(ONE), f(four));
+}
