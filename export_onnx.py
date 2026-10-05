@@ -1,26 +1,35 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2024-present X-Veon contributors
-"""Export XTransUNet to ONNX for browser inference via ONNX Runtime Web."""
+"""
+Export one checkpoint version to ONNX for the app.
+
+    python export_onnx.py --version v7.0.0 [--cfa-type xtrans] [--verify]
+    python export_onnx.py --checkpoint path/to/best.pt [--verify]
+
+The app loads models by fixed keys, `{cfa}_w{base_width}_base` (see CHECKPOINT_POLICY.md),
+so exactly one version is exported at a time and it must be named. The manifest
+(models.json) is updated entry by entry: exporting one CFA type keeps the other's entry.
+"""
+
+from __future__ import annotations
 
 import argparse
 import hashlib
 import json
-import re
 from pathlib import Path
+from typing import Any
 
 import numpy as np
-import torch
 import onnx
-from onnxconverter_common import float16
+import torch
 
-from cfa import CFA_REGISTRY, cfa_period as _cfa_period_fn
-from model import XTransUNet
-
-
-def _ckpt_cfa_period(ckpt: dict) -> int:
-    return _cfa_period_fn(CFA_REGISTRY[ckpt.get("cfa_type", "xtrans")])
+from cfa import CFA_REGISTRY, cfa_period, make_channel_masks, make_model_input
 from checkpoint_registry import REGISTRY_FILENAME
+from model import ARCHITECTURE_TAG, XTransUNet
+
+DEFAULT_OUTPUT_DIR = "shared/public/checkpoints"
+MANIFEST = "models.json"
 
 
 def _file_sha256(path: str) -> str:
@@ -31,12 +40,36 @@ def _file_sha256(path: str) -> str:
     return h.hexdigest()
 
 
-def _extract_metadata(ckpt: dict) -> dict:
-    """Extract model metadata from checkpoint (no optimizer/scheduler)."""
+def app_key(cfa_type: str, base_width: int) -> str:
+    """The manifest key the app looks a model up by."""
+    return f"{cfa_type}_w{base_width}_base"
+
+
+def load_model(ckpt: dict[str, Any], source: str) -> XTransUNet:
+    """Build the model a checkpoint belongs to and load its weights strictly."""
+    tag = ckpt.get("architecture_tag")
+    if tag != ARCHITECTURE_TAG:
+        raise SystemExit(
+            f"{source} has architecture tag {tag} (version {ckpt.get('checkpoint_version')}); "
+            f"this code builds {ARCHITECTURE_TAG} models and cannot load it."
+        )
+    cfa_type = ckpt.get("cfa_type", "xtrans")
+    model = XTransUNet(
+        base_width=int(ckpt.get("base_width", 16)),
+        cfa_period=cfa_period(CFA_REGISTRY[cfa_type]),
+        stages=int(ckpt.get("stages", 2)),
+    )
+    model.load_state_dict(ckpt["model"])  # strict: a mismatched layout must fail, not load partially
+    model.eval()
+    return model
+
+
+def _metadata(ckpt: dict[str, Any]) -> dict[str, Any]:
     state = ckpt.get("model", {})
     return {
         "epoch": ckpt.get("epoch", 0),
-        "base_width": ckpt.get("base_width", 64),
+        "base_width": ckpt.get("base_width", 16),
+        "stages": ckpt.get("stages", 2),
         "cfa_type": ckpt.get("cfa_type"),
         "checkpoint_version": ckpt.get("checkpoint_version"),
         "checkpoint_major": ckpt.get("checkpoint_major"),
@@ -45,265 +78,178 @@ def _extract_metadata(ckpt: dict) -> dict:
     }
 
 
-def _version_sort_key(version: str | None) -> tuple[int, int, int, int]:
-    if not version:
-        return (-1, -1, -1, -1)
-    m = re.match(r"^v(\d+)\.(\d+)\.(\d+)(?:-w(\d+))?$", version)
-    if not m:
-        return (-1, -1, -1, -1)
-    major, minor, patch, width = m.groups()
-    return (int(major), int(minor), int(patch), int(width or 0))
-
-
-def _manifest_label(sensor: str, version: str, base_width: int) -> str:
-    return f"{sensor}-{version}" if base_width == 16 else f"{sensor}-{version}"
-
-
-def export(checkpoint_path: str, output_path: str, patch_size: int = 288, opset: int = 18, fp16: bool = False, base_width: int | None = None):
+def export(checkpoint_path: str, output_path: str, patch_size: int = 288, opset: int = 18) -> dict[str, Any]:
+    """Write a self-contained float32 ONNX file; return its manifest metadata."""
     ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-    bw = base_width or ckpt.get("base_width", 64)
-    cp = _ckpt_cfa_period(ckpt)
-    cfa_pat = CFA_REGISTRY[ckpt.get("cfa_type", "xtrans")]
-    model = XTransUNet(base_width=bw, cfa_period=cp,
-                       cfa_pattern=torch.from_numpy(cfa_pat))
-    model.load_state_dict(ckpt["model"], strict=False)
-    model.eval()
+    model = load_model(ckpt, checkpoint_path)
 
-    dummy_input = torch.randn(1, 1, patch_size, patch_size)
-    dummy_wb = torch.tensor([[2.0, 1.0, 1.5]])
-
+    dummy = torch.rand(1, 5, patch_size, patch_size)
     torch.onnx.export(
         model,
-        (dummy_input, dummy_wb),
+        (dummy,),
         output_path,
         opset_version=opset,
-        input_names=["input", "wb"],
+        input_names=["input"],
         output_names=["output"],
-        dynamic_axes={"input": {0: "batch"}, "wb": {0: "batch"}, "output": {0: "batch"}},
+        dynamic_axes={"input": {0: "batch"}, "output": {0: "batch"}},
     )
 
-    # Convert external data to a single self-contained file
-    # (needed for ONNX Runtime Web which can't load external data files)
+    # Inline the weights: ONNX Runtime Web cannot load external data files.
     onnx_model = onnx.load(output_path, load_external_data=True)
     onnx.checker.check_model(onnx_model)
-
-    if fp16:
-        onnx_model = float16.convert_float_to_float16(onnx_model, keep_io_types=True)
-
-    # Remove external data file if it exists
     ext_data = Path(output_path + ".data")
     if ext_data.exists():
         ext_data.unlink()
+    onnx.save(onnx_model, output_path, save_as_external_data=False)
 
-    # Save as single file with all weights inlined
-    onnx.save(onnx_model, output_path,
-              save_as_external_data=False)
-
-    metadata = _extract_metadata(ckpt)
-    size_mb = Path(output_path).stat().st_size / 1024 / 1024
-    dtype = "float16" if fp16 else "float32"
-    metadata["size_mb"] = round(size_mb, 1)
-    metadata["dtype"] = dtype
-
-    print(f"Exported: {output_path} ({size_mb:.1f} MB, {dtype})")
-    print(f"Opset: {opset}, Patch size: {patch_size}x{patch_size}")
-
+    metadata = _metadata(ckpt)
+    metadata["size_mb"] = round(Path(output_path).stat().st_size / 1024 / 1024, 1)
+    metadata["dtype"] = "float32"
+    print(f"Exported: {output_path} ({metadata['size_mb']} MB), opset {opset}, patch {patch_size}")
     return metadata
 
 
-def verify(checkpoint_path: str, onnx_path: str, patch_size: int = 288, base_width: int | None = None):
-    """Compare PyTorch and ONNX outputs to ensure numerical equivalence."""
+def verify(checkpoint_path: str, onnx_path: str, patch_size: int = 288) -> None:
+    """Compare PyTorch and ONNX on a realistic tile and on an all-zero one. Exits on a mismatch."""
     import onnxruntime as ort
 
-    # PyTorch
     ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-    bw = base_width or ckpt.get("base_width", 64)
-    cp = _ckpt_cfa_period(ckpt)
-    cfa_pat = CFA_REGISTRY[ckpt.get("cfa_type", "xtrans")]
-    model = XTransUNet(base_width=bw, cfa_period=cp,
-                       cfa_pattern=torch.from_numpy(cfa_pat))
-    model.load_state_dict(ckpt["model"], strict=False)
-    model.eval()
+    model = load_model(ckpt, checkpoint_path)
+    masks = make_channel_masks(patch_size, patch_size, CFA_REGISTRY[ckpt.get("cfa_type", "xtrans")])
+    session = ort.InferenceSession(onnx_path)
+    inputs = session.get_inputs()
+    if len(inputs) != 1 or list(inputs[0].shape)[1:] != [5, patch_size, patch_size]:
+        raise SystemExit(f"{onnx_path}: unexpected inputs {[(i.name, i.shape) for i in inputs]}")
 
-    test_input = torch.randn(1, 1, patch_size, patch_size)
-    test_wb = torch.tensor([[2.0, 1.0, 1.5]])
-    with torch.no_grad():
-        pt_output = model(test_input, test_wb).numpy()
-
-    # ONNX
-    sess = ort.InferenceSession(onnx_path)
-    ort_input = test_input.numpy()
-    ort_wb = test_wb.numpy()
-    input_meta = sess.get_inputs()[0]
-    if input_meta.type == "tensor(float16)":
-        ort_input = ort_input.astype(np.float16)
-        ort_wb = ort_wb.astype(np.float16)
-    ort_output = sess.run(None, {"input": ort_input, "wb": ort_wb})[0].astype(np.float32)
-
-    # Compare
-    max_diff = np.max(np.abs(pt_output - ort_output))
-    mean_diff = np.mean(np.abs(pt_output - ort_output))
-
-    mse = np.mean((pt_output - ort_output) ** 2)
-    signal_range = np.max(pt_output) - np.min(pt_output)
-    psnr = 10 * np.log10(signal_range**2 / mse) if mse > 0 else float("inf")
-
-    is_fp16 = input_meta.type == "tensor(float16)"
-    psnr_threshold = 35 if is_fp16 else 60
-
-    print(f"\nVerification ({('fp16' if is_fp16 else 'fp32')}):")
-    print(f"  Max diff:  {max_diff:.2e}")
-    print(f"  Mean diff: {mean_diff:.2e}")
-    print(f"  PSNR:      {psnr:.1f} dB")
-
-    if psnr > psnr_threshold:
-        print("  PASS")
-    else:
-        print(f"  WARN: PSNR below {psnr_threshold} dB, outputs may not match closely")
+    tiles = {
+        "tile": torch.rand(1, 1, patch_size, patch_size) * 0.2,
+        "all-zero tile": torch.zeros(1, 1, patch_size, patch_size),   # image-border padding in the app
+    }
+    for name, mosaic in tiles.items():
+        x = make_model_input(mosaic, masks)
+        with torch.no_grad():
+            expected = model(x).numpy()
+        got = session.run(None, {inputs[0].name: x.numpy()})[0]
+        if not np.isfinite(got).all():
+            raise SystemExit(f"{onnx_path}: non-finite output for the {name}")
+        max_diff = float(np.max(np.abs(expected - got)))
+        scale = float(np.max(np.abs(expected))) or 1.0
+        print(f"  verify, {name}: max difference {max_diff:.2e} (output up to {scale:.2e})")
+        if max_diff > 1e-4 * scale + 1e-7:
+            raise SystemExit(f"{onnx_path}: ONNX and PyTorch disagree on the {name}")
+    print("  PASS")
 
 
-def _iter_registry(registry: dict, *, cfa_type=None, base_width=None, version=None, status=None, slot="best"):
-    """Yield (label, checkpoint_path, meta) tuples from registry, applying filters."""
+def select(registry: dict[str, Any], *, version: str | None, cfa_type: str | None = None,
+           status: str | None = None, slot: str = "best") -> list[tuple[str, str, dict[str, Any]]]:
+    """(app key, checkpoint path, registry entry) for the one named version, per CFA type."""
+    if not version:
+        raise SystemExit("--version is required: name the one checkpoint version to export, e.g. v7.0.0")
+    selected: dict[str, tuple[str, str, dict[str, Any]]] = {}
     for sensor, versions in registry.items():
         if cfa_type and sensor != cfa_type:
             continue
-        items = sorted(versions.items(), key=lambda kv: _version_sort_key(kv[0]), reverse=True)
-        for checkpoint_version, meta in items:
-            if version and checkpoint_version != version:
-                continue
-            if base_width and meta.get("base_width") != base_width:
-                continue
-            # Pick requested status, or first available (stable preferred)
-            for st_name in ([status] if status else ["stable", "beta"]):
-                if st_name not in meta:
-                    continue
-                slots = meta[st_name]
-                if slot not in slots:
-                    continue
-                entry = slots[slot]
-                label = _manifest_label(sensor, checkpoint_version, meta.get("base_width", 16))
-                yield label, entry["path"], {
-                    **entry,
-                    "registry_status": st_name,
-                    "checkpoint_version": checkpoint_version,
-                    "base_width": meta.get("base_width", entry.get("base_width", 16)),
-                    "cfa_type": sensor,
-                }
-                break  # only one status per version
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Export XTransUNet to ONNX")
-
-    # Registry-based batch export (default)
-    parser.add_argument("--cfa-type", default=None, help="Filter by sensor type (xtrans, bayer)")
-    parser.add_argument("--base-width", type=int, default=None, help="Filter by base width (16, 32, 64)")
-    parser.add_argument("--version", default=None, help="Filter by canonical checkpoint version (e.g. v6.1.4)")
-    parser.add_argument("--status", default=None, choices=["stable", "beta"], help="Filter by status (default: prefer stable)")
-    parser.add_argument("--slot", default="best", choices=["best", "latest"], help="Which checkpoint slot to export")
-    parser.add_argument("--output-dir", default="web/public/checkpoints", help="Output directory for batch export")
-
-    # Single-checkpoint override (legacy)
-    parser.add_argument("--checkpoint", default=None, help="Export a single checkpoint (skips registry)")
-    parser.add_argument("--output", default=None, help="Output path (only with --checkpoint)")
-
-    # Export options
-    parser.add_argument("--patch-size", type=int, default=288)
-    parser.add_argument("--opset", type=int, default=18)
-    parser.add_argument("--fp16", action="store_true", help="Convert weights to float16")
-    parser.add_argument("--verify", action="store_true", help="Verify ONNX vs PyTorch output")
-    parser.add_argument("--force", action="store_true", help="Re-export even if source checkpoint unchanged")
-    args = parser.parse_args()
-
-    if args.checkpoint:
-        # Legacy single-file mode
-        out = args.output or "web/public/model.onnx"
-        out_path = Path(out)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        meta = export(args.checkpoint, out, args.patch_size, args.opset, args.fp16)
-        meta["file"] = out_path.name
-        meta["source_sha256"] = _file_sha256(args.checkpoint)
-        manifest = {out_path.stem: meta}
-        manifest_path = out_path.parent / "models.json"
-        manifest_path.write_text(json.dumps(manifest, indent=2))
-        print(f"Manifest: {manifest_path}")
-        if args.verify:
-            verify(args.checkpoint, out, args.patch_size)
-        return
-
-    # Registry-based batch export
-    registry_path = Path(__file__).parent / REGISTRY_FILENAME
-    if not registry_path.exists():
-        print(f"Registry not found: {registry_path}")
-        print("Run `python checkpoint_registry.py` to build it first.")
-        return
-
-    with open(registry_path) as f:
-        registry = json.load(f)
-
-    out_dir = Path(args.output_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    entries = list(_iter_registry(
-        registry,
-        cfa_type=args.cfa_type,
-        base_width=args.base_width,
-        version=args.version,
-        status=args.status,
-        slot=args.slot,
-    ))
-
-    if not entries:
-        print("No matching checkpoints found in registry.")
-        return
-
-    # Load existing manifest for SHA-based skip
-    manifest_path = out_dir / "models.json"
-    old_manifest = {}
-    if manifest_path.exists():
-        with open(manifest_path) as f:
-            old_manifest = json.load(f)
-
-    print(f"Exporting {len(entries)} checkpoint(s) to {out_dir}/\n")
-
-    manifest = {}
-    n_skipped = 0
-    for label, ckpt_path, reg_entry in entries:
-        onnx_file = f"{label}.onnx"
-        onnx_path = str(out_dir / onnx_file)
-        sha = _file_sha256(ckpt_path)
-
-        # Skip if source unchanged and ONNX file still exists
-        old_entry = old_manifest.get(label, {})
-        if not args.force and old_entry.get("source_sha256") == sha and (out_dir / onnx_file).exists():
-            print(f"--- {label}: up to date (skipped)")
-            manifest[label] = old_entry
-            n_skipped += 1
+        meta = versions.get(version)
+        if meta is None:
             continue
+        for status_name in ([status] if status else ["stable", "beta"]):
+            entry = meta.get(status_name, {}).get(slot)
+            if entry is None:
+                continue
+            key = app_key(sensor, int(meta.get("base_width", 16)))
+            if key in selected:
+                raise SystemExit(f"two checkpoints would be exported as {key}")
+            selected[key] = (key, entry["path"], {**entry, "registry_status": status_name})
+            break
+    if not selected:
+        raise SystemExit(f"no checkpoint of version {version} in the registry"
+                         + (f" for {cfa_type}" if cfa_type else ""))
+    return list(selected.values())
 
-        print(f"--- {label} (epoch {reg_entry['epoch']}, val_psnr {reg_entry['val_psnr']:.2f} dB) ---")
-        ckpt_meta = export(ckpt_path, onnx_path, args.patch_size, args.opset, args.fp16)
-        if args.verify:
-            verify(ckpt_path, onnx_path, args.patch_size)
-        print()
 
-        manifest[label] = {
-            **ckpt_meta,
-            "file": onnx_file,
+def export_entries(entries: list[tuple[str, str, dict[str, Any]]], out_dir: Path, *,
+                   patch_size: int = 288, opset: int = 18, verify_export: bool = False,
+                   force: bool = False) -> dict[str, Any]:
+    """Export (app key, checkpoint path, registry entry) triples and merge them into the manifest.
+
+    The manifest is read first and only the exported keys are replaced.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = out_dir / MANIFEST
+    manifest: dict[str, Any] = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
+
+    for key, ckpt_path, entry in entries:
+        onnx_path = out_dir / f"{key}.onnx"
+        sha = _file_sha256(ckpt_path)
+        if not force and manifest.get(key, {}).get("source_sha256") == sha and onnx_path.exists():
+            print(f"--- {key}: up to date (skipped)")
+            continue
+        print(f"--- {key} from {ckpt_path}")
+        meta = export(ckpt_path, str(onnx_path), patch_size, opset)
+        if verify_export:
+            verify(ckpt_path, str(onnx_path), patch_size)
+        manifest[key] = {
+            **meta,
+            "file": onnx_path.name,
             "source_sha256": sha,
-            "registry_status": reg_entry.get("registry_status"),
-            "checkpoint_version": reg_entry.get("checkpoint_version") or ckpt_meta.get("checkpoint_version"),
-            "cfa_type": reg_entry.get("cfa_type") or ckpt_meta.get("cfa_type"),
-            "base_width": reg_entry.get("base_width") or ckpt_meta.get("base_width"),
-            "train_psnr": reg_entry.get("train_psnr"),
-            "val_psnr": reg_entry.get("val_psnr"),
-            "train_loss": reg_entry.get("train_loss"),
-            "val_loss": reg_entry.get("val_loss"),
+            "registry_status": entry.get("registry_status"),
+            "train_psnr": entry.get("train_psnr"),
+            "val_psnr": entry.get("val_psnr"),
+            "train_loss": entry.get("train_loss"),
+            "val_loss": entry.get("val_loss"),
         }
 
     manifest_path.write_text(json.dumps(manifest, indent=2))
-    n_exported = len(manifest) - n_skipped
-    print(f"Manifest: {manifest_path} ({n_exported} exported, {n_skipped} skipped)")
+    print(f"Manifest: {manifest_path}")
+    return manifest
+
+
+def export_selected(registry: dict[str, Any], out_dir: Path, *, version: str | None,
+                    cfa_type: str | None = None, status: str | None = None, slot: str = "best",
+                    patch_size: int = 288, opset: int = 18, verify_export: bool = False,
+                    force: bool = False) -> dict[str, Any]:
+    """Export the named version from the registry."""
+    entries = select(registry, version=version, cfa_type=cfa_type, status=status, slot=slot)
+    return export_entries(entries, out_dir, patch_size=patch_size, opset=opset,
+                          verify_export=verify_export, force=force)
+
+
+def export_checkpoint(checkpoint_path: str, out_dir: Path, *, patch_size: int = 288, opset: int = 18,
+                      verify_export: bool = False) -> dict[str, Any]:
+    """Export one checkpoint file under the app key its CFA type and width give it."""
+    ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    key = app_key(ckpt.get("cfa_type", "xtrans"), int(ckpt.get("base_width", 16)))
+    return export_entries([(key, checkpoint_path, {})], out_dir, patch_size=patch_size, opset=opset,
+                          verify_export=verify_export, force=True)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Export one checkpoint version to ONNX for the app")
+    parser.add_argument("--version", default=None,
+                        help="Checkpoint version to export from the registry, e.g. v7.0.0 (required unless --checkpoint)")
+    parser.add_argument("--checkpoint", default=None, help="Export this checkpoint file instead of a registry version")
+    parser.add_argument("--cfa-type", default=None, choices=["xtrans", "bayer"], help="Export only this sensor type")
+    parser.add_argument("--status", default=None, choices=["stable", "beta"], help="Registry status (default: prefer stable)")
+    parser.add_argument("--slot", default="best", choices=["best", "latest"], help="Which checkpoint slot to export")
+    parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR, help="Folder holding the ONNX files and models.json")
+    parser.add_argument("--patch-size", type=int, default=288)
+    parser.add_argument("--opset", type=int, default=18)
+    parser.add_argument("--verify", action="store_true", help="Check the ONNX output against PyTorch")
+    parser.add_argument("--force", action="store_true", help="Re-export even if the source checkpoint is unchanged")
+    args = parser.parse_args()
+
+    if args.checkpoint:
+        export_checkpoint(args.checkpoint, Path(args.output_dir), patch_size=args.patch_size,
+                          opset=args.opset, verify_export=args.verify)
+        return
+
+    registry_path = Path(__file__).parent / REGISTRY_FILENAME
+    if not registry_path.exists():
+        raise SystemExit(f"Registry not found: {registry_path}. Run `python checkpoint_registry.py` to build it.")
+    registry = json.loads(registry_path.read_text())
+    export_selected(registry, Path(args.output_dir), version=args.version, cfa_type=args.cfa_type,
+                    status=args.status, slot=args.slot, patch_size=args.patch_size, opset=args.opset,
+                    verify_export=args.verify, force=args.force)
 
 
 if __name__ == "__main__":
