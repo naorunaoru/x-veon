@@ -30,6 +30,7 @@ import json
 import math
 import random
 import time
+import warnings
 from dataclasses import dataclass, fields, asdict
 from typing import ClassVar
 from pathlib import Path
@@ -186,13 +187,23 @@ def pick_resume_checkpoint(ckpt_dir: Path, same_run: bool) -> Path | None:
     return max(candidates, key=saved_epoch)
 
 
+def _schedule_total(state: dict) -> int | None:
+    """The number of epochs a saved schedule anneals over: the T_max of its cosine part."""
+    for part in (state, *state.get("_schedulers", [])):
+        if "T_max" in part:
+            return int(part["T_max"])
+    return None
+
+
 def build_schedule(optimizer: torch.optim.Optimizer, *, epochs: int, warmup_epochs: int, start_epoch: int,
                    ckpt: dict | None, same_run: bool) -> torch.optim.lr_scheduler.LRScheduler:
     """The run's learning-rate schedule, with the optimizer state of the run it continues.
 
     A new run, from scratch or from another run's weights, starts at the optimizer's rate and
     anneals over its own epochs: nothing of an earlier optimizer is kept. Continuing the same
-    run restores the saved optimizer and schedule.
+    run restores the saved optimizer; with an unchanged total it restores the saved schedule,
+    and with a new total it uses the new total's schedule from the saved epoch on, so an
+    extended run keeps annealing instead of restarting from zero.
     """
     # For a new run from checkpoint, cosine schedule spans the remaining epochs.
     # For same-run resume, use original T_max and restore scheduler state.
@@ -203,9 +214,22 @@ def build_schedule(optimizer: torch.optim.Optimizer, *, epochs: int, warmup_epoc
         warmup = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1e-3, total_iters=warmup_epochs)
         scheduler = torch.optim.lr_scheduler.SequentialLR(
             optimizer, schedulers=[warmup, cosine], milestones=[warmup_epochs])
-    if same_run and ckpt is not None and "optimizer" in ckpt:
+    if not (same_run and ckpt is not None and "optimizer" in ckpt):
+        return scheduler
+    if _schedule_total(ckpt["scheduler"]) == epochs:
         optimizer.load_state_dict(ckpt["optimizer"])
         scheduler.load_state_dict(ckpt["scheduler"])
+        return scheduler
+    # Another total: step the new schedule to the saved epoch, then load the optimizer's
+    # moments and keep the new schedule's rate.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)    # scheduler steps before any optimizer step
+        for _ in range(start_epoch):
+            scheduler.step()
+    rates = [(group["lr"], group["initial_lr"]) for group in optimizer.param_groups]
+    optimizer.load_state_dict(ckpt["optimizer"])
+    for group, (lr, initial_lr) in zip(optimizer.param_groups, rates):
+        group["lr"], group["initial_lr"] = lr, initial_lr
     return scheduler
 
 

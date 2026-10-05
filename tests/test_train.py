@@ -118,6 +118,29 @@ class ScheduleTest(unittest.TestCase):
         for got, want in zip(rates, _cosine(5e-4, 4, range(4))):
             self.assertAlmostEqual(got, want, delta=1e-12)
 
+    def test_continuing_to_the_same_total_follows_the_uninterrupted_schedule(self) -> None:
+        for warmup in (0, 2):
+            with self.subTest(warmup=warmup):
+                optimizer, scheduler = self._schedule(1e-3, 6, warmup=warmup)
+                uninterrupted = _rates(optimizer, scheduler, 6)
+                optimizer, scheduler = self._schedule(1e-3, 6, warmup=warmup)
+                before = _rates(optimizer, scheduler, 3)
+                ckpt = {"epoch": 2, "optimizer": optimizer.state_dict(), "scheduler": scheduler.state_dict()}
+                optimizer, scheduler = self._schedule(1e-3, 6, warmup=warmup, start_epoch=3, ckpt=ckpt, same_run=True)
+                self.assertEqual(before + _rates(optimizer, scheduler, 3), uninterrupted)
+
+    def test_extending_a_finished_run_keeps_annealing_over_the_new_total(self) -> None:
+        for warmup in (0, 2):
+            with self.subTest(warmup=warmup):
+                ckpt = self._finished(1e-3, 4, warmup=warmup)
+                optimizer, scheduler = self._schedule(1e-3, 8, warmup=warmup, start_epoch=4, ckpt=ckpt, same_run=True)
+                self.assertEqual(optimizer.state_dict()["state"][0]["step"], 4.0)     # the moments carry over
+                rates = _rates(optimizer, scheduler, 4)
+                self.assertTrue(all(r > 0 for r in rates), rates)                    # no epoch at rate 0
+                self.assertTrue(all(b <= a for a, b in zip(rates, rates[1:])), rates)  # never rising
+                optimizer, scheduler = self._schedule(1e-3, 8, warmup=warmup)
+                self.assertEqual(rates, _rates(optimizer, scheduler, 8)[4:])         # the new total's schedule
+
 
 class TrainingRunTest(unittest.TestCase):
     """Runs train.py in a copy of the code, so the checkpoint registry it writes stays out of the repo."""
@@ -192,6 +215,9 @@ class TrainingRunTest(unittest.TestCase):
                 self.assertEqual(json.loads((out / "config.json").read_text())["resume"], str(out / "best.pt"))
                 continued = json.loads((out / "history.json").read_text())
                 self.assertEqual([h["epoch"] for h in continued], [0, 1, 2])
+                # Extending the finished run (2 to 3 epochs) does not raise the rate: recorded after each
+                # epoch's step, it ends at the end of the new schedule instead of climbing a second cosine.
+                self.assertLessEqual(continued[2]["lr"], continued[1]["lr"] + 1e-12)
                 # The epochs up to the saved one are carried over as they were, not trained again.
                 self.assertEqual(continued[:saved_epoch + 1], history[:saved_epoch + 1])
 
