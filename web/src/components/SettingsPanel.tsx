@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -10,7 +10,7 @@ import { useProcessFile } from '@/hooks/useProcessFile';
 import { useExport } from '@/hooks/useExport';
 import { ExportDialog } from '@/components/ExportDialog';
 import type { CfaType, DemosaicMethod, ModelSize } from '@/pipeline/types';
-import { getAvailableSizes, switchModelSize } from '@/pipeline/inference';
+import { getActiveModelKey, getAvailableModels, getAvailableSizes, refreshManifest, setActiveModel, switchModelSize } from '@/pipeline/inference';
 
 const DEMOSAIC_OPTIONS: { value: DemosaicMethod; label: string; cfa?: CfaType }[] = [
   { value: 'neural-net', label: 'X-veon' },
@@ -37,23 +37,50 @@ export function SettingsPanel() {
   const setDemosaicMethod = useAppStore((s) => s.setDemosaicMethod);
   const modelSize = useAppStore((s) => s.modelSize);
   const setModelSize = useAppStore((s) => s.setModelSize);
+  const selectedModelKeys = useAppStore((s) => s.selectedModelKeys);
+  const setSelectedModelKey = useAppStore((s) => s.setSelectedModelKey);
   const selectedFile = useAppStore((s) =>
     s.files.find((f) => f.id === s.selectedFileId),
   );
   const initialized = useAppStore((s) => s.initialized);
+  const [manifestRevision, setManifestRevision] = useState(0);
+  const [isRefreshingModels, setIsRefreshingModels] = useState(false);
 
   const cfaType = selectedFile?.cfaType ?? null;
   const availableSizes = cfaType ? getAvailableSizes(cfaType) : new Set<ModelSize>(['S']);
   const availableMethods = DEMOSAIC_OPTIONS.filter(
     (o) => !o.cfa || !cfaType || o.cfa === cfaType,
   );
+  const availableModels = cfaType ? getAvailableModels(cfaType, modelSize) : [];
+  const currentModelKey = cfaType
+    ? (selectedModelKeys[cfaType] ?? getActiveModelKey(cfaType) ?? '')
+    : '';
+  void manifestRevision;
 
   // Auto-fallback if current method isn't available for this CFA type
   useEffect(() => {
     if (!availableMethods.some((o) => o.value === demosaicMethod)) {
       setDemosaicMethod('neural-net');
     }
-  }, [cfaType]);
+  }, [availableMethods, demosaicMethod, setDemosaicMethod]);
+
+  useEffect(() => {
+    if (!cfaType) return;
+    if (availableModels.length === 0) {
+      if (selectedModelKeys[cfaType]) {
+        setSelectedModelKey(cfaType, null);
+      }
+      return;
+    }
+    if (currentModelKey && availableModels.some((model) => model.key === currentModelKey)) {
+      return;
+    }
+    const fallbackKey = availableModels[0].key;
+    setSelectedModelKey(cfaType, fallbackKey);
+    void setActiveModel(cfaType, fallbackKey).catch((err) => {
+      console.warn('Failed to activate fallback model:', err);
+    });
+  }, [availableModels, cfaType, currentModelKey, selectedModelKeys, setSelectedModelKey]);
 
   const { processFile, isProcessing } = useProcessFile();
 
@@ -65,9 +92,16 @@ export function SettingsPanel() {
     }
   }, [selectedFile?.id, selectedFile?.status, initialized, isProcessing, processFile]);
 
-  // Auto-reprocess on method change
+  // Auto-reprocess on setting changes, but not when merely switching to a different file.
+  const prevSelectedFileIdRef = useRef<string | null>(selectedFile?.id ?? null);
   const prevMethodRef = useRef(demosaicMethod);
   useEffect(() => {
+    const selectedFileId = selectedFile?.id ?? null;
+    if (prevSelectedFileIdRef.current !== selectedFileId) {
+      prevSelectedFileIdRef.current = selectedFileId;
+      prevMethodRef.current = demosaicMethod;
+      return;
+    }
     if (prevMethodRef.current === demosaicMethod) return;
     prevMethodRef.current = demosaicMethod;
     if (initialized && selectedFile && (selectedFile.status === 'done' || selectedFile.status === 'error') && !isProcessing) {
@@ -75,12 +109,51 @@ export function SettingsPanel() {
     }
   }, [demosaicMethod, initialized, selectedFile, isProcessing, processFile]);
 
+  const prevModelKeyRef = useRef(currentModelKey);
+  useEffect(() => {
+    const selectedFileId = selectedFile?.id ?? null;
+    if (prevSelectedFileIdRef.current !== selectedFileId) {
+      prevSelectedFileIdRef.current = selectedFileId;
+      prevModelKeyRef.current = currentModelKey;
+      return;
+    }
+    if (!cfaType || demosaicMethod !== 'neural-net') {
+      prevModelKeyRef.current = currentModelKey;
+      return;
+    }
+    if (prevModelKeyRef.current === currentModelKey) return;
+    prevModelKeyRef.current = currentModelKey;
+    if (initialized && selectedFile && (selectedFile.status === 'done' || selectedFile.status === 'error') && !isProcessing) {
+      processFile(selectedFile.id);
+    }
+  }, [currentModelKey, cfaType, demosaicMethod, initialized, selectedFile, isProcessing, processFile]);
+
   const { exportFile, isExporting } = useExport();
 
   const [exportOpen, setExportOpen] = useState(false);
 
   const canProcess = initialized && !isProcessing && !!selectedFile;
   const canExport = selectedFile?.status === 'done' && !isExporting;
+  const canSelectModel = demosaicMethod === 'neural-net' && !!cfaType && availableModels.length > 0;
+
+  async function handleModelChange(key: string) {
+    if (!cfaType) return;
+    setSelectedModelKey(cfaType, key);
+    await setActiveModel(cfaType, key);
+  }
+
+  async function handleRefreshModels() {
+    setIsRefreshingModels(true);
+    try {
+      await refreshManifest();
+      setManifestRevision((v) => v + 1);
+      if (cfaType && currentModelKey && getAvailableModels(cfaType, modelSize).some((model) => model.key === currentModelKey)) {
+        await setActiveModel(cfaType, currentModelKey);
+      }
+    } finally {
+      setIsRefreshingModels(false);
+    }
+  }
 
   return (
     <div className="border-t border-border p-4 space-y-3">
@@ -99,6 +172,39 @@ export function SettingsPanel() {
           </SelectContent>
         </Select>
         </div>
+      </div>
+
+      {/* Model selector */}
+      <div className="flex items-center gap-3">
+        <span className="text-xs text-muted-foreground w-14 flex-shrink-0">Model</span>
+        <div className="flex-1">
+          <Select
+            value={currentModelKey || undefined}
+            onValueChange={(value) => { void handleModelChange(value); }}
+            disabled={!canSelectModel}
+          >
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue placeholder={cfaType ? 'No model' : 'Select file'} />
+            </SelectTrigger>
+            <SelectContent>
+              {availableModels.map(({ key, meta }) => (
+                <SelectItem key={key} value={key}>
+                  {meta.checkpoint_version ?? key}{meta.registry_status === 'beta' ? ' (beta)' : ''}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <Button
+          size="icon"
+          variant="outline"
+          className="h-8 w-8 flex-shrink-0"
+          disabled={isRefreshingModels}
+          onClick={() => { void handleRefreshModels(); }}
+          title="Refresh model manifest"
+        >
+          <RefreshCw className={cn('h-3.5 w-3.5', isRefreshingModels && 'animate-spin')} />
+        </Button>
       </div>
 
       {/* Model size */}
@@ -124,12 +230,11 @@ export function SettingsPanel() {
                   if (active || !available) return;
                   setModelSize(s.value);
                   await switchModelSize(s.value);
-                  // Reprocess current file with new model
-                  const file = useAppStore.getState().files.find(
-                    (f) => f.id === useAppStore.getState().selectedFileId,
-                  );
-                  if (file && (file.status === 'done' || file.status === 'error') && !isProcessing && demosaicMethod === 'neural-net') {
-                    processFile(file.id);
+                  if (cfaType) {
+                    const preferredKey = useAppStore.getState().selectedModelKeys[cfaType];
+                    if (preferredKey && getAvailableModels(cfaType, s.value).some((model) => model.key === preferredKey)) {
+                      await setActiveModel(cfaType, preferredKey);
+                    }
                   }
                 }}
               >

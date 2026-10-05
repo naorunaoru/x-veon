@@ -46,6 +46,7 @@ interface AppState {
   // Processing settings
   modelSize: ModelSize;
   demosaicMethod: DemosaicMethod;
+  selectedModelKeys: Partial<Record<CfaType, string>>;
 
   // Export settings
   exportFormat: ExportFormat;
@@ -76,6 +77,7 @@ interface AppState {
   setFileResult: (id: string, result: ProcessingResultMeta, method: DemosaicMethod) => void;
   setModelSize: (size: ModelSize) => void;
   setDemosaicMethod: (method: DemosaicMethod) => void;
+  setSelectedModelKey: (cfaType: CfaType, key: string | null) => void;
   setExportFormat: (format: ExportFormat) => void;
   setExportQuality: (quality: number) => void;
 
@@ -101,6 +103,7 @@ interface AppState {
     exportFormat?: ExportFormat;
     exportQuality?: number;
     selectedFileId?: string | null;
+    selectedModelKeys?: Partial<Record<CfaType, string>>;
   }) => void;
 }
 
@@ -150,6 +153,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   modelSize: 'S' as ModelSize,
   demosaicMethod: 'neural-net',
+  selectedModelKeys: {},
 
   exportFormat: 'jpeg-hdr',
   exportQuality: 95,
@@ -279,6 +283,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       updates.modelSize = meta.modelSize;
       putSetting('modelSize', meta.modelSize).catch(() => {});
     }
+    if (meta?.modelKey && file?.cfaType) {
+      const next = { ...get().selectedModelKeys, [file.cfaType]: meta.modelKey };
+      updates.selectedModelKeys = next;
+      putSetting('selectedModelKeys', next).catch(() => {});
+    }
     set(updates);
     putSetting('selectedFileId', id).catch(() => {});
   },
@@ -351,6 +360,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   setDemosaicMethod: (method) => {
     set({ demosaicMethod: method });
     putSetting('demosaicMethod', method).catch(() => {});
+  },
+  setSelectedModelKey: (cfaType, key) => {
+    const next = { ...get().selectedModelKeys };
+    if (key) next[cfaType] = key;
+    else delete next[cfaType];
+    set({ selectedModelKeys: next });
+    putSetting('selectedModelKeys', next).catch(() => {});
   },
   setExportFormat: (format) => {
     set({ exportFormat: format });
@@ -433,10 +449,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     const selectedFileId = settings.selectedFileId ?? (files.length > 0 ? files[0].id : null);
     const selectedFile = selectedFileId ? files.find((f) => f.id === selectedFileId) : null;
     const meta = selectedFile?.result?.metadata;
+    const restoredModelKeys = settings.selectedModelKeys
+      ?? (meta?.modelKey && selectedFile?.cfaType ? { [selectedFile.cfaType]: meta.modelKey } : {});
     set({
       files,
       selectedFileId,
       demosaicMethod: selectedFile?.resultMethod ?? settings.demosaicMethod ?? 'neural-net',
+      selectedModelKeys: restoredModelKeys,
       exportFormat: settings.exportFormat ?? 'jpeg-hdr',
       exportQuality: settings.exportQuality ?? 95,
       ...(meta?.modelSize ? { modelSize: meta.modelSize } : {}),

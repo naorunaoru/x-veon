@@ -26,6 +26,11 @@ interface ModelEntry {
   meta: ModelMeta;
 }
 
+export interface ModelOption {
+  key: string;
+  meta: ModelMeta;
+}
+
 // Sessions keyed by manifest key (e.g. "xtrans-v6.1.4")
 const sessions = new Map<string, ModelEntry>();
 // Currently active model per CFA type
@@ -134,6 +139,13 @@ function resolveModelKey(cfaType: CfaType, width: number): string | null {
   return bestKey;
 }
 
+function compareModelOptions(a: ModelOption, b: ModelOption): number {
+  const stableA = a.meta.registry_status === 'stable' ? 1 : 0;
+  const stableB = b.meta.registry_status === 'stable' ? 1 : 0;
+  if (stableA !== stableB) return stableB - stableA;
+  return compareVersionKey(versionSortKey(b.meta.checkpoint_version), versionSortKey(a.meta.checkpoint_version));
+}
+
 /** Get or load a session for a manifest key. */
 async function getOrLoadSession(key: string): Promise<ModelEntry> {
   const existing = sessions.get(key);
@@ -155,6 +167,18 @@ export function getAvailableSizes(cfaType: CfaType): Set<ModelSize> {
     if (resolveModelKey(cfaType, width)) sizes.add(size);
   }
   return sizes;
+}
+
+export function getAvailableModels(cfaType: CfaType, size: ModelSize = currentSize): ModelOption[] {
+  const width = SIZE_TO_WIDTH[size];
+  return Object.entries(manifest)
+    .filter(([, meta]) => (meta.cfa_type ?? null) === cfaType && (meta.base_width ?? 16) === width)
+    .map(([key, meta]) => ({ key, meta }))
+    .sort(compareModelOptions);
+}
+
+export function getActiveModelKey(cfaType: CfaType): string | null {
+  return active.get(cfaType) ?? null;
 }
 
 export async function initModels(size: ModelSize = 'S'): Promise<void> {
@@ -191,6 +215,31 @@ export async function switchModelSize(size: ModelSize): Promise<void> {
     if (!key) continue;
     await getOrLoadSession(key);
     active.set(cfaType, key);
+  }
+}
+
+export async function setActiveModel(cfaType: CfaType, key: string): Promise<void> {
+  const meta = manifest[key];
+  const width = SIZE_TO_WIDTH[currentSize];
+  if (!meta) throw new Error(`Unknown model: ${key}`);
+  if ((meta.cfa_type ?? null) !== cfaType) throw new Error(`Model ${key} is not for ${cfaType}`);
+  if ((meta.base_width ?? 16) !== width) throw new Error(`Model ${key} does not match ${currentSize} size`);
+  await getOrLoadSession(key);
+  active.set(cfaType, key);
+}
+
+export async function refreshManifest(): Promise<void> {
+  manifest = await fetchManifest(`${CHECKPOINTS_DIR}/models.json?ts=${Date.now()}`);
+  for (const cfaType of ['xtrans', 'bayer'] as CfaType[]) {
+    const currentKey = active.get(cfaType);
+    if (currentKey && manifest[currentKey]) continue;
+    const fallback = resolveModelKey(cfaType, SIZE_TO_WIDTH[currentSize]);
+    if (!fallback) {
+      active.delete(cfaType);
+      continue;
+    }
+    await getOrLoadSession(fallback);
+    active.set(cfaType, fallback);
   }
 }
 

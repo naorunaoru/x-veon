@@ -105,6 +105,7 @@ export interface ProcessingResult {
     colorTemp: number;
     tint: number;
     modelSize?: ModelSize;
+    modelKey?: string;
   };
 }
 

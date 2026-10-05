@@ -10,7 +10,7 @@ import {
   padToAlignment,
   generateTiles,
 } from '@/pipeline/preprocessor';
-import { runBatchGpu, getBackend, getInferenceDevice } from '@/pipeline/inference';
+import { runBatchGpu, getBackend, getInferenceDevice, getActiveModelKey, setActiveModel } from '@/pipeline/inference';
 import { runDemosaic, destroyDemosaicPool } from '@/pipeline/demosaic';
 import { cropToHWC, buildColorMatrix } from '@/pipeline/postprocessor';
 import { createGpuNNPipeline } from '@/pipeline/tile-blend-gpu';
@@ -113,8 +113,14 @@ export function useProcessFile() {
       let tileCount: number;
 
       const flatCfa = flattenPattern(pattern, period);
+      const selectedModelKey = method === 'neural-net'
+        ? useAppStore.getState().selectedModelKeys[cfaType]
+        : null;
 
       if (method === 'neural-net') {
+        if (selectedModelKey) {
+          await setActiveModel(cfaType, selectedModelKey);
+        }
         // Fully GPU-resident NN path: extract → infer → blend, all on GPU
         const cfaData = padded.data;
         const cfaW = padded.width;
@@ -224,6 +230,7 @@ export function useProcessFile() {
           colorTemp,
           tint,
           modelSize: method === 'neural-net' ? useAppStore.getState().modelSize : undefined,
+          modelKey: method === 'neural-net' ? (selectedModelKey ?? getActiveModelKey(cfaType) ?? undefined) : undefined,
         },
       };
 

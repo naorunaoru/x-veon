@@ -9,7 +9,7 @@ import { probeHdrDisplay, hasWindowManagementApi } from '@/gl/hdr-display';
 import { getAllFiles, getSetting } from '@/lib/idb-storage';
 import type { PersistedFile } from '@/lib/idb-storage';
 import { listRawFileIds, deleteAllForFile, readThumbnail } from '@/lib/opfs-storage';
-import type { DemosaicMethod, ExportFormat } from '@/pipeline/types';
+import type { DemosaicMethod, ExportFormat, CfaType } from '@/pipeline/types';
 import { deserializeResultMeta } from '@/pipeline/types';
 import type { OpenDrtConfig, PreProcessConfig } from '@/gl/opendrt-params';
 import { matchLens } from '@/lib/lensfun';
@@ -54,7 +54,7 @@ export function useInit() {
       try {
         // Initialize WASM, models, GPU demosaic in parallel
         // Restore from IndexedDB concurrently
-        const [,, , persistedFiles, demosaicMethod, exportFormat, exportQuality, selectedFileId] =
+        const [,, , persistedFiles, demosaicMethod, exportFormat, exportQuality, selectedFileId, selectedModelKeys] =
           await Promise.all([
             initWasm(),
             initModels(),
@@ -64,6 +64,7 @@ export function useInit() {
             getSetting<ExportFormat>('exportFormat').catch(() => undefined),
             getSetting<number>('exportQuality').catch(() => undefined),
             getSetting<string | null>('selectedFileId').catch(() => undefined),
+            getSetting<Partial<Record<CfaType, string>>>('selectedModelKeys').catch(() => undefined),
           ]);
 
         if (cancelled) return;
@@ -80,6 +81,7 @@ export function useInit() {
             exportFormat,
             exportQuality,
             selectedFileId: selectedFileId ?? undefined,
+            selectedModelKeys,
           });
         }
 
