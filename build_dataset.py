@@ -12,10 +12,13 @@ Input modes:
   - --scan-dir: scan a directory tree for raw files directly
 
 For each raw file:
-1. Demosaic (DHT for X-Trans, AHD for Bayer)
-2. Auto-scale to full 16-bit range (lossless bit-shift)
+1. Demosaic with LibRaw (Markesteijn three-pass for X-Trans, AHD for Bayer)
+2. Scale to 16 bits with the sensor's white level at 65535
 3. Area-average 2x downscale
 4. Round to uint16, save as .npy
+
+The destination gets a build_info.json (see dataset_record.py). A directory that holds
+.npy files from another revision, other options, or an older builder is refused.
 """
 import argparse
 import os
@@ -23,9 +26,14 @@ import sys
 import time
 import json
 from multiprocessing import Pool, cpu_count
+from typing import Any
 
 import numpy as np
-import rawpy  # type: ignore[import-untyped]
+import rawpy
+
+from dataset_record import claim_destination, new_record
+
+DOWNSCALE = 2
 
 
 RAW_EXTENSIONS = {'.RAF', '.CR2', '.CR3', '.NEF', '.NRW', '.ARW', '.SRW',
@@ -84,6 +92,37 @@ def load_raw_map(json_path: str, raw_base: str | None = None, top_n: int | None 
     return raw_map
 
 
+def demosaic_linear(raw: Any) -> tuple[np.ndarray, str]:
+    """LibRaw's demosaic of an open rawpy image as (H, W, 3) uint16, and the sensor type.
+
+    65535 is the sensor's white level in every image. adjust_maximum_thr=0 stops LibRaw
+    from moving the white level down to the image's own maximum, which it otherwise does
+    when that maximum lies between 75% and 100% of the sensor's.
+    """
+    pattern = raw.raw_pattern
+    assert pattern is not None
+    if pattern.shape[0] >= 6:
+        # LibRaw runs Markesteijn (three passes) on every X-Trans file, whatever is requested.
+        algorithm, sensor_type = rawpy.DemosaicAlgorithm.DHT, "xtrans"
+    else:
+        algorithm, sensor_type = rawpy.DemosaicAlgorithm.AHD, "bayer"
+    rgb = raw.postprocess(
+        demosaic_algorithm=algorithm,
+        output_bps=16,
+        no_auto_bright=True,
+        adjust_maximum_thr=0.0,
+        gamma=(1, 1),  # Linear
+        output_color=rawpy.ColorSpace.raw,  # No color matrix
+        use_camera_wb=False,
+        use_auto_wb=False,
+        user_wb=[1, 1, 1, 1],  # Unity WB
+        highlight_mode=rawpy.HighlightMode.Ignore,  # Leave highlights unclipped (no reconstruction)
+        half_size=False,  # Full resolution demosaic
+        user_flip=0,  # No EXIF rotation - keep raw sensor orientation
+    )
+    return np.asarray(rgb, dtype=np.uint16), sensor_type
+
+
 def process_raw(args):
     """Process a single raw file: demosaic, downsample, save."""
     raw_path, output_dir, stem, index, total = args
@@ -96,34 +135,10 @@ def process_raw(args):
 
     try:
         raw = rawpy.imread(raw_path)
-
-        # Auto-detect sensor type from CFA pattern
-        raw_pat = raw.raw_pattern
-        pat_h = raw_pat.shape[0]
-
-        if pat_h >= 6:
-            demosaic_algo = rawpy.DemosaicAlgorithm.DHT
-            sensor_type = "xtrans"
-        else:
-            demosaic_algo = rawpy.DemosaicAlgorithm.AHD
-            sensor_type = "bayer"
-
-        rgb_16 = raw.postprocess(
-            demosaic_algorithm=demosaic_algo,
-            output_bps=16,
-            no_auto_bright=True,
-            gamma=(1, 1),  # Linear
-            output_color=rawpy.ColorSpace.raw,  # No color matrix
-            use_camera_wb=False,
-            use_auto_wb=False,
-            user_wb=[1, 1, 1, 1],  # Unity WB
-            highlight_mode=rawpy.HighlightMode.Ignore,  # Leave highlights unclipped (no reconstruction)
-            half_size=False,  # Full resolution demosaic
-            user_flip=0,  # No EXIF rotation - keep raw sensor orientation
-        )
+        rgb_16, sensor_type = demosaic_linear(raw)
 
         # Area-average 2x downscale, round back to uint16
-        ds = 2
+        ds = DOWNSCALE
         h_crop = rgb_16.shape[0] // ds * ds
         w_crop = rgb_16.shape[1] // ds * ds
         rgb_ds = (rgb_16[:h_crop, :w_crop]
@@ -145,9 +160,9 @@ def process_raw(args):
             'camera_wb': list(raw.camera_whitebalance[:3]),
             'original_size': [w * 2, h * 2],
             'downscaled_size': [w, h],
-            'pattern': [[int(v) for v in row] for row in raw.raw_pattern],
-            'range_min': int(rgb_u16.min()),
-            'range_max': int(rgb_u16.max()),
+            'pattern': [[int(v) for v in row] for row in np.asarray(raw.raw_pattern)],
+            'range_min': int(np.min(rgb_u16)),
+            'range_max': int(np.max(rgb_u16)),
         }
 
         meta_path = os.path.join(output_dir, f"{stem}_meta.json")
@@ -156,7 +171,7 @@ def process_raw(args):
 
         raw.close()
 
-        return f"  [{index}/{total}] {stem} ({sensor_type}): {w}x{h} range=[{rgb_u16.min()}, {rgb_u16.max()}]"
+        return f"  [{index}/{total}] {stem} ({sensor_type}): {w}x{h} range=[{int(np.min(rgb_u16))}, {int(np.max(rgb_u16))}]"
 
     except Exception as e:
         return f"  [{index}/{total}] {stem}: ERROR - {e}"
@@ -198,6 +213,11 @@ def main():
     # Create output dir
     output_dir = args.output
     os.makedirs(output_dir, exist_ok=True)
+    claim_destination(output_dir, new_record(
+        {"source": args.scan_dir or args.json_file, "top_n": args.top_n, "raw_base": args.raw_base,
+         "downscale": DOWNSCALE, "adjust_maximum_thr": 0.0},
+        os.path.dirname(os.path.abspath(__file__)),
+    ))
 
     # Check how many already done
     existing = set(f.replace('.npy', '') for f in os.listdir(output_dir) if f.endswith('.npy') and not f.endswith('_lum.npy'))
