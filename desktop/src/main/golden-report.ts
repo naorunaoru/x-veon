@@ -2,7 +2,7 @@ import { app } from 'electron';
 import { writeFile } from 'node:fs/promises';
 type GoldenWindow = { webContents: { executeJavaScript(script: string): Promise<unknown> } };
 export async function watchGoldenReport(win: GoldenWindow, file: string, opts?: { timeoutMs?: number }) {
-  const terminal = new Set(['PASS', 'FAIL', 'UNSTABLE', 'ERROR', 'RECORDED', 'NEW']);
+  const terminal = new Set(['BENCH', 'PASS', 'FAIL', 'UNSTABLE', 'ERROR', 'RECORDED', 'NEW']);
   const deadline = Date.now() + (opts?.timeoutMs ?? 15 * 60_000);
   let output: unknown = { status: 'TIMEOUT' };
   while (Date.now() < deadline) {

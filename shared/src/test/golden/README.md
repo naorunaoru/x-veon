@@ -138,3 +138,23 @@ and TIFF still use `exports`, and web WASM reports always use `exports`.
 The decoded comparison measured 55.595 dB PSNR against the source for both files,
 with about 7% of samples differing by at most 21 of 1023 codes. Native AVIF hashes
 depend on the CPU assembly path as well as the GPU adapter.
+
+## 26 MP AVIF benchmark
+
+Build both golden targets at the same commit, with the approved ignored
+`samples/bench-26mp.RAF` copy. Open `?golden=bench&report=bench-web` in an isolated
+Chrome profile, then run Electron with `--golden-mode=bench` and an isolated
+profile. Each processes neural-net model S with the default look and exports
+quality 95 AVIF once to warm up, then three measured times. `encodeMs` is the
+host timing; `totalMs` ends at blob ready on web and file written on desktop.
+
+```bash
+node desktop/scripts/bench-compare.mjs web.json desktop.json comparison.json
+```
+
+The comparison accepts direct web reports and desktop terminal wrappers. It
+requires matching sample, commit and dimensions, valid measured timings and
+medians, and identical hashes within each build. Native and WASM hashes are
+recorded independently because CPU assembly changes native AVIF bytes. Only
+median encode speed gates at 8×; total speed is recorded. A valid result below
+8× stops the task without encoder tuning or another attempt for a pass.

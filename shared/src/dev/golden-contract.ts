@@ -50,3 +50,5 @@ export function selectBaseline(
   if (matches.length > 1) throw Error('Ambiguous GPU baseline');
   return matches[0] ?? null;
 }
+
+export const BENCH_SAMPLE = 'bench-26mp.RAF';

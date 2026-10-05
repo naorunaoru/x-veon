@@ -11,7 +11,7 @@ it('keeps fixtures and edits in memory without exposing delete or clear', async 
   expect(host.remove).toBeUndefined();
   expect(host.clear).toBeUndefined();
   await expect(host.addFiles([new File(['raw'], 'other.raf')])).rejects.toThrow(
-    'two sample',
+    'named sample',
   );
   const p = (await host.addFiles([new File(['raw'], 'DSCF3332.RAF')]))!
     .photos[0];
@@ -34,3 +34,12 @@ it('keeps fixtures and edits in memory without exposing delete or clear', async 
 });
 
 it('isolates golden settings from production', () => { expect(createGoldenHost(bridge).host.settingsDbName).toBe('xveon-desktop-golden'); });
+
+it('accepts the named benchmark RAW with a valid worker ID', async () => {
+ const fixture = createGoldenHost(bridge);
+ const result = await fixture.host.library.addFiles([new File(['bench'], 'bench-26mp.RAF')]);
+ const photo = result!.photos[0];
+ expect(photo.id).toMatch(/^[A-Za-z0-9_-]{22}$/);
+ expect(photo.facts.cfaType).toBe('xtrans');
+ expect(new TextDecoder().decode(await fixture.host.library.readRaw(photo.id))).toBe('bench');
+});

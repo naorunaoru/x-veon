@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({ writeFile: vi.fn(async (_file: string, _conten
 vi.mock('electron', () => ({ app: { quit: mocks.quit } }));
 vi.mock('node:fs/promises', () => ({ writeFile: mocks.writeFile }));
 afterEach(() => { vi.useRealTimers(); vi.clearAllMocks(); });
-it.each(['PASS', 'FAIL', 'UNSTABLE', 'ERROR', 'RECORDED', 'NEW'])('ignores titles and missing state until %s', async status => {
+it.each(['BENCH', 'PASS', 'FAIL', 'UNSTABLE', 'ERROR', 'RECORDED', 'NEW'])('ignores titles and missing state until %s', async status => {
   vi.useFakeTimers(); let run: unknown; const executeJavaScript = vi.fn(async (_script: string) => run);
   const pending = watchGoldenReport({ webContents: { executeJavaScript } }, '/report');
   await vi.advanceTimersByTimeAsync(1000); expect(mocks.writeFile).not.toHaveBeenCalled();

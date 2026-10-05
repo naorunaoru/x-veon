@@ -1,3 +1,4 @@
+import { runBench } from './golden-bench';
 import { getDevice } from '@/gpu/device';
 import { SAMPLE_CONTRACT, TRADITIONAL, FORMATS, expectationFor, selectBaseline } from './golden-contract';
 import { importFiles, removeFile } from '@/app/services/library';
@@ -295,6 +296,12 @@ export async function runGolden(cleanup: (id: string) => Promise<void> = removeF
     await waitForState((state) => state.initialized, 'app initialised');
     useAppStore.getState().setExportQuality(95);
     useAppStore.getState().selectFile(null);
+
+    if (requested === 'bench') {
+      const report = await runBench();
+      publish(report, report.status);
+      return;
+    }
 
     const manifestResponse = await fetch(`${import.meta.env.BASE_URL}samples/manifest.json`);
     if (!manifestResponse.ok) {

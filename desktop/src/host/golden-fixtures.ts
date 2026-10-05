@@ -4,7 +4,8 @@ import type { DesktopBridge } from '../protocol/bridge';
 import { createWorkerClient } from './port';
 import { createExporter } from './exporter';
 import { createDisplayHost } from './display';
-const NAMES = new Set(['DSCF3332.RAF', 'sony_a6400_21.arw']);
+import { BENCH_SAMPLE } from '@/dev/golden-contract';
+const NAMES = new Set(['DSCF3332.RAF', 'sony_a6400_21.arw', BENCH_SAMPLE]);
 /** Golden fixtures keep edits and fetched RAW files in memory. */
 export function createGoldenHost(bridge: DesktopBridge) {
   const client = createWorkerClient(bridge, () => {});
@@ -17,7 +18,7 @@ export function createGoldenHost(bridge: DesktopBridge) {
     },
     async addFiles(incoming) {
       if (incoming.some((file) => !NAMES.has(file.name)))
-        throw Error('The golden host accepts only its two sample RAWs.');
+        throw Error('The golden host accepts only its named sample RAWs.');
       const added = incoming.map((file) => {
         const photo: LibraryPhoto = {
           id: crypto.randomUUID().replaceAll('-', '').slice(0, 22),
