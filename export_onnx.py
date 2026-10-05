@@ -156,10 +156,14 @@ def verify(checkpoint_path: str, onnx_path: str, patch_size: int = 288) -> None:
 
 def select(registry: dict[str, Any], *, version: str | None, cfa_type: str | None = None,
            status: str | None = None, slot: str = "best") -> list[tuple[str, str, dict[str, Any]]]:
-    """(app key, checkpoint path, registry entry) for the one named version, per CFA type."""
+    """(app key, checkpoint path, registry entry) for the one named version, per CFA type.
+
+    The registry holds one entry per sensor type and version, with one width, and the key
+    names the sensor type: two selections cannot share a key.
+    """
     if not version:
         raise SystemExit("--version is required: name the one checkpoint version to export, e.g. v7.0.0")
-    selected: dict[str, tuple[str, str, dict[str, Any]]] = {}
+    selected: list[tuple[str, str, dict[str, Any]]] = []
     for sensor, versions in registry.items():
         if cfa_type and sensor != cfa_type:
             continue
@@ -171,14 +175,12 @@ def select(registry: dict[str, Any], *, version: str | None, cfa_type: str | Non
             if entry is None:
                 continue
             key = app_key(sensor, int(meta.get("base_width", 16)))
-            if key in selected:
-                raise SystemExit(f"two checkpoints would be exported as {key}")
-            selected[key] = (key, entry["path"], {**entry, "registry_status": status_name})
+            selected.append((key, entry["path"], {**entry, "registry_status": status_name}))
             break
     if not selected:
         raise SystemExit(f"no checkpoint of version {version} in the registry"
                          + (f" for {cfa_type}" if cfa_type else ""))
-    return list(selected.values())
+    return selected
 
 
 def _write_manifest(path: Path, manifest: dict[str, Any]) -> None:
