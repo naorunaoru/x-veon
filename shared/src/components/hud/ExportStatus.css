@@ -1,5 +1,8 @@
 .xv-export-status {
   position: fixed;
+  /* Above nonmodal adjustment panels inside the settings overlay.
+     Modal dialogs live in their separate root layer (50/51). */
+  z-index: 12;
   right: 16px;
   bottom: 132px;
   max-width: 360px;
