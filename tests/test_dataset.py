@@ -119,6 +119,37 @@ class PatchCacheTest(unittest.TestCase):
                     finally:
                         ds.cleanup()
 
+    def test_the_training_path_with_augmentation_and_double_size_slots(self) -> None:
+        """As train.py builds it: augmentation and the 2x shrink on, so each slot holds a 2x patch."""
+        patch = 48
+        values = VALUES + [65535]
+        with tempfile.TemporaryDirectory() as d:
+            files = _write(d, [_flat(v) for v in values])
+            for noise in ((0.0, 0.0), (0.005, 0.005)):
+                with self.subTest(noise=noise):
+                    ds = PatchCacheDataset(files=files, seed=0, patch_size=patch, cfa_type="xtrans", augment=True,
+                                           noise_sigma=noise, shot_noise=(0.0, noise[1] / 10),
+                                           downscale_prob=0.75, patches_per_image=4)
+                    try:
+                        self.assertEqual(ds._extract_size, 2 * patch)
+                        self.assertEqual(len(ds), len(values) * 4)
+                        for _ in range(3):                       # the shrink-or-crop choice is random per item
+                            for i in range(len(ds)):
+                                mosaic, target = ds[i]
+                                self.assertEqual((tuple(mosaic.shape), tuple(target.shape)),
+                                                 ((1, patch, patch), (3, patch, patch)))
+                                self.assertLessEqual(float(mosaic.max()), 1.0)
+                                self.assertLessEqual(float(target.max()), 1.0)
+                                expected = values[int(ds._patch_img_idx[int(ds._slot_map[i])])] / 65535.0
+                                self.assertTrue(torch.allclose(target, torch.full_like(target, expected), atol=1e-7),
+                                                f"slot {i}: {float(target.min())}..{float(target.max())}, "
+                                                f"expected {expected}")
+                                if noise[1] == 0:
+                                    self.assertTrue(torch.allclose(mosaic, torch.full_like(mosaic, expected),
+                                                                   atol=1e-7))
+                    finally:
+                        ds.cleanup()
+
 
 class SamplerTest(unittest.TestCase):
     def test_every_index_once_and_batches_mix_images(self) -> None:
