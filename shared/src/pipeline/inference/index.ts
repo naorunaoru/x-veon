@@ -6,14 +6,12 @@ export interface ModelMeta {
   source_sha256?: string;
   epoch?: number;
   base_width?: number;
-  hl_head?: boolean;
   param_count?: number;
   size_mb?: number;
   dtype?: string;
   file?: string;
   train_psnr?: number;
   val_psnr?: number;
-  val_hl_psnr?: number;
   train_loss?: number;
   val_loss?: number;
 }
@@ -98,16 +96,10 @@ async function createSession(modelUrl: string): Promise<ort.InferenceSession> {
   }
 }
 
-/** Find the best manifest key for a given CFA type and base width.
- *  Prefers _hl variant, falls back to _base. */
+/** The manifest key for a given CFA type and base width, if that model exists. */
 function resolveModelKey(cfaType: CfaType, width: number): string | null {
-  const prefix = cfaType === 'xtrans' ? 'xtrans' : 'bayer';
-  // Prefer hl, then base
-  for (const suffix of ['hl', 'base']) {
-    const key = `${prefix}_w${width}_${suffix}`;
-    if (manifest[key]) return key;
-  }
-  return null;
+  const key = `${cfaType === 'xtrans' ? 'xtrans' : 'bayer'}_w${width}_base`;
+  return manifest[key] ? key : null;
 }
 
 /** Get or load a session for a manifest key. */
