@@ -6,17 +6,18 @@ import { createWorkerClient } from './port';
 import { createExporter } from './exporter';
 const receipt = { bytes: 123, sha256: 'a'.repeat(64), encodeMs: 12, name: 'x.avif' };
 const tick = async () => { for (let i = 0; i < 200; i++) await Promise.resolve(); };
-function setup() {
+function setup(holdDelivery = false) {
  const win = new EventTarget(); vi.stubGlobal('window', win); vi.stubGlobal('location', { origin: 'app://bundle' });
  const ports: FakePort[] = [];
+ const deliveries: (() => void)[] = [];
  class FakePort extends EventTarget {
   sent: PortRequest[] = []; hold: string | undefined; hook?: (r: PortRequest) => void;
   start() {} close() {} receive(r: PortRequest) { this.dispatchEvent(new MessageEvent('message', { data: { v: 1, rid: r.rid, ok: true, ...(r.op === 'exportCommit' ? { receipt } : {}), ...(r.op === 'exportStatus' ? { availability: { available: true } } : {}) } })); }
   postMessage(r: PortRequest, transfer?: unknown) { expect(transfer).toBeUndefined(); this.sent.push(r); this.hook?.(r); if (this.hold !== r.op) queueMicrotask(() => this.receive(r)); }
  }
- const bridge = { chooseExportDestination: vi.fn(async () => ({ token: 'destination' })), revealExport: vi.fn(async () => {}), requestWorkerPort: vi.fn(async requestId => { const port = new FakePort(); ports.push(port); const e = new MessageEvent('message', { data: { type: 'xveon-port', version: 2, requestId }, origin: 'app://bundle' }); Object.defineProperties(e, { source: { value: win }, ports: { value: [port] } }); win.dispatchEvent(e); }) } as unknown as DesktopBridge;
+ const bridge = { chooseExportDestination: vi.fn(async () => ({ token: 'destination' })), revealExport: vi.fn(async () => {}), requestWorkerPort: vi.fn(async requestId => { const port = new FakePort(); ports.push(port); const e = new MessageEvent('message', { data: { type: 'xveon-port', version: 2, requestId }, origin: 'app://bundle' }); Object.defineProperties(e, { source: { value: win }, ports: { value: [port] } }); if (holdDelivery) deliveries.push(() => win.dispatchEvent(e)); else win.dispatchEvent(e); }) } as unknown as DesktopBridge;
  const client = createWorkerClient(bridge, () => {});
- return { bridge, client, ports, exporter: createExporter(bridge, client, { chunkBytes: 1024, platform: 'MacIntel' }) };
+ return { bridge, client, ports, deliveries, exporter: createExporter(bridge, client, { chunkBytes: 1024, platform: 'MacIntel' }) };
 }
 const job = (): EncodeJob => ({ format: 'jpeg-hdr', data: new Float32Array(3000), hdrData: new Float32Array(3000), width: 1000, height: 1, orientation: '1', quality: 80.4, peakLuminance: 1000 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
@@ -41,4 +42,19 @@ it.each(['exportBegin', 'exportChunk', 'exportCommit'])('aborts while %s is pend
 it.each(['pending', 'between'])('pins the transfer and cancellation to its generation (%s)', async mode => {
  const { exporter, ports, client } = setup(); if (mode === 'pending') ports[0].hold = 'exportChunk'; else ports[0].hook = r => { if (r.op === 'exportChunk') { ports[0].receive(r); void client.restart(); } };
  const pending = exporter.encode(job(), { token: 'destination' }); const failed = expect(pending).rejects.toThrow('Worker restarted'); await tick(); if (mode === 'pending') await client.restart(); await failed; await tick(); expect(ports[1].sent).toEqual([]); client.stop('cleanup');
+});
+
+it('aborts before initial port delivery and never begins the old export afterward', async () => {
+ vi.useFakeTimers();
+ const { bridge, client, ports, deliveries, exporter } = setup(true);
+ const abort = new AbortController(), rejected = vi.fn();
+ const pending = exporter.encode({ ...job(), signal: abort.signal }, { token: 'destination' }).catch(rejected);
+ const other = client.request({ op: 'rescan' });
+ abort.abort(); await tick();
+ expect(rejected).toHaveBeenCalledWith(expect.objectContaining({ name: 'AbortError' }));
+ expect(ports[0].sent).toEqual([]); expect(vi.getTimerCount()).toBe(1);
+ deliveries[0](); await other; await pending; await tick();
+ expect(ports[0].sent.map(r => r.op)).toEqual(['rescan', 'exportCancel']);
+ expect(bridge.requestWorkerPort).toHaveBeenCalledTimes(1); expect(vi.getTimerCount()).toBe(0);
+ client.stop('cleanup');
 });

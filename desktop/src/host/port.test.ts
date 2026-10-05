@@ -46,3 +46,32 @@ it('returns receipt, availability and stamp and applies each request timeout ind
   port.dispatchEvent(new MessageEvent('message', { data: reply }));
   expect(await long).toEqual(reply); expect(acknowledged).toHaveBeenCalledWith(reply.stamp); expect(vi.getTimerCount()).toBe(0);
 });
+
+it('aborts a request awaiting initial delivery without cancelling the shared connection', async () => {
+  vi.useFakeTimers();
+  const win = new EventTarget(); vi.stubGlobal('window', win); vi.stubGlobal('location', { origin: 'app://bundle' });
+  const requests: string[] = [];
+  const bridge = { requestWorkerPort: vi.fn(async (requestId: string) => { requests.push(requestId); }) } as unknown as DesktopBridge;
+  const { createWorkerClient } = await import('./port');
+  const client = createWorkerClient(bridge, () => {}), abort = new AbortController();
+  const rejected = vi.fn();
+  const cancelled = client.request({ op: 'exportStatus' }, { signal: abort.signal }).catch(rejected);
+  const other = client.request({ op: 'rescan' });
+  abort.abort();
+  for (let i = 0; i < 20; i++) await Promise.resolve();
+  expect(rejected).toHaveBeenCalledWith(expect.objectContaining({ name: 'AbortError' }));
+  expect(vi.getTimerCount()).toBe(1); // The shared handshake remains alive.
+  class Port extends EventTarget {
+    sent: string[] = [];
+    start() {} close() {}
+    postMessage(request: { op: string; rid: number }) {
+      this.sent.push(request.op);
+      queueMicrotask(() => this.dispatchEvent(new MessageEvent('message', { data: { v: 1, rid: request.rid, ok: true } })));
+    }
+  }
+  const port = new Port();
+  const event = new MessageEvent('message', { data: { type: 'xveon-port', version: 2, requestId: requests[0] }, origin: 'app://bundle' });
+  Object.defineProperties(event, { source: { value: win }, ports: { value: [port] } }); win.dispatchEvent(event);
+  await other; await cancelled;
+  expect(port.sent).toEqual(['rescan']); expect(bridge.requestWorkerPort).toHaveBeenCalledTimes(1); expect(vi.getTimerCount()).toBe(0);
+});

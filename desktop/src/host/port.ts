@@ -65,6 +65,18 @@ export function createWorkerClient(bridge: DesktopBridge, onFacts: (event: PortE
     }).finally(() => { if (connecting === promise) connecting = null; if (handshake === controller) handshake = undefined; });
     connecting = promise; return promise;
   }
+  function connectionForRequest(signal?: AbortSignal): Promise<MessagePort> {
+    const connection = connect();
+    if (!signal) return connection;
+    // Cancel only this waiter; the library and other requests share the handshake.
+    return new Promise<MessagePort>((resolve, reject) => {
+      const abort = () => { cleanup(); reject(new DOMException('Export cancelled', 'AbortError')); };
+      const cleanup = () => signal.removeEventListener('abort', abort);
+      signal.addEventListener('abort', abort, { once: true });
+      connection.then(next => { cleanup(); resolve(next); }, error => { cleanup(); reject(error); });
+      if (signal.aborted) abort();
+    });
+  }
   // Establish the facts subscription even when the user has not edited anything.
   void connect().catch(() => {});
   return {
@@ -75,7 +87,7 @@ export function createWorkerClient(bridge: DesktopBridge, onFacts: (event: PortE
         if (opts.generation !== undefined && opts.generation !== generation) throw new Error('Worker restarted');
       };
       check();
-      const current = await connect();
+      const current = await connectionForRequest(opts.signal);
       check();
       if (current !== port) throw new Error('Worker connection replaced');
       const message = { ...value, v: 1, rid: ++rid };
