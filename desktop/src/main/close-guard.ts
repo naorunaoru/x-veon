@@ -1,5 +1,5 @@
 import type { UnsavedSummary } from '@/host';
-type Deps = { window: { on(event: 'close', handler: (e: { preventDefault(): void }) => void): void; destroy(): void }; app: { on(event: 'before-quit', handler: (e: { preventDefault(): void }) => void): void; quit(): void; exit(code?: number): void }; inventory: () => UnsavedSummary[]; requestFlush: () => Promise<UnsavedSummary[]>; confirmQuit: (unsaved: UnsavedSummary[]) => Promise<boolean>; timeoutMs?: number };
+type Deps = { window: { on(event: 'close', handler: (e: { preventDefault(): void }) => void): void; destroy(): void }; app: { on(event: 'before-quit', handler: (e: { preventDefault(): void }) => void): void; quit(): void; exit(code?: number): void }; inventory: () => UnsavedSummary[]; requestFlush: () => Promise<UnsavedSummary[]>; confirmQuit: (unsaved: UnsavedSummary[]) => Promise<boolean>; stopWorkers?: () => Promise<void>; timeoutMs?: number };
 export function unsavedQuitMessage(unsaved: UnsavedSummary[]) {
   const summary = unsaved.length === 1
     ? "1 photo has edits that aren't saved."
@@ -29,6 +29,8 @@ export function createCloseGuard(deps: Deps) {
       if (ending) return;
       if (!unsaved.length || await deps.confirmQuit(unsaved)) {
         if (ending) return;
+        await deps.stopWorkers?.();
+        if (ending) return;
         allowExit = true; deps.app.quit();
       }
     })().catch(() => {}).finally(() => { running = false; });
@@ -37,6 +39,6 @@ export function createCloseGuard(deps: Deps) {
   return { onSessionEnd() {
     if (ending) return;
     ending = true;
-    void flush().finally(() => { allowExit = true; deps.app.exit(0); });
+    void flush().then(() => deps.stopWorkers?.()).finally(() => { allowExit = true; deps.app.exit(0); });
   } };
 }

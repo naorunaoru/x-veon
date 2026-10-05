@@ -154,3 +154,17 @@ it('holds destination registration until ACK and rejects registration on error o
  const crashed = register(); const check = expect(crashed).rejects.toThrow('background worker stopped'); await Promise.resolve(); children[0].emit('exit', 1); await check;
  children[1].spawn(); await s.ready(); s.stop();
 });
+
+it('rejects pending RPCs on stop and accepts only the current child shutdown ACK', async () => {
+ const { supervisor: s, children, events } = harness(); const initial = s.ready(); children[0].spawn(); await initial;
+ children[0].emit('exit', 1); children[1].spawn(); await s.ready();
+ const request = s.request({ kind: 'thumbnail', id: '0'.repeat(22) }); const rejected = expect(request).rejects.toThrow('stopped');
+ await Promise.resolve(); const stop = s.stop(); const done = vi.fn(); void stop.then(done);
+ const message = children[1].sent.at(-1).data; expect(message.kind).toBe('shutdown');
+ await rejected;
+ children[0].emit('message', { v: 1, kind: 'shutdown', rid: message.rid });
+ children[1].emit('message', { v: 1, kind: 'thumbnail', rid: message.rid, path: null });
+ await Promise.resolve(); expect(done).not.toHaveBeenCalled();
+ children[1].emit('message', { v: 1, kind: 'shutdown', rid: message.rid }); await stop;
+ expect(children).toHaveLength(2); expect(events).toEqual(['restarted']);
+});

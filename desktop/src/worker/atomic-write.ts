@@ -28,7 +28,7 @@ export async function writeFileAtomic(target: string, data: string | Uint8Array,
   const dir = directory.realDir;
   await checkDirectory(directory);
   const destination = path.join(dir, path.basename(target));
-  const temp = path.join(dir, `.${path.basename(target)}.${randomUUID()}.tmp`);
+  const temp = path.join(dir, `.xveon.${randomUUID()}.tmp`);
   let owned: { dev: number; ino: number } | undefined;
   let committed = false;
   try {

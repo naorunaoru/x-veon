@@ -28,6 +28,7 @@ export function createWorkerSupervisor(opts: {
   cacheDir: string;
   onEvent: (event: 'restarted' | { stopped: string }) => void;
   now?: () => number;
+  stopTimeoutMs?: number;
   createChannel?: () => { port1: MessagePortMain; port2: MessagePortMain } | Promise<{ port1: MessagePortMain; port2: MessagePortMain }>;
 }) {
   const registry = new Map<PhotoId, string>();
@@ -40,6 +41,8 @@ export function createWorkerSupervisor(opts: {
   let instance = randomUUID();
   let stopped = false;
   let quitting = false;
+  let stopping: Promise<void> | undefined;
+  let shutdownAck: { target: UtilityProcessLike; rid: number; finish(): void } | undefined;
   let nextRid = 1;
   let crashes: number[] = [];
   const now = opts.now ?? Date.now;
@@ -49,7 +52,12 @@ export function createWorkerSupervisor(opts: {
     target.postMessage(message, ports);
   }
   function received(target: UtilityProcessLike, value: unknown) {
-    if (child !== target || stopped || !isWorkerToMain(value)) return;
+    if (child !== target || !isWorkerToMain(value)) return;
+    if (stopped) {
+      if (value.kind === 'shutdown' && shutdownAck?.target === target && shutdownAck.rid === value.rid) shutdownAck.finish();
+      return;
+    }
+    if (value.kind === 'shutdown') return;
     if (isListingFrame(value)) {
       const entry = [...pending.values()].find(p => p.token === value.token);
       if (entry) {
@@ -73,7 +81,8 @@ export function createWorkerSupervisor(opts: {
     target.stderr?.on('data', chunk => console.error(`[library ${identity} stderr]`, String(chunk).trimEnd()));
     target.on('message', value => received(target, value));
     target.once('exit', () => {
-      if (child !== target || stopped) return;
+      if (child !== target) return;
+      if (stopped) { if (shutdownAck?.target === target) shutdownAck.finish(); return; }
       child = undefined; readiness = undefined; rejectPending();
       const time = now(); crashes = crashes.filter(t => time - t < 60_000); crashes.push(time);
       if (crashes.length >= 3) { stopped = true; opts.onEvent({ stopped: stoppedMessage }); }
@@ -188,11 +197,32 @@ export function createWorkerSupervisor(opts: {
       } catch (error) { channel.port1.close(); channel.port2.close(); throw error; }
     },
     stop() {
-      quitting = true;
-      if (stopped) return;
-      stopped = true; rejectPending(); const target = child;
-      if (target?.pid !== undefined) target.kill();
-      else if (target) void waitForWorkerSpawn(target).then(() => target.kill(), () => {});
+      if (stopping) return stopping;
+      quitting = true; stopped = true; rejectPending();
+      const target = child;
+      if (!target) return stopping = Promise.resolve();
+      let finish!: () => void;
+      const acknowledged = new Promise<void>(resolve => { finish = resolve; });
+      const rid = nextRid++;
+      shutdownAck = { target, rid, finish };
+      const timer = setTimeout(finish, opts.stopTimeoutMs ?? 3000);
+      let killed = false;
+      const kill = () => { if (!killed) { killed = true; target.kill(); } };
+      // No export can have started before spawn/session initialization. Avoid
+      // posting a shutdown into an uninitialized or superseded generation.
+      if (target.pid === undefined) {
+        finish();
+        void waitForWorkerSpawn(target).then(kill, () => {});
+      } else {
+        try { post(target, { v: 1, rid, kind: 'shutdown' }); }
+        catch { finish(); }
+      }
+      stopping = acknowledged.then(() => {
+        clearTimeout(timer);
+        shutdownAck = undefined;
+        if (target.pid !== undefined) kill();
+      });
+      return stopping;
     },
   };
 }

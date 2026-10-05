@@ -14,6 +14,8 @@ export function createExportService(opts: { native: () => NativeLoad; now?: () =
   const now = opts.now ?? (() => performance.now());
   const destinations = new Map<string, string>();
   const jobs = new Map<string, Job>();
+  let stopping = false;
+  const writes = new Set<Promise<void>>();
   let loaded: NativeLoad | undefined;
   const native = () => (loaded ??= opts.native());
   let free = opts.slots ?? 2;
@@ -56,12 +58,14 @@ export function createExportService(opts: { native: () => NativeLoad; now?: () =
     if (j.state !== 'encoding' && j.state !== 'writing') drop(j);
   }
   return {
-    status(): ExportAvailability { const n = native(); return n.ok ? { available: true } : { available: false, reason: n.reason }; },
+    status(): ExportAvailability { if (stopping) return { available: false, reason: 'The background worker stopped.' }; const n = native(); return n.ok ? { available: true } : { available: false, reason: n.reason }; },
     register(token: string, target: string) {
+      if (stopping) throw new Error('The background worker stopped.');
       if (!path.isAbsolute(target)) { console.error('Ignored a relative export destination'); return; }
       destinations.set(token, target);
     },
     async begin(message: ExportBegin) {
+      if (stopping) throw new Error('The background worker stopped.');
       const n = native(); if (!n.ok) throw new Error(n.reason);
       if (jobs.has(message.job)) throw new Error('Duplicate export job');
       const target = destinations.get(message.destination);
@@ -106,7 +110,9 @@ export function createExportService(opts: { native: () => NativeLoad; now?: () =
         j.planes = [];
         j.abort.signal.throwIfAborted();
         j.state = 'writing';
-        try { await writeFileAtomic(j.target, bytes, { directory: j.directory, signal: j.abort.signal }); }
+        const write = writeFileAtomic(j.target, bytes, { directory: j.directory, signal: j.abort.signal });
+        writes.add(write);
+        try { await write; }
         catch (cause) {
           if (cause === j.abort.signal.reason) throw cause;
           const error = cause as NodeJS.ErrnoException;
@@ -115,10 +121,19 @@ export function createExportService(opts: { native: () => NativeLoad; now?: () =
           const detail = (cause instanceof Error ? cause.message : String(cause)).replace(/\.[^/\\]*\.[a-f0-9-]{36}\.tmp/g, path.basename(j.target));
           throw Object.assign(new Error(`Couldn't write ${path.basename(j.target)}: ${detail}`, { cause }), { code: error.code });
         }
+        finally { writes.delete(write); }
         return { name: path.basename(j.target), bytes: bytes.byteLength, sha256: createHash('sha256').update(bytes).digest('hex'), encodeMs };
       });
       chain = run.catch(() => {});
       try { return await run; } finally { drop(j); }
+    },
+    async shutdown() {
+      stopping = true;
+      destinations.clear();
+      for (const id of [...jobs.keys()]) cancel(id);
+      // Cancellation prevents encodes from starting any later write. Native code
+      // may still borrow its planes, so only wait for existing atomic cleanup.
+      await Promise.allSettled([...writes]);
     },
     cancel,
     cancelAll() { for (const id of [...jobs.keys()]) cancel(id); },

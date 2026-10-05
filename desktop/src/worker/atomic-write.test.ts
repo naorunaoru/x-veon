@@ -85,3 +85,11 @@ it('retains a successful commit when cancelled after rename', async () => {
  await expect(writeFileAtomic(target, 'committed', { signal: abort.signal })).resolves.toBeUndefined();
  expect(await fs.readFile(target, 'utf8')).toBe('committed');
 });
+
+it('replaces a legal near-limit filename on the real filesystem', async () => {
+ const name = 'a'.repeat(235) + '.avif', longTarget = path.join(dir, name);
+ await fs.writeFile(longTarget, 'original');
+ await writeFileAtomic(longTarget, new Uint8Array([1, 2, 3]));
+ expect(await fs.readFile(longTarget)).toEqual(Buffer.from([1, 2, 3]));
+ expect((await fs.readdir(dir)).sort()).toEqual(['a.xmp', name].sort());
+});

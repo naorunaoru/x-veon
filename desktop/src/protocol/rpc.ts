@@ -24,6 +24,7 @@ export type PortRequest =
 export type PortReply = { v: 1; rid: number; ok: true; stamp?: StateStamp; receipt?: ExportReceipt; availability?: ExportAvailability } | { v: 1; rid: number; ok: false; error: string };
 export type PortEvent = { v: 1; event: 'facts'; activation: string; folder: FolderRef; photos: LibraryPhoto[] };
 export type MainToWorker =
+  | { v: 1; rid: number; kind: 'shutdown' }
   | { v: 1; rid?: number; kind: 'export-destination'; token: string; path: string }
   | { v: 1; kind: 'session'; key: string; cacheDir: string; worker?: string }
   | { v: 1; kind: 'connect' }
@@ -33,7 +34,7 @@ export type MainToWorker =
   | { v: 1; kind: 'cancel-list'; token: string }
   | { v: 1; rid: number; kind: 'thumbnail'; id: PhotoId }
   | { v: 1; kind: 'watch'; path: string | null; folderId: string | null; activation: string | null };
-export type WorkerToMain = ListingFrame | { v: 1; rid: number; kind: 'export-destination'; token: string } | { v: 1; rid: number; kind: 'thumbnail'; path: string | null } | { v: 1; rid: number; kind: 'error'; error: string };
+export type WorkerToMain = { v: 1; rid: number; kind: 'shutdown' } | ListingFrame | { v: 1; rid: number; kind: 'export-destination'; token: string } | { v: 1; rid: number; kind: 'thumbnail'; path: string | null } | { v: 1; rid: number; kind: 'error'; error: string };
 
 export const MAX_MESSAGE_BYTES = 1_000_000;
 type RecordValue = Record<string, unknown>;
@@ -156,6 +157,7 @@ export function isMainToWorker(x: unknown): x is MainToWorker {
   switch (x.kind) {
     case 'session': return string(x.key) && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(x.key) && x.key.length > 0 && string(x.cacheDir) && optional(x, 'worker', isWorkerIdentity);
     case 'connect': return true;
+    case 'shutdown': return count(x.rid);
     case 'export-destination': return jobId(x.token) && string(x.path) && x.path.length > 0 && optional(x, 'rid', Number.isSafeInteger);
     case 'register': return registry(x.entries, 1000);
     case 'roots': return array(x.realRoots, string);
@@ -168,5 +170,5 @@ export function isMainToWorker(x: unknown): x is MainToWorker {
 }
 export function isWorkerToMain(x: unknown): x is WorkerToMain {
   if (!envelope(x)) return false;
-  return listing(x) || (Number.isSafeInteger(x.rid) && ((x.kind === 'export-destination' && jobId(x.token)) || (x.kind === 'thumbnail' && nullableString(x.path)) || (x.kind === 'error' && string(x.error))));
+  return listing(x) || (Number.isSafeInteger(x.rid) && ((x.kind === 'shutdown' && count(x.rid)) || (x.kind === 'export-destination' && jobId(x.token)) || (x.kind === 'thumbnail' && nullableString(x.path)) || (x.kind === 'error' && string(x.error))));
 }

@@ -139,9 +139,9 @@ if (ownsInstance) void app.whenReady().then(async () => {
   registerPhotoProtocol({ protocol, registry: supervisor.registry, roots: supervisor.roots, cacheDir,
     thumbnail: async id => (await supervisor.request({ kind: 'thumbnail', id })).path,
   });
-  const stopWorkers = () => { endingSession = true; supervisor.stop(); };
-  const guard = createCloseGuard({ window: win, app: { on: (event, handler) => { app.on(event, handler); }, quit: () => app.quit(), exit: code => { stopWorkers(); app.exit(code); } },
-    inventory: ipc.inventory, requestFlush: ipc.requestFlush,
+  const stopWorkers = () => { endingSession = true; return supervisor.stop(); };
+  const guard = createCloseGuard({ window: win, app: { on: (event, handler) => { app.on(event, handler); }, quit: () => app.quit(), exit: code => app.exit(code) },
+    stopWorkers, inventory: ipc.inventory, requestFlush: ipc.requestFlush,
     confirmQuit: async unsaved => {
       const quit = (await dialog.showMessageBox(win, { type: 'warning', message: 'Unsaved edits', detail: unsavedQuitMessage(unsaved), buttons: ['Quit anyway', 'Cancel'], defaultId: 1, cancelId: 1, noLink: true })).response === 0;
       if (!quit) void recoverWorker().catch(() => {});
@@ -150,7 +150,6 @@ if (ownsInstance) void app.whenReady().then(async () => {
   });
   powerMonitor.on('shutdown', (event?: Electron.Event) => { event?.preventDefault(); endingSession = true; guard.onSessionEnd(); });
   win.on('session-end', () => { endingSession = true; guard.onSessionEnd(); });
-  app.on('will-quit', stopWorkers);
   refreshMenu();
   win.webContents.on('console-message', (event) =>
     console.log(`[renderer] ${event.message}`),

@@ -53,7 +53,7 @@ function acquirePlaneSlot(signal: AbortSignal): Promise<() => void> {
     }
   });
 }
-let rendering: Promise<unknown> = Promise.resolve();
+let rendering: Promise<void> = Promise.resolve();
 async function renderPixels(
   file: QueuedFile & { result: NonNullable<QueuedFile['result']> },
   renderer: Renderer,
@@ -159,7 +159,6 @@ export function enqueueExport(
       observer?.destination?.(destination);
       releaseSlot = await acquirePlaneSlot(controller.signal);
       const readback = rendering
-        .catch(() => {})
         .then(async () => {
           controller.signal.throwIfAborted();
           setState('rendering');
@@ -179,7 +178,9 @@ export function enqueueExport(
             release();
           }
         });
-      rendering = readback;
+      // The global queue owns ordering only. Retaining the fulfilled pixel job
+      // here would pin unsent planes after an encode failure or cancellation.
+      rendering = readback.then(() => {}, () => {});
       const pixels = await readback;
       controller.signal.throwIfAborted();
       setState('encoding');

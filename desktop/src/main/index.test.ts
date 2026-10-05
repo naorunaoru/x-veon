@@ -27,7 +27,12 @@ it('boots with only the desktop route, registers a secure streaming scheme, and 
   expect(state.name).toHaveBeenCalledWith('X-veon Dev'); expect(state.win.loadURL).toHaveBeenCalledWith('app://bundle/?');
   expect(state.windowOptions.webPreferences.backgroundThrottling).toBe(false);
   const preventDefault = vi.fn(); state.app.emit('before-quit', { preventDefault }); expect(preventDefault).toHaveBeenCalledOnce(); expect(state.stop).not.toHaveBeenCalled();
-  state.app.emit('will-quit'); expect(state.stop).toHaveBeenCalledOnce();
+  let finish!: () => void;
+  state.stop.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+  await vi.advanceTimersByTimeAsync(3001);
+  expect(state.stop).toHaveBeenCalledOnce(); expect(state.quit).not.toHaveBeenCalled();
+  state.app.emit('before-quit', { preventDefault }); expect(preventDefault).toHaveBeenCalledTimes(2);
+  finish(); await vi.advanceTimersByTimeAsync(0); expect(state.quit).toHaveBeenCalledOnce();
 });
 
 it.each([undefined, 'full', 'render', 'bench', 'unknown'])('loads golden mode %s and fixes its export destination', async mode => {

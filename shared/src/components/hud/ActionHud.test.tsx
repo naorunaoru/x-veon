@@ -1,7 +1,7 @@
 import { fromLibraryPhoto } from '@/app/store/photo';
 import { fakePhoto, defaultEdit } from '@/test/fake-host';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { ActionHud } from './ActionHud';
 import { useAppStore } from '@/app/store';
 import { useExportJobs } from '@/app/services/export-jobs';
@@ -13,9 +13,8 @@ import type { QueuedFile } from '@/app/store';
 vi.mock('@/app/hooks/useProcessing', () => ({
   useProcessing: () => ({ processFile: vi.fn(), isProcessing: false }),
 }));
-vi.mock('@/app/hooks/useExport', () => ({
-  useExport: () => ({ exportAvailable: true, unavailableReason: null }),
-}));
+const capability = vi.hoisted(() => ({ exportAvailable: true, unavailableReason: null as string | null, retry: vi.fn() }));
+vi.mock('@/app/hooks/useExport', () => ({ useExport: () => capability }));
 
 function makeFile(id: string, status: QueuedFile['status']): QueuedFile {
   return {
@@ -38,6 +37,7 @@ function makeFile(id: string, status: QueuedFile['status']): QueuedFile {
 
 describe('ActionHud', () => {
   beforeEach(() => {
+    capability.exportAvailable = true; capability.unavailableReason = null; capability.retry.mockClear();
     useAppStore.setState({ initialized: true, files: [], selectedFileId: null });
   });
 
@@ -64,4 +64,13 @@ describe('ActionHud', () => {
     render(<ActionHud />);
     expect(screen.getByRole('button', { name: 'Export' })).not.toBeDisabled();
   });
+});
+
+it('offers Retry beside the capability failure while keeping Export disabled', () => {
+ capability.exportAvailable = false; capability.unavailableReason = 'Worker restarting';
+ render(<ActionHud />);
+ expect(screen.getByRole('alert')).toHaveTextContent('Worker restarting');
+ expect(screen.getByRole('button', { name: 'Export' })).toBeDisabled();
+ fireEvent.click(screen.getByRole('button', { name: 'Retry export' }));
+ expect(capability.retry).toHaveBeenCalledOnce();
 });

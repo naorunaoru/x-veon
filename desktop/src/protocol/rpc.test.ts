@@ -124,3 +124,9 @@ it('accepts an ArrayBuffer from another realm while retaining the envelope limit
  const chunk = { v: 1, rid: 1, op: 'exportChunk', job: 'job-0001', plane: 0, offset: 0, data: runInNewContext('new ArrayBuffer(4)') };
  expect(isPortRequest(chunk)).toBe(true); expect(isPortRequest({ ...chunk, padding: 'x'.repeat(1_000_000) })).toBe(false);
 });
+
+it.each([isMainToWorker, isWorkerToMain])('validates shutdown request and ACK identity', validate => {
+ expect(validate({ v: 1, kind: 'shutdown', rid: 42 })).toBe(true);
+ for (const rid of [undefined, -1, 1.5, '42', Number.MAX_SAFE_INTEGER + 1]) expect(validate({ v: 1, kind: 'shutdown', rid })).toBe(false);
+ expect(validate({ v: 2, kind: 'shutdown', rid: 42 })).toBe(false);
+});

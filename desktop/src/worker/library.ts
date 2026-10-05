@@ -98,7 +98,7 @@ export function createWorkerLibrary(opts: { sessionKey: Buffer; cacheDir: string
       } catch (error) {
         const failedPath = (error as NodeJS.ErrnoException)?.path;
         const temporary = typeof failedPath === 'string' && path.dirname(failedPath) === path.dirname(raw)
-          && path.basename(failedPath).startsWith(`.${path.basename(raw)}.xmp.`) && failedPath.endsWith('.tmp');
+          && /^\.xveon\.[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\.tmp$/.test(path.basename(failedPath));
         const detail = temporary ? message(error).replaceAll(failedPath, raw + '.xmp') : message(error);
         throw new Error(`Could not save edits for ${path.basename(raw)} in ${path.dirname(raw)}: ${detail}`, { cause: error });
       }

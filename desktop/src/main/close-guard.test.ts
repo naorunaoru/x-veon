@@ -4,12 +4,12 @@ import { createCloseGuard, unsavedQuitMessage } from './close-guard';
 import type { UnsavedSummary } from '@/host';
 const unsaved: UnsavedSummary[] = [{ id: 'a', name: 'one', folder: { id: 'a', name: 'Alps' }, error: null }, { id: 'b', name: 'two', folder: { id: 'b', name: 'Beach' }, error: 'locked' }];
 afterEach(() => vi.useRealTimers());
-function setup(flush = () => Promise.resolve([] as UnsavedSummary[]), answer = true) {
+function setup(flush = () => Promise.resolve([] as UnsavedSummary[]), answer = true, stopWorkers = vi.fn(async () => {})) {
   const window = Object.assign(new EventEmitter(), { destroy: vi.fn() });
   const app = Object.assign(new EventEmitter(), { quit: vi.fn(() => { app.emit('before-quit', { preventDefault: passed }); }), exit: vi.fn() });
   const passed = vi.fn(), confirm = vi.fn(async () => answer), requestFlush = vi.fn(flush);
-  const guard = createCloseGuard({ window, app, inventory: () => unsaved, requestFlush, confirmQuit: confirm, timeoutMs: 20 });
-  return { window, app, passed, confirm, requestFlush, guard };
+  const guard = createCloseGuard({ window, app, inventory: () => unsaved, requestFlush, confirmQuit: confirm, stopWorkers, timeoutMs: 20 });
+  return { window, app, passed, confirm, requestFlush, guard, stopWorkers };
 }
 it.each(['close', 'before-quit', 'close'])('prevents %s synchronously and quits after clean flush', async event => {
   const h = setup(); const preventDefault = vi.fn(); (event === 'close' ? h.window : h.app).emit(event, { preventDefault });
@@ -51,4 +51,24 @@ it('bounds warning names at ten without changing the full unsaved inventory', ()
  const all = Array.from({ length: 350 }, (_, i) => ({ ...unsaved[0], id: String(i), name: `photo-${i}` }));
  const text = unsavedQuitMessage(all);
  expect(text).toContain('350 photos'); expect(text).toContain('photo-9'); expect(text).not.toContain('photo-10'); expect(text).toContain('340 more'); expect(all).toHaveLength(350);
+});
+
+it('keeps repeated Quit blocked until accepted shutdown finishes', async () => {
+ let finish!: () => void;
+ const stop = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
+ const h = setup(undefined, true, stop);
+ h.app.emit('before-quit', { preventDefault() {} });
+ await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce());
+ const preventDefault = vi.fn(); h.app.emit('before-quit', { preventDefault }); h.window.emit('close', { preventDefault });
+ expect(preventDefault).toHaveBeenCalledTimes(2); expect(h.app.quit).not.toHaveBeenCalled();
+ finish(); await vi.waitFor(() => expect(h.app.quit).toHaveBeenCalledOnce()); expect(h.passed).not.toHaveBeenCalled();
+});
+it('never stops workers when the unsaved-edits dialog is cancelled', async () => {
+ const h = setup(async () => unsaved, false); h.window.emit('close', { preventDefault() {} });
+ await vi.waitFor(() => expect(h.confirm).toHaveBeenCalledOnce()); expect(h.stopWorkers).not.toHaveBeenCalled();
+});
+it('waits for worker stop after the session-end flush', async () => {
+ let finish!: () => void; const h = setup(undefined, true, vi.fn(() => new Promise<void>(resolve => { finish = resolve; })));
+ h.guard.onSessionEnd(); await vi.waitFor(() => expect(h.stopWorkers).toHaveBeenCalledOnce()); expect(h.app.exit).not.toHaveBeenCalled();
+ finish(); await vi.waitFor(() => expect(h.app.exit).toHaveBeenCalledWith(0));
 });

@@ -59,7 +59,7 @@ it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('reports POS
  await fs.chmod(folder, 0o555); const photo = (await collect())[0].photos[0]; expect(photo.editing).toBe('session'); expect(photo.editingNote).toMatch(/This folder can't be written:.*EACCES/);
  const failure = await lib.saveEdit(id(), edit).catch(error => error);
  expect(failure.message).toContain(`Could not save edits for a.RAF in ${folder}`); expect(failure.message).toMatch(/EACCES/);
- expect(failure.message).not.toMatch(/\.a\.RAF\.xmp\..+\.tmp/); expect(failure.cause.message).toMatch(/\.a\.RAF\.xmp\..+\.tmp/);
+ expect(failure.message).not.toMatch(/\.xveon\.[a-f0-9-]{36}\.tmp/); expect(failure.cause.message).toMatch(/\.xveon\.[a-f0-9-]{36}\.tmp/);
  expect(await fs.readdir(folder)).toEqual(['a.RAF']);
 });
 it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('refuses unreadable sidecars without changing bytes', async () => {
@@ -128,7 +128,7 @@ it('rejects a parent swap between a locked rename and its retry', async () => {
     throw Object.assign(new Error('busy'), { code: 'EBUSY' });
   });
   await expect(lib.saveEdit(id(), edit)).rejects.toThrow(/directory|folder/i);
-  expect(warn).toHaveBeenCalledExactlyOnceWith('Could not safely clean sidecar temp:', expect.stringMatching(/\.a\.RAF\.xmp\..+\.tmp$/), expect.objectContaining({ message: 'The folder changed while saving' }));
+  expect(warn).toHaveBeenCalledExactlyOnceWith('Could not safely clean sidecar temp:', expect.stringMatching(/\.xveon\.[a-f0-9-]{36}\.tmp$/), expect.objectContaining({ message: 'The folder changed while saving' }));
   expect(await fs.readFile(path.join(outside, 'a.RAF.xmp'), 'utf8')).toBe('outside sidecar');
 });
 
@@ -142,13 +142,13 @@ it('changes the opaque RAW revision for same-size content changed at the same re
 });
 
 it('identifies the RAW and folder on a save failure while retaining the OS error as its cause', async () => {
- const diagnostic = Object.assign(new Error(`EACCES: permission denied, open '${folder}/.a.RAF.xmp.hidden.tmp'`), { code: 'EACCES', syscall: 'open', path: `${folder}/.a.RAF.xmp.hidden.tmp` });
+ const diagnostic = Object.assign(new Error(`EACCES: permission denied, open '${folder}/.xveon.00000000-0000-4000-8000-000000000001.tmp'`), { code: 'EACCES', syscall: 'open', path: `${folder}/.xveon.00000000-0000-4000-8000-000000000001.tmp` });
  vi.spyOn(fs, 'open').mockRejectedValueOnce(diagnostic);
  const failure = await lib.saveEdit(id(), edit).catch(error => error);
  expect(failure.message).toContain(`Could not save edits for a.RAF in ${folder}`);
  expect(failure.message).toContain('EACCES: permission denied');
  expect(failure.message).toContain(raw + '.xmp');
- expect(failure.message).not.toContain('.a.RAF.xmp.hidden.tmp');
+ expect(failure.message).not.toContain('.xveon.00000000-0000-4000-8000-000000000001.tmp');
  expect(failure.cause).toBe(diagnostic);
  expect(await fs.readdir(folder)).toEqual(['a.RAF']);
 });

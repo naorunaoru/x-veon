@@ -22,6 +22,8 @@ export function createWorkerController(opts: {
   exports?: ReturnType<typeof createExportService>;
   onWatch?: (folder: WatchedFolder | null) => void;
 }) {
+  let stopping = false;
+  let shutdown: Promise<void> | undefined;
   let library: WorkerLibrary | undefined;
   let port: WorkerPort | undefined;
   let watched: WatchedFolder | null = null;
@@ -91,6 +93,7 @@ export function createWorkerController(opts: {
   function getExports() { if (!opts.exports) throw new Error('Export service is unavailable'); return opts.exports; }
   async function handlePort(target: WorkerPort, message: PortRequest) {
     try {
+      if (stopping) throw new Error('The background worker stopped.');
       const rid = message.rid;
       switch (message.op) {
         case 'exportStatus': reply(target, { v: 1, rid, ok: true, availability: getExports().status() }); return;
@@ -113,7 +116,15 @@ export function createWorkerController(opts: {
       if (!isMainToWorker(value)) return;
       const message: MainToWorker = value;
       try {
+        if (stopping && message.kind !== 'shutdown') throw new Error('The background worker stopped.');
         switch (message.kind) {
+          case 'shutdown':
+            stopping = true;
+            listings.clear(); watched = null; opts.onWatch?.(null);
+            shutdown ??= Promise.allSettled([opts.exports?.shutdown(), ...writes.keys()]).then(() => {});
+            await shutdown;
+            post({ v: 1, rid: message.rid, kind: 'shutdown' });
+            break;
           case 'session':
             if (library) throw new Error('Worker session is already initialized');
             worker = message.worker ?? worker;

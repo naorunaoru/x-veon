@@ -104,3 +104,14 @@ it('collects both HDR planes in ordered chunks before encoding', async () => {
  h.service.chunk('job-0001', 1, 0, new Float32Array([4, 5, 6]).buffer); await h.service.commit('job-0001');
  expect(h.encoder.encode).toHaveBeenCalledWith(new Float32Array([1, 2, 3]), new Float32Array([4, 5, 6]), expect.objectContaining({ format: 'jpeg-hdr' }));
 });
+
+it('shutdown cancels pending begins and rejects any new destination or begin', async () => {
+ const h = setup(undefined, 1); await h.ready('job-0001');
+ const pending = h.begin('job-0002'); const outcome = expect(pending).rejects.toThrow('Export cancelled');
+ await h.service.shutdown(); await outcome;
+ expect(h.service.status()).toEqual({ available: false, reason: 'The background worker stopped.' });
+ expect(() => h.service.register('job-0003', path.join(dir, 'new.avif'))).toThrow('stopped');
+ await expect(h.service.begin(message('job-0003'))).rejects.toThrow('stopped');
+ await expect(h.service.commit('job-0001')).rejects.toThrow('Unknown export job');
+ expect(h.encoder.encode).not.toHaveBeenCalled(); expect(await fs.readdir(dir)).toEqual([]);
+});

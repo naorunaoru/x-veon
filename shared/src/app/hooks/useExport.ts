@@ -1,16 +1,20 @@
 import { getHost } from '@/app/services/host';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 export function useExport() {
   const [unavailableReason, setUnavailableReason] = useState<string | null>(null);
   const [exportAvailable, setExportAvailable] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const retry = useCallback(() => setAttempt(value => value + 1), []);
   useEffect(() => {
     let cancelled = false;
+    setExportAvailable(false);
+    setUnavailableReason(null);
     void getHost()
       .exporter.status()
       .then((status) => {
         if (cancelled) return;
         setExportAvailable(status.available);
-        if (!status.available) setUnavailableReason(status.reason);
+        setUnavailableReason(status.available ? null : status.reason);
       })
       .catch((error) => {
         if (!cancelled) setUnavailableReason(error instanceof Error ? error.message : String(error));
@@ -18,6 +22,6 @@ export function useExport() {
     return () => {
       cancelled = true;
     };
-  }, []);
-  return { exportAvailable, unavailableReason };
+  }, [attempt]);
+  return { exportAvailable, unavailableReason, retry };
 }

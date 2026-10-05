@@ -10,7 +10,7 @@ export function ActionHud() {
   const initialized = useAppStore((s) => s.initialized);
   const selectedFile = useAppStore((s) => s.files.find((f) => f.id === s.selectedFileId));
   const { processFile, isProcessing } = useProcessing();
-  const { exportAvailable, unavailableReason } = useExport();
+  const { exportAvailable, unavailableReason, retry } = useExport();
   const [exportOpen, setExportOpen] = useState(false);
 
   const canProcess = initialized && !isProcessing && !!selectedFile;
@@ -32,7 +32,7 @@ export function ActionHud() {
       >
         {isProcessing ? 'Processing…' : 'Process'}
       </button>
-      {unavailableReason && <p role="alert">{unavailableReason}</p>}
+      {unavailableReason && <p role="alert">{unavailableReason} <button className="xv-action-btn" onClick={retry}>Retry export</button></p>}
       <ExportDialog
         open={exportOpen}
         onOpenChange={setExportOpen}
