@@ -14,7 +14,8 @@ import numpy as np
 import rawpy
 import torch
 
-from model import XTransUNet
+from cfa import make_channel_masks, make_model_input
+from export_onnx import load_model
 from cfa import make_cfa_mask, detect_cfa_from_raw, find_pattern_shift, cfa_period, CFA_REGISTRY
 from highlight_recovery import reconstruct_highlights
 from highlight_recovery_rgb import reconstruct_highlights as reconstruct_highlights_rgb
@@ -138,9 +139,17 @@ def extract_dr_gain(raw_path: str) -> float:
         return 1.0
 
 
+def pad_same_phase(a: np.ndarray, pad_top: int, pad_left: int, period: int) -> np.ndarray:
+    """Pad top/left with the nearest rows/columns of the same CFA phase (reflect padding puts
+    photosites of the wrong colour next to the edge). Matches padToAlignment in the app."""
+    h, w = a.shape
+    rows = [min((y - pad_top) % period, h - 1) for y in range(pad_top)] + list(range(h))
+    cols = [min((x - pad_left) % period, w - 1) for x in range(pad_left)] + list(range(w))
+    return a[np.ix_(rows, cols)]
+
+
 def process_raw(raw_path: str, model: torch.nn.Module, device: str,
                 patch_size: int = 288, overlap: int = 48,
-                apply_wb_to_cfa: bool = False,
                 cfa_type: str | None = None,
                 hlrecon: str = "cfa") -> tuple[np.ndarray, dict]:
     raw = rawpy.imread(raw_path)
@@ -172,30 +181,27 @@ def process_raw(raw_path: str, model: torch.nn.Module, device: str,
         _, ref_pattern = detect_cfa_from_raw(raw_pattern)
 
     period = cfa_period(ref_pattern)
+    if overlap < 0 or overlap >= patch_size or (patch_size - overlap) % period or patch_size % period:
+        raise ValueError(f"patch size {patch_size} and overlap {overlap} must keep tiles on the "
+                         f"CFA period {period} (stride {patch_size - overlap})")
     dy, dx = find_pattern_shift(raw_pattern, ref_pattern)
     pad_top = (period - dy) % period
     pad_left = (period - dx) % period
 
     if hlrecon == "cfa":
-        # darktable pipeline: WB → highlights → demosaic
+        # darktable pipeline: WB → highlights → demosaic. The model takes un-white-balanced
+        # data, so the white balance is divided out again after the reconstruction.
         wb_map = np.ones_like(cfa_norm)
         for ch in range(3):
             wb_map[raw_pattern == ch] = wb[ch]
-        cfa_norm = cfa_norm * wb_map
-
-        clip_levels = wb
-        cfa_norm = reconstruct_highlights(cfa_norm, raw_pattern, clip_levels)
-    else:
-        # No WB on CFA — clip at 1.0 (sensor max)
-        clip_levels = np.ones(3, dtype=np.float32)
+        cfa_norm = reconstruct_highlights(cfa_norm * wb_map, raw_pattern, wb) / wb_map
 
     if pad_top > 0 or pad_left > 0:
-        cfa_norm = np.pad(cfa_norm, ((pad_top, 0), (pad_left, 0)), mode='reflect')
+        cfa_norm = pad_same_phase(cfa_norm, pad_top, pad_left, period)
 
     h_aligned, w_aligned = cfa_norm.shape
 
-    # WB tensor for model (batch dim=1)
-    wb_t = torch.from_numpy(wb).unsqueeze(0).float().to(device)
+    masks = make_channel_masks(patch_size, patch_size, ref_pattern).to(device)
 
     confidence_map = None
     variance = None
@@ -213,7 +219,7 @@ def process_raw(raw_path: str, model: torch.nn.Module, device: str,
                 for x in range(0, w_pad, patch_size):
                     crop = cfa_padded[y:y+patch_size, x:x+patch_size]
                     cfa_t = torch.from_numpy(crop).unsqueeze(0).unsqueeze(0).float().to(device)
-                    out = model(cfa_t, wb_t)[0].cpu().numpy()
+                    out = model(make_model_input(cfa_t, masks))[0].cpu().numpy()
                     output[:, y:y+patch_size, x:x+patch_size] = out
     else:
         stride = patch_size - overlap
@@ -223,9 +229,12 @@ def process_raw(raw_path: str, model: torch.nn.Module, device: str,
         cfa_padded = np.zeros((h_pad, w_pad), dtype=np.float32)
         cfa_padded[:h_aligned, :w_aligned] = cfa_norm
         
+        # Ramps stay positive (a 0 at the tile edge left row/column 0 unweighted, i.e. black);
+        # opposing ramps sum to 1. Matches blendWeights1d in the app.
+        ramp = np.arange(1, overlap + 1, dtype=np.float32) / (overlap + 1)
         weight_1d = np.ones(patch_size, dtype=np.float32)
-        weight_1d[:overlap] = np.linspace(0, 1, overlap)
-        weight_1d[-overlap:] = np.linspace(1, 0, overlap)
+        weight_1d[:overlap] = ramp
+        weight_1d[-overlap:] = ramp[::-1]
         blend_weight = np.outer(weight_1d, weight_1d)
         
         output = np.zeros((3, h_pad, w_pad), dtype=np.float32)
@@ -237,7 +246,7 @@ def process_raw(raw_path: str, model: torch.nn.Module, device: str,
                 for x in range(0, w_pad - patch_size + 1, stride):
                     crop = cfa_padded[y:y+patch_size, x:x+patch_size]
                     cfa_t = torch.from_numpy(crop).unsqueeze(0).unsqueeze(0).float().to(device)
-                    out = model(cfa_t, wb_t)[0].cpu().numpy()
+                    out = model(make_model_input(cfa_t, masks))[0].cpu().numpy()
 
                     for c in range(3):
                         output[c, y:y+patch_size, x:x+patch_size] += out[c] * blend_weight
@@ -258,9 +267,11 @@ def process_raw(raw_path: str, model: torch.nn.Module, device: str,
 
     rgb = rgb.transpose(1, 2, 0)
 
+    # The model works in raw space; white-balance its output.
+    rgb = rgb * wb[np.newaxis, np.newaxis, :]
+
     if hlrecon == "rgb":
-        # Post-demosaic path: apply WB to RGB, then highlight recovery
-        rgb = rgb * wb[np.newaxis, np.newaxis, :]
+        # Post-demosaic highlight recovery on white-balanced RGB
         clip_levels_rgb = np.array([1.0, 1.0, 1.0], dtype=np.float32) * wb
         rgb = reconstruct_highlights_rgb(rgb, clip_levels_rgb)
 
@@ -321,8 +332,6 @@ def main():
     parser.add_argument("--patch-size", type=int, default=288)
     parser.add_argument("--overlap", type=int, default=48)
     parser.add_argument("--quality", type=int, default=90)
-    parser.add_argument("--wb-cfa", action="store_true",
-                        help="Apply WB to CFA before demosaic (for legacy checkpoints trained with --apply-wb)")
     parser.add_argument("--hlrecon", choices=["cfa", "rgb"], default="cfa",
                         help="Highlight reconstruction mode: cfa (pre-demosaic) or rgb (post-demosaic)")
     args = parser.parse_args()
@@ -331,11 +340,7 @@ def main():
     print(f"Device: {device}")
     
     ckpt = torch.load(args.checkpoint, map_location=device, weights_only=False)
-    _cfa_p = cfa_period(CFA_REGISTRY[ckpt.get("cfa_type", "xtrans")])
-    _cfa_pat = CFA_REGISTRY[ckpt.get("cfa_type", "xtrans")]
-    model = XTransUNet(base_width=ckpt.get("base_width", 64), cfa_period=_cfa_p,
-                       cfa_pattern=torch.from_numpy(_cfa_pat))
-    model.load_state_dict(ckpt["model"], strict=False)
+    model = load_model(ckpt, args.checkpoint)
     model.to(device)
     model.eval()
     ckpt_cfa = ckpt.get("cfa_type")
@@ -355,7 +360,7 @@ def main():
             out_path = output_dir / f"{raw_file.stem}_hdr.avif"
             print(f"Processing {raw_file.name}...")
             rgb, meta = process_raw(str(raw_file), model, device, args.patch_size, args.overlap,
-                                    apply_wb_to_cfa=args.wb_cfa, hlrecon=args.hlrecon)
+                                    hlrecon=args.hlrecon)
             save_hdr_avif(rgb, str(out_path), args.quality,
                          exif_flip=meta.get("exif_flip", 0),
                          dr_gain=meta.get("dr_gain", 1.0))
@@ -364,7 +369,7 @@ def main():
         output_path = Path(args.output) if args.output else input_path.with_suffix(".avif")
         print(f"Processing {input_path.name}...")
         rgb, meta = process_raw(str(input_path), model, device, args.patch_size, args.overlap,
-                                apply_wb_to_cfa=args.wb_cfa, hlrecon=args.hlrecon)
+                                hlrecon=args.hlrecon)
         save_hdr_avif(rgb, str(output_path), args.quality,
                      exif_flip=meta.get("exif_flip", 0),
                      dr_gain=meta.get("dr_gain", 1.0))

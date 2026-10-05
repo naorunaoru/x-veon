@@ -3,7 +3,7 @@
 Preview dataset samples with augmentations applied.
 
 Usage:
-    python preview_dataset.py --data-dir /path/to/npy --n 8 --bright-spot-prob 1.0 -o preview.png
+    python preview_dataset.py --data-dir /path/to/npy --n 8 --noise-max 0.005 -o preview.png
 """
 
 import argparse
@@ -43,11 +43,7 @@ def main():
     parser.add_argument("-n", "--n-samples", type=int, default=8)
     parser.add_argument("-o", "--output", type=str, default="preview.png")
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--apply-wb", action="store_true")
     # Augmentation params
-    parser.add_argument("--bright-spot-prob", type=float, default=0.0)
-    parser.add_argument("--bright-spot-intensity-max", type=float, default=5.0)
-    parser.add_argument("--bright-spot-sigma-max", type=float, default=20.0)
     parser.add_argument("--noise-min", type=float, default=0.0)
     parser.add_argument("--noise-max", type=float, default=0.0)
     args = parser.parse_args()
@@ -57,11 +53,7 @@ def main():
         patch_size=args.patch_size,
         augment=True,
         noise_sigma=(args.noise_min, args.noise_max),
-        apply_wb=args.apply_wb,
         cfa_type=args.cfa_type,
-        bright_spot_prob=args.bright_spot_prob,
-        bright_spot_intensity=(1.5, args.bright_spot_intensity_max),
-        bright_spot_sigma=(2.0, args.bright_spot_sigma_max),
     )
 
     print(f"Dataset: {len(ds)} samples from {len(ds.data_files)} images")
@@ -88,9 +80,7 @@ def main():
     indices = [rng.randint(0, len(ds) - 1) for _ in range(args.n_samples)]
 
     for i, idx in enumerate(indices):
-        input_tensor, ref = ds[idx]
-
-        cfa_img = input_tensor[0:1]  # (1, H, W)
+        cfa_img, ref = ds[idx]  # (1, H, W), (3, H, W)
 
         gt_u8 = gamma_correct(ref)
         cfa_u8 = cfa_false_color(cfa_img, ds.cfa)

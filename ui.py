@@ -22,13 +22,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import torch
 
-from cfa import CFA_REGISTRY, cfa_period as _cfa_period_fn
-from model import XTransUNet
-
-
-def _ckpt_cfa_period(ckpt: dict) -> int:
-    cfa_type = ckpt.get("cfa_type", "xtrans")
-    return _cfa_period_fn(CFA_REGISTRY[cfa_type])
+from export_onnx import load_model as load_checkpoint_model
 from infer_hdr import apply_exif_rotation, process_raw, save_hdr_avif
 
 
@@ -109,10 +103,8 @@ def plot_training_history(checkpoint_dir: str) -> tuple:
         with open(config_path) as f:
             cfg = json.load(f)
         parts = []
-        if cfg.get("msssim_weight"): parts.append(f"MS-SSIM={cfg['msssim_weight']}")
-        if cfg.get("per_channel_norm"): parts.append("per-ch-norm")
         if cfg.get("color_bias_weight"): parts.append(f"color_bias={cfg['color_bias_weight']}")
-        if cfg.get("apply_wb"): parts.append("WB")
+        if cfg.get("stages"): parts.append(f"{cfg['stages']} stages")
         config_str = ", ".join(parts)
 
     title = f"{checkpoint_dir}  —  {config_str}" if config_str else checkpoint_dir
@@ -149,9 +141,8 @@ def plot_training_history(checkpoint_dir: str) -> tuple:
     # --- Component plots (weighted contributions) ---
     COMP_COLORS = {
         "l1": "#1f77b4", "l1_recon": "#4169e1", "l1_known": "#6495ed",
-        "huber": "#1f77b4", "msssim": "#ff7f0e", "gradient": "#2ca02c",
-        "chroma": "#d62728", "fft": "#17becf", "texture": "#bcbd22",
-        "zipper": "#9467bd", "color_bias": "#8c564b",
+        "huber": "#1f77b4", "huber_recon": "#4169e1", "huber_known": "#6495ed",
+        "color_bias": "#8c564b",
     }
     # Map component names to their config weight keys.
     # l1_recon/l1_known are sub-components of l1 — use l1_weight for them.
@@ -179,8 +170,6 @@ def plot_training_history(checkpoint_dir: str) -> tuple:
             raw = [h[key].get(comp, 0) for h in history]
             if not any(v > 0 for v in raw):
                 continue
-            if comp == "msssim":
-                raw = [1 - v for v in raw]
             w = _get_weight(comp)
             weighted = [v * w for v in raw]
             label = f"{comp} (×{w:g})" if w != 1.0 else comp
@@ -230,11 +219,7 @@ def load_model(checkpoint_path: str):
 
     _device = get_device()
     ckpt = torch.load(checkpoint_path, map_location=_device, weights_only=True)
-    _cfa_p = _ckpt_cfa_period(ckpt)
-    _cfa_pat = CFA_REGISTRY[ckpt.get("cfa_type", "xtrans")]
-    _model = XTransUNet(base_width=ckpt.get("base_width", 64), cfa_period=_cfa_p,
-                        cfa_pattern=torch.from_numpy(_cfa_pat)).to(_device)
-    _model.load_state_dict(ckpt["model"], strict=False)
+    _model = load_checkpoint_model(ckpt, checkpoint_path).to(_device)
     _model.eval()
     _model_path = checkpoint_path
 

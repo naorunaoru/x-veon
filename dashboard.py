@@ -97,7 +97,6 @@ LEVEL_STYLES = {
     "ERROR": "bold red",
 }
 
-HIGHER_IS_BETTER = {"msssim"}
 
 BORDER_GENERAL = "bright_blue"
 BORDER_PSNR = "bright_green"
@@ -322,7 +321,7 @@ class TrainingDashboard:
         self.rolling_window = rolling_window
         self.best_val_psnr = best_val_psnr
         self.best_val_epoch = 0
-        self.best_metric = best_metric  # "psnr" or "msssim"
+        self.best_metric = best_metric
         self.loss_weights = loss_weights or {}
         self.config = dict(config) if config else {}
         self._last_error: dict | None = None
@@ -334,7 +333,7 @@ class TrainingDashboard:
         self._fatal = False
         self._sys: SystemSnapshot = SystemSnapshot()
         self._sys_history: deque[SystemSnapshot] = deque(maxlen=SYS_SPARK_WIDTH * 2)
-        self._metric_label = "PSNR" if best_metric == "psnr" else "MS-SSIM"
+        self._metric_label = "PSNR"
 
         term_size = shutil.get_terminal_size((160, 40))
         self.console = Console(
@@ -406,8 +405,6 @@ class TrainingDashboard:
 
     def _best_metric_value(self, data: EpochData) -> float:
         """Extract the value used for best-checkpoint comparison."""
-        if self.best_metric == "msssim":
-            return data.val_components.get("msssim", float("nan"))
         return data.val_psnr
 
     # ── Public API ───────────────────────────────────────────────────────
@@ -444,10 +441,7 @@ class TrainingDashboard:
         if not math.isnan(metric_val) and metric_val > self.best_val_psnr:
             self.best_val_psnr = metric_val
             self.best_val_epoch = data.epoch
-            if self.best_metric == "msssim":
-                self.log(f"New best val MS-SSIM ({metric_val:.6f})")
-            else:
-                self.log(f"New best val ({metric_val:.2f} dB)")
+            self.log(f"New best val ({metric_val:.2f} dB)")
 
         self._refresh()
 
@@ -476,10 +470,7 @@ class TrainingDashboard:
                 f"Loaded epochs {first}-{last} ({len(self.history)} total)",
             ))
             if self.best_val_epoch > 0:
-                if self.best_metric == "msssim":
-                    best_str = f"{self.best_val_psnr:.6f}"
-                else:
-                    best_str = f"{self.best_val_psnr:.2f} dB"
+                best_str = f"{self.best_val_psnr:.2f} dB"
                 self.logs.append(LogEntry(
                     datetime.now(), "INFO",
                     f"Best val {self._metric_label}: {best_str} (ep {self.best_val_epoch})",
@@ -919,10 +910,7 @@ class TrainingDashboard:
         # Best (metric-aware)
         best = Text()
         best.append(f"  Best {self._metric_label}: ", style="dim")
-        if self.best_metric == "msssim":
-            best.append(f"{self.best_val_psnr:.6f}", style="bold bright_green")
-        else:
-            best.append(f"{self.best_val_psnr:.2f} dB", style="bold bright_green")
+        best.append(f"{self.best_val_psnr:.2f} dB", style="bold bright_green")
         best.append(f" (ep {self.best_val_epoch})", style="dim")
         parts.append(best)
 
@@ -979,18 +967,13 @@ class TrainingDashboard:
         if self.loss_weights and total_val and not math.isnan(total_val) and total_val > 0:
             # Map component name → weight key
             _COMP_TO_WEIGHT = {
-                "l1": "l1", "huber": "l1", "msssim": "msssim",
-                "gradient": "gradient", "chroma": "chroma", "fft": "fft",
-                "texture": "texture", "zipper": "zipper", "color_bias": "color_bias",
+                "l1": "l1", "huber": "l1", "color_bias": "color_bias",
             }
             for comp_name, comp_val in comps.items():
                 wkey = _COMP_TO_WEIGHT.get(comp_name)
                 if wkey and not math.isnan(comp_val):
                     w = self.loss_weights.get(wkey, 0.0)
-                    if comp_name == "msssim":
-                        wtd = w * (1.0 - comp_val)
-                    else:
-                        wtd = w * comp_val
+                    wtd = w * comp_val
                     contrib_pct[comp_name] = wtd / total_val * 100.0
 
         for name, value in comps.items():
@@ -1008,7 +991,7 @@ class TrainingDashboard:
                 continue
 
             val_str = f"{value:.4f}"
-            invert = name not in HIGHER_IS_BETTER
+            invert = True
 
             # Contribution percentage
             pct = contrib_pct.get(name)
@@ -1112,8 +1095,7 @@ def replay_history(history_path: str, animate: bool = False):
         try:
             with open(config_path) as f:
                 cfg = json.load(f)
-            for key in ("l1", "msssim", "gradient", "chroma", "fft",
-                        "texture", "zipper", "color_bias"):
+            for key in ("l1", "color_bias"):
                 w = cfg.get(f"{key}_weight", 0.0)
                 if w:
                     loss_weights[key] = w
@@ -1157,8 +1139,7 @@ def mock_training(total_epochs: int = 300, fast: bool = False):
 
     comp_cfg = {
         "l1_recon": (0.05, 0.005), "l1_known": (0.02, 0.004),
-        "l1": (0.05, 0.005), "gradient": (0.15, 0.003),
-        "chroma": (0.01, 0.003), "color_bias": (0.008, 0.004),
+        "l1": (0.05, 0.005), "color_bias": (0.008, 0.004),
     }
 
     dashboard = TrainingDashboard(total_epochs=total_epochs, rolling_window=10)
@@ -1176,8 +1157,6 @@ def mock_training(total_epochs: int = 300, fast: bool = False):
             for name, (base, decay) in comp_cfg.items():
                 train_comps[name] = _loss(ep, base, decay)
                 val_comps[name] = _loss(ep, base, decay) * 0.9
-            train_comps["msssim"] = min(1.0, 0.998 + ep * 3e-6 + rng.gauss(0, 0.0001))
-            val_comps["msssim"] = min(1.0, 0.998 + ep * 3e-6 + rng.gauss(0, 0.0001))
 
             lr = 1e-3 * 0.5 * (1 + math.cos(math.pi * ep / total_epochs))
             if ep == 250:
