@@ -37,9 +37,11 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader
 
-from model import XTransUNet, count_parameters
+from cfa import CFA_REGISTRY, cfa_period, make_channel_masks, make_model_input
+from model import ARCHITECTURE_TAG, XTransUNet, count_parameters
 from dataset import LinearDataset, PatchCacheDataset, ImageGroupedSampler
-from losses import DemosaicLoss
+from dataset_record import read_records
+from losses import DemosaicLoss, EncodedPSNR
 from checkpoint_registry import (
     update_registry, promote_to_stable, REGISTRY_FILENAME, infer_checkpoint_version,
 )
@@ -58,32 +60,8 @@ from state_server import StateServer
 # ---------------------------------------------------------------------------
 
 _PRESETS: dict[str, dict] = {
-    "train": {
-        "epochs": 200,
-        "lr": 1e-3,
-        "l1_weight": 1.0,
-        "msssim_weight": 0.1,
-        "gradient_weight": 0.1,
-        "chroma_weight": 0.1,
-        "fft_weight": 0.1,
-        "texture_weight": 0.1,
-        "recon_only": True,
-        "known_pixel_weight": 0.01,
-        "best_metric": "psnr",
-    },
-    "finetune": {
-        "epochs": 50,
-        "lr": 1e-4,
-        "l1_weight": 0.5,
-        "msssim_weight": 0.3,
-        "gradient_weight": 0.1,
-        "chroma_weight": 0.2,
-        "fft_weight": 0.1,
-        "texture_weight": 0.5,
-        "recon_only": True,
-        "known_pixel_weight": 0.01,
-        "best_metric": "msssim",
-    },
+    "train": {"epochs": 200, "lr": 1e-3},
+    "finetune": {"epochs": 50, "lr": 1e-4},
 }
 
 _T = _PRESETS["train"]
@@ -114,36 +92,20 @@ class TrainConfig:
     patches_per_image: int = 16
 
     # Loss
-    l1_weight: float = _T["l1_weight"]
-    msssim_weight: float = _T["msssim_weight"]
-    gradient_weight: float = _T["gradient_weight"]
-    chroma_weight: float = _T["chroma_weight"]
+    l1_weight: float = 1.0
     color_bias_weight: float = 0.0
-    zipper_weight: float = 0.0
-    fft_weight: float = _T["fft_weight"]
-    texture_weight: float = _T["texture_weight"]
-    texture_window: int = 7
     huber: bool = False
     huber_delta: float = 1.0
-    per_channel_norm: bool = False
-    recon_only: bool = _T["recon_only"]
-    known_pixel_weight: float = _T["known_pixel_weight"]
-    best_metric: str = _T["best_metric"]
-    data_range: float | None = None
-
-    # White balance
-    apply_wb: bool = False
+    recon_only: bool = False
+    known_pixel_weight: float = 0.1
 
     # Augmentation
     noise_min: float = 0.0
     noise_max: float = 0.005
     shot_noise_max: float = 0.0
     olpf_sigma_max: float = 0.0
-    wb_aug_range: float = 0.0
-    bright_spot_prob: float = 0.0
-    bright_spot_intensity_max: float = 5.0
-    bright_spot_sigma_max: float = 20.0
     downscale_prob: float = 0.0
+    gain_jitter_stops: float = 3.0
 
     # Checkpoints
     output_dir: str = "./checkpoints"
@@ -153,6 +115,7 @@ class TrainConfig:
 
     # Model
     base_width: int = 16
+    stages: int = 2
 
     # Performance
     workers: int = 0
@@ -160,6 +123,7 @@ class TrainConfig:
     amp: bool = False
     cache_patches: bool = False
     cache_gb: float | None = None
+    group_images: int = 32
 
     # --- Serialization ---------------------------------------------------- #
 
@@ -169,8 +133,7 @@ class TrainConfig:
         with open(path) as f:
             data = json.load(f)
         valid = {f.name for f in fields(cls)}
-        # data_range is recomputed from actual data each run
-        skip = {"data_range", "device", "resume", "from_checkpoint"}
+        skip = {"device", "resume", "from_checkpoint", "datasets"}
         return cls(**{k: v for k, v in data.items() if k in valid and k not in skip})
 
     def to_dict(self) -> dict:
@@ -186,22 +149,13 @@ class TrainConfig:
 
     # --- Loss construction ------------------------------------------------ #
 
-    def build_criterion(self, data_range: float = 1.0) -> DemosaicLoss:
+    def build_criterion(self) -> DemosaicLoss:
         """Build DemosaicLoss from this config's loss parameters."""
         return DemosaicLoss(
             l1_weight=self.l1_weight,
-            msssim_weight=self.msssim_weight,
-            gradient_weight=self.gradient_weight,
-            chroma_weight=self.chroma_weight,
             color_bias_weight=self.color_bias_weight,
-            zipper_weight=self.zipper_weight,
-            fft_weight=self.fft_weight,
-            texture_weight=self.texture_weight,
-            texture_window=self.texture_window,
-            per_channel_norm=self.per_channel_norm,
             use_huber=self.huber,
             huber_delta=self.huber_delta,
-            data_range=data_range,
             recon_only=self.recon_only,
             known_pixel_weight=self.known_pixel_weight,
         )
@@ -211,30 +165,40 @@ class TrainConfig:
 # Helpers
 # ---------------------------------------------------------------------------
 
-def psnr(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-    """Peak Signal-to-Noise Ratio in dB (returns GPU scalar, no sync)."""
-    mse = ((pred - target) ** 2).mean()
-    # clamp instead of where to avoid shape mismatch (scalar vs [1])
-    return -10 * torch.log10(mse.clamp(min=1e-10))
+def pick_resume_checkpoint(ckpt_dir: Path, same_run: bool) -> Path | None:
+    """Which checkpoint in ckpt_dir to resume from.
+
+    Continuing a run (same_run): the one with the higher saved epoch, latest.pt on a tie.
+    File dates are not used; copying or restoring files changes them. This is the latest
+    *saved* epoch: latest.pt is written every ten epochs, best.pt when validation improves.
+    A new run started from finished weights: best.pt.
+    """
+    best, latest = ckpt_dir / "best.pt", ckpt_dir / "latest.pt"
+    if not same_run:
+        return best if best.exists() else (latest if latest.exists() else None)
+    candidates = [p for p in (latest, best) if p.exists()]      # latest first: max() keeps it on a tie
+    if not candidates:
+        return None
+
+    def saved_epoch(path: Path) -> int:
+        return int(torch.load(path, map_location="cpu", weights_only=True).get("epoch", -1))
+
+    return max(candidates, key=saved_epoch)
 
 
-def _compute_data_range(files: list[str]) -> float:
-    """Compute max pixel value after WB from metadata."""
-    import os
-    peak = 1.0
-    for npy_path in files:
-        stem = os.path.splitext(npy_path)[0]
-        meta_path = stem + "_meta.json"
-        try:
-            with open(meta_path) as f:
-                meta = json.load(f)
-            wb = meta["camera_wb"][:3]
-            wb_max = max(wb[0], wb[2]) / wb[1]  # max gain relative to G
-            range_max = meta.get("range_max", 1.0)
-            peak = max(peak, range_max * wb_max)
-        except (FileNotFoundError, json.JSONDecodeError, KeyError):
-            continue
-    return peak
+def load_weights(model: torch.nn.Module, ckpt: dict, source: str) -> None:
+    """Load weights strictly. A checkpoint of another layout is refused, never partly loaded."""
+    tag = ckpt.get("architecture_tag")
+    try:
+        if tag not in (None, ARCHITECTURE_TAG):
+            raise RuntimeError(f"architecture tag {tag}")
+        model.load_state_dict(ckpt["model"])
+    except RuntimeError as e:
+        raise SystemExit(
+            f"{source} is a checkpoint of another model layout (version "
+            f"{ckpt.get('checkpoint_version')}, architecture {tag}); this code builds "
+            f"{ARCHITECTURE_TAG}. It cannot be resumed or fine-tuned from."
+        ) from e
 
 
 def get_device():
@@ -249,25 +213,25 @@ def get_device():
 # Train / eval loops
 # ---------------------------------------------------------------------------
 
-def train_epoch(model, loader, optimizer, criterion, device, use_amp=False):
+def train_epoch(model, loader, optimizer, criterion, device, masks, use_amp=False):
+    """One pass over the training data. `masks` is (3, H, W) on `device`."""
     model.train()
     total_loss = torch.tensor(0.0, device=device)
-    total_psnr = torch.tensor(0.0, device=device)
+    metric = EncodedPSNR()
     component_sums: dict[str, torch.Tensor] = {}
     n_batches = 0
+    channel_masks = masks.unsqueeze(0) if criterion.recon_only else None
 
-    for batch in loader:
-        inputs, targets, wb = batch
-        inputs = inputs.to(device, non_blocking=True)
+    for mosaic, targets in loader:
+        mosaic = mosaic.to(device, non_blocking=True)
         targets = targets.to(device, non_blocking=True)
-        wb = wb.to(device, non_blocking=True)
+        inputs = make_model_input(mosaic, masks)
 
         optimizer.zero_grad()
         with torch.autocast(device.type, dtype=torch.bfloat16, enabled=use_amp):
-            outputs = model(inputs, wb)
-            channel_masks = model._make_masks(inputs.shape[2], inputs.shape[3]) if criterion.recon_only else None
-            loss, components = criterion(outputs, targets,
-                                         channel_masks=channel_masks)
+            outputs = model(inputs)
+        # The loss encodes in float32, outside autocast.
+        loss, components = criterion(outputs, targets, channel_masks=channel_masks)
 
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -282,7 +246,7 @@ def train_epoch(model, loader, optimizer, criterion, device, use_amp=False):
             else:
                 component_sums[k] = v.clone()
         with torch.no_grad():
-            total_psnr = total_psnr + psnr(outputs, targets)
+            metric.update(outputs, targets)
         n_batches += 1
 
     # Single sync point at epoch end
@@ -291,32 +255,28 @@ def train_epoch(model, loader, optimizer, criterion, device, use_amp=False):
         avg_components = {k: float("nan") for k in component_sums}
         return float("nan"), float("nan"), avg_components
     avg_components = {k: (v / n_batches).item() for k, v in component_sums.items()}
-    return (total_loss / n_batches).item(), (total_psnr / n_batches).item(), avg_components
+    return (total_loss / n_batches).item(), metric.value(), avg_components
 
 
 @torch.no_grad()
-def evaluate(model, loader, criterion, device, use_amp=False, gpu_batches=None):
+def evaluate(model, loader, criterion, device, masks, use_amp=False, gpu_batches=None):
+    """Validation pass. The PSNR is pooled over the whole pass, not averaged per batch."""
     model.eval()
     total_loss = torch.tensor(0.0, device=device)
-    total_psnr = torch.tensor(0.0, device=device)
+    metric = EncodedPSNR()
     component_sums: dict[str, torch.Tensor] = {}
     n_batches = 0
+    channel_masks = masks.unsqueeze(0) if criterion.recon_only else None
 
     source = gpu_batches if gpu_batches is not None else loader
-    for batch in source:
-        if gpu_batches is not None:
-            inputs, targets, wb = batch
-        else:
-            inputs, targets, wb = batch
-            inputs = inputs.to(device, non_blocking=True)
+    for mosaic, targets in source:
+        if gpu_batches is None:
+            mosaic = mosaic.to(device, non_blocking=True)
             targets = targets.to(device, non_blocking=True)
-            wb = wb.to(device, non_blocking=True)
 
         with torch.autocast(device.type, dtype=torch.bfloat16, enabled=use_amp):
-            outputs = model(inputs, wb)
-            channel_masks = model._make_masks(inputs.shape[2], inputs.shape[3]) if criterion.recon_only else None
-            loss, components = criterion(outputs, targets,
-                                         channel_masks=channel_masks)
+            outputs = model(make_model_input(mosaic, masks))
+        loss, components = criterion(outputs, targets, channel_masks=channel_masks)
 
         total_loss = total_loss + loss.squeeze()
         for k, v in components.items():
@@ -325,11 +285,11 @@ def evaluate(model, loader, criterion, device, use_amp=False, gpu_batches=None):
                 component_sums[k] = component_sums[k] + v
             else:
                 component_sums[k] = v.clone()
-        total_psnr = total_psnr + psnr(outputs, targets)
+        metric.update(outputs, targets)
         n_batches += 1
 
     avg_components = {k: (v / n_batches).item() for k, v in component_sums.items()}
-    return (total_loss / n_batches).item(), (total_psnr / n_batches).item(), avg_components
+    return (total_loss / n_batches).item(), metric.value(), avg_components
 
 
 # ---------------------------------------------------------------------------
@@ -355,7 +315,8 @@ def parse_config() -> tuple[TrainConfig, str | None, str | None, RoutingOptions]
 
     # --- Routing args (not part of TrainConfig) ---
     parser.add_argument("--from-checkpoint", type=str, default=None,
-                        help="Load training config from checkpoint dir (auto-resumes from best.pt). "
+                        help="Load training config from a checkpoint dir. Continuing a run (same "
+                             "output dir) resumes from the latest saved epoch; a new run starts from best.pt. "
                              "All params are inherited; override any with explicit CLI args.")
     parser.add_argument("--resume", type=str, default=None,
                         help="Resume from checkpoint file")
@@ -383,7 +344,8 @@ def parse_config() -> tuple[TrainConfig, str | None, str | None, RoutingOptions]
 
     # Training
     parser.add_argument("--mode", type=str, choices=["train", "finetune"], default=None,
-                        help="Training mode: 'train' for initial, 'finetune' for texture recovery")
+                        help="Training mode: 'train' for a run from scratch or its continuation, "
+                             "'finetune' to start from finished weights with a fresh optimiser")
     parser.add_argument("--epochs", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=None)
     parser.add_argument("--patch-size", type=int, default=None)
@@ -395,37 +357,16 @@ def parse_config() -> tuple[TrainConfig, str | None, str | None, RoutingOptions]
 
     # Loss weights
     parser.add_argument("--l1-weight", type=float, default=None)
-    parser.add_argument("--msssim-weight", type=float, default=None)
-    parser.add_argument("--gradient-weight", type=float, default=None)
-    parser.add_argument("--chroma-weight", type=float, default=None)
     parser.add_argument("--color-bias-weight", type=float, default=None,
                         help="Weight for mean color bias penalty")
-    parser.add_argument("--zipper-weight", type=float, default=None,
-                        help="Weight for zipper artifact penalty")
-    parser.add_argument("--fft-weight", type=float, default=None,
-                        help="Weight for FFT magnitude spectrum loss (periodic artifacts)")
-    parser.add_argument("--texture-weight", type=float, default=None,
-                        help="Weight for local variance texture consistency loss (anti-mush)")
-    parser.add_argument("--texture-window", type=int, default=None,
-                        help="Window size for local variance computation (default: 7)")
     parser.add_argument("--huber", action="store_true", default=None,
                         help="Use Huber loss instead of L1")
     parser.add_argument("--huber-delta", type=float, default=None,
                         help="Delta for Huber loss")
-    parser.add_argument("--per-channel-norm", action="store_true", default=None,
-                        help="Normalize L1 loss per channel (addresses G >> R,B sample imbalance)")
     parser.add_argument("--recon-only", action="store_true", default=None,
                         help="Compute L1/Huber only on reconstructed (non-CFA) pixels")
     parser.add_argument("--known-pixel-weight", type=float, default=None,
                         help="Weight for known-pixel preservation when --recon-only (default: 0.1)")
-    parser.add_argument("--best-metric", type=str, choices=["psnr", "msssim"], default=None,
-                        help="Metric for best checkpoint selection (default: psnr)")
-    parser.add_argument("--data-range", type=float, default=None,
-                        help="Max pixel value for SSIM constants (auto-computed from metadata when --apply-wb)")
-
-    # White balance
-    parser.add_argument("--apply-wb", action="store_true", default=None,
-                        help="Apply per-image WB to training data (model learns WB'd output)")
 
     # Augmentation
     parser.add_argument("--noise-min", type=float, default=None)
@@ -434,16 +375,10 @@ def parse_config() -> tuple[TrainConfig, str | None, str | None, RoutingOptions]
                         help="Max shot noise coefficient (0 = disabled)")
     parser.add_argument("--olpf-sigma-max", type=float, default=None,
                         help="Max Gaussian sigma for OLPF blur simulation (0 = disabled)")
-    parser.add_argument("--wb-aug-range", type=float, default=None,
-                        help="WB shift augmentation range in log space. Only with --apply-wb")
-    parser.add_argument("--bright-spot-prob", type=float, default=None,
-                        help="Probability of adding synthetic bright spots (0-1)")
-    parser.add_argument("--bright-spot-intensity-max", type=float, default=None,
-                        help="Max intensity factor for bright spots (min is 1.5)")
-    parser.add_argument("--bright-spot-sigma-max", type=float, default=None,
-                        help="Max Gaussian sigma (pixels) for bright spots (min is 2.0)")
     parser.add_argument("--downscale-prob", type=float, default=None,
                         help="Probability of 2x area-average downscale (0-1)")
+    parser.add_argument("--gain-jitter-stops", type=float, default=None,
+                        help="Random gain after the model's mean normalisation, in stops either way (default 3)")
 
     # Checkpoints
     parser.add_argument("--output-dir", type=str, default=None)
@@ -454,7 +389,9 @@ def parse_config() -> tuple[TrainConfig, str | None, str | None, RoutingOptions]
 
     # Model
     parser.add_argument("--base-width", type=int, default=None,
-                        help="Base channel width (default 64)")
+                        help="Size class (default 16 = S); the packed channel count follows from it")
+    parser.add_argument("--stages", type=int, default=None,
+                        help="Resolution reductions including the packing (default 2 = S)")
 
     # Performance
     parser.add_argument("--workers", type=int, default=None,
@@ -467,6 +404,8 @@ def parse_config() -> tuple[TrainConfig, str | None, str | None, RoutingOptions]
                         help="Pre-extract patches into RAM (eliminates disk I/O during training)")
     parser.add_argument("--cache-gb", type=float, default=None,
                         help="Memory budget for patch cache in GB")
+    parser.add_argument("--group-images", type=int, default=None,
+                        help="Images the grouped sampler draws from at a time (default 32)")
 
     # Deprecated (kept for CLI compat, ignored)
     parser.add_argument("--regen-every", type=int, default=None, help=argparse.SUPPRESS)
@@ -516,11 +455,10 @@ def parse_config() -> tuple[TrainConfig, str | None, str | None, RoutingOptions]
         ckpt_dir = Path(from_checkpoint)
         if ckpt_dir.is_file():
             ckpt_dir = ckpt_dir.parent
-        for name in ("best.pt", "latest.pt"):
-            pt = ckpt_dir / name
-            if pt.exists():
-                resume = str(pt)
-                break
+        same_run = ckpt_dir.resolve() == Path(cfg.output_dir).resolve()
+        picked = pick_resume_checkpoint(ckpt_dir, same_run)
+        if picked is not None:
+            resume = str(picked)
 
     if cfg.data_dir is None:
         parser.error("--data-dir is required (either explicitly or via --from-checkpoint config)")
@@ -540,6 +478,8 @@ def parse_config() -> tuple[TrainConfig, str | None, str | None, RoutingOptions]
             cfg.checkpoint_major = int(cfg.checkpoint_version.split(".", 1)[0][1:])
         except (ValueError, IndexError):
             pass
+    if cfg.architecture_tag is None:
+        cfg.architecture_tag = ARCHITECTURE_TAG
 
     return cfg, from_checkpoint, resume, routing
 
@@ -553,12 +493,6 @@ def main():
 
     loss_weights = {
         "l1": cfg.l1_weight,
-        "msssim": cfg.msssim_weight,
-        "gradient": cfg.gradient_weight,
-        "chroma": cfg.chroma_weight,
-        "fft": cfg.fft_weight,
-        "texture": cfg.texture_weight,
-        "zipper": cfg.zipper_weight,
         "color_bias": cfg.color_bias_weight,
     }
     config_summary = cfg.to_dict()
@@ -572,7 +506,7 @@ def main():
             else output_dir / ".train.sock"
         dash = StateServer(
             sock_path, total_epochs=cfg.epochs,
-            best_metric=cfg.best_metric,
+            best_metric="psnr",
             loss_weights=loss_weights,
             config=config_summary,
             log_capacity=50,
@@ -581,7 +515,7 @@ def main():
     else:
         dash = TrainingDashboard(
             total_epochs=cfg.epochs, log_capacity=50,
-            best_metric=cfg.best_metric,
+            best_metric="psnr",
             loss_weights=loss_weights,
             config=config_summary,
         )
@@ -595,6 +529,12 @@ def main():
     device = get_device()
     dash.log(f"Device: {device}")
     dash.log(f"Mode: {cfg.mode}")
+
+    # Every data directory must carry the record of the builder that made it.
+    datasets = read_records(cfg.data_dir)
+    for path, record in datasets.items():
+        dash.log(f"  dataset {path}: built by {record['revision'][:10]}"
+                 + (" (modified tree)" if record.get("dirty") else ""))
 
     # Dataset — split at image level to prevent leakage
     # Collect files from all data directories, each with optional :N limit
@@ -626,44 +566,21 @@ def main():
     train_files = all_files[val_n_images:]
     dash.log(f"  Images: {len(train_files)} train, {val_n_images} val")
 
-    # Compute effective data range
-    if cfg.data_range is not None:
-        data_range = cfg.data_range
-    elif cfg.apply_wb:
-        data_range = _compute_data_range(all_files)
-        if cfg.wb_aug_range > 0:
-            data_range *= math.exp(cfg.wb_aug_range)
-        dash.log(f"  Auto data_range: {data_range:.2f}")
-    else:
-        data_range = 1.0
-
-    wb_aug = cfg.wb_aug_range if cfg.apply_wb else 0.0
-    if wb_aug > 0 and not cfg.apply_wb:
-        dash.log("  Warning: --wb-aug-range ignored without --apply-wb", "WARN")
-
     shared_kwargs = dict(
         patch_size=cfg.patch_size,
         patches_per_image=cfg.patches_per_image,
-        apply_wb=cfg.apply_wb,
         cfa_type=cfg.cfa_type,
+        group_images=cfg.group_images,
     )
 
     olpf_sigma = (0.0, cfg.olpf_sigma_max)
-
-    spot_kwargs = dict(
-        bright_spot_prob=cfg.bright_spot_prob,
-        bright_spot_intensity=(1.5, cfg.bright_spot_intensity_max),
-        bright_spot_sigma=(2.0, cfg.bright_spot_sigma_max),
-    )
 
     train_augment_kwargs = dict(
         augment=True,
         noise_sigma=(cfg.noise_min, cfg.noise_max),
         shot_noise=(0.0, cfg.shot_noise_max),
-        wb_aug_range=wb_aug,
         olpf_sigma=olpf_sigma,
         downscale_prob=cfg.downscale_prob,
-        **spot_kwargs,
     )
 
     if cfg.cache_patches:
@@ -715,6 +632,7 @@ def main():
     else:
         train_sampler = ImageGroupedSampler(
             len(train_files), cfg.patches_per_image, shuffle=True,
+            group_images=cfg.group_images,
         )
         persist = cfg.workers > 0
         train_loader = DataLoader(
@@ -736,33 +654,23 @@ def main():
     val_batches = None  # populated after model + optimizer are loaded
 
     # Model
-    from cfa import CFA_REGISTRY, cfa_period as _cfa_period
     _cfa_pattern = CFA_REGISTRY[cfg.cfa_type]
-    _cfa_p = _cfa_period(_cfa_pattern)
-    model = XTransUNet(base_width=cfg.base_width, cfa_period=_cfa_p,
-                       cfa_pattern=torch.from_numpy(_cfa_pattern)).to(device)
-    dash.log(f"Model parameters: {count_parameters(model):,}")
+    model = XTransUNet(base_width=cfg.base_width, cfa_period=cfa_period(_cfa_pattern),
+                       stages=cfg.stages, gain_jitter_stops=cfg.gain_jitter_stops).to(device)
+    masks = make_channel_masks(cfg.patch_size, cfg.patch_size, _cfa_pattern).to(device)
+    dash.log(f"Model parameters: {count_parameters(model):,} ({cfg.stages} stages, architecture {ARCHITECTURE_TAG})")
 
     # Resume
     start_epoch = 0
     best_val_metric = 0.0
     same_run = False
     ckpt = None
-    metric_label = "PSNR" if cfg.best_metric == "psnr" else "MS-SSIM"
+    metric_label = "PSNR"
     if resume:
         dash.log(f"Loading checkpoint: {resume}")
         ckpt = torch.load(resume, map_location=device, weights_only=True)
-        missing, unexpected = model.load_state_dict(ckpt["model"], strict=False)
-        if missing:
-            dash.log(f"  Missing keys ({len(missing)}):", "WARN")
-            for k in missing:
-                dash.log(f"    - {k}", "WARN")
-        if unexpected:
-            dash.log(f"  Unexpected keys ignored ({len(unexpected)}):", "WARN")
-            for k in unexpected:
-                dash.log(f"    - {k}", "WARN")
-        if not missing and not unexpected:
-            dash.log(f"  All weights loaded")
+        load_weights(model, ckpt, resume)
+        dash.log("  All weights loaded")
 
         # Only restore optimizer/scheduler if continuing same training
         if cfg.mode == "train":
@@ -782,28 +690,14 @@ def main():
             dash.log(f"  Loaded model weights (fresh optimizer for fine-tuning)")
 
     # Loss — built directly from config (single source of truth)
-    criterion = cfg.build_criterion(data_range).to(device)
+    criterion = cfg.build_criterion().to(device)
 
     loss_name = f"Huber(δ={criterion.huber_delta})" if criterion.use_huber else "L1"
-    loss_info = f"Loss: {loss_name}={criterion.l1_weight}"
-    if criterion.msssim_weight > 0:
-        loss_info += f", MS-SSIM={criterion.msssim_weight}"
-    if criterion.gradient_weight > 0:
-        loss_info += f", grad={criterion.gradient_weight}"
-    if criterion.chroma_weight > 0:
-        loss_info += f", chroma={criterion.chroma_weight}"
-    if criterion.zipper_weight > 0:
-        loss_info += f", zipper={criterion.zipper_weight}"
-    if criterion.fft_weight > 0:
-        loss_info += f", fft={criterion.fft_weight}"
+    loss_info = f"Loss: {loss_name}={criterion.l1_weight} on encoded values"
     if criterion.color_bias_weight > 0:
         loss_info += f", color_bias={criterion.color_bias_weight}"
     if criterion.recon_only:
         loss_info += f" [recon-only, known={criterion.known_pixel_weight}]"
-    if criterion.per_channel_norm:
-        loss_info += " [per-channel norm]"
-    if cfg.apply_wb:
-        loss_info += " [WB training]"
     dash.log(loss_info)
 
     # Optimizer
@@ -836,10 +730,10 @@ def main():
     registry_path = Path(__file__).parent / REGISTRY_FILENAME
     history_rel = str(output_dir / "history.json")
 
-    # Save config (resolved data_range + device as extras for provenance)
+    # Save config (device and the datasets' build records as extras for provenance)
     cfg.save(output_dir / "config.json", extras={
         "device": str(device),
-        "data_range": data_range,
+        "datasets": datasets,
         "from_checkpoint": from_checkpoint,
         "resume": resume,
         "checkpoint_version": cfg.checkpoint_version,
@@ -857,18 +751,14 @@ def main():
         vram_budget = max(0, free_vram - headroom)
         n_val = len(val_dataset)
         ps = cfg.patch_size
-        bpp = 2 if cfg.amp else 4
-        est_bytes = n_val * ps * ps * (1 + 3) * bpp  # 1ch input + 3ch target
+        est_bytes = n_val * ps * ps * (1 + 3) * 4  # 1ch mosaic + 3ch target, float32
         if est_bytes < vram_budget:
-            store_dtype = torch.bfloat16 if cfg.amp else torch.float32
-            dash.log(f"Pre-loading validation batches to GPU ({store_dtype})...")
+            dash.log("Pre-loading validation batches to GPU...")
             val_batches = []
-            for batch in val_loader:
-                inputs, targets, wb = batch
+            for mosaic, targets in val_loader:
                 val_batches.append((
-                    inputs.to(device=device, dtype=store_dtype, non_blocking=True),
-                    targets.to(device=device, dtype=store_dtype, non_blocking=True),
-                    wb.to(device=device, dtype=store_dtype, non_blocking=True),
+                    mosaic.to(device=device, non_blocking=True),
+                    targets.to(device=device, non_blocking=True),
                 ))
             val_vram_mb = sum(
                 t.nbytes for b in val_batches for t in b
@@ -891,12 +781,7 @@ def main():
     dash.log(f"  CFA: {cfg.cfa_type}")
     dash.log(f"  Batch: {cfg.batch_size}, Patch: {cfg.patch_size}px")
     dash.log(f"  Noise: read=[{cfg.noise_min}, {cfg.noise_max}], shot=[0, {cfg.shot_noise_max}]")
-    if wb_aug > 0:
-        dash.log(f"  WB augmentation: ±{(math.exp(wb_aug)-1)*100:.0f}% (log range {wb_aug:.2f})")
-    if cfg.bright_spot_prob > 0:
-        dash.log(f"  Bright spot augmentation: {cfg.bright_spot_prob*100:.0f}% prob, "
-                 f"intensity 1.5-{cfg.bright_spot_intensity_max:.1f}x, "
-                 f"sigma 2-{cfg.bright_spot_sigma_max:.0f}px")
+    dash.log(f"  Gain jitter: ±{cfg.gain_jitter_stops:g} stops")
     if cfg.downscale_prob > 0:
         dash.log(f"  Downscale augmentation: {cfg.downscale_prob*100:.0f}% prob (2x area-average)")
     if use_cache:
@@ -933,7 +818,7 @@ def main():
             start_epoch=start_epoch,
             history=history_epochs,
             best=(
-                (cfg.best_metric, float(best_val_metric), start_epoch)
+                ("psnr", float(best_val_metric), start_epoch)
                 if best_val_metric else None
             ),
         )
@@ -956,7 +841,7 @@ def main():
             t0 = time.time()
 
             train_loss, train_psnr, train_comp = train_epoch(
-                model, train_loader, optimizer, criterion, device, use_amp=cfg.amp
+                model, train_loader, optimizer, criterion, device, masks, use_amp=cfg.amp
             )
             t_train = time.time() - t0
 
@@ -966,7 +851,7 @@ def main():
 
             t1 = time.time()
             val_loss, val_psnr, val_comp = evaluate(
-                model, val_loader, criterion, device, use_amp=cfg.amp,
+                model, val_loader, criterion, device, masks, use_amp=cfg.amp,
                 gpu_batches=val_batches,
             )
             t_val = time.time() - t1
@@ -1018,13 +903,8 @@ def main():
             }
             history.append(entry)
 
-            # Save best (metric-aware: PSNR for base, MS-SSIM for finetune)
-            if cfg.best_metric == "msssim":
-                current_metric = val_comp.get("msssim", 0.0)
-                if isinstance(current_metric, torch.Tensor):
-                    current_metric = current_metric.item()
-            else:
-                current_metric = val_psnr
+            # Save best: validation PSNR on encoded values
+            current_metric = val_psnr
             if current_metric > best_val_metric:
                 best_val_metric = current_metric
                 ckpt_data = {
@@ -1033,7 +913,8 @@ def main():
                     "optimizer": optimizer.state_dict(),
                     "scheduler": scheduler.state_dict(),
                     "best_val_metric": best_val_metric,
-                    "best_metric_name": cfg.best_metric,
+                    "best_metric_name": "psnr",
+                    "stages": cfg.stages,
                     "best_val_psnr": val_psnr,  # always store PSNR for reference
                     "base_width": cfg.base_width,
                     "cfa_type": cfg.cfa_type,
@@ -1053,7 +934,7 @@ def main():
                     history=history_rel,
                 )
                 dash.event("new_best", {
-                    "metric": cfg.best_metric,
+                    "metric": "psnr",
                     "value": float(best_val_metric),
                     "epoch": epoch + 1,
                     "checkpoint": str(output_dir / "best.pt"),
@@ -1068,7 +949,8 @@ def main():
                     "optimizer": optimizer.state_dict(),
                     "scheduler": scheduler.state_dict(),
                     "best_val_metric": best_val_metric,
-                    "best_metric_name": cfg.best_metric,
+                    "best_metric_name": "psnr",
+                    "stages": cfg.stages,
                     "best_val_psnr": val_psnr,
                     "base_width": cfg.base_width,
                     "cfa_type": cfg.cfa_type,
@@ -1135,7 +1017,7 @@ def main():
         "epochs_completed": n_epochs,
         "elapsed_seconds": total_elapsed,
         "best": {
-            "metric": cfg.best_metric,
+            "metric": "psnr",
             "value": float(best_val_metric) if best_val_metric else None,
         },
         "interrupted": interrupted,
@@ -1168,8 +1050,7 @@ def main():
     print(f"  Avg epoch:     {avg_epoch:.1f}s")
     print(f"  Sensor:        {cfg.cfa_type}")
     print(f"  Model width:   {cfg.base_width}")
-    print(f"  Best {metric_label + ':':10s} {best_val_metric:.4f}" +
-          (f" dB" if cfg.best_metric == "psnr" else ""))
+    print(f"  Best {metric_label + ':':10s} {best_val_metric:.4f} dB")
     print(f"  Data:          {data_dirs}")
     print(f"  Output:        {cfg.output_dir}")
     print("=" * 60)
