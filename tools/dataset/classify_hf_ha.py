@@ -3,7 +3,7 @@
 Classify raw images by high-frequency high-amplitude content.
 
 Pipeline per image:
-1. rawpy DHT demosaic, camera WB, linear (no gamma), no color matrix
+1. LibRaw demosaic (Markesteijn three-pass for X-Trans, AHD for Bayer), camera WB, linear (no gamma), no color matrix
 2. Black-subtract, normalize by (white - black)
 3. Compute luminance = 0.2126*R + 0.7152*G + 0.0722*B (linear)
 4. Sobel gradient magnitude on luminance
@@ -63,7 +63,7 @@ def process_raw(args):
         ])
         max_val = float(np.max((channel_maxes - black) / scale * wb))
 
-        # Pick demosaic algo: DHT for X-Trans (6x6), AHD for Bayer (2x2)
+        # LibRaw runs Markesteijn three-pass for every X-Trans (6x6) file whatever is requested; AHD for Bayer (2x2)
         is_xtrans = raw.raw_pattern.shape[0] == 6
         demosaic = rawpy.DemosaicAlgorithm.DHT if is_xtrans else rawpy.DemosaicAlgorithm.AHD
 
