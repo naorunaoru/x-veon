@@ -10,26 +10,28 @@
     "test": "vitest run --exclude src/worker/watch.test.ts && vitest run src/worker/watch.test.ts --no-file-parallelism",
     "typecheck": "tsc --noEmit -p .",
     "build:native": "napi build --manifest-path crates/native/Cargo.toml --config-path crates/native/napi.json --platform --release --output-dir native --no-js",
-    "test:native": "vitest run --config vitest.native.config.ts"
+    "test:native": "vitest run --config vitest.native.config.ts",
+    "test:smoke": "playwright test --config playwright.config.ts"
   },
   "dependencies": {
     "@xmldom/xmldom": "0.9.12"
   },
   "devDependencies": {
     "@electron/asar": "4.3.1",
+    "@napi-rs/cli": "3.10.7",
+    "@playwright/test": "1.63.0",
     "@types/node": "^25.2.3",
     "@vitejs/plugin-react": "^4.7.0",
     "@webgpu/types": "^0.1.69",
+    "@xveon/shared": "*",
     "electron": "44.4.5",
     "electron-builder": "26.15.3",
     "electron-vite": "5.0.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
     "typescript": "^5.9.3",
     "vite": "^6.0.0",
     "vite-plugin-wasm": "^3.4.1",
-    "vitest": "3.2.6",
-    "@xveon/shared": "*",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
-    "@napi-rs/cli": "3.10.7"
+    "vitest": "3.2.6"
   }
 }

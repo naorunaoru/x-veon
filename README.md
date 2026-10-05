@@ -110,6 +110,15 @@ npm run start --workspace desktop
 
 Build a local installer with `npm run dist --workspace desktop -- --mac` on macOS or `npm run dist --workspace desktop -- --win` on Windows. The `dist` command builds the native addon before bundling the app; Windows requires NASM on `PATH`. The macOS build produces an arm64 DMG; the Windows build produces an x64 NSIS installer. Run `node desktop/scripts/check-dist.mjs` after the macOS build to check archive contents, the size budget, and the unpacked native addon. These local builds are unsigned for distribution. On macOS, if the first launch is blocked, use System Settings → Privacy & Security → **Open Anyway**. On Windows, if SmartScreen appears, select **More info** → **Run anyway**.
 
+Run the packaged-app smoke test after building with `npm run dist --workspace desktop -- --mac --dir`:
+
+```bash
+XV_SMOKE_APP="$PWD/desktop/dist/mac-arm64/X-veon Beta.app/Contents/MacOS/X-veon Beta" \
+XV_SMOKE_SAMPLES="$PWD/shared/public/samples" npm run test:smoke --workspace desktop
+```
+
+`XV_SMOKE_APP` is the packaged executable (on Windows, `desktop/dist/win-unpacked/X-veon Beta.exe`). `XV_SMOKE_SAMPLES` contains `DSCF3332.RAF` and `sony_a6400_21.arw`; the test edits temporary copies. No browser download is needed. Set `XV_SMOKE_REPORT` to choose the JSON report path; failed runs retain a trace in `desktop/test-results/`.
+
 Desktop edits are saved beside each RAW in a `.xmp` sidecar. Other apps may drop the `xveon:` properties when they rewrite that sidecar, so keep a copy if you edit the same photo in another app.
 
 ## License

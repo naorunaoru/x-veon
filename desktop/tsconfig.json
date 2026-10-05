@@ -5,5 +5,5 @@
     "baseUrl": ".",
     "paths": { "@/*": ["../shared/src/*"] }
   },
-  "include": ["src", "electron.vite.config.ts", "../shared/src/vite-env.d.ts"]
+  "include": ["e2e", "playwright.config.ts", "src", "electron.vite.config.ts", "../shared/src/vite-env.d.ts"]
 }
