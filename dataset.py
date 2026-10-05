@@ -8,9 +8,8 @@ Supports:
 - Direct JPEG loading with sRGB→linear conversion
 """
 
-import colorsys
+import collections
 import json
-import math
 import os
 import random
 
@@ -21,19 +20,6 @@ from torch.utils.data import Dataset, Sampler
 
 from cfa import make_cfa_mask, CFA_REGISTRY, cfa_period, patch_alignment
 from losses import _gaussian_kernel_2d
-
-
-# Bright spot color palette: (h_center, h_range, s_min, s_max, weight)
-_SPOT_PALETTE = [
-    (0.08, 0.04, 0.10, 0.25, 2),  # warm white (tungsten/sodium)
-    (0.55, 0.05, 0.08, 0.20, 2),  # cool white (LED/fluorescent)
-    (0.00, 0.03, 0.85, 1.00, 1),  # red (brake lights)
-    (0.11, 0.02, 0.80, 1.00, 1),  # amber (turn signals, sodium vapor)
-    (0.63, 0.04, 0.75, 1.00, 1),  # blue (LEDs, neon)
-    (0.50, 0.03, 0.75, 1.00, 1),  # cyan/green (neon)
-    (0.85, 0.05, 0.75, 1.00, 1),  # magenta (neon pink)
-]
-_SPOT_WEIGHTS = [e[4] for e in _SPOT_PALETTE]
 
 
 def mosaic(rgb: torch.Tensor, cfa: torch.Tensor) -> torch.Tensor:
@@ -64,16 +50,11 @@ class LinearDataset(Dataset):
         patches_per_image: int = 16,
         max_images: int | None = None,
         filter_file: str | None = None,
-        apply_wb: bool = False,
-        wb_aug_range: float = 0.0,
         files: list[str] | None = None,
         cfa_type: str = "xtrans",
         olpf_sigma: tuple[float, float] = (0.0, 0.0),
-        bright_spot_prob: float = 0.0,
-        bright_spot_intensity: tuple[float, float] = (1.5, 5.0),
-        bright_spot_sigma: tuple[float, float] = (2.0, 20.0),
-        bright_spot_count: tuple[int, int] = (1, 5),
         downscale_prob: float = 0.0,
+        group_images: int = 32,
     ):
         self.patch_size = patch_size
         self.augment = augment
@@ -81,13 +62,8 @@ class LinearDataset(Dataset):
         self.shot_noise = shot_noise
         self.olpf_sigma = olpf_sigma
         self.patches_per_image = patches_per_image
-        self.apply_wb = apply_wb
-        self.wb_aug_range = wb_aug_range
-        self.bright_spot_prob = bright_spot_prob
-        self.bright_spot_intensity = bright_spot_intensity
-        self.bright_spot_sigma = bright_spot_sigma
-        self.bright_spot_count = bright_spot_count
         self.downscale_prob = downscale_prob
+        self.group_images = group_images
         self.data_dir = data_dir
 
         self.pattern = CFA_REGISTRY[cfa_type]
@@ -124,24 +100,6 @@ class LinearDataset(Dataset):
         if not self.data_files:
             raise ValueError(f"No .npy files found")
 
-        # Load per-image WB multipliers from metadata (always needed for WB mask)
-        self.wb_multipliers = []
-        n_missing = 0
-        for npy_path in self.data_files:
-            stem = os.path.splitext(npy_path)[0]
-            meta_path = stem + "_meta.json"
-            try:
-                with open(meta_path) as f:
-                    meta = json.load(f)
-                wb = np.array(meta["camera_wb"][:3], dtype=np.float32)
-                wb = wb / wb[1]  # Normalize to G=1
-                self.wb_multipliers.append(wb)
-            except (FileNotFoundError, json.JSONDecodeError, KeyError):
-                self.wb_multipliers.append(np.array([1.0, 1.0, 1.0], dtype=np.float32))
-                n_missing += 1
-        if n_missing:
-            print(f"  WB: {n_missing}/{len(self.data_files)} images missing metadata, using identity WB")
-
         self.cfa = make_cfa_mask(patch_size, patch_size, self.pattern)
 
     @staticmethod
@@ -169,67 +127,24 @@ class LinearDataset(Dataset):
     def __len__(self):
         return len(self.data_files) * self.patches_per_image
 
-    def _add_bright_spots(
-        self,
-        rgb: torch.Tensor,
-        wb: torch.Tensor,
-        rng: random.Random,
-    ) -> torch.Tensor:
-        """Add synthetic bright spots simulating point light sources."""
-        _, H, W = rgb.shape
-        n_spots = rng.randint(*self.bright_spot_count)
-
-        ys = torch.arange(H, dtype=torch.float32)
-        xs = torch.arange(W, dtype=torch.float32)
-        yy, xx = torch.meshgrid(ys, xs, indexing='ij')
-
-        result = rgb
-        for _ in range(n_spots):
-            # Position (allow slightly off-patch for edge feathering)
-            cx = rng.uniform(-0.1 * W, 1.1 * W)
-            cy = rng.uniform(-0.1 * H, 1.1 * H)
-
-            # Anisotropic gaussian: independent sigma per axis + rotation
-            su = rng.uniform(*self.bright_spot_sigma)
-            sv = rng.uniform(*self.bright_spot_sigma)
-            theta = rng.uniform(0, math.pi)
-            cos_t, sin_t = math.cos(theta), math.sin(theta)
-
-            dx = (xx - cx) * cos_t + (yy - cy) * sin_t
-            dy = -(xx - cx) * sin_t + (yy - cy) * cos_t
-            blob = torch.exp(-0.5 * ((dx / su) ** 2 + (dy / sv) ** 2))
-
-            # Sample color from palette
-            entry = rng.choices(_SPOT_PALETTE, weights=_SPOT_WEIGHTS, k=1)[0]
-            h_c, h_r, s_lo, s_hi, _ = entry
-            h = (h_c + rng.uniform(-h_r, h_r)) % 1.0
-            s = rng.uniform(s_lo, s_hi)
-            r, g, b = colorsys.hsv_to_rgb(h, s, 1.0)
-            color = torch.tensor([r ** 2.2, g ** 2.2, b ** 2.2])
-
-            # Normalize so peak channel = 1, scale to clip_level * intensity.
-            # Use wb only (not clip_scale) so highlight aug EV boost doesn't
-            # shrink bright spots — they represent real light sources.
-            color = color / (color.max() + 1e-8)
-            intensity = rng.uniform(*self.bright_spot_intensity)
-            amplitude = color * wb * intensity
-
-            result = result + amplitude.view(3, 1, 1) * blob.unsqueeze(0)
-
-        return result
-
     def _load_image(self, img_idx: int) -> np.ndarray:
-        """Load image with per-worker cache (size 1) to avoid redundant file opens.
+        """Open an image as a memory map, keeping the maps of the last `group_images` images.
 
-        Keeps the mmap object cached rather than copying the full image.
-        The grouped sampler ensures only one image is active per worker,
-        so at most one mmap fd is held open at a time.
+        The grouped sampler draws from `group_images` images at a time, so a worker
+        revisits the same few files until the group is used up.
         """
-        if getattr(self, '_cached_idx', -1) == img_idx:
-            return self._cached_img
-        self._cached_img = np.load(self.data_files[img_idx], mmap_mode='r')
-        self._cached_idx = img_idx
-        return self._cached_img
+        cache = getattr(self, '_open_images', None)
+        if cache is None:
+            cache = self._open_images = collections.OrderedDict()
+        img = cache.get(img_idx)
+        if img is None:
+            img = np.load(self.data_files[img_idx], mmap_mode='r')
+            cache[img_idx] = img
+            while len(cache) > self.group_images:
+                cache.popitem(last=False)
+        else:
+            cache.move_to_end(img_idx)
+        return img
 
     def _get_rng(self, idx: int) -> random.Random:
         """Return a per-call RNG, reusing a single instance per worker."""
@@ -241,33 +156,15 @@ class LinearDataset(Dataset):
             rng.seed(idx)
         return rng
 
-    def _process_patch(self, rgb, img_idx, rng):
-        """Apply WB, augmentation, mosaicing, noise to an RGB patch.
+    def _process_patch(self, rgb, rng):
+        """Augment, mosaic and add noise to an RGB patch.
 
         Args:
-            rgb: (3, H, W) float32 tensor — raw linear patch
-            img_idx: index into self.data_files / self.wb_multipliers
+            rgb: (3, H, W) float32 tensor, raw linear, 1.0 = the sensor's clip level
             rng: random.Random instance for this sample
         Returns:
-            (input_tensor, ref, wb) — CFA mosaic, reference RGB, WB coefficients
+            (mosaic, target): (1, H, W) and (3, H, W). Neither exceeds 1.0.
         """
-        wb = torch.from_numpy(self.wb_multipliers[img_idx]).float()
-
-        # Apply white balance before mosaicing (model learns WB'd data)
-        if self.apply_wb:
-            # WB shift augmentation: perturb R and B gains in log space
-            if self.augment and self.wb_aug_range > 0:
-                r_shift = math.exp(rng.uniform(-self.wb_aug_range, self.wb_aug_range))
-                b_shift = math.exp(rng.uniform(-self.wb_aug_range, self.wb_aug_range))
-                wb = wb * torch.tensor([r_shift, 1.0, b_shift])
-            rgb = rgb * wb.view(3, 1, 1)
-
-        # Bright spot augmentation: add synthetic point light sources
-        do_bright_spots = (self.bright_spot_prob > 0
-                           and rng.random() < self.bright_spot_prob)
-        if do_bright_spots:
-            rgb = self._add_bright_spots(rgb, wb, rng)
-
         # Geometric augmentation: flips + 90° rotations (applied before
         # mosaicing, so CFA is applied fresh to the transformed image)
         if self.augment:
@@ -279,10 +176,10 @@ class LinearDataset(Dataset):
             if k > 0:
                 rgb = torch.rot90(rgb, k, [1, 2])
 
-        # OLPF simulation: blur RGB before mosaicing (optical domain)
-        # Clip ref at per-channel ceiling: model shouldn't be penalized for
-        # not recovering values above sensor saturation (unrecoverable).
-        ref = rgb
+        # Nothing above saturation reaches training.
+        ref = rgb.clamp(max=1.0)
+
+        # OLPF simulation: blur RGB before mosaicing (optical domain); the target stays unblurred
         if self.augment and self.olpf_sigma[1] > 0:
             sigma = rng.uniform(*self.olpf_sigma)
             if sigma > 0:
@@ -293,11 +190,6 @@ class LinearDataset(Dataset):
 
         cfa_img = mosaic(rgb, self.cfa)
 
-        # Clamp bright spots at per-channel white level
-        if do_bright_spots:
-            clip_levels = wb[self.cfa.long()].unsqueeze(0)  # (1, H, W)
-            cfa_img = cfa_img.clamp(max=clip_levels)
-
         # Poisson-Gaussian noise: noise_std(x) = sqrt(shot * x + read^2)
         read_sigma = rng.uniform(*self.noise_sigma)
         shot_coeff = rng.uniform(*self.shot_noise)
@@ -305,7 +197,10 @@ class LinearDataset(Dataset):
             noise_var = shot_coeff * cfa_img.clamp(min=0) + read_sigma ** 2
             cfa_img = cfa_img + torch.randn_like(cfa_img) * noise_var.sqrt()
 
-        return cfa_img, ref, wb  # (1, H, W), (3, H, W), (3,)
+        # A photosite saturates after the noise: clipped areas are flat, as on a sensor.
+        cfa_img = cfa_img.clamp(max=1.0)
+
+        return cfa_img, ref  # (1, H, W), (3, H, W)
 
     def __getitem__(self, idx):
         img_idx = idx // self.patches_per_image
@@ -313,6 +208,9 @@ class LinearDataset(Dataset):
 
         img = self._load_image(img_idx)
         h, w, _ = img.shape
+        if h < self.patch_size or w < self.patch_size:
+            raise ValueError(
+                f"{self.data_files[img_idx]} is {w}x{h}, smaller than the {self.patch_size} px patch")
 
         # Decide whether to cut a 2x patch and area-average down
         do_downscale = (self.augment and self.downscale_prob > 0
@@ -324,10 +222,10 @@ class LinearDataset(Dataset):
             crop_size = self.patch_size
             do_downscale = False
 
-        # Random crop aligned to CFA grid
+        # Random crop at any offset: the target has no CFA phase, the mosaic is applied afterwards
         max_y, max_x = h - crop_size, w - crop_size
-        top = (rng.randint(0, max(0, max_y)) // self.period) * self.period
-        left = (rng.randint(0, max(0, max_x)) // self.period) * self.period
+        top = rng.randint(0, max(0, max_y))
+        left = rng.randint(0, max(0, max_x))
         patch = img[top:top+crop_size, left:left+crop_size]
 
         # Read contiguously from mmap (sequential I/O), uint16→float32, HWC→CHW
@@ -337,7 +235,7 @@ class LinearDataset(Dataset):
         if do_downscale:
             rgb = rgb.view(3, crop_size // 2, 2, crop_size // 2, 2).mean(dim=(2, 4))
 
-        return self._process_patch(rgb, img_idx, rng)
+        return self._process_patch(rgb, rng)
 
 
 class PatchCacheDataset(LinearDataset):
@@ -412,41 +310,45 @@ class PatchCacheDataset(LinearDataset):
         self._stream_stop = threading.Event()
 
     def _fill_buffer(self, seed: int = 0):
-        """Initial fill: extract patches from all images into the buffer."""
+        """Initial fill: extract patches into exactly the n_slots active slots.
+
+        Slots are spread evenly over the images (contiguous per image, for I/O locality),
+        so every slot is filled whether the cache is smaller or larger than the dataset.
+        """
         from concurrent.futures import ThreadPoolExecutor
 
         n_images = len(self.data_files)
-        ppi = self.patches_per_image
+        n_slots = self._n_slots
         es = self._extract_size
         ps = self.patch_size
-        period = self.period
+        if n_images == 0 or n_slots == 0:
+            return
 
-        n_slots = self._n_slots
+        counts = [n_slots // n_images + (1 if i < n_slots % n_images else 0) for i in range(n_images)]
+        starts = [0] * n_images
+        for i in range(1, n_images):
+            starts[i] = starts[i - 1] + counts[i - 1]
+
         rng = random.Random(seed)
         crops = []
         for img_i in range(n_images):
             img = np.load(self.data_files[img_i], mmap_mode='r')
             h, w, _ = img.shape
+            if h < ps or w < ps:
+                raise ValueError(f"{self.data_files[img_i]} is {w}x{h}, smaller than the {ps} px patch")
             crop_size = es if (es <= h and es <= w) else ps
             max_y = max(0, h - crop_size)
             max_x = max(0, w - crop_size)
-            for _ in range(ppi):
-                top = (rng.randint(0, max_y) // period) * period
-                left = (rng.randint(0, max_x) // period) * period
-                crops.append((img_i, top, left, crop_size))
-
-        # When cache_gb caps the buffer, only fill the available slots
-        n_fill = min(n_images * ppi, n_slots)
-        # Determine which images have at least one slot in range
-        fill_images = set(crops[i][0] for i in range(n_fill))
+            for _ in range(counts[img_i]):
+                crops.append((img_i, rng.randint(0, max_y), rng.randint(0, max_x), crop_size))
+        assert len(crops) == n_slots
 
         def _extract_image(img_i):
+            if counts[img_i] == 0:
+                return
             img = np.load(self.data_files[img_i], mmap_mode='r')
-            base = img_i * ppi
-            for j in range(ppi):
-                slot = base + j
-                if slot >= n_fill:
-                    break
+            for j in range(counts[img_i]):
+                slot = starts[img_i] + j
                 _, top, left, crop_size = crops[slot]
                 patch = img[top:top + crop_size, left:left + crop_size]
                 norm_patch = np.asarray(patch, dtype=np.float32) / 65535.0
@@ -458,7 +360,7 @@ class PatchCacheDataset(LinearDataset):
                 self._patch_img_idx[slot] = img_i
 
         with ThreadPoolExecutor(max_workers=8) as pool:
-            list(pool.map(_extract_image, sorted(fill_images)))
+            list(pool.map(_extract_image, range(n_images)))
 
     def _stream_worker(self):
         """Worker thread: load patches into staging slots."""
@@ -467,7 +369,6 @@ class PatchCacheDataset(LinearDataset):
         n_images = len(self.data_files)
         es = self._extract_size
         ps = self.patch_size
-        period = self.period
         ppi = self.patches_per_image
         n_slots = self._n_slots
         rng = random.Random()
@@ -501,8 +402,8 @@ class PatchCacheDataset(LinearDataset):
                 max_y = max(0, img_h - crop_size)
                 max_x = max(0, img_w - crop_size)
 
-            top = (rng.randint(0, max_y) // period) * period
-            left = (rng.randint(0, max_x) // period) * period
+            top = rng.randint(0, max_y)
+            left = rng.randint(0, max_x)
 
             patch = img[top:top + crop_size, left:left + crop_size]
             norm_patch = np.asarray(patch, dtype=np.float32) / 65535.0
@@ -591,7 +492,6 @@ class PatchCacheDataset(LinearDataset):
         ps = self.patch_size
 
         physical = int(self._slot_map[idx])
-        img_idx = int(self._patch_img_idx[physical])
 
         # Single-copy HWC→CHW: transpose view + ascontiguousarray does the
         # layout conversion in one memcpy.  Safe without defensive copy because
@@ -604,42 +504,44 @@ class PatchCacheDataset(LinearDataset):
                 rgb = rgb.view(3, ps, 2, ps, 2).mean(dim=(2, 4))
             else:
                 max_off = es - ps
-                top = (rng.randint(0, max_off) // self.period) * self.period
-                left = (rng.randint(0, max_off) // self.period) * self.period
+                top = rng.randint(0, max_off)
+                left = rng.randint(0, max_off)
                 rgb = torch.from_numpy(np.ascontiguousarray(
                     self._patch_data[physical, top:top+ps, left:left+ps].transpose(2, 0, 1)))
         else:
             rgb = torch.from_numpy(np.ascontiguousarray(
                 self._patch_data[physical].transpose(2, 0, 1)))
 
-        return self._process_patch(rgb, img_idx, rng)
+        return self._process_patch(rgb, rng)
 
 
 class ImageGroupedSampler(Sampler):
-    """Yields indices grouped by source image for cache-friendly data loading.
+    """Yields patch indices drawn from `group_images` images at a time.
 
-    Instead of fully shuffling all patch indices (which scatters patches from
-    the same image across workers), this shuffles at the image level and emits
-    all patches for each image consecutively.  Combined with a per-worker
-    image cache, this reduces file opens from N*patches_per_image to N.
+    The image order is shuffled each epoch and cut into groups; each group's patch
+    indices are yielded in shuffled order. A batch therefore mixes up to `group_images`
+    photos, while a worker only has that many files open (see LinearDataset._load_image).
     """
 
-    def __init__(self, num_images: int, patches_per_image: int, shuffle: bool = True):
+    def __init__(self, num_images: int, patches_per_image: int, shuffle: bool = True,
+                 group_images: int = 32):
         self.num_images = num_images
         self.patches_per_image = patches_per_image
         self.shuffle = shuffle
+        self.group_images = max(1, group_images)
         self.epoch = 0
 
     def __iter__(self):
         image_order = list(range(self.num_images))
+        g = random.Random(self.epoch)
         if self.shuffle:
-            g = random.Random(self.epoch)
             g.shuffle(image_order)
-        for img_idx in image_order:
-            base = img_idx * self.patches_per_image
-            patches = list(range(base, base + self.patches_per_image))
+        for start in range(0, self.num_images, self.group_images):
+            patches = [img_idx * self.patches_per_image + j
+                       for img_idx in image_order[start:start + self.group_images]
+                       for j in range(self.patches_per_image)]
             if self.shuffle:
-                random.shuffle(patches)
+                g.shuffle(patches)
             yield from patches
 
     def __len__(self):
