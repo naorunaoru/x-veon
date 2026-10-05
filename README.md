@@ -108,7 +108,7 @@ npm run build --workspace desktop
 npm run start --workspace desktop
 ```
 
-Build a local installer with `npm run dist --workspace desktop -- --mac` on macOS or `npm run dist --workspace desktop -- --win` on Windows. The macOS build produces an arm64 DMG; the Windows build produces an x64 NSIS installer. These local builds are unsigned for distribution. On macOS, if the first launch is blocked, use System Settings → Privacy & Security → **Open Anyway**. On Windows, if SmartScreen appears, select **More info** → **Run anyway**.
+Build a local installer with `npm run dist --workspace desktop -- --mac` on macOS or `npm run dist --workspace desktop -- --win` on Windows. The `dist` command builds the native addon before bundling the app; Windows requires NASM on `PATH`. The macOS build produces an arm64 DMG; the Windows build produces an x64 NSIS installer. Run `node desktop/scripts/check-dist.mjs` after the macOS build to check archive contents, the size budget, and the unpacked native addon. These local builds are unsigned for distribution. On macOS, if the first launch is blocked, use System Settings → Privacy & Security → **Open Anyway**. On Windows, if SmartScreen appears, select **More info** → **Run anyway**.
 
 Desktop edits are saved beside each RAW in a `.xmp` sidecar. Other apps may drop the `xveon:` properties when they rewrite that sidecar, so keep a copy if you edit the same photo in another app.
 

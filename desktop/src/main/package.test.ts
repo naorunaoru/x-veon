@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { createPackage } from '@electron/asar';
+import { createPackageWithOptions } from '@electron/asar';
 import { expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -12,12 +12,12 @@ it('checks forbidden paths everywhere, all three JS bundles, and the archive bud
  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'xveon-package-'));
  try {
    const source = path.join(dir, 'source'), archive = path.join(dir, 'app.asar');
-   const files = ['out/renderer/index.html', 'out/renderer/checkpoints/models.json', 'out/renderer/lensfun/index.json', 'out/main/index.js', 'out/preload/index.js', 'out/renderer/assets/index.js'];
+   const files = [nativeAddonPath(), 'out/renderer/index.html', 'out/renderer/checkpoints/models.json', 'out/renderer/lensfun/index.json', 'out/main/index.js', 'out/preload/index.js', 'out/renderer/assets/index.js'];
    for (const file of files) { await fs.mkdir(path.dirname(path.join(source, file)), { recursive: true }); await fs.writeFile(path.join(source, file), '{}'); }
-   await createPackage(source, archive); expect(checkArchive(archive).failures).toEqual([]);
+   await createPackageWithOptions(source, archive, { unpack: '*.node' }); expect(checkArchive(archive).failures).toEqual([]);
    for (const file of ['elsewhere/samples/secret.txt', 'nested/photo.NEF', 'node_modules/@xveon/shared/source.ts', 'other/golden-fixture.json']) { await fs.mkdir(path.dirname(path.join(source, file)), { recursive: true }); await fs.writeFile(path.join(source, file), '{}'); }
    for (const area of ['main', 'preload', 'renderer/assets']) await fs.writeFile(path.join(source, `out/${area}/index.js`), 'createGoldenHost');
-   await createPackage(source, archive); const failures = checkArchive(archive).failures.join('\n');
+   await createPackageWithOptions(source, archive, { unpack: '*.node' }); const failures = checkArchive(archive).failures.join('\n');
    for (const text of ['samples path', 'RAW file', 'workspace package', 'golden path', 'out/main/index.js contains', 'out/preload/index.js contains', 'out/renderer/assets/index.js contains']) expect(failures).toContain(text);
    await fs.truncate(archive, ARCHIVE_BUDGET_BYTES + 1); expect(checkArchive(archive).failures.join('\n')).toContain('over');
  } finally { await fs.rm(dir, { recursive: true, force: true }); }
@@ -28,14 +28,14 @@ it.for(['ordinary', 'symlink'])('runs the actual CLI through a %s path for valid
  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'xveon-package-cli-'));
  try {
    const source = path.join(dir, 'source'), archive = path.join(dir, 'app.asar');
-   for (const file of ['out/renderer/index.html', 'out/renderer/checkpoints/models.json', 'out/renderer/lensfun/index.json', 'out/main/index.js', 'out/preload/index.js', 'out/renderer/index.js']) {
+   for (const file of [nativeAddonPath(), 'out/renderer/index.html', 'out/renderer/checkpoints/models.json', 'out/renderer/lensfun/index.json', 'out/main/index.js', 'out/preload/index.js', 'out/renderer/index.js']) {
      await fs.mkdir(path.dirname(path.join(source, file)), { recursive: true }); await fs.writeFile(path.join(source, file), '{}');
    }
    const script = fileURLToPath(new URL('../../scripts/check-dist.mjs', import.meta.url)), link = path.join(dir, 'check-dist.mjs');
    if (route === 'symlink') await fs.symlink(script, link, 'file');
    for (const invalid of [false, true]) {
      if (invalid) await fs.writeFile(path.join(source, 'secret.RAF'), 'raw');
-     await createPackage(source, archive);
+     await createPackageWithOptions(source, archive, { unpack: '*.node' });
      {
        const entry = route === 'symlink' ? link : script;
        const result = spawnSync(process.execPath, [entry, archive], { encoding: 'utf8' });
@@ -73,11 +73,32 @@ it('rejects golden mode flags in normal bundles', async () => {
  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'xveon-golden-mode-'));
  try {
   const source = path.join(dir, 'source'), archive = path.join(dir, 'app.asar');
-  for (const file of ['out/main/index.js', 'out/preload/index.js', 'out/renderer/index.js', 'out/renderer/index.html', 'out/renderer/checkpoints/models.json', 'out/renderer/lensfun/index.json']) {
+  for (const file of [nativeAddonPath(), 'out/main/index.js', 'out/preload/index.js', 'out/renderer/index.js', 'out/renderer/index.html', 'out/renderer/checkpoints/models.json', 'out/renderer/lensfun/index.json']) {
    await fs.mkdir(path.dirname(path.join(source, file)), { recursive: true }); await fs.writeFile(path.join(source, file), '{}');
   }
   await fs.writeFile(path.join(source, 'out/main/index.js'), 'process.argv.find(arg => arg.startsWith("--golden-mode="))');
-  await createPackage(source, archive);
+  await createPackageWithOptions(source, archive, { unpack: '*.node' });
   expect(checkArchive(archive).failures).toContain('out/main/index.js contains --golden-mode');
+ } finally { await fs.rm(dir, { recursive: true, force: true }); }
+});
+
+function nativeAddonPath() {
+ return `native/xveon-native.${process.platform === 'darwin' && process.arch === 'arm64' ? 'darwin-arm64' : 'win32-x64-msvc'}.node`;
+}
+
+it.each(['unpacked', 'missing', 'packed', 'extra', 'wrong-platform', 'missing-physical'])('checks native addon integrity: %s', async scenario => {
+ const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'xveon-native-package-'));
+ const addon = 'xveon-native.darwin-arm64.node';
+ try {
+  const source = path.join(dir, 'source'), archive = path.join(dir, 'app.asar');
+  const files = ['out/main/index.js', 'out/preload/index.js', 'out/renderer/index.js', 'out/renderer/index.html', 'out/renderer/checkpoints/models.json', 'out/renderer/lensfun/index.json'];
+  if (scenario !== 'missing') files.push(`native/${scenario === 'wrong-platform' ? 'xveon-native.win32-x64-msvc.node' : addon}`);
+  if (scenario === 'extra') files.push('node_modules/x/y.node');
+  for (const file of files) { await fs.mkdir(path.dirname(path.join(source, file)), { recursive: true }); await fs.writeFile(path.join(source, file), '{}'); }
+  await createPackageWithOptions(source, archive, scenario === 'packed' ? {} : { unpack: '*.node' });
+  if (scenario === 'missing-physical') await fs.rm(`${archive}.unpacked/native/${addon}`);
+  const failures = checkArchive(archive, { addon }).failures;
+  if (scenario === 'unpacked') expect(failures).toEqual([]);
+  else expect(failures.join('\n')).toContain({ missing: 'missing native addon', packed: 'native addon is not unpacked', extra: 'unexpected native module', 'wrong-platform': 'missing native addon', 'missing-physical': 'missing unpacked native addon' }[scenario]);
  } finally { await fs.rm(dir, { recursive: true, force: true }); }
 });

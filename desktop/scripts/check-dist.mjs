@@ -1,19 +1,29 @@
-import { listPackage, extractFile, uncache } from '@electron/asar';
-import { realpathSync, statSync } from 'node:fs';
+import { listPackage, extractFile, statFile, uncache } from '@electron/asar';
+import { existsSync, realpathSync, statSync } from 'node:fs';
 import { normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // Bundled output is about 47 MB. 80 MiB leaves room for model/runtime growth,
 // while rejecting accidentally shipped workspace sources and redundant runtimes.
 export const ARCHIVE_BUDGET_BYTES = 80 * 1024 ** 2;
-export function checkArchive(archive) {
+function platformAddon() {
+ if (process.platform === 'darwin' && process.arch === 'arm64') return 'xveon-native.darwin-arm64.node';
+ if (process.platform === 'win32' && process.arch === 'x64') return 'xveon-native.win32-x64-msvc.node';
+ throw new Error(`unsupported native addon platform: ${process.platform}-${process.arch}`);
+}
+export function checkArchive(archive, { addon = platformAddon() } = {}) {
  uncache(archive);
  const entries = listPackage(archive).map(entry => entry.replace(/\\/g, '/').replace(/^\//, ''));
  const required = ['out/renderer/index.html', 'out/renderer/checkpoints/models.json', 'out/renderer/lensfun/index.json'];
  const failures = required.filter(file => !entries.includes(file)).map(file => `missing ${file}`);
+ const nativePath = `native/${addon}`;
+ if (!entries.includes(nativePath)) failures.push(`missing native addon: ${nativePath}`);
+ else if (!statFile(archive, nativePath).unpacked) failures.push(`native addon is not unpacked: ${nativePath}`);
+ if (!existsSync(`${archive}.unpacked/${nativePath}`)) failures.push(`missing unpacked native addon: ${nativePath}`);
  const size = statSync(archive).size;
  if (size > ARCHIVE_BUDGET_BYTES) failures.push(`archive is ${size} bytes, over ${ARCHIVE_BUDGET_BYTES}-byte budget`);
  for (const file of entries) {
+   if (/\.node$/i.test(file) && file !== nativePath) failures.push(`unexpected native module: ${file}`);
    if (/(^|\/)samples(\/|$)/i.test(file)) failures.push(`samples path: ${file}`);
    if (/\.(raf|cr2|cr3|nef|nrw|arw|dng|rw2|orf|pef|srw|erf|kdc|dcr|mef)$/i.test(file)) failures.push(`RAW file: ${file}`);
    if (/(^|\/)node_modules\/@xveon(\/|$)/i.test(file)) failures.push(`workspace package: ${file}`);
@@ -42,5 +52,5 @@ if (isDirectInvocation()) {
  const { size, failures } = checkArchive(archive);
  if (failures.length) {
    console.error(`Package check failed (${archive}):\n${failures.map(message => `- ${message}`).join('\n')}`); process.exitCode = 1;
- } else console.log(`Package check passed (${archive}): ${size} bytes; required data present; samples, RAWs, workspace sources and development code absent`);
+ } else console.log(`Package check passed (${archive}): ${size} bytes; required data and unpacked native addon present; samples, RAWs, workspace sources and development code absent`);
 }

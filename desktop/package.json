@@ -5,7 +5,7 @@
   "main": "out/main/index.js",
   "scripts": {
     "build": "electron-vite build",
-    "dist": "electron-vite build && electron-builder --config electron-builder.config.cjs",
+    "dist": "npm run build:native && electron-vite build && electron-builder --config electron-builder.config.cjs",
     "start": "electron .",
     "test": "vitest run --exclude src/worker/watch.test.ts && vitest run src/worker/watch.test.ts --no-file-parallelism",
     "typecheck": "tsc --noEmit -p .",
