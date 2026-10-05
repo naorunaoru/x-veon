@@ -5,7 +5,7 @@ function harness() {
   const handles = new Map<string, (...args: any[]) => any>(), listeners = new Map<string, (...args: any[]) => any>();
   const events: any[] = [], calls: unknown[] = [], postMessage = vi.fn(); const port = {} as MessagePortMain;
   const event = { senderFrame: { postMessage }, trusted: true } as unknown as IpcMainInvokeEvent;
-  const guard = registerDesktopIpc({ ipc: { handle: (name: string, handler: (...args: any[]) => any) => { handles.set(name, handler); }, on: (name: string, handler: (...args: any[]) => any) => { listeners.set(name, handler); } } as unknown as IpcMain,
+  const guard = registerDesktopIpc({ exports: { choose: async () => null, reveal() {} }, ipc: { handle: (name: string, handler: (...args: any[]) => any) => { handles.set(name, handler); }, on: (name: string, handler: (...args: any[]) => any) => { listeners.set(name, handler); } } as unknown as IpcMain,
     trusted: e => (e as any).trusted === true, folders: { loadLast: async () => ({ token: 'last' }), openFolder: async id => { calls.push(id); return { token: 'open' }; }, openDropped: async paths => { calls.push(paths); return { token: 'drop', selected: [] }; } }, recent: () => [{ id: 'f', name: 'Folder' }], connect: async deliver => { deliver(port); }, send: e => events.push(e), timeoutMs: 20 });
   return { handles, listeners, events, calls, event, guard, postMessage, port };
 }
@@ -35,7 +35,7 @@ it('expires pending flushes to the most recent pushed inventory', async () => {
 it('serializes overlapping port connections and closes a late superseded delivery before connecting the current request', async () => {
   let invoke!: (...args: any[]) => Promise<unknown>;
   const connections: { deliver: (port: MessagePortMain) => void; finish: () => void }[] = [];
-  registerDesktopIpc({ ipc: { handle: (_name: string, handler: typeof invoke) => { invoke = handler; }, on() {} } as unknown as IpcMain,
+  registerDesktopIpc({ exports: { choose: async () => null, reveal() {} }, ipc: { handle: (_name: string, handler: typeof invoke) => { invoke = handler; }, on() {} } as unknown as IpcMain,
     trusted: () => true, folders: { loadLast: async () => null, openFolder: async () => null, openDropped: async () => null }, recent: () => [], send() {},
     connect: deliver => new Promise<void>(finish => { connections.push({ deliver, finish }); }),
   });
@@ -60,7 +60,7 @@ it('continues with the latest queued port request after an older connection reje
   const connect = vi.fn<(deliver: (port: MessagePortMain) => void) => Promise<void>>()
     .mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject; }))
     .mockImplementationOnce(async deliver => { deliver(port); });
-  registerDesktopIpc({ ipc: { handle: (_name: string, handler: typeof invoke) => { invoke = handler; }, on() {} } as unknown as IpcMain,
+  registerDesktopIpc({ exports: { choose: async () => null, reveal() {} }, ipc: { handle: (_name: string, handler: typeof invoke) => { invoke = handler; }, on() {} } as unknown as IpcMain,
     trusted: () => true, folders: { loadLast: async () => null, openFolder: async () => null, openDropped: async () => null }, recent: () => [], send() {}, connect,
   });
   const postMessage = vi.fn(), event = { senderFrame: { postMessage } };
@@ -71,4 +71,17 @@ it('continues with the latest queued port request after an older connection reje
   await rejected; await middle; await latest;
   expect(connect).toHaveBeenCalledTimes(2);
   expect(postMessage.mock.calls).toEqual([['xveon-port', { version: 2, requestId: '00000000-0000-4000-8000-000000000003' }, [port]]]);
+});
+
+it('routes exports only for trusted requests', async () => {
+ let invoke!: (...args: any[]) => Promise<unknown>;
+ const token = '00000000-0000-4000-8000-000000000001', photoId = 'a'.repeat(22);
+ const exports = { choose: vi.fn(async () => ({ token, name: 'a.avif' })), reveal: vi.fn() };
+ registerDesktopIpc({ ipc: { handle: (_name: string, fn: typeof invoke) => { invoke = fn; }, on() {} } as unknown as IpcMain, trusted: e => (e as any).trusted === true,
+ folders: { loadLast: async () => null, openFolder: async () => null, openDropped: async () => null }, recent: () => [], connect: async () => {}, send() {}, exports });
+ await expect(invoke({ trusted: false }, { version: 2, kind: 'chooseExportDestination', photoId, format: 'avif' })).rejects.toThrow(); expect(exports.choose).not.toHaveBeenCalled();
+ await expect(invoke({ trusted: true }, { version: 2, kind: 'chooseExportDestination', photoId, format: 'avif' })).resolves.toEqual({ token, name: 'a.avif' });
+ expect(exports.choose).toHaveBeenCalledWith(photoId, 'avif');
+ await expect(invoke({ trusted: false }, { version: 2, kind: 'revealExport', token })).rejects.toThrow(); expect(exports.reveal).not.toHaveBeenCalled();
+ await invoke({ trusted: true }, { version: 2, kind: 'revealExport', token }); expect(exports.reveal).toHaveBeenCalledWith(token);
 });

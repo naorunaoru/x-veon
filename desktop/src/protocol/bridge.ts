@@ -1,3 +1,4 @@
+import type { ExportFormat } from '@/lib/types';
 import type { FolderRef, PhotoId, UnsavedSummary } from '@/host';
 export type { UnsavedSummary } from '@/host';
 export type BridgeEvent =
@@ -8,6 +9,8 @@ export type BridgeEvent =
   | { kind: 'worker-stopped'; reason: string };
 export interface DesktopBridge {
   version: 2;
+  chooseExportDestination(photoId: PhotoId, format: ExportFormat): Promise<{ token: string; name: string } | null>;
+  revealExport(token: string): Promise<void>;
   loadLast(): Promise<{ token: string } | null>;
   openFolder(folderId?: string): Promise<{ token: string } | null>;
   openDropped(files: File[]): Promise<{ token: string; selected: PhotoId[] } | null>;

@@ -48,7 +48,7 @@ async function accept(token: string, activation: string, f = folder) {
 beforeEach(() => {
   win = new EventTarget(); ports = []; listeners = new Set(); stop = () => {};
   vi.stubGlobal('window', win); vi.stubGlobal('location', { origin: 'app://bundle' }); vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(dynamic-range: high)' }));
-  bridge = { version: 2, loadLast: vi.fn(async () => null), openFolder: vi.fn(async () => null), openDropped: vi.fn(async () => null), recentFolders: vi.fn(async () => [folder]),
+  bridge = { version: 2, chooseExportDestination: vi.fn(async () => null), revealExport: vi.fn(async () => {}), loadLast: vi.fn(async () => null), openFolder: vi.fn(async () => null), openDropped: vi.fn(async () => null), recentFolders: vi.fn(async () => [folder]),
     requestWorkerPort: vi.fn(async (requestId: string) => { const port = new FakePort(); ports.push(port); const e = new MessageEvent('message', { data: { type: 'xveon-port', version: 2, requestId }, origin: 'app://bundle' }); Object.defineProperty(e, 'source', { value: win }); Object.defineProperty(e, 'ports', { value: [port] }); win.dispatchEvent(e); }),
     updateUnsaved: vi.fn(), respondFlush: vi.fn(), onEvent: listener => { listeners.add(listener); return () => listeners.delete(listener); } };
   host = createDesktopHost(bridge);

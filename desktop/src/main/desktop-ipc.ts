@@ -2,7 +2,7 @@ import { isDesktopRequest, isUnsavedUpdate, isFlushResponse } from '../protocol/
 import type { IpcMain, IpcMainEvent, IpcMainInvokeEvent, MessagePortMain } from 'electron';
 import type { FolderRef, UnsavedSummary } from '@/host';
 import type { BridgeEvent } from '../protocol/bridge';
-type Deps = { ipc: Pick<IpcMain, 'handle' | 'on'>; trusted(event: IpcMainEvent | IpcMainInvokeEvent): boolean; folders: { loadLast(): Promise<unknown>; openFolder(id?: string): Promise<unknown>; openDropped(paths: string[]): Promise<unknown> }; recent(): FolderRef[]; connect(deliver: (port: MessagePortMain) => void): Promise<void>; send(event: BridgeEvent): void; timeoutMs?: number };
+type Deps = { exports: Pick<ReturnType<typeof import('./exports').createExportDestinations>, 'choose' | 'reveal'>; ipc: Pick<IpcMain, 'handle' | 'on'>; trusted(event: IpcMainEvent | IpcMainInvokeEvent): boolean; folders: { loadLast(): Promise<unknown>; openFolder(id?: string): Promise<unknown>; openDropped(paths: string[]): Promise<unknown> }; recent(): FolderRef[]; connect(deliver: (port: MessagePortMain) => void): Promise<void>; send(event: BridgeEvent): void; timeoutMs?: number };
 export function registerDesktopIpc(deps: Deps) {
   let inventory: UnsavedSummary[] = [], nextId = 0;
   let requestedPort: string | undefined;
@@ -11,6 +11,8 @@ export function registerDesktopIpc(deps: Deps) {
   deps.ipc.handle('xveon-desktop', async (event, value: unknown) => {
     if (!deps.trusted(event) || !isDesktopRequest(value)) throw new Error('Invalid bridge request');
     switch (value.kind) {
+      case 'chooseExportDestination': return deps.exports.choose(value.photoId, value.format);
+      case 'revealExport': return deps.exports.reveal(value.token);
       case 'loadLast': return deps.folders.loadLast();
       case 'openFolder': return deps.folders.openFolder(value.folderId);
       case 'openDropped': return deps.folders.openDropped(value.paths);

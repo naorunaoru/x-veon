@@ -6,13 +6,13 @@ let encoding: Promise<unknown> = Promise.resolve();
 export function createExporter(deliver = triggerDownload): ExportHost {
   return {
     status: async () => ({ available: true }),
-    chooseDestination: async (name) => ({ token: name }),
+    chooseDestination: async (_photoId, name) => ({ token: name }),
     encode: (job, destination) => {
       const operation = encoding
         .catch(() => {})
         .then(async () => {
           job.signal?.throwIfAborted();
-          const blob = await encoderFor(job.format).encode(
+          const { blob, encodeMs } = await encoderFor(job.format).encode(
             job.data,
             job.hdrData,
             job.width,
@@ -23,7 +23,7 @@ export function createExporter(deliver = triggerDownload): ExportHost {
           );
           job.signal?.throwIfAborted();
           deliver(blob, destination.token);
-          return { blob };
+          return { blob, bytes: blob.size, name: destination.token, encodeMs };
         });
       encoding = operation;
       return operation;

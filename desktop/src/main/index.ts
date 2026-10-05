@@ -6,6 +6,7 @@ import {
   net,
   protocol,
   dialog,
+  shell,
   Menu,
   utilityProcess,
 } from 'electron';
@@ -19,6 +20,7 @@ import { registerPhotoProtocol } from './photo-protocol';
 import { buildMenuTemplate } from './menu';
 import { createMainWindow } from './window';
 import { createCloseGuard, unsavedQuitMessage } from './close-guard';
+import { createExportDestinations } from './exports';
 import { registerDesktopIpc } from './desktop-ipc';
 import type { BridgeEvent } from '../protocol/bridge';
 import { readdir, mkdir } from 'node:fs/promises';
@@ -120,7 +122,14 @@ if (ownsInstance) void app.whenReady().then(async () => {
     chooseFolder: async () => { const result = await dialog.showOpenDialog(win, { properties: ['openDirectory'] }); return result.canceled ? null : result.filePaths[0] ?? null; },
     error: (folder, message) => { void dialog.showMessageBox(win, { type: 'error', message: `Could not open ${folder || 'folder'}`, detail: message }).catch(() => {}); },
   });
-  const ipc = registerDesktopIpc({ ipc: ipcMain, trusted, folders, recent: store.recent, connect: supervisor.connect, send });
+  const exports = createExportDestinations({
+    showSaveDialog: options => dialog.showSaveDialog(win, options),
+    rawPath: id => supervisor.registry.get(id),
+    register: async (token, target) => { await supervisor.request({ kind: 'export-destination', token, path: target }); },
+    reveal: target => shell.showItemInFolder(target),
+    fallbackDir: () => app.getPath('pictures'),
+  });
+  const ipc = registerDesktopIpc({ ipc: ipcMain, trusted, folders, exports, recent: store.recent, connect: supervisor.connect, send });
   registerPhotoProtocol({ protocol, registry: supervisor.registry, roots: supervisor.roots, cacheDir,
     thumbnail: async id => (await supervisor.request({ kind: 'thumbnail', id })).path,
   });

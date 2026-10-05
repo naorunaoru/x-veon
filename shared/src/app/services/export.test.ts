@@ -141,3 +141,10 @@ it('waits for the chosen photo method or model to finish processing before expor
   expect(m.readback).not.toHaveBeenCalled();
   expect(m.release).toHaveBeenCalledOnce();
 });
+
+it('passes the photo identity and resolves a hash result without a blob', async () => {
+  const result = { bytes: 42, sha256: 'abc', encodeMs: 12, name: 'a.avif' };
+  vi.mocked(host.exporter.encode).mockResolvedValue(result);
+  await expect(enqueueExport('a', 'avif').promise).resolves.toEqual(result);
+  expect(host.exporter.chooseDestination).toHaveBeenCalledWith('a', 'a.avif', 'avif');
+});

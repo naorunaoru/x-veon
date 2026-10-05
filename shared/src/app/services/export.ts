@@ -107,6 +107,7 @@ export function enqueueExport(
       if (!availability.available) throw new Error(availability.reason);
       controller.signal.throwIfAborted();
       const destination = await host.exporter.chooseDestination(
+        file.id,
         `${file.name}.${exportFormatInfo(format).ext}`,
         format,
       );

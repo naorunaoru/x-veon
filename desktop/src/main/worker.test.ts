@@ -139,3 +139,18 @@ it('consumes worker stdout and stderr with the worker identity', async () => {
  expect(log).toHaveBeenCalledWith(expect.stringContaining(supervisor.instance), 'watch attached'); expect(warn).toHaveBeenCalledWith(expect.stringContaining(supervisor.instance), 'watch failed'); }
  finally { supervisor.stop(); log.mockRestore(); warn.mockRestore(); }
 });
+
+it('holds destination registration until ACK and rejects registration on error or crash', async () => {
+ const { supervisor: s, children } = harness(); const ready = s.ready(); children[0].spawn(); await ready;
+ const token = '00000000-0000-4000-8000-000000000001';
+ const register = () => s.request({ kind: 'export-destination', token, path: '/exports/a.avif' });
+ const pending = register(), settled = vi.fn(); void pending.then(settled);
+ await Promise.resolve(); const request = children[0].sent.at(-1).data;
+ expect(request.kind).toBe('export-destination'); expect(request.rid).toBeTypeOf('number'); expect(settled).not.toHaveBeenCalled();
+ children[0].emit('message', { v: 1, rid: request.rid, kind: 'thumbnail', path: '/wrong' });
+ children[0].emit('message', { v: 1, rid: request.rid, kind: 'export-destination', token: '00000000-0000-4000-8000-000000000002' }); await Promise.resolve(); expect(settled).not.toHaveBeenCalled();
+ children[0].emit('message', { v: 1, rid: request.rid, kind: 'export-destination', token }); await expect(pending).resolves.toEqual({ v: 1, rid: request.rid, kind: 'export-destination', token });
+ const rejected = register(); await Promise.resolve(); children[0].emit('message', { v: 1, rid: children[0].sent.at(-1).data.rid, kind: 'error', error: 'registration rejected' }); await expect(rejected).rejects.toThrow('registration rejected');
+ const crashed = register(); const check = expect(crashed).rejects.toThrow('background worker stopped'); await Promise.resolve(); children[0].emit('exit', 1); await check;
+ children[1].spawn(); await s.ready(); s.stop();
+});

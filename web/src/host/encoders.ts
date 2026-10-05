@@ -16,7 +16,7 @@ export interface Encoder {
     orientation: string,
     quality: number,
     peakLuminance: number,
-  ): Promise<Blob>;
+  ): Promise<{ blob: Blob; encodeMs: number }>;
 }
 
 /** Every format is produced by the Rust encoder worker; the registry is still explicit per format. */
@@ -24,7 +24,7 @@ function workerEncoder(format: ExportFormat): Encoder {
   return {
     format,
     async encode(sdr, hdr, width, height, orientation, quality, peakLuminance) {
-      const encoded = await encodeViaWorker(
+      const { bytes, encodeMs } = await encodeViaWorker(
         sdr,
         hdr ?? new Float32Array(0),
         width,
@@ -34,7 +34,7 @@ function workerEncoder(format: ExportFormat): Encoder {
         quality,
         peakLuminance,
       );
-      return new Blob([encoded.buffer as ArrayBuffer], { type: exportFormatInfo(format).mime });
+      return { blob: new Blob([bytes.buffer as ArrayBuffer], { type: exportFormatInfo(format).mime }), encodeMs };
     },
   };
 }

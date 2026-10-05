@@ -12,6 +12,7 @@ self.onmessage = async (e: MessageEvent) => {
     }
 
     const { data, hdrData, width, height, orientation, format, quality, peakLuminance } = e.data;
+    const started = performance.now();
     const result = encode_image(
       new Float32Array(data),
       new Float32Array(hdrData),
@@ -22,7 +23,8 @@ self.onmessage = async (e: MessageEvent) => {
       quality,
       peakLuminance,
     );
-    self.postMessage({ type: 'done', data: result.buffer }, [result.buffer] as any);
+    const encodeMs = performance.now() - started;
+    self.postMessage({ type: 'done', data: result.buffer, encodeMs }, [result.buffer] as any);
   } catch (err: unknown) {
     self.postMessage({ type: 'error', message: err instanceof Error ? err.message : String(err) });
   }

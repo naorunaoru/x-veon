@@ -16,9 +16,10 @@ export type UtilityProcessLike = EventEmitter & {
 };
 type CommittedFolder = { path: string; folderId: string; activation: string };
 type ListRequest = Omit<Extract<MainToWorker, { kind: 'list' }>, 'v' | 'rid'>;
+type ExportDestinationRequest = Omit<Extract<MainToWorker, { kind: 'export-destination' }>, 'v' | 'rid'>;
 type ThumbnailRequest = Omit<Extract<MainToWorker, { kind: 'thumbnail' }>, 'v' | 'rid'>;
 export type ListingResult = { folder: FolderRef; photos: LibraryPhoto[]; purpose: 'open' | 'replace'; token: string; activation: string; registry: [PhotoId, string][]; stamp?: ListingStamp };
-type Pending = { reject(error: Error): void; resolve(value: ListingResult | Extract<WorkerToMain, { kind: 'thumbnail' | 'export-destination' }>): void; token?: string; assembler?: ReturnType<typeof createListingAssembler>; entries: [PhotoId, string][] };
+type Pending = { destinationToken?: string; reject(error: Error): void; resolve(value: ListingResult | Extract<WorkerToMain, { kind: 'thumbnail' | 'export-destination' }>): void; token?: string; assembler?: ReturnType<typeof createListingAssembler>; entries: [PhotoId, string][] };
 const stoppedMessage = 'The background worker stopped.';
 
 export function createWorkerSupervisor(opts: {
@@ -59,7 +60,7 @@ export function createWorkerSupervisor(opts: {
       const entry = pending.get(value.rid);
       if (entry) {
         if (value.kind === 'error') { pending.delete(value.rid); entry.reject(new Error(value.error)); }
-        else if (!entry.token) { pending.delete(value.rid); entry.resolve(value); }
+        else if (!entry.token && (!entry.destinationToken || (value.kind === 'export-destination' && value.token === entry.destinationToken))) { pending.delete(value.rid); entry.resolve(value); }
       }
     }
     for (const listener of listeners) listener(value);
@@ -115,14 +116,15 @@ export function createWorkerSupervisor(opts: {
   }
   function request(message: ListRequest): Promise<ListingResult>;
   function request(message: ThumbnailRequest): Promise<Extract<WorkerToMain, { kind: 'thumbnail' }>>;
-  async function request(message: ListRequest | ThumbnailRequest): Promise<ListingResult | Extract<WorkerToMain, { kind: 'thumbnail' | 'export-destination' }>> {
+  function request(message: ExportDestinationRequest): Promise<Extract<WorkerToMain, { kind: 'export-destination' }>>;
+  async function request(message: ListRequest | ThumbnailRequest | ExportDestinationRequest): Promise<ListingResult | Extract<WorkerToMain, { kind: 'thumbnail' | 'export-destination' }>> {
     const initialized = ready(), target = child;
     try { await initialized; }
     catch { throw new Error(stoppedMessage); }
     if (stopped || child !== target) throw new Error(stoppedMessage);
     const rid = nextRid++;
     return new Promise((resolve, reject) => {
-      const entry: Pending = { resolve, reject, entries: [] };
+      const entry: Pending = { resolve, reject, entries: [], destinationToken: message.kind === 'export-destination' ? message.token : undefined };
       if (message.kind === 'list') {
         entry.token = message.token;
         entry.assembler = createListingAssembler((folder, photos, purpose, stamp) => {

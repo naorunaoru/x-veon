@@ -1,3 +1,4 @@
+import type { PhotoId } from './library';
 import type { ExportFormat } from '@/lib/types';
 /** Token issued and interpreted only by the host. */
 export interface ExportDestination {
@@ -16,9 +17,18 @@ export interface EncodeJob {
 }
 export interface ExportResult {
   blob?: Blob;
+  bytes?: number;
+  sha256?: string;
+  encodeMs?: number;
+  name?: string;
+}
+export interface ExportReveal {
+  label: string;
+  open(destination: ExportDestination): Promise<void>;
 }
 export interface ExportHost {
+  reveal?: ExportReveal;
   status(): Promise<{ available: true } | { available: false; reason: string }>;
-  chooseDestination(suggestedName: string, format: ExportFormat): Promise<ExportDestination | null>;
+  chooseDestination(photoId: PhotoId, suggestedName: string, format: ExportFormat): Promise<ExportDestination | null>;
   encode(job: EncodeJob, destination: ExportDestination): Promise<ExportResult>;
 }

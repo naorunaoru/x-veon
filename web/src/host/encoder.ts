@@ -29,7 +29,7 @@ export function encodeViaWorker(
   format: ExportFormat,
   quality: number,
   peakLuminance: number,
-): Promise<Uint8Array> {
+): Promise<{ bytes: Uint8Array; encodeMs: number }> {
   return new Promise((resolve, reject) => {
     const w = getWorker();
     const dataBuf = transferable(data);
@@ -37,7 +37,7 @@ export function encodeViaWorker(
 
     w.onmessage = (e) => {
       if (e.data.type === 'done') {
-        resolve(new Uint8Array(e.data.data));
+        resolve({ bytes: new Uint8Array(e.data.data), encodeMs: e.data.encodeMs });
       } else if (e.data.type === 'error') {
         reject(new Error(e.data.message));
       }

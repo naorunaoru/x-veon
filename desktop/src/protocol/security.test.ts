@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { assetName, acceptsSender, isBridgeEvent } from './security';
+import { assetName, acceptsSender, isBridgeEvent, isDesktopRequest } from './security';
 it('serves only exact bundle assets via GET', () => {
   const files = new Set(['index.html', 'assets/decoder.wasm']);
   expect(assetName('app://bundle/', 'GET', files)).toBe('index.html');
@@ -57,4 +57,13 @@ it('requires a bounded correlation UUID for worker-port handshakes', async () =>
 it('validates worker identities on native restart events', () => {
   expect(isBridgeEvent({ version: 2, kind: 'worker-restarted', worker: '11111111-1111-4111-8111-111111111111' })).toBe(true);
   for (const worker of [null, 1, 'invalid', 'a'.repeat(100)]) expect(isBridgeEvent({ version: 2, kind: 'worker-restarted', worker })).toBe(false);
+});
+
+it('validates export identities, formats and UUID tokens', () => {
+ const choose = { version: 2, kind: 'chooseExportDestination', photoId: 'a'.repeat(22), format: 'avif' };
+ expect(isDesktopRequest(choose)).toBe(true);
+ expect(isDesktopRequest({ ...choose, photoId: '../raw' })).toBe(false);
+ expect(isDesktopRequest({ ...choose, format: 'bmp' })).toBe(false);
+ expect(isDesktopRequest({ version: 2, kind: 'revealExport', token: '00000000-0000-4000-8000-000000000001' })).toBe(true);
+ expect(isDesktopRequest({ version: 2, kind: 'revealExport', token: 'bad' })).toBe(false);
 });
