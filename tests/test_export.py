@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 import torch
@@ -17,6 +18,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+import export_onnx  # noqa: E402
 from cfa import CFA_REGISTRY, cfa_period  # noqa: E402
 from export_onnx import app_key, export_checkpoint, export_selected, select  # noqa: E402
 from model import XTransUNet  # noqa: E402
@@ -24,10 +26,10 @@ from model import XTransUNet  # noqa: E402
 PATCH = 48      # small tiles keep the test quick; a multiple of 12 as the packing needs
 
 
-def _checkpoint(folder: Path, cfa_type: str, *, tag: str = "v7", version: str = "v7.0.0") -> str:
-    torch.manual_seed(0)
+def _checkpoint(folder: Path, cfa_type: str, *, tag: str = "v7", version: str = "v7.0.0", seed: int = 0) -> str:
+    torch.manual_seed(seed)
     model = XTransUNet(base_width=16, cfa_period=cfa_period(CFA_REGISTRY[cfa_type]))
-    path = folder / f"{cfa_type}-{version}.pt"
+    path = folder / f"{cfa_type}-{version}{f'-{seed}' if seed else ''}.pt"
     torch.save({"epoch": 3, "model": model.state_dict(), "base_width": 16, "stages": 2, "cfa_type": cfa_type,
                 "architecture_tag": tag, "checkpoint_version": version, "checkpoint_major": int(version[1])}, path)
     return str(path)
@@ -73,8 +75,7 @@ class ExportTest(unittest.TestCase):
             other = {"file": "xtrans_w16_base.onnx", "source_sha256": "old", "base_width": 16}
             (out / "models.json").write_text(json.dumps({"xtrans_w16_base": other, "unrelated": {"x": 1}}))
 
-            manifest = export_selected(registry, out, version="v7.0.0", cfa_type="bayer",
-                                       patch_size=PATCH, verify_export=True)
+            manifest = export_selected(registry, out, version="v7.0.0", cfa_type="bayer", patch_size=PATCH)
             self.assertEqual(manifest["xtrans_w16_base"], other)          # untouched
             self.assertEqual(manifest["unrelated"], {"x": 1})
             entry = manifest["bayer_w16_base"]
@@ -110,6 +111,60 @@ class ExportTest(unittest.TestCase):
                 export_selected(_registry(Path(d)), out, version="v6.1.4", patch_size=PATCH)
             self.assertIn("architecture tag v6", str(ctx.exception))
             self.assertFalse((out / "xtrans_w16_base.onnx").exists())
+
+
+class SafeExportTest(unittest.TestCase):
+    """A wrong export must not land, and must not hide behind an unchanged checkpoint."""
+
+    def _first_export(self, folder: Path) -> tuple[dict, Path]:
+        registry = _registry(folder)
+        out = folder / "out"
+        export_selected(registry, out, version="v7.0.0", cfa_type="bayer", patch_size=PATCH)
+        return registry, out
+
+    def test_a_failed_verify_leaves_the_previous_file_and_manifest_untouched(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            registry, out = self._first_export(Path(d))
+            before = {p.name: p.read_bytes() for p in out.iterdir()}
+            # A retrained checkpoint whose export comes out wrong: the file written holds other weights.
+            registry["bayer"]["v7.0.0"]["stable"]["best"]["path"] = _checkpoint(Path(d), "bayer", seed=1)
+            wrong = _checkpoint(Path(d), "bayer", seed=2)
+            real_export = export_onnx.export
+            with mock.patch.object(export_onnx, "export",
+                                   side_effect=lambda ckpt, path, *a, **k: real_export(wrong, path, *a, **k)):
+                with self.assertRaises(SystemExit) as ctx:
+                    export_selected(registry, out, version="v7.0.0", cfa_type="bayer", patch_size=PATCH)
+            self.assertIn("disagree", str(ctx.exception))
+            # Nothing replaced and nothing left behind: same files, byte for byte.
+            self.assertEqual({p.name: p.read_bytes() for p in out.iterdir()}, before)
+
+    def test_an_up_to_date_entry_is_verified_before_it_is_skipped(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            registry, out = self._first_export(Path(d))
+            onnx_file = out / "bayer_w16_base.onnx"
+            ckpt = registry["bayer"]["v7.0.0"]["stable"]["best"]["path"]
+            with mock.patch.object(export_onnx, "verify", wraps=export_onnx.verify) as verify, \
+                    mock.patch.object(export_onnx, "export", wraps=export_onnx.export) as export:
+                export_selected(registry, out, version="v7.0.0", cfa_type="bayer", patch_size=PATCH)
+            export.assert_not_called()
+            verify.assert_called_once_with(ckpt, str(onnx_file), PATCH)
+            # The file on disk no longer matches its unchanged checkpoint: the run stops and names it.
+            export_onnx.export(_checkpoint(Path(d), "bayer", seed=1), str(onnx_file), PATCH)
+            with self.assertRaises(SystemExit) as ctx:
+                export_selected(registry, out, version="v7.0.0", cfa_type="bayer", patch_size=PATCH)
+            self.assertIn(str(onnx_file), str(ctx.exception))
+
+    def test_the_command_line_always_verifies_and_still_accepts_verify(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            ckpt = _checkpoint(Path(d), "xtrans")
+            for extra in ([], ["--verify"]):
+                with self.subTest(extra=extra):
+                    argv = ["export_onnx.py", "--checkpoint", ckpt, "--output-dir", str(Path(d) / "out"),
+                            "--patch-size", str(PATCH), *extra]
+                    with mock.patch.object(sys, "argv", argv), \
+                            mock.patch.object(export_onnx, "verify", wraps=export_onnx.verify) as verify:
+                        export_onnx.main()
+                    verify.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -4,12 +4,14 @@
 """
 Export one checkpoint version to ONNX for the app.
 
-    python export_onnx.py --version v7.0.0 [--cfa-type xtrans] [--verify]
-    python export_onnx.py --checkpoint path/to/best.pt [--verify]
+    python export_onnx.py --version v7.0.0 [--cfa-type xtrans]
+    python export_onnx.py --checkpoint path/to/best.pt
 
 The app loads models by fixed keys, `{cfa}_w{base_width}_base` (see CHECKPOINT_POLICY.md),
 so exactly one version is exported at a time and it must be named. The manifest
 (models.json) is updated entry by entry: exporting one CFA type keeps the other's entry.
+Every file is checked against PyTorch before it replaces the one in place, and a file
+left in place because its checkpoint is unchanged is checked again.
 """
 
 from __future__ import annotations
@@ -105,7 +107,6 @@ def export(checkpoint_path: str, output_path: str, patch_size: int = 288, opset:
     metadata = _metadata(ckpt)
     metadata["size_mb"] = round(Path(output_path).stat().st_size / 1024 / 1024, 1)
     metadata["dtype"] = "float32"
-    print(f"Exported: {output_path} ({metadata['size_mb']} MB), opset {opset}, patch {patch_size}")
     return metadata
 
 
@@ -167,12 +168,20 @@ def select(registry: dict[str, Any], *, version: str | None, cfa_type: str | Non
     return list(selected.values())
 
 
+def _write_manifest(path: Path, manifest: dict[str, Any]) -> None:
+    """Replace the manifest in one step, so it is never left half written."""
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(json.dumps(manifest, indent=2))
+    tmp.replace(path)
+
+
 def export_entries(entries: list[tuple[str, str, dict[str, Any]]], out_dir: Path, *,
-                   patch_size: int = 288, opset: int = 18, verify_export: bool = False,
-                   force: bool = False) -> dict[str, Any]:
+                   patch_size: int = 288, opset: int = 18, force: bool = False) -> dict[str, Any]:
     """Export (app key, checkpoint path, registry entry) triples and merge them into the manifest.
 
-    The manifest is read first and only the exported keys are replaced.
+    The manifest is read first and only the exported keys are replaced. Each file is written
+    beside its target and verified there; only a verified file replaces the target, and only
+    then is its manifest entry updated. A failed verify leaves the previous file and entry.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = out_dir / MANIFEST
@@ -182,12 +191,21 @@ def export_entries(entries: list[tuple[str, str, dict[str, Any]]], out_dir: Path
         onnx_path = out_dir / f"{key}.onnx"
         sha = _file_sha256(ckpt_path)
         if not force and manifest.get(key, {}).get("source_sha256") == sha and onnx_path.exists():
+            # The checkpoint is unchanged, but the file in place must still be what it gives.
+            print(f"--- {key}: up to date, checking {onnx_path.name}")
+            verify(ckpt_path, str(onnx_path), patch_size)
             print(f"--- {key}: up to date (skipped)")
             continue
         print(f"--- {key} from {ckpt_path}")
-        meta = export(ckpt_path, str(onnx_path), patch_size, opset)
-        if verify_export:
-            verify(ckpt_path, str(onnx_path), patch_size)
+        tmp_path = out_dir / f".{key}.verifying.onnx"
+        try:
+            meta = export(ckpt_path, str(tmp_path), patch_size, opset)
+            verify(ckpt_path, str(tmp_path), patch_size)
+            tmp_path.replace(onnx_path)
+        finally:
+            tmp_path.unlink(missing_ok=True)
+            Path(f"{tmp_path}.data").unlink(missing_ok=True)
+        print(f"Exported: {onnx_path} ({meta['size_mb']} MB), opset {opset}, patch {patch_size}")
         manifest[key] = {
             **meta,
             "file": onnx_path.name,
@@ -198,29 +216,27 @@ def export_entries(entries: list[tuple[str, str, dict[str, Any]]], out_dir: Path
             "train_loss": entry.get("train_loss"),
             "val_loss": entry.get("val_loss"),
         }
+        _write_manifest(manifest_path, manifest)
 
-    manifest_path.write_text(json.dumps(manifest, indent=2))
     print(f"Manifest: {manifest_path}")
     return manifest
 
 
 def export_selected(registry: dict[str, Any], out_dir: Path, *, version: str | None,
                     cfa_type: str | None = None, status: str | None = None, slot: str = "best",
-                    patch_size: int = 288, opset: int = 18, verify_export: bool = False,
-                    force: bool = False) -> dict[str, Any]:
+                    patch_size: int = 288, opset: int = 18, force: bool = False) -> dict[str, Any]:
     """Export the named version from the registry."""
     entries = select(registry, version=version, cfa_type=cfa_type, status=status, slot=slot)
-    return export_entries(entries, out_dir, patch_size=patch_size, opset=opset,
-                          verify_export=verify_export, force=force)
+    return export_entries(entries, out_dir, patch_size=patch_size, opset=opset, force=force)
 
 
-def export_checkpoint(checkpoint_path: str, out_dir: Path, *, patch_size: int = 288, opset: int = 18,
-                      verify_export: bool = False) -> dict[str, Any]:
+def export_checkpoint(checkpoint_path: str, out_dir: Path, *, patch_size: int = 288,
+                      opset: int = 18) -> dict[str, Any]:
     """Export one checkpoint file under the app key its CFA type and width give it."""
     ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     key = app_key(ckpt.get("cfa_type", "xtrans"), int(ckpt.get("base_width", 16)))
     return export_entries([(key, checkpoint_path, {})], out_dir, patch_size=patch_size, opset=opset,
-                          verify_export=verify_export, force=True)
+                          force=True)
 
 
 def main() -> None:
@@ -234,13 +250,14 @@ def main() -> None:
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR, help="Folder holding the ONNX files and models.json")
     parser.add_argument("--patch-size", type=int, default=288)
     parser.add_argument("--opset", type=int, default=18)
-    parser.add_argument("--verify", action="store_true", help="Check the ONNX output against PyTorch")
+    parser.add_argument("--verify", action="store_true",
+                        help="Accepted for compatibility; every export is checked against PyTorch")
     parser.add_argument("--force", action="store_true", help="Re-export even if the source checkpoint is unchanged")
     args = parser.parse_args()
 
     if args.checkpoint:
         export_checkpoint(args.checkpoint, Path(args.output_dir), patch_size=args.patch_size,
-                          opset=args.opset, verify_export=args.verify)
+                          opset=args.opset)
         return
 
     registry_path = Path(__file__).parent / REGISTRY_FILENAME
@@ -249,7 +266,7 @@ def main() -> None:
     registry = json.loads(registry_path.read_text())
     export_selected(registry, Path(args.output_dir), version=args.version, cfa_type=args.cfa_type,
                     status=args.status, slot=args.slot, patch_size=args.patch_size, opset=args.opset,
-                    verify_export=args.verify, force=args.force)
+                    force=args.force)
 
 
 if __name__ == "__main__":
