@@ -30,7 +30,13 @@ export function checkArchive(archive) {
  }
  return { size, entries: entries.length, failures };
 }
-if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
+function isDirectInvocation() {
+ // stdin/eval arguments belong to the caller, even if one names this script.
+ if (!process.argv[1] || process.argv[1] === '-' || process.execArgv.some(arg => /^-[ep]|^--(?:eval|print)(?:=|$)/.test(arg))) return false;
+ try { return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url)); }
+ catch { return false; } // An importing program may use a non-file argv[1].
+}
+if (isDirectInvocation()) {
  const archive = process.argv[2] ? resolve(process.argv[2])
    : fileURLToPath(new URL('../dist/mac-arm64/X-veon Beta.app/Contents/Resources/app.asar', import.meta.url));
  const { size, failures } = checkArchive(archive);

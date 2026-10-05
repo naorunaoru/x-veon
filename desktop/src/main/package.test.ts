@@ -45,3 +45,26 @@ it.for(['ordinary', 'symlink'])('runs the actual CLI through a %s path for valid
    }
  } finally { await fs.rm(dir, { recursive: true, force: true }); }
 });
+
+it.each(['stdin', 'eval-missing', 'eval-checker', 'file-missing'])('allows programmatic import from %s without running the CLI', async route => {
+ const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'xveon-package-import-'));
+ try {
+   const script = new URL('../../scripts/check-dist.mjs', import.meta.url);
+   const missing = path.join(dir, 'missing.asar');
+   const source = `${route === 'file-missing' ? `process.argv[1] = ${JSON.stringify(missing)};` : ''}
+     const { checkArchive } = await import(${JSON.stringify(script.href)});
+     if (typeof checkArchive !== 'function') throw new Error('missing export');
+     let failed = false;
+     try { checkArchive(${JSON.stringify(missing)}); } catch { failed = true; }
+     if (!failed) throw new Error('archive failure was swallowed');
+     console.log('imported; archive errors remain observable');`;
+   const importer = path.join(dir, 'import.mjs');
+   if (route === 'file-missing') await fs.writeFile(importer, source);
+   const args = route === 'stdin' ? ['--input-type=module', '-']
+     : route === 'file-missing' ? [importer]
+     : ['--input-type=module', '--eval', source, route === 'eval-checker' ? fileURLToPath(script) : missing];
+   const result = spawnSync(process.execPath, args, { encoding: 'utf8', ...(route === 'stdin' ? { input: source } : {}) });
+   expect(result.error).toBeUndefined(); expect(result.status, result.stderr).toBe(0);
+   expect(result.stdout.trim()).toBe('imported; archive errors remain observable'); expect(result.stderr).toBe('');
+ } finally { await fs.rm(dir, { recursive: true, force: true }); }
+});
