@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: MIT
-# Copyright (c) 2024-present X-Veon contributors
 """
 Preview dataset samples with augmentations applied.
 
@@ -18,68 +16,23 @@ from PIL import Image, ImageDraw
 from dataset import LinearDataset
 
 
-# 4-stop viridis approximation: purple → blue → teal → yellow
-_VIRIDIS_STOPS = [
-    (0.00, (68, 1, 84)),
-    (0.33, (59, 82, 139)),
-    (0.66, (33, 145, 140)),
-    (1.00, (253, 231, 37)),
-]
-
-
-def _build_viridis_lut() -> np.ndarray:
-    """Build 256x3 uint8 viridis-like lookup table."""
-    lut = np.zeros((256, 3), dtype=np.uint8)
-    for i in range(256):
-        t = i / 255.0
-        # Find bracketing stops
-        for si in range(len(_VIRIDIS_STOPS) - 1):
-            t0, c0 = _VIRIDIS_STOPS[si]
-            t1, c1 = _VIRIDIS_STOPS[si + 1]
-            if t <= t1 or si == len(_VIRIDIS_STOPS) - 2:
-                frac = (t - t0) / (t1 - t0 + 1e-8)
-                frac = max(0.0, min(1.0, frac))
-                for ch in range(3):
-                    lut[i, ch] = int(c0[ch] * (1 - frac) + c1[ch] * frac)
-                break
-    return lut
-
-
-_VIRIDIS_LUT = _build_viridis_lut()
-
-
-def gamma_correct(rgb: torch.Tensor, clip_max: float = 1.0) -> np.ndarray:
+def gamma_correct(rgb: torch.Tensor) -> np.ndarray:
     """(3, H, W) linear → (H, W, 3) uint8 sRGB."""
-    arr = (rgb / clip_max).clamp(0, 1).permute(1, 2, 0).numpy()
+    arr = rgb.clamp(0, 1).permute(1, 2, 0).numpy()
     return (arr ** (1 / 2.2) * 255).astype(np.uint8)
 
 
-def cfa_false_color(cfa_img: torch.Tensor, cfa_mask: torch.Tensor, clip_max: float = 1.0) -> np.ndarray:
+def cfa_false_color(cfa_img: torch.Tensor, cfa_mask: torch.Tensor) -> np.ndarray:
     """Colorize CFA mosaic by channel: R sites red, G green, B blue. Returns (H, W, 3) uint8."""
     H, W = cfa_mask.shape
     out = np.zeros((H, W, 3), dtype=np.uint8)
-    vals = (cfa_img[0] / clip_max).clamp(0, 1).numpy()
+    vals = cfa_img[0].clamp(0, 1).numpy()
     vals_u8 = (vals ** (1 / 2.2) * 255).astype(np.uint8)
     for ch in range(3):
         mask = (cfa_mask == ch).numpy()
         out[mask, ch] = vals_u8[mask]
     return out
 
-
-def heatmap(data: torch.Tensor) -> np.ndarray:
-    """(1, H, W) float [0,1] → (H, W, 3) uint8 viridis."""
-    indices = (data[0].clamp(0, 1).numpy() * 255).astype(np.uint8)
-    return _VIRIDIS_LUT[indices]
-
-
-def overlay_clip(gt_u8: np.ndarray, clip_ratio: torch.Tensor) -> np.ndarray:
-    """Overlay clip_ratio as red tint on GT image."""
-    alpha = clip_ratio[0].clamp(0, 1).numpy()
-    result = gt_u8.astype(np.float32).copy()
-    # Red tint: blend towards (255, 0, 0)
-    for ch, tint in enumerate([255, 0, 0]):
-        result[:, :, ch] = result[:, :, ch] * (1 - 0.5 * alpha) + tint * 0.5 * alpha
-    return result.clip(0, 255).astype(np.uint8)
 
 
 def main():
@@ -115,7 +68,7 @@ def main():
     print(f"CFA: {args.cfa_type}, patch: {args.patch_size}px")
 
     # Column labels
-    col_labels = ["Ground Truth", "CFA Mosaic", "Clip Ratio", "GT + Clip"]
+    col_labels = ["Ground Truth", "CFA Mosaic"]
     n_cols = len(col_labels)
     ps = args.patch_size
     label_h = 20
@@ -135,19 +88,15 @@ def main():
     indices = [rng.randint(0, len(ds) - 1) for _ in range(args.n_samples)]
 
     for i, idx in enumerate(indices):
-        input_tensor, ref, clip_ch = ds[idx]
-        clip_max = clip_ch.max().item()
+        input_tensor, ref = ds[idx]
 
         cfa_img = input_tensor[0:1]  # (1, H, W)
-        clip_ratio = input_tensor[4:5]  # (1, H, W)
 
-        gt_u8 = gamma_correct(ref, clip_max)
-        cfa_u8 = cfa_false_color(cfa_img, ds.cfa, clip_max)
-        heat_u8 = heatmap(clip_ratio)
-        over_u8 = overlay_clip(gt_u8, clip_ratio)
+        gt_u8 = gamma_correct(ref)
+        cfa_u8 = cfa_false_color(cfa_img, ds.cfa)
 
         y = i * (ps + pad) + label_h
-        for j, arr in enumerate([gt_u8, cfa_u8, heat_u8, over_u8]):
+        for j, arr in enumerate([gt_u8, cfa_u8]):
             x = j * (ps + pad)
             grid.paste(Image.fromarray(arr), (x, y))
 

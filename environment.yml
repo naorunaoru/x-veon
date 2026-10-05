@@ -18,3 +18,5 @@ dependencies:
       - onnx
       - onnxconverter-common
       - onnxscript
+      - onnxruntime
+      - mypy

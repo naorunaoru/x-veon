@@ -18,6 +18,8 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import torch
 
 from cfa import CFA_REGISTRY, cfa_period as _cfa_period_fn
@@ -27,7 +29,7 @@ from model import XTransUNet
 def _ckpt_cfa_period(ckpt: dict) -> int:
     cfa_type = ckpt.get("cfa_type", "xtrans")
     return _cfa_period_fn(CFA_REGISTRY[cfa_type])
-from infer_hdr import apply_exif_rotation, process_raw, save_hdr_avif, checkpoint_applies_wb
+from infer_hdr import apply_exif_rotation, process_raw, save_hdr_avif
 
 
 # Global state
@@ -90,19 +92,19 @@ def load_history(checkpoint_dir: str) -> list[dict]:
 
 
 def plot_training_history(checkpoint_dir: str) -> tuple:
-    """Generate training history plots."""
-    plt.close("all")
+    """Generate interactive training history plots using Plotly."""
     history = load_history(checkpoint_dir)
     if not history:
         return None, "No history found"
-    
+
     epochs = [h["epoch"] for h in history]
     train_psnr = [h["train_psnr"] for h in history]
     val_psnr = [h["val_psnr"] for h in history]
-    
+
     # Load config for title
     config_path = Path(checkpoint_dir) / "config.json"
     config_str = ""
+    cfg = {}
     if config_path.exists():
         with open(config_path) as f:
             cfg = json.load(f)
@@ -110,71 +112,112 @@ def plot_training_history(checkpoint_dir: str) -> tuple:
         if cfg.get("msssim_weight"): parts.append(f"MS-SSIM={cfg['msssim_weight']}")
         if cfg.get("per_channel_norm"): parts.append("per-ch-norm")
         if cfg.get("color_bias_weight"): parts.append(f"color_bias={cfg['color_bias_weight']}")
-        if cfg.get("torture_fraction"): parts.append(f"torture={cfg['torture_fraction']*100:.0f}%")
         if cfg.get("apply_wb"): parts.append("WB")
         config_str = ", ".join(parts)
-    
-    # Create figure with subplots
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4))
-    
-    ax1, ax2, ax3 = axes
-    
-    # PSNR plot
-    ax1.plot(epochs, train_psnr, label="Train", alpha=0.5)
-    ax1.plot(epochs, val_psnr, label="Val", alpha=0.5)
-    ax1.set_xlabel("Epoch")
-    ax1.set_ylabel("PSNR (dB)")
-    ax1.set_title(f"{checkpoint_dir}\n{config_str}" if config_str else checkpoint_dir)
-    ax1.legend(fontsize=8)
-    ax1.grid(True, alpha=0.3)
-    
-    # Best PSNR annotation
-    best_idx = np.argmax(val_psnr)
-    ax1.annotate(f"Best: {val_psnr[best_idx]:.2f} dB\n(epoch {epochs[best_idx]})",
-                xy=(epochs[best_idx], val_psnr[best_idx]),
-                xytext=(10, -20), textcoords="offset points",
-                fontsize=9, color="green",
-                arrowprops=dict(arrowstyle="->", color="green", alpha=0.7))
 
-    # Helper to plot components
+    title = f"{checkpoint_dir}  —  {config_str}" if config_str else checkpoint_dir
+
+    fig = make_subplots(
+        rows=1, cols=3,
+        subplot_titles=("PSNR", "Train Components", "Val Components"),
+        horizontal_spacing=0.06,
+    )
+
+    # --- PSNR plot ---
+    best_idx = int(np.argmax(val_psnr))
+    fig.add_trace(go.Scatter(
+        x=epochs, y=train_psnr, name="Train PSNR",
+        mode="lines", opacity=0.5,
+        hovertemplate="Epoch %{x}<br>Train PSNR: %{y:.2f} dB<extra></extra>",
+    ), row=1, col=1)
+    fig.add_trace(go.Scatter(
+        x=epochs, y=val_psnr, name="Val PSNR",
+        mode="lines", opacity=0.8,
+        hovertemplate="Epoch %{x}<br>Val PSNR: %{y:.2f} dB<extra></extra>",
+    ), row=1, col=1)
+    fig.add_trace(go.Scatter(
+        x=[epochs[best_idx]], y=[val_psnr[best_idx]],
+        name=f"Best: {val_psnr[best_idx]:.2f} dB (ep {epochs[best_idx]})",
+        mode="markers+text",
+        marker=dict(size=10, color="green", symbol="star"),
+        text=[f"{val_psnr[best_idx]:.2f} dB"],
+        textposition="top center",
+        hovertemplate="Best: %{y:.2f} dB at epoch %{x}<extra></extra>",
+    ), row=1, col=1)
+    fig.update_yaxes(title_text="PSNR (dB)", row=1, col=1)
+
+    # --- Component plots (weighted contributions) ---
     COMP_COLORS = {
-        "l1": "tab:blue",
-        "huber": "tab:blue",
-        "msssim": "tab:orange",
-        "gradient": "tab:green",
-        "chroma": "tab:red",
-        "zipper": "tab:purple",
-        "color_bias": "tab:brown",
+        "l1": "#1f77b4", "l1_recon": "#4169e1", "l1_known": "#6495ed",
+        "huber": "#1f77b4", "msssim": "#ff7f0e", "gradient": "#2ca02c",
+        "chroma": "#d62728", "fft": "#17becf", "texture": "#bcbd22",
+        "zipper": "#9467bd", "color_bias": "#8c564b",
     }
-    def plot_components(ax, history, key, title):
+    # Map component names to their config weight keys.
+    # l1_recon/l1_known are sub-components of l1 — use l1_weight for them.
+    def _get_weight(comp):
+        if cfg.get("recon_only"):
+            if comp == "l1_recon":
+                w = cfg.get("l1_weight")
+            elif comp == "l1_known":
+                w = cfg.get("known_pixel_weight")
+            else:
+                w = cfg.get(f"{comp}_weight")
+        elif comp in ("l1_recon", "l1_known"):
+            w = cfg.get("l1_weight")
+        else:
+            w = cfg.get(f"{comp}_weight")
+        return w if w is not None else 1.0
+
+    def add_components(history, key, col, show_legend):
         if key not in history[0]:
             return
-        for comp, color in COMP_COLORS.items():
-            values = [h[key].get(comp, 0) for h in history]
-            if any(v > 0 for v in values):
-                # Convert MS-SSIM to loss (it's stored as similarity)
-                if comp == "msssim":
-                    values = [1 - v for v in values]
-                ax.plot(epochs, values, label=comp, alpha=0.7, color=color)
-        ax.set_xlabel("Epoch")
-        ax.set_ylabel("Loss")
-        ax.set_title(title)
-        ax.legend(fontsize=8)
-        ax.grid(True, alpha=0.3)
-        ax.set_yscale("log")
-    
-    # Train components
-    plot_components(ax2, history, "train_components", "Train Components")
-    
-    # Val components
-    plot_components(ax3, history, "val_components", "Val Components")
-    
-    fig.tight_layout()
+        all_comps = dict.fromkeys(comp for h in history for comp in h[key])
+        for comp in all_comps:
+            if comp == "total":
+                continue
+            raw = [h[key].get(comp, 0) for h in history]
+            if not any(v > 0 for v in raw):
+                continue
+            if comp == "msssim":
+                raw = [1 - v for v in raw]
+            w = _get_weight(comp)
+            weighted = [v * w for v in raw]
+            label = f"{comp} (×{w:g})" if w != 1.0 else comp
+            # Show both weighted and raw in hover
+            custom = [f"raw: {r:.4e}" for r in raw]
+            fig.add_trace(go.Scatter(
+                x=epochs, y=weighted, name=label,
+                mode="lines", opacity=0.8,
+                legendgroup=comp, showlegend=show_legend,
+                line=dict(color=COMP_COLORS.get(comp)),
+                customdata=custom,
+                hovertemplate=f"{comp}<br>Epoch %{{x}}<br>Weighted: %{{y:.4e}}<br>%{{customdata}}<extra></extra>",
+            ), row=1, col=col)
+        fig.update_yaxes(type="log", title_text="Weighted Loss", row=1, col=col)
+
+    add_components(history, "train_components", col=2, show_legend=True)
+    add_components(history, "val_components", col=3, show_legend=False)
+    # Share y-axis range between train and val component plots
+    fig.update_yaxes(matches="y2", row=1, col=3)
+
+    # --- Layout ---
+    fig.update_xaxes(title_text="Epoch")
+    fig.update_layout(
+        title=dict(text=title, font=dict(size=13)),
+        height=400,
+        hovermode="x unified",
+        legend=dict(
+            orientation="h", yanchor="bottom", y=-0.22, xanchor="center", x=0.5,
+            font=dict(size=11),
+        ),
+        margin=dict(l=50, r=20, t=40, b=20),
+    )
 
     # Current status
     latest = history[-1]
     status = f"Epoch {latest['epoch']}/{cfg.get('epochs', '?')} | Val PSNR: {latest['val_psnr']:.2f} dB | Best: {val_psnr[best_idx]:.2f} dB (ep {epochs[best_idx]})"
-    
+
     return fig, status
 
 
@@ -188,8 +231,10 @@ def load_model(checkpoint_path: str):
     _device = get_device()
     ckpt = torch.load(checkpoint_path, map_location=_device, weights_only=True)
     _cfa_p = _ckpt_cfa_period(ckpt)
-    _model = XTransUNet(base_width=ckpt.get("base_width", 64), cfa_period=_cfa_p).to(_device)
-    _model.load_state_dict(ckpt["model"])  # strict: a mismatched architecture must fail, not load partially
+    _cfa_pat = CFA_REGISTRY[ckpt.get("cfa_type", "xtrans")]
+    _model = XTransUNet(base_width=ckpt.get("base_width", 64), cfa_period=_cfa_p,
+                        cfa_pattern=torch.from_numpy(_cfa_pat)).to(_device)
+    _model.load_state_dict(ckpt["model"], strict=False)
     _model.eval()
     _model_path = checkpoint_path
 
@@ -244,7 +289,7 @@ def run_inference(
     raf_name = Path(raf_path).stem
 
     rgb_linear, meta = process_raw(raf_path, model, str(device), patch_size=patch_size, overlap=overlap,
-                                    apply_wb_to_cfa=checkpoint_applies_wb(checkpoint), hlrecon=hlrecon)
+                                    hlrecon=hlrecon)
 
     progress(0.9, desc="Encoding HDR AVIF...")
 
