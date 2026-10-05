@@ -123,14 +123,20 @@ class TrainingRunTest(unittest.TestCase):
                 self.assertEqual((ckpt["stages"], ckpt["architecture_tag"], ckpt["checkpoint_version"]),
                                  (2, "v7", "v7.0.0"))
                 history = json.loads((out / "history.json").read_text())
-                self.assertEqual(len(history), 2)
+                self.assertEqual([h["epoch"] for h in history], [0, 1])
                 self.assertTrue(all(np.isfinite(h["val_psnr"]) and np.isfinite(h["train_psnr"]) for h in history))
                 config = json.loads((out / "config.json").read_text())
                 self.assertIn(str(self.data), config["datasets"])
+                self.assertIsNone(config["resume"])
+                saved_epoch = int(ckpt["epoch"])            # best.pt is the only checkpoint after two epochs
                 # Continue the same run for one more epoch: it starts after the last saved epoch.
                 r = self._run("--from-checkpoint", str(out), "--epochs", "3")
                 self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
-                self.assertEqual(len(json.loads((out / "history.json").read_text())), 3)
+                self.assertEqual(json.loads((out / "config.json").read_text())["resume"], str(out / "best.pt"))
+                continued = json.loads((out / "history.json").read_text())
+                self.assertEqual([h["epoch"] for h in continued], [0, 1, 2])
+                # The epochs up to the saved one are carried over as they were, not trained again.
+                self.assertEqual(continued[:saved_epoch + 1], history[:saved_epoch + 1])
 
 
 if __name__ == "__main__":
