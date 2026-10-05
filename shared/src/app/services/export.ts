@@ -9,16 +9,49 @@ import {
 } from '@/renderer/grading/opendrt-params';
 import { createRenderer, type Renderer } from '@/renderer';
 import type { ExportFormat } from '@/lib/types';
-import type { EncodeJob, ExportResult } from '@/host';
+import type { EncodeJob, ExportResult, ExportDestination } from '@/host';
 import { acquireResult } from './processing';
 import { processingKey } from '@/app/store/photo';
 import { getHost } from './host';
 const HDR_PEAK_LUMINANCE = 1000;
 export type ExportState = 'queued' | 'rendering' | 'encoding' | 'done' | 'failed' | 'cancelled';
+export interface ExportObserver {
+  state?(state: ExportState): void;
+  destination?(destination: ExportDestination): void;
+}
 export interface ExportJobHandle {
   readonly state: ExportState;
   promise: Promise<ExportResult | null>;
   cancel(): void;
+}
+// A slot owns one export's rendered planes until the host finishes encoding.
+let activePlanes = 0;
+const planeWaiters: Array<() => void> = [];
+function acquirePlaneSlot(signal: AbortSignal): Promise<() => void> {
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      const index = planeWaiters.indexOf(take);
+      if (index >= 0) planeWaiters.splice(index, 1);
+      reject(signal.reason);
+    };
+    const take = () => {
+      signal.removeEventListener('abort', abort);
+      activePlanes++;
+      let released = false;
+      resolve(() => {
+        if (released) return;
+        released = true;
+        activePlanes--;
+        planeWaiters.shift()?.();
+      });
+    };
+    if (signal.aborted) { reject(signal.reason); return; }
+    if (activePlanes < 2) take();
+    else {
+      planeWaiters.push(take);
+      signal.addEventListener('abort', abort, { once: true });
+    }
+  });
 }
 let rendering: Promise<unknown> = Promise.resolve();
 async function renderPixels(
@@ -79,6 +112,7 @@ export function enqueueExport(
   fileId: string,
   format = useAppStore.getState().exportFormat,
   quality = useAppStore.getState().exportQuality,
+  observer?: ExportObserver,
 ): ExportJobHandle {
   const host = getHost();
   const snapshot = useAppStore.getState();
@@ -86,6 +120,12 @@ export function enqueueExport(
   const lease = acquireResult(fileId);
   const controller = new AbortController();
   let state: ExportState = 'queued';
+  const setState = (next: ExportState) => {
+    if (state === next) return;
+    state = next;
+    observer?.state?.(next);
+  };
+  let releaseSlot: (() => void) | undefined;
   let released = false;
   const release = () => {
     if (!released) {
@@ -112,14 +152,17 @@ export function enqueueExport(
         format,
       );
       if (!destination) {
-        state = 'cancelled';
+        setState('cancelled');
         return null;
       }
+      controller.signal.throwIfAborted();
+      observer?.destination?.(destination);
+      releaseSlot = await acquirePlaneSlot(controller.signal);
       const readback = rendering
         .catch(() => {})
         .then(async () => {
           controller.signal.throwIfAborted();
-          state = 'rendering';
+          setState('rendering');
           // A separate renderer owns the pinned texture throughout both readbacks, independent of selection.
           const renderer = await createRenderer(document.createElement('canvas'));
           try {
@@ -139,19 +182,20 @@ export function enqueueExport(
       rendering = readback;
       const pixels = await readback;
       controller.signal.throwIfAborted();
-      state = 'encoding';
+      setState('encoding');
       const result = await host.exporter.encode(pixels, destination);
       controller.signal.throwIfAborted();
-      state = 'done';
+      setState('done');
       return result;
     } catch (error) {
       if (controller.signal.aborted) {
-        state = 'cancelled';
+        setState('cancelled');
         return null;
       }
-      state = 'failed';
+      setState('failed');
       throw error;
     } finally {
+      releaseSlot?.();
       release();
     }
   })();
@@ -163,7 +207,7 @@ export function enqueueExport(
     cancel: () => {
       controller.abort();
       if (state === 'queued') {
-        state = 'cancelled';
+        setState('cancelled');
         release();
         cancelQueued(null);
       }

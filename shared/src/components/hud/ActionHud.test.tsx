@@ -4,6 +4,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { ActionHud } from './ActionHud';
 import { useAppStore } from '@/app/store';
+import { useExportJobs } from '@/app/services/export-jobs';
 import type { QueuedFile } from '@/app/store';
 
 // ActionHud calls useProcessing()/useExport(), whose modules import the WASM
@@ -13,7 +14,7 @@ vi.mock('@/app/hooks/useProcessing', () => ({
   useProcessing: () => ({ processFile: vi.fn(), isProcessing: false }),
 }));
 vi.mock('@/app/hooks/useExport', () => ({
-  useExport: () => ({ exportFile: vi.fn(), isExporting: false }),
+  useExport: () => ({ exportAvailable: true, unavailableReason: null }),
 }));
 
 function makeFile(id: string, status: QueuedFile['status']): QueuedFile {
@@ -57,7 +58,8 @@ describe('ActionHud', () => {
     expect(screen.getByRole('button', { name: 'Export' })).toBeDisabled();
   });
 
-  it('enables Export when the file is done', () => {
+  it('enables Export when the file is done while another export is running', () => {
+    useExportJobs.setState({ jobs: [{ id: 'running', fileId: 'b', label: 'b.avif', state: 'encoding', error: null, result: null, destination: null }] });
     useAppStore.setState({ files: [makeFile('a', 'done')], selectedFileId: 'a' });
     render(<ActionHud />);
     expect(screen.getByRole('button', { name: 'Export' })).not.toBeDisabled();

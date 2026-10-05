@@ -1,4 +1,3 @@
-import { Loader2 } from 'lucide-react';
 import { Slider } from '@/components/hud/Slider';
 import { EXPORT_FORMATS } from '@/lib/catalog';
 import { useAppStore } from '@/app/store';
@@ -10,10 +9,9 @@ interface ExportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onExport: () => void;
-  isExporting: boolean;
 }
 
-export function ExportDialog({ open, onOpenChange, onExport, isExporting }: ExportDialogProps) {
+export function ExportDialog({ open, onOpenChange, onExport }: ExportDialogProps) {
   const fileName = useAppStore(
     (state) => state.files.find((file) => file.id === state.selectedFileId)?.name ?? 'file',
   );
@@ -24,24 +22,22 @@ export function ExportDialog({ open, onOpenChange, onExport, isExporting }: Expo
   const isTiff = exportFormat === 'tiff';
 
   return (
-    <Dialog open={open} onOpenChange={(value) => { if (!isExporting) onOpenChange(value); }}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         title={`Export ${fileName}`}
         actions={(
           <>
             <button
               type="button" className="xv-btn"
-              onClick={() => onOpenChange(false)} disabled={isExporting}
+              onClick={() => onOpenChange(false)}
             >
               Cancel
             </button>
             <button
               type="button" className="xv-btn xv-btn--primary"
-              onClick={onExport} disabled={isExporting}
+              onClick={() => { onExport(); onOpenChange(false); }}
             >
-              {isExporting
-                ? <><Loader2 size={14} className="xv-spin" />Exporting</>
-                : 'Export'}
+              Export
             </button>
           </>
         )}

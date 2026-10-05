@@ -12,6 +12,7 @@ import { PanelHost } from './PanelHost';
 import { HistogramHud } from './HistogramHud';
 import { Minimap } from './Minimap';
 import { StartupError } from './StartupError';
+import { ExportStatus } from './ExportStatus';
 import './HudRoot.css';
 
 export function HudRoot() {
@@ -49,6 +50,7 @@ export function HudRoot() {
         )}
       </div>
       <div className="xv-hud-overlay xv-hud-settings">
+        <ExportStatus />
         <ToolRail settingsOnly={chromeHidden} />
         <PanelHost settingsOnly={chromeHidden} />
       </div>

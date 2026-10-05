@@ -3,17 +3,18 @@ import { useAppStore } from '@/app/store';
 import { useProcessing } from '@/app/hooks/useProcessing';
 import { useExport } from '@/app/hooks/useExport';
 import { ExportDialog } from '@/components/dialogs/ExportDialog';
+import { startExport } from '@/app/services/export-jobs';
 import './ActionHud.css';
 
 export function ActionHud() {
   const initialized = useAppStore((s) => s.initialized);
   const selectedFile = useAppStore((s) => s.files.find((f) => f.id === s.selectedFileId));
   const { processFile, isProcessing } = useProcessing();
-  const { exportFile, isExporting, exportError, exportAvailable = true } = useExport();
+  const { exportAvailable, unavailableReason } = useExport();
   const [exportOpen, setExportOpen] = useState(false);
 
   const canProcess = initialized && !isProcessing && !!selectedFile;
-  const canExport = selectedFile?.status === 'done' && !isExporting && exportAvailable;
+  const canExport = selectedFile?.status === 'done' && exportAvailable;
 
   return (
     <div className="xv-actionhud xv-glass">
@@ -31,12 +32,11 @@ export function ActionHud() {
       >
         {isProcessing ? 'Processing…' : 'Process'}
       </button>
-      {exportError && <p role="alert">{exportError}</p>}
+      {unavailableReason && <p role="alert">{unavailableReason}</p>}
       <ExportDialog
         open={exportOpen}
         onOpenChange={setExportOpen}
-        onExport={() => selectedFile && exportFile(selectedFile.id)}
-        isExporting={isExporting}
+        onExport={() => selectedFile && startExport(selectedFile.id)}
       />
     </div>
   );

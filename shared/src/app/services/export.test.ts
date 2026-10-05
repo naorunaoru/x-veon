@@ -148,3 +148,79 @@ it('passes the photo identity and resolves a hash result without a blob', async 
   await expect(enqueueExport('a', 'avif').promise).resolves.toEqual(result);
   expect(host.exporter.chooseDestination).toHaveBeenCalledWith('a', 'a.avif', 'avif');
 });
+
+it('observes rendering, encoding and done, and the chosen destination once', async () => {
+  const state = vi.fn();
+  const destination = vi.fn();
+  await enqueueExport('a', 'tiff', 95, { state, destination }).promise;
+  expect(state.mock.calls.flat()).toEqual(['rendering', 'encoding', 'done']);
+  expect(destination).toHaveBeenCalledExactlyOnceWith({ token: 'test' });
+});
+it('observes a cancelled destination without rendering', async () => {
+  vi.mocked(host.exporter.chooseDestination).mockResolvedValue(null);
+  const state = vi.fn();
+  await enqueueExport('a', 'tiff', 95, { state }).promise;
+  expect(state.mock.calls.flat()).toEqual(['cancelled']);
+});
+it('bounds rendered planes to two and frees capacity after encoding', async () => {
+  const finishes: Array<() => void> = [];
+  vi.mocked(host.exporter.encode).mockImplementation(() => new Promise((resolve) => finishes.push(() => resolve({}))));
+  const first = enqueueExport('a', 'tiff');
+  const second = enqueueExport('a', 'tiff');
+  const third = enqueueExport('a', 'tiff');
+  await vi.waitFor(() => expect(host.exporter.encode).toHaveBeenCalledTimes(2));
+  expect(m.readback).toHaveBeenCalledTimes(2);
+  expect(third.state).toBe('queued');
+  const cancelled = enqueueExport('a', 'tiff');
+  await vi.waitFor(() => expect(host.exporter.chooseDestination).toHaveBeenCalledTimes(4));
+  cancelled.cancel();
+  await cancelled.promise;
+  finishes[0]();
+  await first.promise;
+  await vi.waitFor(() => expect(host.exporter.encode).toHaveBeenCalledTimes(3));
+  finishes[1](); finishes[2]();
+  await Promise.all([second.promise, third.promise]);
+  vi.mocked(host.exporter.encode).mockResolvedValue({});
+  await enqueueExport('a', 'tiff').promise;
+  expect(m.readback).toHaveBeenCalledTimes(4);
+});
+it.each(['queued', 'rendering', 'encoding'] as const)('retains its snapshot through a folder switch while %s', async (phase) => {
+  let resume!: () => void;
+  const gate = new Promise<void>((resolve) => { resume = resolve; });
+  if (phase === 'queued') vi.mocked(host.exporter.chooseDestination).mockImplementationOnce(async () => { await gate; return { token: 'test' }; });
+  if (phase === 'rendering') m.readback.mockImplementationOnce(async () => { await gate; return new Float32Array(4); });
+  if (phase === 'encoding') vi.mocked(host.exporter.encode).mockImplementationOnce(async () => { await gate; return {}; });
+  const job = enqueueExport('a', 'tiff');
+  await vi.waitFor(() => expect(phase === 'queued' ? vi.mocked(host.exporter.chooseDestination).mock.calls.length : job.state).toBe(phase === 'queued' ? 1 : phase));
+  useAppStore.setState({ files: [], selectedFileId: null });
+  if (phase === 'rendering') expect(m.release).not.toHaveBeenCalled();
+  resume();
+  await job.promise;
+  expect(job.state).toBe('done');
+  expect(host.exporter.chooseDestination).toHaveBeenCalledOnce();
+  expect(m.release).toHaveBeenCalledOnce();
+});
+
+it.each(['failed', 'cancelled'] as const)('returns plane capacity when an encode ends %s', async (ending) => {
+  let settle!: () => void;
+  vi.mocked(host.exporter.encode).mockImplementationOnce(() => new Promise((resolve, reject) => {
+    settle = ending === 'failed' ? () => reject(new Error('broken encode')) : () => resolve({});
+  }));
+  let finishSecond!: () => void;
+  vi.mocked(host.exporter.encode).mockImplementationOnce(() => new Promise((resolve) => { finishSecond = () => resolve({}); }));
+  const first = enqueueExport('a', 'tiff');
+  // Attach the rejection handler before settling the fake encode.
+  const firstOutcome = first.promise.catch((error: unknown) => error);
+  const second = enqueueExport('a', 'tiff');
+  const third = enqueueExport('a', 'tiff');
+  await vi.waitFor(() => expect(host.exporter.encode).toHaveBeenCalledTimes(2));
+  if (ending === 'cancelled') first.cancel();
+  expect(m.readback).toHaveBeenCalledTimes(2);
+  settle();
+  await firstOutcome;
+  await third.promise;
+  expect(first.state).toBe(ending);
+  expect(m.readback).toHaveBeenCalledTimes(3);
+  finishSecond();
+  await second.promise;
+});

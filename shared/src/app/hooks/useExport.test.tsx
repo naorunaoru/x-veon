@@ -9,5 +9,5 @@ it('reports an unavailable host exporter so the UI can disable export and explai
   setHost(host);
   const { result } = renderHook(() => useExport());
   await waitFor(() => expect(result.current.exportAvailable).toBe(false));
-  await waitFor(() => expect(result.current.exportError).toBe('Encoder unavailable'));
+  await waitFor(() => expect(result.current.unavailableReason).toBe('Encoder unavailable'));
 });
