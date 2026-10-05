@@ -182,6 +182,22 @@ class SafeExportTest(unittest.TestCase):
                 export_selected(registry, out, version="v7.0.0", cfa_type="bayer", patch_size=PATCH)
             self.assertIn(str(onnx_file), str(ctx.exception))
 
+    def test_an_up_to_date_file_of_another_patch_size_says_how_to_replace_it(self) -> None:
+        import onnxruntime as ort
+
+        with tempfile.TemporaryDirectory() as d:
+            registry, out = self._first_export(Path(d))              # exported at PATCH
+            before = _digests(out)
+            with self.assertRaises(SystemExit) as ctx:
+                export_selected(registry, out, version="v7.0.0", cfa_type="bayer", patch_size=2 * PATCH)
+            message = str(ctx.exception)
+            for part in (str(out / "bayer_w16_base.onnx"), "different patch size", "--force"):
+                self.assertIn(part, message)
+            self.assertEqual(_digests(out), before)
+            export_selected(registry, out, version="v7.0.0", cfa_type="bayer", patch_size=2 * PATCH, force=True)
+            shape = ort.InferenceSession(str(out / "bayer_w16_base.onnx")).get_inputs()[0].shape
+            self.assertEqual(list(shape)[1:], [5, 2 * PATCH, 2 * PATCH])
+
     def test_the_command_line_always_verifies_and_still_accepts_verify(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             ckpt = _checkpoint(Path(d), "xtrans")

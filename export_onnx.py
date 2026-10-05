@@ -110,6 +110,13 @@ def export(checkpoint_path: str, output_path: str, patch_size: int = 288, opset:
     return metadata
 
 
+def _input_dims(onnx_path: str) -> list[list[int | str]]:
+    """The shape of each input of an ONNX file; dynamic axes appear by name."""
+    graph = onnx.load(onnx_path, load_external_data=False).graph
+    return [[d.dim_param if d.HasField("dim_param") else d.dim_value for d in i.type.tensor_type.shape.dim]
+            for i in graph.input]
+
+
 def verify_tiles(patch_size: int) -> dict[str, torch.Tensor]:
     """Mosaics [1, 1, P, P] that verify() sends through both models as one batch."""
     g = torch.Generator().manual_seed(0)
@@ -208,6 +215,10 @@ def export_entries(entries: list[tuple[str, str, dict[str, Any]]], out_dir: Path
         if not force and manifest.get(key, {}).get("source_sha256") == sha and onnx_path.exists():
             # The checkpoint is unchanged, but the file in place must still be what it gives.
             print(f"--- {key}: up to date, checking {onnx_path.name}")
+            dims = _input_dims(str(onnx_path))
+            if len(dims) == 1 and dims[0][1:2] == [5] and dims[0][2:] != [patch_size, patch_size]:
+                raise SystemExit(f"{onnx_path} was exported at a different patch size ({dims[0][2]}x{dims[0][3]}, "
+                                 f"this run uses {patch_size}); re-run with --force to replace it")
             verify(ckpt_path, str(onnx_path), patch_size)
             print(f"--- {key}: up to date (skipped)")
             continue
