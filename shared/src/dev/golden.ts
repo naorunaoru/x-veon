@@ -284,7 +284,7 @@ function publish(payload: unknown, status: string): void {
   console.log('[golden]', JSON.stringify(payload));
 }
 
-export async function runGolden(cleanup: (id: string) => Promise<void> = removeFile): Promise<void> {
+export async function runGolden(cleanup: (id: string) => Promise<void> = removeFile, opts: { encoder?: 'wasm' | 'native' } = {}): Promise<void> {
   const requested = new URLSearchParams(location.search).get('golden');
   const mode: GoldenMode = requested === 'full' ? 'full' : requested === 'render' ? 'render' : 'quick';
   document.title = `golden: running (${mode})`;
@@ -322,6 +322,7 @@ export async function runGolden(cleanup: (id: string) => Promise<void> = removeF
       await adapterInfo(),
       BUILD.sha,
       new Date().toISOString(),
+      opts.encoder ?? 'wasm',
     );
     const results = compareToBaseline(report, loadBaseline(report.adapter), expected);
     const status = overallStatus(results);

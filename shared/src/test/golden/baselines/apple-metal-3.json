@@ -82,5 +82,15 @@
       "bytes": 145444806,
       "sha256": "bc112f8a68ddfa0f9034bf71995130193e1f5e6a70b36cbd51252b40f6c81e97"
     }
+  },
+  "nativeExports": {
+    "DSCF3332.RAF|avif": {
+      "bytes": 791540,
+      "sha256": "647c40edbb3868aa70d75561ad96ac64742b0f852e4de8ba060f4e7fe7711d5c"
+    },
+    "sony_a6400_21.arw|avif": {
+      "bytes": 4768225,
+      "sha256": "1deba6987c99a505e9601131e9d896b99a825f151093b2977bcdcd8ccf8a9deb"
+    }
   }
 }

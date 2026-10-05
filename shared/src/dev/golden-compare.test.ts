@@ -197,3 +197,32 @@ describe('compareToBaseline', () => {
     expect(exportKey('a.raf', 'tiff')).toBe('a.raf|tiff');
   });
 });
+
+ describe('encoder-specific native AVIF baselines', () => {
+  const expected = { keys: [], exportKeys: ['a|avif', 'a|jpeg-hdr', 'a|tiff'], runs: 1 };
+  const web = { bytes: 100, sha256: 'web' }, native = { bytes: 99, sha256: 'native' };
+  const baseline: GoldenBaseline = { adapter, commit: 'x', recordedAt, entries: {}, exports: { 'a|avif': web, 'a|jpeg-hdr': web, 'a|tiff': web }, nativeExports: { 'a|avif': native, 'a|jpeg-hdr': native, 'a|tiff': native } };
+  const report = (encoder: 'wasm' | 'native', avif = native) => buildReport('full', [], [{ key: 'a|avif', ...avif }, { key: 'a|jpeg-hdr', ...web }, { key: 'a|tiff', ...web }], adapter, 'x', recordedAt, encoder);
+  it('records the encoder and passes native AVIF against nativeExports', () => {
+    const nativeReport = report('native'); expect(nativeReport.encoder).toBe('native');
+    expect(compareToBaseline(nativeReport, baseline, expected).map(r => r.status)).toEqual(['PASS', 'PASS', 'PASS']);
+  });
+  it('fails native AVIF which equals web rather than the recorded native hash', () => {
+    expect(compareToBaseline(report('native', web), baseline, expected)[0]).toEqual({ key: 'a|avif', status: 'FAIL', reason: 'bytes differ' });
+  });
+  it('falls back to web exports if the native AVIF entry is absent', () => {
+    expect(compareToBaseline(report('native', web), { ...baseline, nativeExports: {} }, expected).map(r => r.status)).toEqual(['PASS', 'PASS', 'PASS']);
+  });
+  it('always compares native JPEG-HDR and TIFF against web exports', () => {
+    expect(compareToBaseline(report('native'), baseline, expected).slice(1).map(r => r.status)).toEqual(['PASS', 'PASS']);
+  });
+  it('ignores nativeExports in web reports', () => {
+    expect(compareToBaseline(report('wasm', web), baseline, expected).map(r => r.status)).toEqual(['PASS', 'PASS', 'PASS']);
+    expect(compareToBaseline(report('wasm'), baseline, expected)[0].status).toBe('FAIL');
+  });
+  it('restricts every checked-in native baseline key to AVIF', () => {
+    const baselines = import.meta.glob('../test/golden/baselines/*.json', { eager: true, import: 'default' }) as Record<string, GoldenBaseline>;
+    expect(Object.keys(baselines).length).toBeGreaterThan(0);
+    for (const baseline of Object.values(baselines)) for (const key of Object.keys(baseline.nativeExports ?? {})) expect(key.endsWith('|avif')).toBe(true);
+  });
+});

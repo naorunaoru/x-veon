@@ -37,11 +37,16 @@ cases.push({ format: 'avif', width: 3000, height: 3200, orientation: 'Normal', q
 const hash = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 for (const input of cases) {
   const { format, width: w, height: h, orientation, quality, peakLuminance: peak } = input;
-  const name = `${format} ${w}x${h} orientation=${orientation} q${quality}`;
+  const name = `${format} ${w}x${h} orientation=${orientation} q${quality}${format === 'avif' ? ' (rav1e assembly off)' : ''}`;
   it(name, async () => {
     const data = syntheticImage(w, h, 20261005, format === 'jpeg-hdr' ? 1 : 6);
     const hdr = format === 'jpeg-hdr' ? syntheticImage(w, h, 20261006, 6) : null;
-    const nativeBytes = await native.encode(data, hdr, input);
+    let nativeBytes: Uint8Array;
+    if (format === 'avif') {
+      process.env.RAV1E_CPU_TARGET = 'rust';
+      try { nativeBytes = await native.encode(data, hdr, input); }
+      finally { delete process.env.RAV1E_CPU_TARGET; }
+    } else nativeBytes = await native.encode(data, hdr, input);
     const wasmBytes = wasm.encode_image(data, hdr ?? new Float32Array(0), w, h, orientation, format, quality, peak);
     const equal = Buffer.from(nativeBytes).equals(Buffer.from(wasmBytes));
     results.push({ name, ...input, equal, nativeLength: nativeBytes.length, wasmLength: wasmBytes.length, nativeSha256: hash(nativeBytes), wasmSha256: hash(wasmBytes) });

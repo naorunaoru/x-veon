@@ -10,7 +10,7 @@ export async function runGoldenApp(root: HTMLElement): Promise<void> {
   const started = performance.now();
   await runGolden(async id => {
     discardResult(id); useAppStore.getState().removeFile(id); fixture.releaseFixture(id);
-  });
+  }, { encoder: 'native' });
   const report = (window as unknown as { __golden?: { status: string } }).__golden;
   if (report && terminal.has(report.status)) {
     (window as unknown as { __goldenRun: unknown }).__goldenRun = { status: report.status, totalMs: performance.now() - started, report };

@@ -42,6 +42,7 @@ export type GoldenMode = 'quick' | 'full' | 'render';
 
 export interface GoldenReport {
   mode: GoldenMode;
+  encoder: 'wasm' | 'native';
   adapter: AdapterInfo;
   commit: string;
   recordedAt: string;
@@ -50,6 +51,7 @@ export interface GoldenReport {
 }
 
 export interface GoldenBaseline {
+  nativeExports?: Record<string, { bytes: number; sha256: string }>;
   adapter: AdapterInfo;
   commit: string;
   recordedAt: string;
@@ -97,6 +99,7 @@ export function buildReport(
   adapter: AdapterInfo,
   commit: string,
   recordedAt: string,
+  encoder: 'wasm' | 'native' = 'wasm',
 ): GoldenReport {
   const entries: Record<string, GoldenEntry> = {};
   for (const run of runs) {
@@ -133,7 +136,7 @@ export function buildReport(
     };
   }
 
-  return { mode, adapter, commit, recordedAt, entries, exports: exportEntries };
+  return { mode, encoder, adapter, commit, recordedAt, entries, exports: exportEntries };
 }
 
 export function compareToBaseline(
@@ -205,7 +208,9 @@ export function compareToBaseline(
       continue;
     }
 
-    const baselineEntry = baseline.exports[key];
+    const baselineEntry = report.encoder === 'native' && key.endsWith('|avif')
+      ? baseline.nativeExports?.[key] ?? baseline.exports[key]
+      : baseline.exports[key];
     if (!baselineEntry) {
       results.push({ key, status: 'FAIL', reason: 'missing from baseline' });
       continue;

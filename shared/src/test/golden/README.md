@@ -126,3 +126,15 @@ npx electron desktop --golden-report="$PWD/.m3-evidence/task9-electron-golden.js
 
 Main creates `<report>.exports` for fixed native destinations. The harness compares the
 worker's SHA-256 and byte receipts against the unchanged adapter baseline.
+
+## Native AVIF on Apple Metal (2026-10-05)
+
+At commit `738721f`, two isolated full Electron 44.4.5 runs on the Apple M4 Pro
+agreed on all render hashes and native export hashes and byte counts. The author
+approved the two AVIF values on 2026-10-05 and chose to keep rav1e 0.7.1's NEON
+assembly. They are recorded separately in `nativeExports`; native Ultra HDR JPEG
+and TIFF still use `exports`, and web WASM reports always use `exports`.
+
+The decoded comparison measured 55.595 dB PSNR against the source for both files,
+with about 7% of samples differing by at most 21 of 1023 codes. Native AVIF hashes
+depend on the CPU assembly path as well as the GPU adapter.
