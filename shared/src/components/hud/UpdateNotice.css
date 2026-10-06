@@ -5,3 +5,4 @@
   padding: 8px 12px; border-radius: 12px; font-size: 12px; pointer-events: auto;
 }
 .xv-update-notice p { margin: 0; }
+.xv-update-notice a { color: var(--xv-primary); }
