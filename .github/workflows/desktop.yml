@@ -1,0 +1,203 @@
+name: Desktop installers
+
+# Builds the desktop app on macOS arm64 and Windows x64, and attaches the installers to the tag's
+# GitHub Release (spec §9): a pre-release for beta/* tags, the existing release for stable/* tags.
+# Runs on beta/* tag pushes; promote.yml dispatches it for each new stable tag, because a tag a
+# workflow creates can't trigger other workflows. dry_run keeps the installers as run artifacts and
+# never touches a release; identity_tag gives a dry run a release identity. A ref without the M4
+# desktop code is skipped. Must stay identical on develop and main (RELEASING.md).
+
+on:
+  push:
+    tags: ['beta/**']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build and attach (beta/* or stable/*), existing and annotated. Empty builds this ref, as a dry run only.
+        type: string
+        default: ''
+      dry_run:
+        description: Build and keep the installers as run artifacts; never touch a release
+        type: boolean
+        default: false
+      identity_tag:
+        description: Dry runs only - build this ref as if it had this release tag, which needn't exist
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      identity: ${{ steps.resolve.outputs.identity }}
+      sha: ${{ steps.resolve.outputs.sha }}
+      build: ${{ steps.resolve.outputs.build }}
+      publish: ${{ steps.resolve.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - id: resolve
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_IDENTITY: ${{ inputs.identity_tag }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          # actions/checkout fetches a pushed tag as a lightweight ref; re-fetch the real tag objects.
+          git fetch --force --tags --quiet origin
+          # main's copy can run before main has the desktop code: M4's rollout, or a promotion of an old main.
+          if [[ ! -f desktop/scripts/resolve-release.mjs ]]; then
+            echo "::notice::This ref has no M4 desktop code; nothing to build"
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          node desktop/scripts/resolve-release.mjs
+
+  build:
+    needs: resolve
+    if: needs.resolve.outputs.build == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            platform: mac
+          - os: windows-2025
+            platform: win
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      XV_RELEASE_TAG: ${{ needs.resolve.outputs.identity }}
+      PLATFORM: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          fetch-depth: 0
+          submodules: true
+          lfs: true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: '**/package-lock.json'
+      - name: NASM for rav1e's x86 assembly
+        if: matrix.platform == 'win'
+        run: |
+          choco install nasm --no-progress -y
+          echo 'C:\Program Files\NASM' >> "$GITHUB_PATH"
+      - name: Install
+        run: npm ci
+      - name: WASM and LensFun data
+        run: |
+          npm run build:wasm
+          npm run build:lensfun --workspace shared
+      - name: Tests
+        run: |
+          npm test
+          npm run typecheck
+          cargo test --locked -p xveon-encode --features native
+      - name: Native addon and parity
+        run: |
+          npm run build:native --workspace desktop
+          npm run test:native --workspace desktop
+      - name: Package
+        run: npm run dist --workspace desktop -- --"$PLATFORM" --publish never
+      - name: Check the archive
+        run: |
+          set -euo pipefail
+          product="$(node -p "require('./desktop/out/release.json').productName")"
+          if [[ "$PLATFORM" == "mac" ]]; then
+            asar="desktop/dist/mac-arm64/${product}.app/Contents/Resources/app.asar"
+          else
+            asar="desktop/dist/win-unpacked/resources/app.asar"
+          fi
+          node desktop/scripts/check-dist.mjs "$asar"
+      - name: Check the version fields (macOS)
+        if: needs.resolve.outputs.identity != '' && matrix.platform == 'mac'
+        run: |
+          set -euo pipefail
+          field() { node -p "require('./desktop/out/release.json').$1"; }
+          plist="desktop/dist/mac-arm64/$(field productName).app/Contents/Info.plist"
+          for pair in "CFBundleIdentifier=$(field appId)" "CFBundleShortVersionString=$(field platform.macShortVersion)" "CFBundleVersion=$(field platform.macBundleVersion)"; do
+            key="${pair%%=*}"; expected="${pair#*=}"; actual="$(plutil -extract "$key" raw "$plist")"
+            echo "$key = $actual"
+            [[ "$actual" == "$expected" ]] || { echo "::error::$key is $actual, expected $expected"; exit 1; }
+          done
+      - name: Check the version fields (Windows)
+        if: needs.resolve.outputs.identity != '' && matrix.platform == 'win'
+        shell: pwsh
+        run: |
+          $release = Get-Content desktop/out/release.json -Raw | ConvertFrom-Json
+          $expected = $release.platform.windowsVersion
+          $app = (Get-Item "desktop/dist/win-unpacked/$($release.productName).exe").VersionInfo
+          $setup = (Get-Item "desktop/dist/$($release.installers.win)").VersionInfo
+          $actual = [ordered]@{
+            'app file version'          = '{0}.{1}.{2}.{3}' -f $app.FileMajorPart, $app.FileMinorPart, $app.FileBuildPart, $app.FilePrivatePart
+            'app product version'       = '{0}.{1}.{2}.{3}' -f $app.ProductMajorPart, $app.ProductMinorPart, $app.ProductBuildPart, $app.ProductPrivatePart
+            'installer product version' = '{0}.{1}.{2}.{3}' -f $setup.ProductMajorPart, $setup.ProductMinorPart, $setup.ProductBuildPart, $setup.ProductPrivatePart
+          }
+          $failed = $false
+          foreach ($entry in $actual.GetEnumerator()) {
+            Write-Output "$($entry.Key) = $($entry.Value)"
+            if ($entry.Value -ne $expected) { Write-Output "::error::$($entry.Key) is $($entry.Value), expected $expected"; $failed = $true }
+          }
+          if ($failed) { exit 1 }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.platform }}
+          path: |
+            desktop/dist/*-mac-arm64.dmg
+            desktop/dist/*-win-x64-setup.exe
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    needs: [resolve, build]
+    if: needs.resolve.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
+          path: installers
+          merge-multiple: true
+      - name: Attach the installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            case "$TAG" in
+              beta/*) gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease \
+                        --title "beta ${TAG#beta/}" --notes "Desktop installers for $TAG. They're unsigned: see the README's install notes." ;;
+              *) echo "::error::$TAG has no release; promote.yml creates stable releases"; exit 1 ;;
+            esac
+          fi
+          gh release upload "$TAG" installers/* --repo "$GITHUB_REPOSITORY" --clobber
