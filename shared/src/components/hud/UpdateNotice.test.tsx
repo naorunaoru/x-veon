@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { fakeHost } from '@/test/fake-host';
 import { setHost } from '@/app/services/host';
 import { UpdateNotice } from './UpdateNotice';
@@ -16,10 +16,18 @@ it('announces, links to and dismisses a newer release', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
   expect(screen.queryByRole('status')).not.toBeInTheDocument();
 });
-it.each([async () => null, async () => { throw new Error('offline'); }])('stays empty after no release or failure', async check => {
+it.each(['no release', 'failure'])('stays empty after %s settles', async outcome => {
+  let resolve!: (value: null) => void;
+  let reject!: (reason: Error) => void;
+  const check = vi.fn(() => new Promise<null>((yes, no) => { resolve = yes; reject = no; }));
   setHost({ ...fakeHost(), updates: { check } });
   render(<UpdateNotice />);
-  await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+  expect(check).toHaveBeenCalledOnce();
+  await act(async () => {
+    if (outcome === 'no release') resolve(null);
+    else reject(new Error('offline'));
+  });
+  expect(screen.queryByRole('status')).not.toBeInTheDocument();
 });
 it('stays empty without the update capability', () => {
   render(<UpdateNotice />);

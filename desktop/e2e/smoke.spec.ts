@@ -24,6 +24,7 @@ test('open a folder, process RAF and ARW, edit, export an AVIF that decodes', as
   for (const name of samples) {
     if (!(await fs.stat(path.join(source, name))).isFile()) throw new Error(`Missing sample ${name}`);
   }
+  const identity = appIdentity(smokeTag, 'untagged', true);
   const work = await fs.mkdtemp(path.join(os.tmpdir(), 'xveon-smoke-'));
   const photos = path.join(work, 'photos'), exports = path.join(work, 'exports');
   const target = path.join(exports, 'sony_a6400_21.avif');
@@ -31,16 +32,22 @@ test('open a folder, process RAF and ARW, edit, export an AVIF that decodes', as
   let tracing = false;
   let exited = false;
   const provenance: Record<string, unknown> = { executable, source, work, photos, target, profile: path.join(work, 'profile') };
-  const identity = appIdentity(smokeTag, 'untagged', true);
   const requests: string[] = [];
-  const updates = http.createServer((request, response) => {
-    requests.push(request.url ?? '');
-    const found = request.url === '/releases/latest' ? release(newer.stable) : request.url === '/releases?per_page=30' ? [release(newer.beta)] : null;
-    response.writeHead(found ? 200 : 404, { 'Content-Type': 'application/json' }).end(JSON.stringify(found ?? { message: 'Not Found' }));
-  });
-  await new Promise<void>(resolve => updates.listen(0, '127.0.0.1', resolve));
-  const api = `http://127.0.0.1:${(updates.address() as AddressInfo).port}/releases`;
+  let updates: http.Server | undefined;
   try {
+    updates = http.createServer((request, response) => {
+      requests.push(request.url ?? '');
+      const found = request.url === '/releases/latest' ? release(newer.stable) : request.url === '/releases?per_page=30' ? [release(newer.beta)] : null;
+      response.writeHead(found ? 200 : 404, { 'Content-Type': 'application/json' }).end(JSON.stringify(found ?? { message: 'Not Found' }));
+    });
+    await new Promise<void>((resolve, reject) => {
+      const onError = (error: Error) => { updates!.off('listening', onListening); reject(error); };
+      const onListening = () => { updates!.off('error', onError); resolve(); };
+      updates!.once('error', onError);
+      updates!.once('listening', onListening);
+      updates!.listen(0, '127.0.0.1');
+    });
+    const api = `http://127.0.0.1:${(updates.address() as AddressInfo).port}/releases`;
     await fs.mkdir(photos); await fs.mkdir(exports);
     for (const name of samples) await fs.copyFile(path.join(source, name), path.join(photos, name));
     app = await electron.launch({ executablePath: executable, args: [`--user-data-dir=${path.join(work, 'profile')}`], env: { ...process.env, XV_RELEASES_API: api }, timeout: 30_000 });
@@ -141,8 +148,11 @@ test('open a folder, process RAF and ARW, edit, export an AVIF that decodes', as
       });
     } else exited = true;
     provenance.confirmedExit = exited;
-    await new Promise<void>(resolve => updates.close(() => resolve()));
-    provenance.fixtureClosed = !updates.listening;
+    if (updates?.listening) {
+      const fixture = updates;
+      await new Promise<void>(resolve => fixture.close(() => resolve()));
+    }
+    provenance.fixtureClosed = !updates?.listening;
     if (exited) await fs.rm(work, { recursive: true, force: true });
     provenance.cleaned = exited;
     await fs.writeFile(info.outputPath('provenance.json'), JSON.stringify(provenance, null, 2));
