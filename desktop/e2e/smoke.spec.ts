@@ -4,6 +4,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { probeFromReadings } from '../src/host/display';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { appIdentity, parseReleaseTag, releaseInstallers, releaseVersion, type ReleaseTag } from '../src/release/tags';
+
+const smokeTag = process.env.XV_SMOKE_TAG || undefined;
+const newer = { beta: parseReleaseTag('beta/2099-01-01')!, stable: parseReleaseTag('stable/2099-01-01')! };
+const release = (t: ReleaseTag) => ({ tag_name: t.tag, draft: false, assets: Object.values(releaseInstallers(t)).map(name => ({ name })) });
 
 const samples = ['DSCF3332.RAF', 'sony_a6400_21.arw'];
 
@@ -24,10 +31,19 @@ test('open a folder, process RAF and ARW, edit, export an AVIF that decodes', as
   let tracing = false;
   let exited = false;
   const provenance: Record<string, unknown> = { executable, source, work, photos, target, profile: path.join(work, 'profile') };
+  const identity = appIdentity(smokeTag, 'untagged', true);
+  const requests: string[] = [];
+  const updates = http.createServer((request, response) => {
+    requests.push(request.url ?? '');
+    const found = request.url === '/releases/latest' ? release(newer.stable) : request.url === '/releases?per_page=30' ? [release(newer.beta)] : null;
+    response.writeHead(found ? 200 : 404, { 'Content-Type': 'application/json' }).end(JSON.stringify(found ?? { message: 'Not Found' }));
+  });
+  await new Promise<void>(resolve => updates.listen(0, '127.0.0.1', resolve));
+  const api = `http://127.0.0.1:${(updates.address() as AddressInfo).port}/releases`;
   try {
     await fs.mkdir(photos); await fs.mkdir(exports);
     for (const name of samples) await fs.copyFile(path.join(source, name), path.join(photos, name));
-    app = await electron.launch({ executablePath: executable, args: [`--user-data-dir=${path.join(work, 'profile')}`], timeout: 30_000 });
+    app = await electron.launch({ executablePath: executable, args: [`--user-data-dir=${path.join(work, 'profile')}`], env: { ...process.env, XV_RELEASES_API: api }, timeout: 30_000 });
     const child = app.process();
     provenance.pid = child.pid;
     child.once('exit', () => { exited = true; });
@@ -42,6 +58,19 @@ test('open a folder, process RAF and ARW, edit, export an AVIF that decodes', as
     }, { photos, target });
     const page = await app.firstWindow();
     page.setDefaultTimeout(30_000);
+    provenance.appName = await app.evaluate(({ app }) => app.getName());
+    provenance.appVersion = await app.evaluate(({ app }) => app.getVersion());
+    expect(provenance.appName).toBe(identity.productName);
+    if (identity.tag) expect(provenance.appVersion).toBe(identity.version);
+    else expect(provenance.appVersion).toMatch(/^0\.0\.0-dev\./);
+    const notice = page.locator('.xv-update-notice');
+    if (identity.tag) {
+      const offered = identity.channel === 'stable' ? newer.stable : newer.beta;
+      await expect(notice).toContainText(`${identity.productName} ${releaseVersion(offered).version} is available.`);
+      await expect(notice.getByRole('link', { name: 'Download', exact: true })).toHaveAttribute('href', `https://github.com/naorunaoru/x-veon/releases/tag/${offered.tag}`);
+      await notice.getByRole('button', { name: 'Dismiss', exact: true }).click();
+      await expect(notice).toHaveCount(0);
+    }
     await page.getByRole('button', { name: 'Open folder…', exact: true }).click();
     await page.getByRole('menuitem', { name: 'Open folder…', exact: true }).click();
     const thumbs = page.getByTestId('filmstrip-thumb');
@@ -51,7 +80,6 @@ test('open a folder, process RAF and ARW, edit, export an AVIF that decodes', as
     await expect(thumbs.nth(1).locator('.xv-thumb__dot.done')).toBeVisible({ timeout: 180_000 });
     const readings = await page.evaluate(() => (window as unknown as { xveon: { displayReadings(): Promise<unknown> } }).xveon.displayReadings());
     provenance.displayReadings = readings;
-    provenance.appName = await app.evaluate(({ app }) => app.getName());
     expect(readings, 'native display readings in the packaged app').not.toBeNull();
     const expected = probeFromReadings(readings as Parameters<typeof probeFromReadings>[0])!;
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
@@ -89,6 +117,9 @@ test('open a folder, process RAF and ARW, edit, export an AVIF that decodes', as
       } finally { probe.destroy(); }
     }, pathToFileURL(target).href);
     expect(size).toEqual([6024, 4024]);
+    provenance.updateRequests = requests;
+    expect(requests).toEqual(identity.tag ? [identity.channel === 'stable' ? '/releases/latest' : '/releases?per_page=30'] : []);
+    await expect(notice).toHaveCount(0);
   } finally {
     if (app) {
       if (tracing) {
@@ -110,6 +141,8 @@ test('open a folder, process RAF and ARW, edit, export an AVIF that decodes', as
       });
     } else exited = true;
     provenance.confirmedExit = exited;
+    await new Promise<void>(resolve => updates.close(() => resolve()));
+    provenance.fixtureClosed = !updates.listening;
     if (exited) await fs.rm(work, { recursive: true, force: true });
     provenance.cleaned = exited;
     await fs.writeFile(info.outputPath('provenance.json'), JSON.stringify(provenance, null, 2));

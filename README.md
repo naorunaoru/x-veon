@@ -117,7 +117,7 @@ XV_SMOKE_APP="$PWD/desktop/dist/mac-arm64/X-veon Beta.app/Contents/MacOS/X-veon 
 XV_SMOKE_SAMPLES="$PWD/shared/public/samples" npm run test:smoke --workspace desktop
 ```
 
-`XV_SMOKE_APP` is the packaged executable (on Windows, `desktop/dist/win-unpacked/X-veon Beta.exe`). `XV_SMOKE_SAMPLES` contains `DSCF3332.RAF` and `sony_a6400_21.arw`; the test edits temporary copies. No browser download is needed. Set `XV_SMOKE_REPORT` to choose the JSON report path; failed runs retain a trace in `desktop/test-results/`.
+`XV_SMOKE_APP` is the packaged executable (on Windows, `desktop/dist/win-unpacked/X-veon Beta.exe`). `XV_SMOKE_SAMPLES` contains `DSCF3332.RAF` and `sony_a6400_21.arw`; the test edits temporary copies. No browser download is needed. For a tagged build, also set `XV_SMOKE_TAG` to its tag. Every run answers main's update check from a local server, so the test never asks GitHub. Set `XV_SMOKE_REPORT` to choose the JSON report path; failed runs retain a trace in `desktop/test-results/`.
 
 Desktop edits are saved beside each RAW in a `.xmp` sidecar. Other apps may drop the `xveon:` properties when they rewrite that sidecar, so keep a copy if you edit the same photo in another app.
 

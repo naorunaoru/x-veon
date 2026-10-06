@@ -1,5 +1,5 @@
 import type { ExportFormat } from '@/lib/types';
-import type { DisplayReadings, FolderRef, PhotoId, UnsavedSummary } from '@/host';
+import type { DisplayReadings, FolderRef, NewerRelease, PhotoId, UnsavedSummary } from '@/host';
 export type { UnsavedSummary } from '@/host';
 export type BridgeEvent =
   | { kind: 'folder-request'; folderId?: string }
@@ -16,6 +16,7 @@ export interface DesktopBridge {
   openDropped(files: File[]): Promise<{ token: string; selected: PhotoId[] } | null>;
   recentFolders(): Promise<FolderRef[]>;
   displayReadings(): Promise<DisplayReadings | null>;
+  checkForUpdate(): Promise<NewerRelease | null>;
   requestWorkerPort(requestId: string): Promise<void>;
   updateUnsaved(edits: UnsavedSummary[]): void;
   respondFlush(requestId: number, unsaved: UnsavedSummary[]): void;

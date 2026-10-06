@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type { DesktopBridge } from '../protocol/bridge';
-import { displayReadingsFrom, isBridgeEvent, isDesktopRequest, isUnsavedUpdate, isFlushResponse, isWorkerPortDelivery, type DesktopRequest } from '../protocol/security';
-import type { DisplayReadings } from '@/host';
+import { displayReadingsFrom, newerReleaseFrom, isBridgeEvent, isDesktopRequest, isUnsavedUpdate, isFlushResponse, isWorkerPortDelivery, type DesktopRequest } from '../protocol/security';
+import type { DisplayReadings, NewerRelease } from '@/host';
 let requestedPort: string | undefined;
 ipcRenderer.on('xveon-port', (event, data: unknown) => {
   if (!isWorkerPortDelivery(data) || data.requestId !== requestedPort || event.ports.length !== 1) {
@@ -19,6 +19,11 @@ async function invoke(request: DesktopRequest) {
     const readings = response === null ? null : displayReadingsFrom(response);
     if (response !== null && readings === null) throw new Error('Invalid bridge response');
     return readings;
+  }
+  if (request.kind === 'checkForUpdate') {
+    const release = response === null ? null : newerReleaseFrom(response);
+    if (response !== null && release === null) throw new Error('Invalid bridge response');
+    return release;
   }
   const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
   const dense = (value: unknown, check: (item: unknown) => boolean): boolean => Array.isArray(value)
@@ -45,6 +50,7 @@ const bridge: DesktopBridge = {
   },
   recentFolders: () => invoke({ version: 2, kind: 'recentFolders' }) as ReturnType<DesktopBridge['recentFolders']>,
   displayReadings: () => invoke({ version: 2, kind: 'displayReadings' }) as Promise<DisplayReadings | null>,
+  checkForUpdate: () => invoke({ version: 2, kind: 'checkForUpdate' }) as Promise<NewerRelease | null>,
   async requestWorkerPort(requestId) {
     const request = { version: 2 as const, kind: 'requestWorkerPort' as const, requestId };
     if (!isDesktopRequest(request)) throw new Error('Invalid bridge request');

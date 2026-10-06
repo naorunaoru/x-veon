@@ -2,12 +2,12 @@ import { afterEach, expect, it, vi } from 'vitest';
 import os from 'node:os';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-const state = vi.hoisted(() => ({ mkdir: vi.fn(async () => {}), displayRead: vi.fn(() => ({ potentialEdr: 16 })), displayLoad: vi.fn(), destinations: vi.fn(), folderFile: undefined as string | undefined, boot: undefined as Promise<unknown> | undefined, handles: new Map<string, any>(), listeners: new Map<string, any>(), privileges: vi.fn(), name: vi.fn(), quit: vi.fn(), stop: vi.fn(), win: undefined as any, windowOptions: undefined as any, app: undefined as any, report: vi.fn(async () => {}), workerEvent: undefined as any, restart: vi.fn(async () => {}), lock: vi.fn(() => true) }));
+const state = vi.hoisted(() => ({ mkdir: vi.fn(async () => {}), displayRead: vi.fn(() => ({ potentialEdr: 16 })), displayLoad: vi.fn(), destinations: vi.fn(), folderFile: undefined as string | undefined, boot: undefined as Promise<unknown> | undefined, handles: new Map<string, any>(), listeners: new Map<string, any>(), privileges: vi.fn(), name: vi.fn(), quit: vi.fn(), stop: vi.fn(), win: undefined as any, windowOptions: undefined as any, app: undefined as any, report: vi.fn(async () => {}), workerEvent: undefined as any, restart: vi.fn(async () => {}), lock: vi.fn(() => true), netFetch: vi.fn() }));
 vi.mock('electron', async () => {
   const { EventEmitter } = await import('node:events');
-  const app = Object.assign(new EventEmitter(), { setName: state.name, requestSingleInstanceLock: state.lock, setPath: vi.fn(), getPath: () => '/tmp/task9-userdata', whenReady: () => ({ then: (fn: () => Promise<unknown>) => { state.boot = fn(); return state.boot; } }), quit: state.quit, exit: vi.fn() }); state.app = app;
+  const app = Object.assign(new EventEmitter(), { setName: state.name, getName: () => 'X-veon Dev', requestSingleInstanceLock: state.lock, setPath: vi.fn(), getPath: () => '/tmp/task9-userdata', whenReady: () => ({ then: (fn: () => Promise<unknown>) => { state.boot = fn(); return state.boot; } }), quit: state.quit, exit: vi.fn() }); state.app = app;
   const win = Object.assign(new EventEmitter(), { webContents: Object.assign(new EventEmitter(), { send: vi.fn(), setWindowOpenHandler: vi.fn(), mainFrame: {}, executeJavaScript: vi.fn() }), loadURL: vi.fn(async () => {}), destroy: vi.fn(), isDestroyed: () => false, getNativeWindowHandle: () => Buffer.from([1, 2, 3, 4, 5, 6, 7, 8]), isMinimized: () => true, restore: vi.fn(), focus: vi.fn() }); state.win = win;
-  return { app, BrowserWindow: class { constructor(options: unknown) { state.windowOptions = options; return win; } }, powerMonitor: new EventEmitter(), screen: {}, ipcMain: { handle: (name: string, fn: any) => state.handles.set(name, fn), on: (name: string, fn: any) => state.listeners.set(name, fn) }, MessageChannelMain: class {}, net: {}, protocol: { registerSchemesAsPrivileged: state.privileges, handle: vi.fn() }, session: { defaultSession: { setPermissionRequestHandler: vi.fn(), setPermissionCheckHandler: vi.fn() } }, utilityProcess: {}, Menu: { buildFromTemplate: (t: unknown) => t, setApplicationMenu: vi.fn() }, dialog: { showSaveDialog: vi.fn(async () => ({ canceled: true })), showOpenDialog: vi.fn(async () => ({ canceled: true, filePaths: [] })), showErrorBox: vi.fn(), showMessageBox: vi.fn(async () => ({ response: 1 })) }, shell: { showItemInFolder: vi.fn() } };
+  return { app, BrowserWindow: class { constructor(options: unknown) { state.windowOptions = options; return win; } }, powerMonitor: new EventEmitter(), screen: {}, ipcMain: { handle: (name: string, fn: any) => state.handles.set(name, fn), on: (name: string, fn: any) => state.listeners.set(name, fn) }, MessageChannelMain: class {}, net: { fetch: state.netFetch }, protocol: { registerSchemesAsPrivileged: state.privileges, handle: vi.fn() }, session: { defaultSession: { setPermissionRequestHandler: vi.fn(), setPermissionCheckHandler: vi.fn() } }, utilityProcess: {}, Menu: { buildFromTemplate: (t: unknown) => t, setApplicationMenu: vi.fn() }, dialog: { showSaveDialog: vi.fn(async () => ({ canceled: true })), showOpenDialog: vi.fn(async () => ({ canceled: true, filePaths: [] })), showErrorBox: vi.fn(), showMessageBox: vi.fn(async () => ({ response: 1 })) }, shell: { showItemInFolder: vi.fn() } };
 });
 vi.mock('node:fs/promises', async importOriginal => ({ ...await importOriginal<typeof import('node:fs/promises')>(), readdir: vi.fn(async () => []), mkdir: state.mkdir, writeFile: vi.fn(async () => {}) }));
 vi.mock('./folders', async importOriginal => {
@@ -25,6 +25,12 @@ it('reads the main window display with its native handle', async () => {
   const event = { sender: state.win.webContents, senderFrame: Object.assign(state.win.webContents.mainFrame, { url: 'app://bundle/?' }) };
   await expect(state.handles.get('xveon-desktop')(event, { version: 2, kind: 'displayReadings' })).resolves.toEqual({ potentialEdr: 16 });
   expect(state.displayRead).toHaveBeenCalledWith(Buffer.from([1, 2, 3, 4, 5, 6, 7, 8]));
+});
+it('offers no update for an untagged build without fetching', async () => {
+  vi.resetModules(); await import('./index'); await state.boot;
+  const event = { sender: state.win.webContents, senderFrame: Object.assign(state.win.webContents.mainFrame, { url: 'app://bundle/?' }) };
+  await expect(state.handles.get('xveon-desktop')(event, { version: 2, kind: 'checkForUpdate' })).resolves.toBeNull();
+  expect(state.netFetch).not.toHaveBeenCalled();
 });
 it('boots with only the desktop route, registers a secure streaming scheme, and defers worker cleanup until quit is accepted', async () => {
   vi.resetModules();

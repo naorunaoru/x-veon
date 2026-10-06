@@ -1,8 +1,8 @@
 import { isDesktopRequest, isUnsavedUpdate, isFlushResponse } from '../protocol/security';
 import type { IpcMain, IpcMainEvent, IpcMainInvokeEvent, MessagePortMain } from 'electron';
-import type { DisplayReadings, FolderRef, UnsavedSummary } from '@/host';
+import type { DisplayReadings, FolderRef, NewerRelease, UnsavedSummary } from '@/host';
 import type { BridgeEvent } from '../protocol/bridge';
-type Deps = { exports: Pick<ReturnType<typeof import('./exports').createExportDestinations>, 'choose' | 'reveal'>; ipc: Pick<IpcMain, 'handle' | 'on'>; trusted(event: IpcMainEvent | IpcMainInvokeEvent): boolean; folders: { loadLast(): Promise<unknown>; openFolder(id?: string): Promise<unknown>; openDropped(paths: string[]): Promise<unknown> }; display: { readings(): DisplayReadings | null }; recent(): FolderRef[]; connect(deliver: (port: MessagePortMain) => void): Promise<void>; send(event: BridgeEvent): void; timeoutMs?: number };
+type Deps = { exports: Pick<ReturnType<typeof import('./exports').createExportDestinations>, 'choose' | 'reveal'>; ipc: Pick<IpcMain, 'handle' | 'on'>; trusted(event: IpcMainEvent | IpcMainInvokeEvent): boolean; folders: { loadLast(): Promise<unknown>; openFolder(id?: string): Promise<unknown>; openDropped(paths: string[]): Promise<unknown> }; display: { readings(): DisplayReadings | null }; updates: { check(): Promise<NewerRelease | null> }; recent(): FolderRef[]; connect(deliver: (port: MessagePortMain) => void): Promise<void>; send(event: BridgeEvent): void; timeoutMs?: number };
 export function registerDesktopIpc(deps: Deps) {
   let inventory: UnsavedSummary[] = [], nextId = 0;
   let requestedPort: string | undefined;
@@ -18,6 +18,7 @@ export function registerDesktopIpc(deps: Deps) {
       case 'openDropped': return deps.folders.openDropped(value.paths);
       case 'recentFolders': return deps.recent();
       case 'displayReadings': return deps.display.readings();
+      case 'checkForUpdate': return deps.updates.check();
       case 'requestWorkerPort': {
         requestedPort = value.requestId;
         // The supervisor attaches a port before delivering it. Serialize attempts so

@@ -1,5 +1,6 @@
 import type { ExportFormat } from '@/lib/types';
-import type { DisplayReadings } from '@/host';
+import type { DisplayReadings, NewerRelease } from '@/host';
+import { parseReleaseTag, type ReleaseTag } from '../release/tags';
 import { isListingFrame, isWorkerIdentity } from './rpc';
 export function assetName(
   raw: string,
@@ -36,9 +37,20 @@ export function acceptsSender(url: string, mainFrame: boolean): boolean {
     return false;
   }
 }
-export type DesktopRequest = { version: 2; kind: 'chooseExportDestination'; photoId: string; format: ExportFormat } | { version: 2; kind: 'revealExport'; token: string } | { version: 2; kind: 'loadLast' | 'recentFolders' | 'displayReadings' } | { version: 2; kind: 'requestWorkerPort'; requestId: string } | { version: 2; kind: 'openFolder'; folderId?: string } | { version: 2; kind: 'openDropped'; paths: string[] };
+export type DesktopRequest = { version: 2; kind: 'chooseExportDestination'; photoId: string; format: ExportFormat } | { version: 2; kind: 'revealExport'; token: string } | { version: 2; kind: 'loadLast' | 'recentFolders' | 'displayReadings' | 'checkForUpdate' } | { version: 2; kind: 'requestWorkerPort'; requestId: string } | { version: 2; kind: 'openFolder'; folderId?: string } | { version: 2; kind: 'openDropped'; paths: string[] };
 export const CONTENT_SECURITY_POLICY = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; img-src 'self' blob: data: xveon-photo:; style-src 'self' 'unsafe-inline'; connect-src 'self' xveon-photo:; object-src 'none'; base-uri 'none'; frame-src 'none'";
 function object(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === 'object' && !Array.isArray(value); }
+const RELEASE_PAGE = 'https://github.com/naorunaoru/x-veon/releases/tag/';
+/** The release page of a validated tag: the only link the update notice opens. */
+export function releasePage(tag: ReleaseTag): string { return RELEASE_PAGE + tag.tag; }
+export function isReleasePage(url: unknown): url is string {
+  return typeof url === 'string' && url.startsWith(RELEASE_PAGE) && parseReleaseTag(url.slice(RELEASE_PAGE.length)) !== null;
+}
+export function newerReleaseFrom(value: unknown): NewerRelease | null {
+  if (!object(value)) return null;
+  const short = (s: unknown): s is string => typeof s === 'string' && s.length > 0 && s.length <= 100;
+  return short(value.name) && short(value.version) && isReleasePage(value.url) ? { name: value.name, version: value.version, url: value.url } : null;
+}
 const READING_NUMBERS = ['currentEdr', 'potentialEdr', 'referenceEdr', 'maxLuminance', 'maxFullFrameLuminance', 'minLuminance', 'sdrWhite'] as const;
 /** The known display fields with valid values; null when none remain. Main applies it to the
  * addon's output and preload to the bridge response. */
@@ -69,7 +81,7 @@ function unsaved(value: unknown): boolean {
 export function isDesktopRequest(value: unknown): value is DesktopRequest {
   if (!envelope(value)) return false;
   switch (value.kind) {
-    case 'loadLast': case 'recentFolders': case 'displayReadings': return true;
+    case 'loadLast': case 'recentFolders': case 'displayReadings': case 'checkForUpdate': return true;
     case 'chooseExportDestination': return typeof value.photoId === 'string' && /^[A-Za-z0-9_-]{22}$/.test(value.photoId) && ['jpeg-hdr', 'avif', 'tiff'].includes(value.format as string);
     case 'revealExport': return correlationId(value.token);
     case 'requestWorkerPort': return correlationId(value.requestId);

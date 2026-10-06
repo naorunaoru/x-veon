@@ -1,14 +1,25 @@
 import { afterEach, expect, it, vi } from 'vitest';
-const m = vi.hoisted(() => ({ exposed: undefined as any, handlers: new Map<string, Function>(), invoke: vi.fn(async () => null), send: vi.fn(), post: vi.fn(), remove: vi.fn(), path: vi.fn(() => '') }));
+const m = vi.hoisted(() => ({ exposed: undefined as any, handlers: new Map<string, Function>(), invoke: vi.fn(async (): Promise<unknown> => null), send: vi.fn(), post: vi.fn(), remove: vi.fn(), path: vi.fn(() => '') }));
 vi.mock('electron', () => ({ contextBridge: { exposeInMainWorld: (_key: string, value: unknown) => { m.exposed = value; } }, ipcRenderer: { on: (key: string, fn: Function) => { m.handlers.set(key, fn); }, removeListener: m.remove, invoke: m.invoke, send: m.send }, webUtils: { getPathForFile: m.path } }));
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); m.handlers.clear(); vi.resetModules(); });
 it('exposes only the version-2 API and sends typed channel envelopes', async () => {
   vi.stubGlobal('window', { postMessage: m.post }); vi.stubGlobal('location', { origin: 'app://bundle' }); await import('./index');
   expect(m.exposed.version).toBe(2);
-  expect(Object.keys(m.exposed).sort()).toEqual(['chooseExportDestination', 'revealExport', 'version', 'loadLast', 'openFolder', 'openDropped', 'recentFolders', 'displayReadings', 'requestWorkerPort', 'updateUnsaved', 'respondFlush', 'onEvent'].sort());
+  expect(Object.keys(m.exposed).sort()).toEqual(['chooseExportDestination', 'revealExport', 'version', 'loadLast', 'openFolder', 'openDropped', 'recentFolders', 'displayReadings', 'checkForUpdate', 'requestWorkerPort', 'updateUnsaved', 'respondFlush', 'onEvent'].sort());
   await m.exposed.loadLast(); await m.exposed.openFolder('f'); m.path.mockReturnValueOnce('/raw'); await m.exposed.openDropped([new File(['x'], 'x.RAF')]); m.invoke.mockResolvedValueOnce([] as any); await m.exposed.recentFolders(); await m.exposed.requestWorkerPort('00000000-0000-4000-8000-000000000001');
   expect(m.invoke.mock.calls).toEqual([['xveon-desktop', { version: 2, kind: 'loadLast' }], ['xveon-desktop', { version: 2, kind: 'openFolder', folderId: 'f' }], ['xveon-desktop', { version: 2, kind: 'openDropped', paths: ['/raw'] }], ['xveon-desktop', { version: 2, kind: 'recentFolders' }], ['xveon-desktop', { version: 2, kind: 'requestWorkerPort', requestId: '00000000-0000-4000-8000-000000000001' }]]);
   m.exposed.updateUnsaved([]); m.exposed.respondFlush(4, []); expect(m.send.mock.calls).toEqual([['xveon-unsaved', { version: 2, edits: [] }], ['xveon-flush', { version: 2, requestId: 4, unsaved: [] }]]);
+});
+it('passes valid update notices and null, rejecting forged links', async () => {
+  await import('./index');
+  const notice = { name: 'X-veon Beta', version: '2026.10.7-beta.1', url: 'https://github.com/naorunaoru/x-veon/releases/tag/beta/2026-10-07' };
+  m.invoke.mockResolvedValueOnce(notice);
+  await expect(m.exposed.checkForUpdate()).resolves.toEqual(notice);
+  expect(m.invoke).toHaveBeenLastCalledWith('xveon-desktop', { version: 2, kind: 'checkForUpdate' });
+  m.invoke.mockResolvedValueOnce(null);
+  await expect(m.exposed.checkForUpdate()).resolves.toBeNull();
+  m.invoke.mockResolvedValueOnce({ ...notice, url: 'https://example.com' });
+  await expect(m.exposed.checkForUpdate()).rejects.toThrow('Invalid bridge response');
 });
 it('sanitises display responses and rejects invalid readings', async () => {
   await import('./index');

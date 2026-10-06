@@ -23,6 +23,7 @@ import { createCloseGuard, unsavedQuitMessage } from './close-guard';
 import { createExportDestinations } from './exports';
 import { loadDisplayReader } from './display';
 import { registerDesktopIpc } from './desktop-ipc';
+import { checkForUpdate, releasesApi } from './updates';
 import type { BridgeEvent } from '../protocol/bridge';
 import { readdir, mkdir } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
@@ -64,6 +65,9 @@ else app.on('second-instance', () => {
   win.focus();
 });
 if (ownsInstance) void app.whenReady().then(async () => {
+  // One promise per launch. An untagged build never asks the API.
+  const update = checkForUpdate({ tag: BUILD.tag, productName: app.getName(), platform: process.platform, arch: process.arch,
+    api: releasesApi(process.env.XV_RELEASES_API), fetch: (url, init) => net.fetch(url, init) });
   const bundle = path.resolve(__dirname, '../renderer'),
     files = new Set(await assets(bundle));
   protocol.handle('app', async (request) => {
@@ -137,7 +141,7 @@ if (ownsInstance) void app.whenReady().then(async () => {
     reveal: target => shell.showItemInFolder(target),
     fallbackDir: () => app.getPath('pictures'),
   });
-  const ipc = registerDesktopIpc({ ipc: ipcMain, trusted, folders, exports, display: { readings: () => win.isDestroyed() ? null : displayReader.read(win.getNativeWindowHandle()) }, recent: store.recent, connect: supervisor.connect, send });
+  const ipc = registerDesktopIpc({ ipc: ipcMain, trusted, folders, exports, display: { readings: () => win.isDestroyed() ? null : displayReader.read(win.getNativeWindowHandle()) }, updates: { check: () => update }, recent: store.recent, connect: supervisor.connect, send });
   registerPhotoProtocol({ protocol, registry: supervisor.registry, roots: supervisor.roots, cacheDir,
     thumbnail: async id => (await supervisor.request({ kind: 'thumbnail', id })).path,
   });

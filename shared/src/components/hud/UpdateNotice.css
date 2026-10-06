@@ -1,0 +1,7 @@
+.xv-update-notice {
+  position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
+  z-index: 12;
+  display: flex; align-items: center; gap: 8px; max-width: 480px;
+  padding: 8px 12px; border-radius: 12px; font-size: 12px; pointer-events: auto;
+}
+.xv-update-notice p { margin: 0; }

@@ -1,5 +1,24 @@
 import { expect, it } from 'vitest';
-import { assetName, acceptsSender, displayReadingsFrom, isBridgeEvent, isDesktopRequest } from './security';
+import { assetName, acceptsSender, displayReadingsFrom, isBridgeEvent, isDesktopRequest, isReleasePage, newerReleaseFrom, releasePage } from './security';
+import { parseReleaseTag } from '../release/tags';
+it('accepts only canonical release-page links and bounded notices', () => {
+  expect(isDesktopRequest({ version: 2, kind: 'checkForUpdate' })).toBe(true);
+  const url = 'https://github.com/naorunaoru/x-veon/releases/tag/beta/2026-10-07';
+  expect(releasePage(parseReleaseTag('beta/2026-10-07')!)).toBe(url);
+  expect(isReleasePage(url)).toBe(true);
+  for (const value of [
+    'https://github.com/naorunaoru/x-veon/releases/tag/../../../../other/repo',
+    'https://github.com/naorunaoru/x-veon/releases/tag/beta/2026-02-30',
+    `${url}?x=1`, `${url}#x`, 'https://github.com/naorunaoru/x-veon/releases/tag/',
+    'https://github.com/other/x-veon/releases/tag/beta/2026-10-07',
+    'http://github.com/naorunaoru/x-veon/releases/tag/beta/2026-10-07',
+    'javascript:alert(1)', null, 1,
+  ]) expect(isReleasePage(value)).toBe(false);
+  const notice = { name: 'X-veon Beta', version: '2026.10.7-beta.1', url };
+  expect(newerReleaseFrom(notice)).toEqual(notice);
+  for (const bad of [{ url: 'https://example.com' }, { name: '' }, { name: 'x'.repeat(101) }, { version: '' }, { version: 'x'.repeat(101) }])
+    expect(newerReleaseFrom({ ...notice, ...bad })).toBeNull();
+});
 it('accepts display requests and keeps only valid known readings', () => {
   expect(isDesktopRequest({ version: 2, kind: 'displayReadings' })).toBe(true);
   expect(displayReadingsFrom({ potentialEdr: 16, referenceEdr: 0, hdrEnabled: false })).toEqual({ potentialEdr: 16, referenceEdr: 0, hdrEnabled: false });
