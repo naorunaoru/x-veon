@@ -10,6 +10,8 @@ export interface BuildInfo {
   channel: Channel;
   sha: string;
   date: string;
+  tag?: string;
+  version?: string;
 }
 
 export const CHANNELS = ['stable', 'beta', 'dev'] as const satisfies readonly Channel[];

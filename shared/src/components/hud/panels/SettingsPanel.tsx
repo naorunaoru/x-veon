@@ -150,7 +150,7 @@ export function SettingsPanel() {
       <div className="xv-field">
         <span className="xv-field__label">Build</span>
         <div className="xv-readout" data-testid="xv-build">
-          <b>{channelLabel(host.build.channel)}</b> · {host.build.sha}
+          <b>{channelLabel(host.build.channel)}</b>{host.build.version && <> · {host.build.version}</>} · {host.build.sha}
           {host.build.date && <> · {host.build.date}</>}
           {host.channelLink && (
             <>
