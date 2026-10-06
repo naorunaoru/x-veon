@@ -25,6 +25,7 @@ beforeAll(() => {
     git('tag', '-a', tag, '-m', tag, commit);
   }
   git('tag', 'beta/2026-10-07', after); // lightweight
+  git('tag', '-a', 'beta/2026-10-08', '-m', 'annotated blob', git('hash-object', '-w', 'README'));
 });
 afterAll(() => rmSync(repo, { recursive: true, force: true }));
 
@@ -64,7 +65,14 @@ describe('resolve-release.mjs', () => {
     expect(dispatch({ tag: 'stable/2026-10-06-2', dryRun: true })).toMatchObject({ status: 0, outputs: { identity: 'stable/2026-10-06-2', sha: after, publish: 'false' } });
   });
   it('fails a dispatched tag that does not exist', () => {
-    expect(dispatch({ tag: 'beta/2026-10-08', dryRun: true }).status).toBe(1);
+    expect(dispatch({ tag: 'beta/2026-10-09', dryRun: true }).status).toBe(1);
+  });
+  it('reports an annotated tag that does not point to a commit', () => {
+    const result = push('beta/2026-10-08');
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain('::error::');
+    expect(result.stdout).toContain('beta/2026-10-08');
+    expect(result.outputs).toEqual({});
   });
   it('skips a tag on a commit without the M4 desktop code, with a notice', () => {
     const result = dispatch({ tag: 'beta/2026-09-25-2', dryRun: true });

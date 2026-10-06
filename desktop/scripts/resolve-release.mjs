@@ -22,7 +22,8 @@ if (tag) {
   let type = '';
   try { type = git('cat-file', '-t', `refs/tags/${tag}`); } catch { /* no such tag */ }
   if (type !== 'tag') fail(`${tag} must be an existing annotated tag`);
-  sha = git('rev-parse', `refs/tags/${tag}^{commit}`);
+  try { sha = git('rev-parse', `refs/tags/${tag}^{commit}`); }
+  catch { fail(`${tag} must point to a commit`); }
 }
 let build = true;
 try { git('cat-file', '-e', `${sha}:desktop/src/release/tags.ts`); }
