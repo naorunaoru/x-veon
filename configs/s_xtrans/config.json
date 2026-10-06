@@ -15,9 +15,10 @@
   "huber_delta": 1.0,
   "recon_only": false,
   "known_pixel_weight": 0.1,
+  "fft_weight": 0.5,
   "noise_min": 0.0,
-  "noise_max": 0.005,
-  "shot_noise_max": 0.0005,
+  "noise_max": 0.0,
+  "shot_noise_max": 0.0,
   "olpf_sigma_max": 0.0,
   "downscale_prob": 0.75,
   "gain_jitter_stops": 3.0,
@@ -25,7 +26,7 @@
   "stages": 2,
   "group_images": 32,
   "amp": false,
-  "checkpoint_version": "v7.0.0",
+  "checkpoint_version": "v7.1.0",
   "checkpoint_major": 7,
   "architecture_tag": "v7"
 }

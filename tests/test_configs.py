@@ -19,9 +19,9 @@ from train import TrainConfig, parse_config  # noqa: E402
 
 EXPECTED = {"mode": "train", "epochs": 400, "batch_size": 96, "patch_size": 144, "lr": 0.001, "warmup_epochs": 0,
             "val_split": 0.3, "patches_per_image": 16, "seed": 42, "l1_weight": 1.0, "recon_only": False,
-            "noise_max": 0.005, "shot_noise_max": 0.0005, "olpf_sigma_max": 0.0, "downscale_prob": 0.75,
-            "gain_jitter_stops": 3.0, "base_width": 16, "stages": 2, "group_images": 32, "amp": False,
-            "checkpoint_version": "v7.0.0", "architecture_tag": "v7"}
+            "fft_weight": 0.5, "noise_min": 0.0, "noise_max": 0.0, "shot_noise_max": 0.0, "olpf_sigma_max": 0.0,
+            "downscale_prob": 0.75, "gain_jitter_stops": 3.0, "base_width": 16, "stages": 2, "group_images": 32,
+            "amp": False, "checkpoint_version": "v7.1.0", "checkpoint_major": 7, "architecture_tag": "v7"}
 
 
 class SConfigTest(unittest.TestCase):
@@ -41,7 +41,7 @@ class SConfigTest(unittest.TestCase):
     def test_the_documented_command_keeps_every_value(self) -> None:
         argv = ["train.py", "--from-checkpoint", str(REPO_ROOT / "configs" / "s_xtrans"), "--no-resume",
                 "--data-dir", "/data/raise:1500", "/data/hf_ha:1500",
-                "--output-dir", "checkpoints/xtrans/v7.0.0", "--cache-patches", "--cache-gb", "40", "--workers", "4"]
+                "--output-dir", "checkpoints/xtrans/v7.1.0", "--cache-patches", "--cache-gb", "40", "--workers", "4"]
         with mock.patch.object(sys, "argv", argv):
             cfg, _, resume, _ = parse_config()
         self.assertIsNone(resume)
