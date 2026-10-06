@@ -22,6 +22,8 @@ export default defineConfig({
           index: path.resolve(__dirname, 'src/main/index.ts'),
           worker: path.resolve(__dirname, 'src/worker/index.ts'),
         },
+        // Native module paths resolve from __dirname; keep shared chunks beside worker.js.
+        output: { chunkFileNames: '[name]-[hash].js' },
       },
     },
   },

@@ -3,7 +3,7 @@ import { expect, it, vi } from 'vitest';
 import type { DesktopBridge } from '../protocol/bridge';
 const request = vi.hoisted(() => vi.fn(async () => ({ availability: { available: true } })));
 vi.mock('./port', () => ({ createWorkerClient: () => ({ request }) }));
-const bridge = { chooseExportDestination: vi.fn(async () => ({ token: 'golden' })) } as unknown as DesktopBridge;
+const bridge = { chooseExportDestination: vi.fn(async () => ({ token: 'golden' })), displayReadings: vi.fn(async () => null) } as unknown as DesktopBridge;
 import { createGoldenHost } from './golden-fixtures';
 it('keeps fixtures and edits in memory without exposing delete or clear', async () => {
   const fixture = createGoldenHost(bridge),

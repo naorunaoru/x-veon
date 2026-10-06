@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { probeFromReadings } from '../src/host/display';
 
 const samples = ['DSCF3332.RAF', 'sony_a6400_21.arw'];
 
@@ -48,6 +49,15 @@ test('open a folder, process RAF and ARW, edit, export an AVIF that decodes', as
     await expect(thumbs.nth(0).locator('.xv-thumb__dot.done')).toBeVisible({ timeout: 180_000 });
     await thumbs.nth(1).click();
     await expect(thumbs.nth(1).locator('.xv-thumb__dot.done')).toBeVisible({ timeout: 180_000 });
+    const readings = await page.evaluate(() => (window as unknown as { xveon: { displayReadings(): Promise<unknown> } }).xveon.displayReadings());
+    provenance.displayReadings = readings;
+    provenance.appName = await app.evaluate(({ app }) => app.getName());
+    expect(readings, 'native display readings in the packaged app').not.toBeNull();
+    const expected = probeFromReadings(readings as Parameters<typeof probeFromReadings>[0])!;
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    const output = page.locator('.xv-readout').filter({ hasText: 'HDR preview' });
+    await expect(output).toContainText(expected.supported ? `peak ${Math.round(expected.headroom * 100)} nits` : 'OFF');
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
     await page.getByRole('button', { name: 'Exposure', exact: true }).click();
     await page.getByRole('slider', { name: 'Exposure', exact: true }).focus();
     await page.keyboard.press('ArrowRight');

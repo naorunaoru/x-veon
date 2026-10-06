@@ -73,7 +73,7 @@ export function createGoldenHost(bridge: DesktopBridge) {
     },
   };
   return {
-    host: { library, exporter, display: createDisplayHost(), build: BUILD, settingsDbName: 'xveon-desktop-golden' } satisfies Host,
+    host: { library, exporter, display: createDisplayHost(bridge), build: BUILD, settingsDbName: 'xveon-desktop-golden' } satisfies Host,
     releaseFixture(id: string) {
       photos.delete(id);
       files.delete(id);
