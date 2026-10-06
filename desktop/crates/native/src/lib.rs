@@ -2,6 +2,8 @@ use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use xveon_encode::{encode as encode_core, EncodeOptions, Format};
 
+mod display;
+
 #[napi(object)]
 pub struct EncodeInput {
     pub format: String,

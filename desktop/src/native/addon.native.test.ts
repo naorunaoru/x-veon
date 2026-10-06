@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { loadNativeEncoder, type NativeEncodeInput } from '../worker/native';
+import { addonFile, loadNativeEncoder, type NativeEncodeInput } from '../worker/native';
 
 function image(width: number, height: number): Float32Array {
   const data = new Float32Array(width * height * 3);
@@ -12,6 +12,7 @@ function image(width: number, height: number): Float32Array {
   return data;
 }
 const loaded = loadNativeEncoder(createRequire(import.meta.url), path.resolve(__dirname, '../../native'));
+const nativeDir = path.resolve(__dirname, '../../native');
 function encoder() {
   expect(loaded.ok).toBe(true);
   if (!loaded.ok) throw new Error(loaded.reason);
@@ -20,6 +21,24 @@ function encoder() {
 const input: NativeEncodeInput = { format: 'avif', width: 64, height: 48, orientation: 'Normal', quality: 50, peakLuminance: 1000, threads: 2 };
 describe('native addon', () => {
   it('loads', () => { encoder(); });
+  it('reads the main screen, and treats a short or null handle as no handle', () => {
+    const addon = createRequire(import.meta.url)(path.join(nativeDir, addonFile())) as { displayReadings(handle?: Buffer): Record<string, unknown> | null };
+    const readings = addon.displayReadings();
+    expect(addon.displayReadings(Buffer.alloc(2))).toEqual(readings);
+    expect(addon.displayReadings(Buffer.alloc(8))).toEqual(readings);
+    if (readings === null) return; // A runner without a screen has nothing to read.
+    if (process.platform === 'darwin') {
+      expect(readings.currentEdr).toBeGreaterThanOrEqual(1);
+      expect(readings.potentialEdr).toBeGreaterThanOrEqual(1);
+      expect(readings.referenceEdr).toBeGreaterThanOrEqual(0);
+      expect(readings.hdrEnabled).toBeUndefined();
+    }
+    if (process.platform === 'win32') {
+      expect(typeof readings.hdrEnabled).toBe('boolean');
+      expect(readings.maxLuminance).toBeGreaterThanOrEqual(0);
+      expect(readings.potentialEdr).toBeUndefined();
+    }
+  });
   it.each(['avif', 'jpeg-hdr', 'tiff'] as const)('encodes %s', async format => {
     const data = image(input.width, input.height);
     const bytes = await encoder().encode(data, format === 'jpeg-hdr' ? data : null, { ...input, format });

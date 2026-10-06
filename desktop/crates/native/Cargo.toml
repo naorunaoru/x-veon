@@ -21,3 +21,10 @@ xveon-encode = { path = "../../../shared/crates/encode" }
 
 [build-dependencies]
 napi-build = "=2.6.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "=0.6.5"
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSResponder", "NSScreen", "NSView", "NSWindow", "objc2-core-foundation"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_Devices_Display", "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_Graphics_Gdi"] }
