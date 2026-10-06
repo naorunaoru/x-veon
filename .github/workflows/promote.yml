@@ -1,7 +1,8 @@
 name: Promote a ref to stable
 
 # Builds `ref` as the stable channel, tags it stable/<date>, publishes a GitHub
-# Release with the site bundle (which becomes "Latest"), then redeploys both channels.
+# Release with the site bundle (which becomes "Latest"), then redeploys both channels
+# and dispatches desktop.yml to attach the desktop installers.
 # Convention: merge develop into main first, then promote main. See RELEASING.md.
 # The checkout may use either repository layout (see deploy.yml). dry_run builds and checks the bundle only.
 
@@ -120,3 +121,20 @@ jobs:
     needs: release
     if: ${{ !inputs.dry_run }}
     uses: ./.github/workflows/deploy.yml
+
+  desktop:
+    needs: release
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write # dispatch desktop.yml for the new stable tag
+      contents: read
+    steps:
+      - name: Dispatch the desktop installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release.outputs.tag }}
+        # A tag a workflow creates can't trigger desktop.yml's tag push, so dispatch it. This is its own
+        # job: if the dispatch fails, the deploy job, which needs only the release, still runs.
+        run: gh workflow run desktop.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" -f tag="$TAG"

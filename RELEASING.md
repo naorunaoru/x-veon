@@ -9,7 +9,7 @@ X-veon deploys to GitHub Pages as two channels on one site:
 
 Nothing deploys on a branch push. A deploy happens on a `beta/*` tag push, on promotion, or on a manual dispatch of `deploy.yml`, which simply re-assembles the current channels. Every deploy rebuilds the whole site (stable from its bundle, beta from source), because Pages serves one artifact per repo.
 
-Both workflow files must be identical on `develop` and `main`: a `beta/*` tag push runs the copy at the tag (develop's), while `gh workflow run … --ref main` and the promote chain run `main`'s copy. After changing a workflow on `develop`, mirror the same change to `main` in its own commit.
+All three workflow files (`desktop.yml`, `promote.yml` and `deploy.yml`) must be identical on `develop` and `main`: a `beta/*` tag push runs the copy at the tag (develop's), while `gh workflow run … --ref main` and the promote chain run `main`'s copy. After changing a workflow on `develop`, mirror the same change to `main` in its own commit.
 
 The channels keep **separate libraries** in the browser (separate IndexedDB / OPFS namespaces). Switching channels shows an empty library.
 
@@ -45,6 +45,41 @@ gh workflow run promote.yml --ref main -f ref=main
 ```
 
 This builds `main` as stable, creates `stable/<date>` plus a release carrying the bundle, marks it Latest, and redeploys both channels.
+
+## Desktop installers
+
+A `beta/*` tag push also runs `desktop.yml`. It builds a macOS arm64 DMG and a Windows x64 NSIS installer, then creates a pre-release named after the tag with both installers. The Pages beta deploy still runs as before.
+
+Promotion dispatches `desktop.yml` for the new `stable/*` tag. That workflow uploads both installers to the existing stable release. If dispatch fails, the Pages deploy still runs; dispatch the desktop workflow again for the existing tag as described below.
+
+The tag determines the displayed version and OS version fields:
+
+| Tag | App label | Display version | macOS short version | macOS bundle version | Windows version |
+|---|---|---|---|---|---|
+| `beta/2026-09-27` | X-veon Beta | `2026.9.27-beta.1` | `2026.9.27` | `20260927.1` | `2026.9.27.1` |
+| `beta/2026-09-27-2` | X-veon Beta | `2026.9.27-beta.2` | `2026.9.27` | `20260927.2` | `2026.9.27.2` |
+| `stable/2026-10-01` | X-veon | `2026.10.1` | `2026.10.1` | `20261001.1` | `2026.10.1.1` |
+| `stable/2026-10-01-2` | X-veon | `2026.10.1` | `2026.10.1` | `20261001.2` | `2026.10.1.2` |
+
+Same-day tag counters run from `-2` to `-99`. Beta and stable install side by side as **X-veon Beta** and **X-veon**.
+
+For a desktop dry run on a branch, use:
+
+```bash
+gh workflow run desktop.yml --ref <branch> -f dry_run=true
+gh workflow run desktop.yml --ref <branch> -f dry_run=true -f identity_tag=beta/YYYY-MM-DD
+gh run download <run-id>
+```
+
+The optional `identity_tag` builds with a release's names and version fields. The installers remain run artifacts for download. Each dry-run dispatch and artifact download needs the author's yes.
+
+To rebuild the installers for an existing tag and replace that release's installer assets, use:
+
+```bash
+gh workflow run desktop.yml --ref develop -f tag=<tag>
+```
+
+Use `--ref develop` until the desktop code has been merged from `develop` into `main`.
 
 ## Roll stable back
 

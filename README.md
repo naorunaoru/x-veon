@@ -90,6 +90,16 @@ npm run setup
 
 This keeps your samples and lens data and removes the old layout's build output and its copy of the decoder submodule, which now lives at `shared/crates/vendor/rawloader`. Untracked files of your own under `web/src` stay where they were; move them into `shared/src`. Checking out a commit from before the move again, such as `main` until its next promotion, leaves `shared/`, `node_modules/` and `target/` untracked: delete them there, or switch back.
 
+## Install the desktop app
+
+Download an installer from the [Releases page](https://github.com/naorunaoru/x-veon/releases). Beta builds are pre-releases named `beta/…`; the stable release is marked **Latest**. Choose the `…-mac-arm64.dmg` for macOS or the `…-win-x64-setup.exe` for Windows.
+
+On macOS, open the DMG and drag the app to Applications. The app is unsigned for distribution and ad-hoc signed; if the first launch is blocked, open System Settings → Privacy & Security → **Open Anyway**. On Windows, the installer is unsigned; if SmartScreen appears, choose **More info** → **Run anyway**.
+
+**X-veon Beta** and **X-veon** install side by side. They keep separate settings and caches, and share the `.xmp` sidecars beside photos in your folders.
+
+At startup, a tagged build asks GitHub whether a newer release exists in its channel. It shows a notice with a link when one is available. Nothing updates automatically.
+
 ## Desktop beta
 
 The native encoder needs Rust stable. On macOS, install the Xcode command-line tools. On Windows, install the MSVC build tools and NASM 2.15 or later, with NASM on `PATH`.
