@@ -5,10 +5,19 @@ afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); m.handlers.clear();
 it('exposes only the version-2 API and sends typed channel envelopes', async () => {
   vi.stubGlobal('window', { postMessage: m.post }); vi.stubGlobal('location', { origin: 'app://bundle' }); await import('./index');
   expect(m.exposed.version).toBe(2);
-  expect(Object.keys(m.exposed).sort()).toEqual(['chooseExportDestination', 'revealExport', 'version', 'loadLast', 'openFolder', 'openDropped', 'recentFolders', 'requestWorkerPort', 'updateUnsaved', 'respondFlush', 'onEvent'].sort());
+  expect(Object.keys(m.exposed).sort()).toEqual(['chooseExportDestination', 'revealExport', 'version', 'loadLast', 'openFolder', 'openDropped', 'recentFolders', 'displayReadings', 'requestWorkerPort', 'updateUnsaved', 'respondFlush', 'onEvent'].sort());
   await m.exposed.loadLast(); await m.exposed.openFolder('f'); m.path.mockReturnValueOnce('/raw'); await m.exposed.openDropped([new File(['x'], 'x.RAF')]); m.invoke.mockResolvedValueOnce([] as any); await m.exposed.recentFolders(); await m.exposed.requestWorkerPort('00000000-0000-4000-8000-000000000001');
   expect(m.invoke.mock.calls).toEqual([['xveon-desktop', { version: 2, kind: 'loadLast' }], ['xveon-desktop', { version: 2, kind: 'openFolder', folderId: 'f' }], ['xveon-desktop', { version: 2, kind: 'openDropped', paths: ['/raw'] }], ['xveon-desktop', { version: 2, kind: 'recentFolders' }], ['xveon-desktop', { version: 2, kind: 'requestWorkerPort', requestId: '00000000-0000-4000-8000-000000000001' }]]);
   m.exposed.updateUnsaved([]); m.exposed.respondFlush(4, []); expect(m.send.mock.calls).toEqual([['xveon-unsaved', { version: 2, edits: [] }], ['xveon-flush', { version: 2, requestId: 4, unsaved: [] }]]);
+});
+it('sanitises display responses and rejects invalid readings', async () => {
+  await import('./index');
+  m.invoke.mockResolvedValueOnce({ potentialEdr: 16, junk: 1 } as any);
+  await expect(m.exposed.displayReadings()).resolves.toEqual({ potentialEdr: 16 });
+  m.invoke.mockResolvedValueOnce(null);
+  await expect(m.exposed.displayReadings()).resolves.toBeNull();
+  m.invoke.mockResolvedValueOnce({ potentialEdr: 'x' } as any);
+  await expect(m.exposed.displayReadings()).rejects.toThrow('Invalid bridge response');
 });
 it('filters invalid event and port envelopes and unsubscribes precisely', async () => {
   vi.stubGlobal('window', { postMessage: m.post }); vi.stubGlobal('location', { origin: 'app://bundle' }); await import('./index');

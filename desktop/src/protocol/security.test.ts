@@ -1,5 +1,11 @@
 import { expect, it } from 'vitest';
-import { assetName, acceptsSender, isBridgeEvent, isDesktopRequest } from './security';
+import { assetName, acceptsSender, displayReadingsFrom, isBridgeEvent, isDesktopRequest } from './security';
+it('accepts display requests and keeps only valid known readings', () => {
+  expect(isDesktopRequest({ version: 2, kind: 'displayReadings' })).toBe(true);
+  expect(displayReadingsFrom({ potentialEdr: 16, referenceEdr: 0, hdrEnabled: false })).toEqual({ potentialEdr: 16, referenceEdr: 0, hdrEnabled: false });
+  expect(displayReadingsFrom({ currentEdr: NaN, potentialEdr: -1, referenceEdr: Infinity, sdrWhite: '80', maxLuminance: 16, junk: 1 })).toEqual({ maxLuminance: 16 });
+  for (const value of [{}, null, [], { potentialEdr: 'x' }]) expect(displayReadingsFrom(value)).toBeNull();
+});
 it('serves only exact bundle assets via GET', () => {
   const files = new Set(['index.html', 'assets/decoder.wasm']);
   expect(assetName('app://bundle/', 'GET', files)).toBe('index.html');

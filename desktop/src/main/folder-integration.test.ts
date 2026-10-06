@@ -49,7 +49,7 @@ async function harness() {
   const emit = (event: BridgeEvent) => { for (const receive of events) receive(event); };
   const picker = vi.fn(async () => A as string | null);
   const requests = createFolderRequests({ store, worker, chooseFolder: picker, send: frame => emit({ kind: 'listing', frame }), accepted() {}, error: vi.fn() });
-  const bridge: DesktopBridge = { version: 2, chooseExportDestination: async () => null, revealExport: async () => {}, loadLast: requests.loadLast, openFolder: vi.fn(requests.openFolder), openDropped: async () => null, recentFolders: async () => store.recent(),
+  const bridge: DesktopBridge = { version: 2, chooseExportDestination: async () => null, revealExport: async () => {}, loadLast: requests.loadLast, openFolder: vi.fn(requests.openFolder), openDropped: async () => null, recentFolders: async () => store.recent(), displayReadings: async () => null,
     requestWorkerPort: async requestId => { const event = new MessageEvent('message', { data: { type: 'xveon-port', version: 2, requestId }, origin: 'app://bundle' }); Object.defineProperties(event, { source: { value: win }, ports: { value: [port] } }); win.dispatchEvent(event); },
     updateUnsaved() {}, respondFlush() {}, onEvent: receive => { events.add(receive); return () => events.delete(receive); } };
   const host = createDesktopHost(bridge); setHost(host);

@@ -21,6 +21,7 @@ import { buildMenuTemplate } from './menu';
 import { createMainWindow } from './window';
 import { createCloseGuard, unsavedQuitMessage } from './close-guard';
 import { createExportDestinations } from './exports';
+import { loadDisplayReader } from './display';
 import { registerDesktopIpc } from './desktop-ipc';
 import type { BridgeEvent } from '../protocol/bridge';
 import { readdir, mkdir } from 'node:fs/promises';
@@ -87,6 +88,7 @@ if (ownsInstance) void app.whenReady().then(async () => {
   const fixedDir = goldenFile ? `${goldenFile}.exports` : undefined;
   if (fixedDir) await mkdir(fixedDir, { recursive: true });
   win = createMainWindow({ preload: path.resolve(__dirname, '../preload/index.js') });
+  const displayReader = loadDisplayReader();
   const send = (event: BridgeEvent) => {
     const message = { version: 2, ...event };
     if (!isBridgeEvent(message)) throw new Error('Invalid bridge event');
@@ -135,7 +137,7 @@ if (ownsInstance) void app.whenReady().then(async () => {
     reveal: target => shell.showItemInFolder(target),
     fallbackDir: () => app.getPath('pictures'),
   });
-  const ipc = registerDesktopIpc({ ipc: ipcMain, trusted, folders, exports, recent: store.recent, connect: supervisor.connect, send });
+  const ipc = registerDesktopIpc({ ipc: ipcMain, trusted, folders, exports, display: { readings: () => win.isDestroyed() ? null : displayReader.read(win.getNativeWindowHandle()) }, recent: store.recent, connect: supervisor.connect, send });
   registerPhotoProtocol({ protocol, registry: supervisor.registry, roots: supervisor.roots, cacheDir,
     thumbnail: async id => (await supervisor.request({ kind: 'thumbnail', id })).path,
   });

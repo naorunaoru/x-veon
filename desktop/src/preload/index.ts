@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type { DesktopBridge } from '../protocol/bridge';
-import { isBridgeEvent, isDesktopRequest, isUnsavedUpdate, isFlushResponse, isWorkerPortDelivery, type DesktopRequest } from '../protocol/security';
+import { displayReadingsFrom, isBridgeEvent, isDesktopRequest, isUnsavedUpdate, isFlushResponse, isWorkerPortDelivery, type DesktopRequest } from '../protocol/security';
+import type { DisplayReadings } from '@/host';
 let requestedPort: string | undefined;
 ipcRenderer.on('xveon-port', (event, data: unknown) => {
   if (!isWorkerPortDelivery(data) || data.requestId !== requestedPort || event.ports.length !== 1) {
@@ -14,6 +15,11 @@ async function invoke(request: DesktopRequest) {
   if (!isDesktopRequest(request)) throw new Error('Invalid bridge request');
   const response: unknown = await ipcRenderer.invoke('xveon-desktop', request);
   if (request.kind === 'requestWorkerPort' || request.kind === 'revealExport') return;
+  if (request.kind === 'displayReadings') {
+    const readings = response === null ? null : displayReadingsFrom(response);
+    if (response !== null && readings === null) throw new Error('Invalid bridge response');
+    return readings;
+  }
   const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
   const dense = (value: unknown, check: (item: unknown) => boolean): boolean => Array.isArray(value)
     && Array.from({ length: value.length }, (_, i) => Object.hasOwn(value, i) && check(value[i])).every(Boolean);
@@ -38,6 +44,7 @@ const bridge: DesktopBridge = {
     return invoke({ version: 2, kind: 'openDropped', paths }) as ReturnType<DesktopBridge['openDropped']>;
   },
   recentFolders: () => invoke({ version: 2, kind: 'recentFolders' }) as ReturnType<DesktopBridge['recentFolders']>,
+  displayReadings: () => invoke({ version: 2, kind: 'displayReadings' }) as Promise<DisplayReadings | null>,
   async requestWorkerPort(requestId) {
     const request = { version: 2 as const, kind: 'requestWorkerPort' as const, requestId };
     if (!isDesktopRequest(request)) throw new Error('Invalid bridge request');

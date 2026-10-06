@@ -1,4 +1,5 @@
 import type { ExportFormat } from '@/lib/types';
+import type { DisplayReadings } from '@/host';
 import { isListingFrame, isWorkerIdentity } from './rpc';
 export function assetName(
   raw: string,
@@ -35,9 +36,22 @@ export function acceptsSender(url: string, mainFrame: boolean): boolean {
     return false;
   }
 }
-export type DesktopRequest = { version: 2; kind: 'chooseExportDestination'; photoId: string; format: ExportFormat } | { version: 2; kind: 'revealExport'; token: string } | { version: 2; kind: 'loadLast' | 'recentFolders' } | { version: 2; kind: 'requestWorkerPort'; requestId: string } | { version: 2; kind: 'openFolder'; folderId?: string } | { version: 2; kind: 'openDropped'; paths: string[] };
+export type DesktopRequest = { version: 2; kind: 'chooseExportDestination'; photoId: string; format: ExportFormat } | { version: 2; kind: 'revealExport'; token: string } | { version: 2; kind: 'loadLast' | 'recentFolders' | 'displayReadings' } | { version: 2; kind: 'requestWorkerPort'; requestId: string } | { version: 2; kind: 'openFolder'; folderId?: string } | { version: 2; kind: 'openDropped'; paths: string[] };
 export const CONTENT_SECURITY_POLICY = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; img-src 'self' blob: data: xveon-photo:; style-src 'self' 'unsafe-inline'; connect-src 'self' xveon-photo:; object-src 'none'; base-uri 'none'; frame-src 'none'";
 function object(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === 'object' && !Array.isArray(value); }
+const READING_NUMBERS = ['currentEdr', 'potentialEdr', 'referenceEdr', 'maxLuminance', 'maxFullFrameLuminance', 'minLuminance', 'sdrWhite'] as const;
+/** The known display fields with valid values; null when none remain. Main applies it to the
+ * addon's output and preload to the bridge response. */
+export function displayReadingsFrom(value: unknown): DisplayReadings | null {
+  if (!object(value)) return null;
+  const readings: DisplayReadings = {};
+  for (const key of READING_NUMBERS) {
+    const n = value[key];
+    if (typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1_000_000) readings[key] = n;
+  }
+  if (typeof value.hdrEnabled === 'boolean') readings.hdrEnabled = value.hdrEnabled;
+  return Object.keys(readings).length ? readings : null;
+}
 function envelope(value: unknown): value is Record<string, unknown> {
   if (!object(value) || value.version !== 2) return false;
   try { return new TextEncoder().encode(JSON.stringify(value)).byteLength <= 1_000_000; } catch { return false; }
@@ -55,7 +69,7 @@ function unsaved(value: unknown): boolean {
 export function isDesktopRequest(value: unknown): value is DesktopRequest {
   if (!envelope(value)) return false;
   switch (value.kind) {
-    case 'loadLast': case 'recentFolders': return true;
+    case 'loadLast': case 'recentFolders': case 'displayReadings': return true;
     case 'chooseExportDestination': return typeof value.photoId === 'string' && /^[A-Za-z0-9_-]{22}$/.test(value.photoId) && ['jpeg-hdr', 'avif', 'tiff'].includes(value.format as string);
     case 'revealExport': return correlationId(value.token);
     case 'requestWorkerPort': return correlationId(value.requestId);
