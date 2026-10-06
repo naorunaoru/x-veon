@@ -17,7 +17,9 @@ This policy applies to:
 
 The current supported checkpoint baseline is:
 
-- **`v7.0.0`**
+- **`v7.1.0`**
+
+`v7.1.0` adds the magnitude-spectrum term to the loss (a Minor change) and trains the S model without noise augmentation; `v7.0.0`, the first v7 recipe, loads and exports the same way.
 
 v7 is the packed family (`ARCHITECTURE_TAG = "v7"` in `model.py`). The model takes the app's five-channel input (mosaic, three colour masks, clip ratio), divides the mosaic by its mean over the tile and packs it by space-to-depth: 3×3 for X-Trans, 2×2 for Bayer. A checkpoint records `stages` (2 for the S model) next to `base_width`.
 
@@ -239,7 +241,7 @@ Rules:
 ### Baseline
 
 The current baseline is:
-- `v7.0.0`
+- `v7.1.0`
 
 This is the reference compatible family for current work unless a new version is explicitly introduced.
 
@@ -323,5 +325,5 @@ X-veon checkpoint policy is:
 - **Patch** = compatible tune / fine-tune / hyperparameter iteration
 - **base width 16 is the default** and uses no suffix
 - **non-default widths use explicit suffixes** like `-w32`
-- **`v7.0.0` is the current baseline**
+- **`v7.1.0` is the current baseline**
 - pre-7 families are legacy unless explicitly revived

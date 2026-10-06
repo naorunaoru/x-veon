@@ -18,15 +18,15 @@ The same code serves both 6×6 X-Trans and 2×2 Bayer patterns, with a separate 
 
 ## Training
 
-`train.py` trains with one loss term: L1 between prediction and target after both are divided by the target patch's mean and passed through a power curve (γ = 1/2.2, with a small offset that keeps the slope at black finite). The same encoding gives the PSNR that is reported and that picks `best.pt`, so its values are not comparable with PSNR figures from earlier checkpoints.
+`train.py` trains with L1 between prediction and target after both are divided by the target patch's mean and passed through a power curve (γ = 1/2.2, with a small offset that keeps the slope at black finite). The S configuration adds one more term on the same encoded values: L1 between their magnitude spectra (weight 0.5), which does not care where fine texture sits but charges for texture that is missing, so faint detail is not averaged away. The encoding also gives the PSNR that is reported and that picks `best.pt`, so its values are not comparable with PSNR figures from earlier checkpoints.
 
 `configs/s_xtrans/config.json` and `configs/s_bayer/config.json` hold the S training configuration:
 
 ```
 python train.py --from-checkpoint configs/s_xtrans --no-resume \
     --data-dir <dataset>:1500 <dataset>:1500 \
-    --output-dir checkpoints/xtrans/v7.0.0 --cache-patches --cache-gb 40 --workers 4
-python export_onnx.py --version v7.0.0 --verify
+    --output-dir checkpoints/xtrans/v7.1.0 --cache-patches --cache-gb 40 --workers 4
+python export_onnx.py --version v7.1.0 --verify
 ```
 
 `tools/eval_truth.py` scores exported models against real RGB obtained by averaging X-Trans mosaics over 6×6 cells, with no demosaicer involved.
@@ -39,7 +39,7 @@ The network is trained on synthetic input/target pairs generated from real RAW p
 
 2. **Synthetic re-mosaicing**: during training, patches are cropped at any offset from the ground truth and re-mosaiced through the sensor's pattern to form the network's input, so the model learns from a clean demosaic "re-captured" through the CFA.
 
-3. **Augmentations**: random flips and 90° rotations, a further 2× shrink of most patches, Poisson-Gaussian noise, optional OLPF (anti-aliasing filter) blur, and a random gain of up to ±3 stops inside the model's normalisation. Targets and mosaics are clamped at the clip level.
+3. **Augmentations**: random flips and 90° rotations, a further 2× shrink of most patches, optional Poisson-Gaussian noise (off in the S configuration: with it the model learned to denoise, which flattened faint texture and smeared dark areas), optional OLPF (anti-aliasing filter) blur, and a random gain of up to ±3 stops inside the model's normalisation. Targets and mosaics are clamped at the clip level.
 
 ## Web application
 
