@@ -99,6 +99,7 @@ class TrainConfig:
     huber_delta: float = 1.0
     recon_only: bool = False
     known_pixel_weight: float = 0.1
+    fft_weight: float = 0.0
 
     # Augmentation
     noise_min: float = 0.0
@@ -159,6 +160,7 @@ class TrainConfig:
             huber_delta=self.huber_delta,
             recon_only=self.recon_only,
             known_pixel_weight=self.known_pixel_weight,
+            fft_weight=self.fft_weight,
         )
 
 
@@ -414,6 +416,8 @@ def parse_config() -> tuple[TrainConfig, str | None, str | None, RoutingOptions]
                         help="Compute L1/Huber only on reconstructed (non-CFA) pixels")
     parser.add_argument("--known-pixel-weight", type=float, default=None,
                         help="Weight for known-pixel preservation when --recon-only (default: 0.1)")
+    parser.add_argument("--fft-weight", type=float, default=None,
+                        help="Weight for the magnitude-spectrum L1 on encoded values, DC excluded (default: 0, off)")
 
     # Augmentation
     parser.add_argument("--noise-min", type=float, default=None)
@@ -541,6 +545,7 @@ def main():
     loss_weights = {
         "l1": cfg.l1_weight,
         "color_bias": cfg.color_bias_weight,
+        "fft": cfg.fft_weight,
     }
     config_summary = cfg.to_dict()
 
@@ -743,6 +748,8 @@ def main():
     loss_info = f"Loss: {loss_name}={criterion.l1_weight} on encoded values"
     if criterion.color_bias_weight > 0:
         loss_info += f", color_bias={criterion.color_bias_weight}"
+    if criterion.fft is not None:
+        loss_info += f", fft={criterion.fft_weight}"
     if criterion.recon_only:
         loss_info += f" [recon-only, known={criterion.known_pixel_weight}]"
     dash.log(loss_info)

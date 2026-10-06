@@ -15,7 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from losses import GAMMA, MEAN_FLOOR, TOE, DemosaicLoss, EncodedPSNR, encode, encode_pair  # noqa: E402
+from losses import GAMMA, MEAN_FLOOR, TOE, DemosaicLoss, EncodedPSNR, FFTMagnitudeLoss, encode, encode_pair  # noqa: E402
 
 
 def _pair(seed: int = 0, level: float = 0.1) -> tuple[torch.Tensor, torch.Tensor]:
@@ -98,6 +98,58 @@ class MetricTest(unittest.TestCase):
         m.update(target, target)
         self.assertTrue(math.isfinite(m.value()))
         self.assertAlmostEqual(m.value(), 100.0, places=3)
+
+
+
+def _texture(seed: int = 0, size: int = 144) -> torch.Tensor:
+    """A patch with fine texture at several scales, values around 0.1."""
+    g = torch.Generator().manual_seed(seed)
+    base = torch.rand(2, 3, size // 4, size // 4, generator=g)
+    coarse = torch.nn.functional.interpolate(base, size=(size, size), mode="bilinear", align_corners=False)
+    return 0.05 + 0.05 * coarse + 0.03 * torch.rand(2, 3, size, size, generator=g)
+
+
+def _blur(x: torch.Tensor) -> torch.Tensor:
+    k = torch.tensor([1.0, 2.0, 1.0]) / 4
+    k2 = (k[:, None] * k[None, :]).view(1, 1, 3, 3).repeat(3, 1, 1, 1)
+    return torch.nn.functional.conv2d(torch.nn.functional.pad(x, (1, 1, 1, 1), mode="replicate"), k2, groups=3)
+
+
+class FFTMagnitudeTest(unittest.TestCase):
+    """The magnitude-spectrum term on encoded values."""
+
+    def test_identical_inputs_cost_nothing_and_brightness_changes_nothing(self) -> None:
+        target = _texture()
+        term = FFTMagnitudeLoss()
+        self.assertAlmostEqual(float(term(*encode_pair(target, target))), 0.0, places=6)
+        base = float(term(*encode_pair(_blur(target), target)))
+        self.assertGreater(base, 0.0)
+        for k in (1 / 64, 16.0):                                    # 6 stops down, 4 up
+            self.assertAlmostEqual(float(term(*encode_pair(_blur(target) * k, target * k))), base, places=5)
+
+    def test_missing_texture_costs_but_its_position_does_not(self) -> None:
+        target = _texture()
+        term = FFTMagnitudeLoss()
+        moved = float(term(*encode_pair(torch.roll(target, shifts=1, dims=3), target)))   # one pixel over
+        blurred = float(term(*encode_pair(_blur(target), target)))
+        self.assertLess(moved, 1e-5)
+        self.assertGreater(blurred, 100 * max(moved, 1e-7))
+
+    def test_finite_value_and_gradient_on_flat_and_black_patches(self) -> None:
+        for target in (torch.full((2, 3, 144, 144), 0.2), torch.zeros(2, 3, 144, 144)):
+            pred = target.clone().requires_grad_(True)                # a flat spectrum: the worst case for |F|
+            value = FFTMagnitudeLoss()(*encode_pair(pred, target))
+            value.backward()
+            assert pred.grad is not None
+            self.assertTrue(torch.isfinite(value) and torch.isfinite(pred.grad).all())
+
+    def test_demosaic_loss_adds_the_term_with_its_weight(self) -> None:
+        target = _texture()
+        pred = _blur(target)
+        plain, components = DemosaicLoss()(pred, target)
+        self.assertNotIn("fft", components)
+        total, components = DemosaicLoss(fft_weight=0.5)(pred, target)
+        self.assertAlmostEqual(float(total), float(plain) + 0.5 * float(components["fft"]), places=6)
 
 
 if __name__ == "__main__":

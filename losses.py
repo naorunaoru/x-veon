@@ -79,6 +79,29 @@ class EncodedPSNR:
         return float(-10.0 * torch.log10(mse))
 
 
+class FFTMagnitudeLoss(nn.Module):
+    """L1 between the magnitude spectra of encoded prediction and target, DC excluded.
+
+    Magnitude only: texture in a slightly different place costs nothing, texture that is
+    missing costs its energy, so the term pushes against flattening fine detail that the
+    L1 alone would average away. (train-v6's FFTLoss took the magnitude of the complex
+    difference, which keeps the phase and, like a pixel loss, favours blur where the
+    position of fine detail is uncertain.) The magnitude has a small floor under the square
+    root so a flat spectrum does not give NaN gradients.
+    """
+
+    def forward(self, enc_pred: torch.Tensor, enc_target: torch.Tensor) -> torch.Tensor:
+        def magnitude(x: torch.Tensor) -> torch.Tensor:
+            f = torch.fft.rfft2(x.float(), norm="ortho")
+            return torch.sqrt(f.real ** 2 + f.imag ** 2 + 1e-12)
+
+        diff = (magnitude(enc_pred) - magnitude(enc_target)).abs()
+        not_dc = torch.ones_like(diff[:1, :1])
+        not_dc[..., 0, 0] = 0.0
+        loss: torch.Tensor = (diff * not_dc).mean()
+        return loss
+
+
 class ColorBiasLoss(nn.Module):
     """Penalize systematic color shift (DC bias) between prediction and target."""
 
@@ -89,12 +112,15 @@ class ColorBiasLoss(nn.Module):
 
 
 class DemosaicLoss(nn.Module):
-    """L1 (or Huber) between encoded prediction and encoded target.
+    """L1 (or Huber) between encoded prediction and encoded target, plus an optional
+    magnitude-spectrum term on the same encoded values.
 
     Options:
     - recon_only: score only the values the CFA did not sample, plus
       known_pixel_weight times the loss on the sampled ones.
     - color_bias_weight: mean colour shift penalty on un-encoded values (off by default).
+    - fft_weight: FFTMagnitudeLoss on the encoded values of the whole patch (off by default;
+      the S configuration uses 0.5).
     """
 
     def __init__(
@@ -105,6 +131,7 @@ class DemosaicLoss(nn.Module):
         huber_delta: float = 1.0,
         recon_only: bool = False,
         known_pixel_weight: float = 0.1,
+        fft_weight: float = 0.0,
     ) -> None:
         super().__init__()
         self.l1_weight = l1_weight
@@ -114,6 +141,8 @@ class DemosaicLoss(nn.Module):
         self.recon_only = recon_only
         self.known_pixel_weight = known_pixel_weight
         self.color_bias = ColorBiasLoss() if color_bias_weight > 0 else None
+        self.fft_weight = fft_weight
+        self.fft = FFTMagnitudeLoss() if fft_weight > 0 else None
 
     def _elementwise(self, enc_pred: torch.Tensor, enc_target: torch.Tensor) -> torch.Tensor:
         if self.use_huber:
@@ -142,6 +171,10 @@ class DemosaicLoss(nn.Module):
         components[name] = pixel_loss.detach()
         total = self.l1_weight * pixel_loss
 
+        if self.fft is not None:
+            fft = self.fft(enc_pred, enc_target)
+            components["fft"] = fft.detach()
+            total = total + self.fft_weight * fft
         if self.color_bias is not None:
             cb = self.color_bias(pred.float(), target.float())
             components["color_bias"] = cb.detach()
