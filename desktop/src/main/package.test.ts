@@ -4,7 +4,7 @@ import path from 'node:path';
 import { createPackageWithOptions } from '@electron/asar';
 import { expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { requireFileSymlinks } from '../test/symlinks';
 // @ts-expect-error Node packaging script intentionally has no TS runtime dependency.
 import { checkArchive, ARCHIVE_BUDGET_BYTES } from '../../scripts/check-dist.mjs';
@@ -37,14 +37,14 @@ it.for(['ordinary', 'symlink', 'linux'])('runs the actual CLI through a %s path 
    if (route === 'symlink') await fs.symlink(script, link, 'file');
    const preload = path.join(dir, 'linux.mjs');
    if (route === 'linux') await fs.writeFile(preload, "Object.defineProperty(process, 'platform', { value: 'linux' }); Object.defineProperty(process, 'arch', { value: 'x64' });");
-   const runtimeArgs = route === 'linux' ? ['--import', preload] : [];
+   const runtimeArgs = route === 'linux' ? ['--import', pathToFileURL(preload).href] : [];
    for (const invalid of [false, true]) {
      if (invalid) await fs.writeFile(path.join(source, 'secret.RAF'), 'raw');
      await createPackageWithOptions(source, archive, { unpack: '*.node' });
      {
        const entry = route === 'symlink' ? link : script;
        const result = spawnSync(process.execPath, [...runtimeArgs, entry, archive, '--addon', fixtureAddon], { encoding: 'utf8' });
-       expect(result.error).toBeUndefined(); expect(result.status).toBe(invalid ? 1 : 0);
+       expect(result.error).toBeUndefined(); expect(result.status, result.stderr).toBe(invalid ? 1 : 0);
        expect(result.stdout + result.stderr).toContain(invalid ? 'RAW file: secret.RAF' : 'Package check passed');
        if (route === 'linux' && !invalid) {
          const defaultResult = spawnSync(process.execPath, [...runtimeArgs, entry, archive], { encoding: 'utf8' });

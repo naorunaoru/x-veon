@@ -62,7 +62,9 @@ for (const quality of [95, 40]) it(`avif 4200x128 q${quality} threads=1 equals d
   results.push({ name: `avif threads q${quality}`, equal, defaultSha256: hash(defaultBytes), singleSha256: hash(singleBytes) });
   expect(equal).toBe(true);
 });
-it('informational 6240x4160 AVIF q95 speed', async () => {
+// Timing only, no assertion. On shared CI runners the synchronous WASM encode outlasts Vitest's 60 s
+// worker RPC timeout, and the timing means nothing there.
+it.skipIf(process.env.CI === 'true')('informational 6240x4160 AVIF q95 speed', async () => {
   const data = syntheticImage(6240, 4160, 20261005, 6);
   const startWasm = performance.now();
   wasm.encode_image(data, new Float32Array(0), 6240, 4160, 'Normal', 'avif', 95, 1000);
