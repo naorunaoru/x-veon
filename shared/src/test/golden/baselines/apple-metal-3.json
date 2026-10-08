@@ -3,8 +3,8 @@
     "vendor": "apple",
     "architecture": "metal-3"
   },
-  "commit": "1c24dc6",
-  "recordedAt": "2026-09-27T14:06:04.423Z",
+  "commit": "52a91f4",
+  "recordedAt": "2026-10-08T17:43:03.224Z",
   "entries": {
     "DSCF3332.RAF|neural-net:S": {
       "display": "193dc110824e601858e48085203959e235186f03c6791b1f7e7bcecc941a3d7d",
@@ -63,8 +63,8 @@
       "sha256": "8bffce48c2659e0ffeef6f3c0966033bd7f43f9e4bd6ee584910e7911c908c52"
     },
     "DSCF3332.RAF|avif": {
-      "bytes": 791645,
-      "sha256": "382f7ee55b3814ff6f0b91c38bb5eeffb7a220a618afc0385d122205620cda7a"
+      "bytes": 442701,
+      "sha256": "e821d7e355f99d896068ff0c9b7d5cda2f4934c58c0cfee33e5a6f6df908a725"
     },
     "DSCF3332.RAF|tiff": {
       "bytes": 97615310,
@@ -75,8 +75,8 @@
       "sha256": "605590cdf1dc91f8ea6055345d7d0bb679e6154276542a3df54384b23ea21f97"
     },
     "sony_a6400_21.arw|avif": {
-      "bytes": 4768191,
-      "sha256": "44aab0790a30e6dcd49aef77ed3a6b3312b5aaf8d25fc888852f6a03d2e27314"
+      "bytes": 3152391,
+      "sha256": "e5ed9cfef76f013f1382a353f7f613ee57cf3b9fb7b7f19bb43377555883d4da"
     },
     "sony_a6400_21.arw|tiff": {
       "bytes": 145444806,
@@ -85,12 +85,12 @@
   },
   "nativeExports": {
     "DSCF3332.RAF|avif": {
-      "bytes": 791540,
-      "sha256": "647c40edbb3868aa70d75561ad96ac64742b0f852e4de8ba060f4e7fe7711d5c"
+      "bytes": 442701,
+      "sha256": "e821d7e355f99d896068ff0c9b7d5cda2f4934c58c0cfee33e5a6f6df908a725"
     },
     "sony_a6400_21.arw|avif": {
-      "bytes": 4768225,
-      "sha256": "1deba6987c99a505e9601131e9d896b99a825f151093b2977bcdcd8ccf8a9deb"
+      "bytes": 3152391,
+      "sha256": "e5ed9cfef76f013f1382a353f7f613ee57cf3b9fb7b7f19bb43377555883d4da"
     }
   }
 }

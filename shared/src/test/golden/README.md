@@ -25,8 +25,8 @@ The user authorized the corrected baseline on October 8. Evidence is retained
 outside the checkout in `m4-avif-color-fix/baseline-recording/`: `chrome-1.json`,
 `chrome-2.json`, `comparison.json`, and `previous-nvidia-blackwell.json`.
 The recorded commit identifies the base; it does not include the uncommitted
-color correction. The Apple baseline remains unchanged and needs separate
-validation for this encoder change.
+color correction. The Apple baseline was left unchanged during Windows
+validation; subsequent Apple validation is recorded below.
 
 ### Windows NVIDIA Blackwell (2026-10-01)
 
@@ -36,6 +36,33 @@ scene/graded/dark hashes and all six export hashes and byte lengths. The user
 explicitly approved this baseline on October 1. Evidence is preserved in the
 Windows spike reports `windows-chrome-hdr-full-1.json` and
 `windows-chrome-hdr-full-2.json`. The Apple baseline is unchanged.
+
+### Apple AVIF color correction (2026-10-08)
+
+Recorded at `52a91f4` on Apple M4 Pro / `metal-3`, macOS 27.0.1, Chrome
+154.0.8037.98 and Electron 44.4.5. The full-range BT.2020 YCbCr / HLG
+correction described above changes only the two AVIF exports. Two full Chrome
+recordings and two completed isolated native Electron recordings agree on all
+30 rendering hashes and all six export hashes and byte counts within each
+runtime. The native and WASM AVIF bytes now also agree; both `exports` and
+`nativeExports` retain explicit approved values. Rendering, JPEG-HDR and TIFF
+values are unchanged. The author approved these Apple AVIF values on October 8.
+
+The corrected synthetic AVIF passes macOS CoreImage/ImageIO float decoding
+checks for neutral grays, monotonic levels and primary dominance. Both real-photo
+native AVIFs decode with full-range 10-bit YUV444 and CICP 9/18/9 metadata.
+The normal packaged app passes archive validation and RAW/edit/export smoke.
+These checks do not establish absolute HDR luminance calibration.
+
+The first Electron attempt hit the pre-existing intermittent renderer-completion
+timeout; it is retained as an error, not a pass. One unchanged-build diagnostic
+rerun completed, followed by the second matching recording. Evidence and the
+exact approval values are retained in `.m4-evidence/avif-macos-52a91f4/`, including
+`REVIEW.md`, the four completed reports, `comparison.json`, decoder checks and
+`electron-attempt1-timeout.json`. Final comparison passes reported there use the
+captured reports; fresh checks against the committed baseline are recorded
+separately. The native/WASM byte agreement is specific to this recorded build
+and CPU path, not a universal guarantee for other encoder versions or CPUs.
 
 ### Apple Metal
 
