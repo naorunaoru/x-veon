@@ -7,6 +7,27 @@ and its encoded exports for two sample RAWs, produced by the `?golden` route in
 
 ## Provenance of the current baseline
 
+### Windows AVIF color correction (2026-10-08)
+
+Re-recorded on NVIDIA Blackwell in Chrome 154.0.8037.98 from `fd1e68e`
+with the AVIF color correction in the working tree. The encoder now writes
+full-range BT.2020 YCbCr 4:4:4 with HLG and matching container color metadata.
+The previous identity-matrix HDR exports produced green/magenta colors in
+the Windows HEIF decoder. A Windows decoder regression fails with the old
+encoder and passes with the correction.
+
+With the previous Windows baseline removed, two full Chrome runs in separate
+profiles returned `RECORDED` and agreed on all 30 rendering hashes and all six
+export hashes and byte counts. Only the two AVIF exports changed from the old
+baseline. The corrected native Electron report matches all six exports too;
+the comparison helper passes all 16 cases for each of these three reports.
+The user authorized the corrected baseline on October 8. Evidence is retained
+outside the checkout in `m4-avif-color-fix/baseline-recording/`: `chrome-1.json`,
+`chrome-2.json`, `comparison.json`, and `previous-nvidia-blackwell.json`.
+The recorded commit identifies the base; it does not include the uncommitted
+color correction. The Apple baseline remains unchanged and needs separate
+validation for this encoder change.
+
 ### Windows NVIDIA Blackwell (2026-10-01)
 
 Recorded on an RTX 5080, driver 32.0.16.1714, Windows 11 build 26300, Chrome

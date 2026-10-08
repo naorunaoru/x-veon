@@ -27,6 +27,33 @@ fn image(w: u32, h: u32, scale: f32) -> Vec<f32> {
     let b = encode(&px, &[], 64, 48, "Normal", Format::Avif, 95, 1000.0, ONE).unwrap();
     assert_eq!(&a[4..8], b"ftyp"); assert!(a.windows(4).any(|w| w == b"avif")); assert_eq!(a, b);
 }
+
+#[test] fn avif_container_describes_full_range_bt2020_hlg_ycbcr() {
+    // Read actual container properties, not an arbitrary byte match in the AV1 payload.
+    fn colors(boxes: &[u8], found: &mut Vec<Vec<u8>>) {
+        let mut offset = 0;
+        while offset < boxes.len() {
+            assert!(boxes.len() - offset >= 8, "truncated box header");
+            let size = u32::from_be_bytes(boxes[offset..offset + 4].try_into().unwrap()) as usize;
+            assert!(size >= 8 && size <= boxes.len() - offset, "invalid box size");
+            let kind = &boxes[offset + 4..offset + 8];
+            let payload = &boxes[offset + 8..offset + size];
+            match kind {
+                b"meta" => colors(&payload[4..], found), // FullBox version/flags
+                b"iprp" | b"ipco" => colors(payload, found),
+                b"colr" => found.push(payload.to_vec()),
+                _ => {},
+            }
+            offset += size;
+        }
+    }
+    let bytes = encode(&image(64, 48, 1.0), &[], 64, 48, "Normal", Format::Avif, 95, 1000.0, ONE).unwrap();
+    let mut properties = Vec::new();
+    colors(&bytes, &mut properties);
+    // CICP: BT.2020 primaries (9), HLG transfer (18), BT.2020 NCL matrix (9), full range.
+    // Default serialization omits this property, allowing readers to assume YCbCr/sRGB.
+    assert_eq!(properties, vec![b"nclx\x00\x09\x00\x12\x00\x09\x80".to_vec()]);
+}
 #[test] fn ultra_hdr_has_two_jpegs_and_mpf() {
     let (sdr, hdr) = (image(64, 48, 1.0), image(64, 48, 6.0));
     let j = encode(&sdr, &hdr, 64, 48, "Rotate90", Format::JpegHdr, 95, 1000.0, ONE).unwrap();

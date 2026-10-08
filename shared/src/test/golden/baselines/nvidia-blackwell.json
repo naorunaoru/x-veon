@@ -3,8 +3,8 @@
     "vendor": "nvidia",
     "architecture": "blackwell"
   },
-  "commit": "6bae195",
-  "recordedAt": "2026-10-01T14:59:07.308Z",
+  "commit": "fd1e68e",
+  "recordedAt": "2026-10-08T17:24:02.898Z",
   "entries": {
     "DSCF3332.RAF|neural-net:S": {
       "scene": "26af09a5375e2cf3db6e7b37552e7cbafc0b0d84718f5313f45c626c0d343090",
@@ -63,8 +63,8 @@
       "sha256": "82ab9e8ab68c60a5414044e08d199b5e51fd2018d68636df593bcbbfcc7875e7"
     },
     "DSCF3332.RAF|avif": {
-      "bytes": 791292,
-      "sha256": "7d5de79363fe622909009090748e08b2dc52f7f9c6a6a60a01d11cd860f1b82a"
+      "bytes": 442461,
+      "sha256": "8d8ceda42dc7cc9976b8c6ce6d6495b1376f39fda425478b2af3e218183118c7"
     },
     "DSCF3332.RAF|tiff": {
       "bytes": 97615310,
@@ -75,8 +75,8 @@
       "sha256": "3c9324e790c4741153c65559afd764cb0287ce2806f781f705a302d971ecf476"
     },
     "sony_a6400_21.arw|avif": {
-      "bytes": 4768564,
-      "sha256": "7443b35f7ef2961dbd4581981c4b46d0b39701740b3ad4c2fa5bc429506f3c25"
+      "bytes": 3152236,
+      "sha256": "829181f13019cce9774ddc076a3cc14af76485de12a7af111010887ab814ab01"
     },
     "sony_a6400_21.arw|tiff": {
       "bytes": 145444806,
