@@ -1,46 +1,10 @@
-import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { expect, it } from 'vitest';
 import { loadNativeEncoder } from '../worker/native';
-
-// Decode through the installed Windows codec, not Chromium/libavif: they can
-// correctly read the AV1 payload even when Windows misinterprets the container.
-const decodeWindows = String.raw`
-$ErrorActionPreference = 'Stop'
-Add-Type -AssemblyName PresentationCore
-try {
-  $decoder = [System.Windows.Media.Imaging.BitmapDecoder]::Create(
-    [uri]$env:XV_AVIF_COLOR_PROBE,
-    [System.Windows.Media.Imaging.BitmapCreateOptions]::PreservePixelFormat,
-    [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad)
-} catch {
-  $cause = $_.Exception
-  while ($null -ne $cause) {
-    if ($cause.HResult -eq -2003292336) { # WINCODEC_ERR_COMPONENTNOTFOUND
-      '{"unavailable":true}'
-      exit 0
-    }
-    $cause = $cause.InnerException
-  }
-  throw
-}
-# Keep HDR values unclipped; converting to 8-bit would turn bright grays white.
-$image = [System.Windows.Media.Imaging.FormatConvertedBitmap]::new(
-  $decoder.Frames[0], [System.Windows.Media.PixelFormats]::Rgba128Float, $null, 0)
-$pixels = [byte[]]::new($image.PixelWidth * $image.PixelHeight * 16)
-$image.CopyPixels($pixels, $image.PixelWidth * 16, 0)
-$centers = @()
-for ($i = 0; $i -lt 8; $i++) {
-  $offset = (32 * $image.PixelWidth + $i * 64 + 32) * 16
-  $centers += ,@([BitConverter]::ToSingle($pixels, $offset),
-    [BitConverter]::ToSingle($pixels, $offset + 4),
-    [BitConverter]::ToSingle($pixels, $offset + 8))
-}
-@{centers=$centers} | ConvertTo-Json -Depth 3 -Compress
-`;
+import { decodeWindowsAvif, knownGoodAvif } from './windows-avif-decoder';
 
 it.skipIf(process.platform !== 'win32')('Windows AVIF decoder preserves neutral grays and primary colors', async ({ skip }) => {
   const loaded = loadNativeEncoder(createRequire(import.meta.url), path.resolve(__dirname, '../../native'));
@@ -55,11 +19,13 @@ it.skipIf(process.platform !== 'win32')('Windows AVIF decoder preserves neutral 
     await fs.writeFile(file, await loaded.encoder.encode(data, null, {
       format: 'avif', width, height, orientation: 'Normal', quality: 100, peakLuminance: 1000, threads: 1,
     }));
-    const result = JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', decodeWindows], {
-      env: { ...process.env, XV_AVIF_COLOR_PROBE: file }, encoding: 'utf8', timeout: 30_000,
-    })) as { unavailable?: boolean; centers: number[][] };
-    // Windows CI images may lack the optional HEIF codec. Other decoder errors fail.
-    if (result.unavailable) { skip(); return; }
+    const reference = path.join(dir, 'known-good.avif');
+    await fs.writeFile(reference, knownGoodAvif);
+    const result = decodeWindowsAvif(reference, file);
+    if ('unavailable' in result) {
+      console.warn('Windows AVIF codec unavailable for the fixed reference:', result.causes);
+      skip(); return;
+    }
     expect(result.centers).toHaveLength(8);
     const grays = result.centers.slice(0, 5);
     expect(grays[0].every(v => Math.abs(v) < .001)).toBe(true);
