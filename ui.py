@@ -142,7 +142,7 @@ def plot_training_history(checkpoint_dir: str) -> tuple:
     COMP_COLORS = {
         "l1": "#1f77b4", "l1_recon": "#4169e1", "l1_known": "#6495ed",
         "huber": "#1f77b4", "huber_recon": "#4169e1", "huber_known": "#6495ed",
-        "color_bias": "#8c564b",
+        "fft": "#17becf", "color_bias": "#8c564b",
     }
     # Map component names to their config weight keys.
     # l1_recon/l1_known are sub-components of l1 — use l1_weight for them.

@@ -967,7 +967,7 @@ class TrainingDashboard:
         if self.loss_weights and total_val and not math.isnan(total_val) and total_val > 0:
             # Map component name → weight key
             _COMP_TO_WEIGHT = {
-                "l1": "l1", "huber": "l1", "color_bias": "color_bias",
+                "l1": "l1", "huber": "l1", "fft": "fft", "color_bias": "color_bias",
             }
             for comp_name, comp_val in comps.items():
                 wkey = _COMP_TO_WEIGHT.get(comp_name)
@@ -1095,7 +1095,7 @@ def replay_history(history_path: str, animate: bool = False):
         try:
             with open(config_path) as f:
                 cfg = json.load(f)
-            for key in ("l1", "color_bias"):
+            for key in ("l1", "fft", "color_bias"):
                 w = cfg.get(f"{key}_weight", 0.0)
                 if w:
                     loss_weights[key] = w
@@ -1139,7 +1139,7 @@ def mock_training(total_epochs: int = 300, fast: bool = False):
 
     comp_cfg = {
         "l1_recon": (0.05, 0.005), "l1_known": (0.02, 0.004),
-        "l1": (0.05, 0.005), "color_bias": (0.008, 0.004),
+        "l1": (0.05, 0.005), "fft": (0.04, 0.004), "color_bias": (0.008, 0.004),
     }
 
     dashboard = TrainingDashboard(total_epochs=total_epochs, rolling_window=10)
