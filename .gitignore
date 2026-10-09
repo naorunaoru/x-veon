@@ -99,3 +99,9 @@ node_modules/
 
 /checkpoint_registry.json
 /.ui_state.json
+.osgrep
+
+.mcp.json
+.docrag
+
+.env

@@ -6,25 +6,40 @@ This project consists of two parts: first one is the neural net itself with a bu
 
 ## Neural network
 
-The demosaicing model is a U-Net (encoder-decoder with skip connections, `model.py`) with a 5-channel input: the raw CFA mosaic value, 3 binary masks marking which colour filter covers each pixel, and a clip-proximity channel (0 below half of the clip level, ramping to 1 at clipping). It outputs a full-colour 3-channel image in camera RGB, without white balance.
+The demosaicing model is a small U-Net (`model.py`) with a 5-channel input: the raw CFA mosaic value, 3 binary masks marking which colour filter covers each pixel, and a clip-proximity channel (0 below half of the clip level, ramping to 1 at clipping). It outputs a full-colour 3-channel image in camera RGB, without white balance.
 
-The encoder has 4 downsampling stages (strided convolutions; channel widths `base_width × 1, 2, 4, 8, 16`). Each stage is two convolutions with GroupNorm and ReLU; the decoder upsamples with 1×1 convolutions and PixelShuffle and concatenates the matching encoder stage. For X-Trans the first convolution is 7×7 and the input also carries sin/cos encodings of the 6×6 CFA phase.
+The model divides the mosaic by its mean over the tile, so it sees every tile at the same brightness, and multiplies its output back at the end. Exposure therefore does not change the result, down to a tile mean of 1e-4 of the sensor's range.
 
-A key design choice is the residual CFA skip: each photosite's value is placed in its own colour channel as a baseline (`cfa × masks`), and the network learns the missing colours on top of it. This keeps the model largely exposure-agnostic.
+The input is then packed by space-to-depth, 3×3 for X-Trans and 2×2 for Bayer, so each channel holds one photosite position and every convolution sees a fixed layout. The S model works at two resolutions (1/3 and 1/6 for X-Trans, 1/2 and 1/4 for Bayer). A block is two 3×3 convolutions with ReLU; there are no normalisation layers. A 1×1 convolution and depth-to-space turn the result into a full-resolution correction.
 
-The same architecture serves both 6×6 X-Trans and 2×2 Bayer patterns, with a separate model per sensor type. The models shipped in `shared/public/checkpoints/` were exported before the current architecture (max-pool/transposed-convolution, no normalisation), so the current `model.py` cannot load them; retrain to reproduce them.
+That correction is added to a baseline in which each photosite's value sits in its own colour channel (`cfa × masks`), so the network only supplies the missing colours.
+
+The same code serves both 6×6 X-Trans and 2×2 Bayer patterns, with a separate model per sensor type. `CHECKPOINT_POLICY.md` describes checkpoint versions; the current family is `v7`. In `shared/public/checkpoints/models.json`, an entry exported from the current code carries a `checkpoint_version`; an entry without one is an older export that this `model.py` cannot load.
+
+## Training
+
+`train.py` trains with L1 between prediction and target after both are divided by the target patch's mean and passed through a power curve (γ = 1/2.2, with a small offset that keeps the slope at black finite). The S configuration adds one more term on the same encoded values: L1 between their magnitude spectra (weight 0.5), which does not care where fine texture sits but charges for texture that is missing, so faint detail is not averaged away. The encoding also gives the PSNR that is reported and that picks `best.pt`, so its values are not comparable with PSNR figures from earlier checkpoints.
+
+`configs/s_xtrans/config.json` and `configs/s_bayer/config.json` hold the S training configuration:
+
+```
+python train.py --from-checkpoint configs/s_xtrans --no-resume \
+    --data-dir <dataset>:1500 <dataset>:1500 \
+    --output-dir checkpoints/xtrans/v7.1.0 --cache-patches --cache-gb 40 --workers 4
+python export_onnx.py --version v7.1.0 --verify
+```
+
+`tools/eval_truth.py` scores exported models against real RGB obtained by averaging X-Trans mosaics over 6×6 cells, with no demosaicer involved.
 
 ## Dataset
 
 The network is trained on synthetic input/target pairs generated from real RAW photos. The build process works as follows:
 
-1. **Ground truth generation** (`build_dataset.py`): RAW files (RAF, ARW, CR2, etc.) are demosaiced with traditional algorithms — DHT for X-Trans, AHD for Bayer — in linear sensor space with no white balance or colour correction, normalised to the sensor's range, and downscaled 2× by area averaging to produce clean reference images stored as float32 `.npy` files.
+1. **Ground truth generation** (`build_dataset.py`): RAW files (RAF, ARW, CR2, etc.) are demosaiced with LibRaw — Markesteijn three-pass for X-Trans, AHD for Bayer — in linear sensor space with no white balance or colour correction, scaled so that the sensor's white level is 65535, and downscaled 2× by area averaging to produce reference images stored as uint16 `.npy` files. The builder writes a `build_info.json` into the dataset directory (code revision and options); it refuses to add to a directory built differently, and `train.py` refuses a directory without the record.
 
-2. **Synthetic re-mosaicing**: during training, patches are cropped on the CFA period from the ground truth and re-mosaiced through the sensor's pattern to form the network's input, so the model learns from a clean demosaic "re-captured" through the CFA.
+2. **Synthetic re-mosaicing**: during training, patches are cropped at any offset from the ground truth and re-mosaiced through the sensor's pattern to form the network's input, so the model learns from a clean demosaic "re-captured" through the CFA.
 
-3. **Augmentations**: random flips and 90° rotations, Poisson-Gaussian noise, optional OLPF (anti-aliasing filter) blur, synthetic bright light sources pushing into clipping, random downscaling, and — for models trained on white-balanced input (`--apply-wb`) — white-balance perturbation in log space.
-
-4. **Torture patterns**: a fraction of synthetic gradient and edge patterns can be mixed into the training set (`--torture-fraction`) to improve worst-case inputs like fine diagonal lines and colour fringes near Nyquist.
+3. **Augmentations**: random flips and 90° rotations, a further 2× shrink of most patches, optional Poisson-Gaussian noise (off in the S configuration: with it the model learned to denoise, which flattened faint texture and smeared dark areas), optional OLPF (anti-aliasing filter) blur, and a random gain of up to ±3 stops inside the model's normalisation. Targets and mosaics are clamped at the clip level.
 
 ## Web application
 

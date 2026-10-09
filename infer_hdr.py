@@ -14,8 +14,9 @@ import numpy as np
 import rawpy
 import torch
 
-from model import XTransUNet
-from cfa import make_cfa_mask, make_channel_masks, detect_cfa_from_raw, find_pattern_shift, cfa_period, CFA_REGISTRY
+from cfa import make_channel_masks, make_model_input
+from export_onnx import load_model
+from cfa import make_cfa_mask, detect_cfa_from_raw, find_pattern_shift, cfa_period, CFA_REGISTRY
 from highlight_recovery import reconstruct_highlights
 from highlight_recovery_rgb import reconstruct_highlights as reconstruct_highlights_rgb
 
@@ -138,20 +139,9 @@ def extract_dr_gain(raw_path: str) -> float:
         return 1.0
 
 
-def checkpoint_applies_wb(checkpoint_path: str) -> bool:
-    """Whether a checkpoint was trained on white-balanced CFA (train.py --apply-wb), from the
-    config.json saved next to it. Models are trained without WB by default."""
-    import json
-    config = Path(checkpoint_path).parent / "config.json"
-    if not config.exists():
-        return False
-    with open(config) as f:
-        return bool(json.load(f).get("apply_wb", False))
-
-
 def pad_same_phase(a: np.ndarray, pad_top: int, pad_left: int, period: int) -> np.ndarray:
     """Pad top/left with the nearest rows/columns of the same CFA phase (reflect padding puts
-    photosites of the wrong colour next to the edge). Matches padToAlignment in the web app."""
+    photosites of the wrong colour next to the edge). Matches padToAlignment in the app."""
     h, w = a.shape
     rows = [min((y - pad_top) % period, h - 1) for y in range(pad_top)] + list(range(h))
     cols = [min((x - pad_left) % period, w - 1) for x in range(pad_left)] + list(range(w))
@@ -160,7 +150,6 @@ def pad_same_phase(a: np.ndarray, pad_top: int, pad_left: int, period: int) -> n
 
 def process_raw(raw_path: str, model: torch.nn.Module, device: str,
                 patch_size: int = 288, overlap: int = 48,
-                apply_wb_to_cfa: bool = False,
                 cfa_type: str | None = None,
                 hlrecon: str = "cfa") -> tuple[np.ndarray, dict]:
     raw = rawpy.imread(raw_path)
@@ -199,33 +188,20 @@ def process_raw(raw_path: str, model: torch.nn.Module, device: str,
     pad_top = (period - dy) % period
     pad_left = (period - dx) % period
 
-    wb_map = np.ones_like(cfa_norm)
-    for ch in range(3):
-        wb_map[raw_pattern == ch] = wb[ch]
-
     if hlrecon == "cfa":
-        # darktable pipeline: WB → highlights → demosaic
-        cfa_norm = reconstruct_highlights(cfa_norm * wb_map, raw_pattern, wb)
-        if not apply_wb_to_cfa:
-            # Models are trained on raw (non-WB) CFA by default, as the web app feeds them.
-            cfa_norm = cfa_norm / wb_map
-    elif apply_wb_to_cfa:
-        cfa_norm = cfa_norm * wb_map
-    # Clip level of each channel in the space the model sees (raw sensor max is 1.0).
-    clip_levels = wb if apply_wb_to_cfa else np.ones(3, dtype=np.float32)
+        # darktable pipeline: WB → highlights → demosaic. The model takes un-white-balanced
+        # data, so the white balance is divided out again after the reconstruction.
+        wb_map = np.ones_like(cfa_norm)
+        for ch in range(3):
+            wb_map[raw_pattern == ch] = wb[ch]
+        cfa_norm = reconstruct_highlights(cfa_norm * wb_map, raw_pattern, wb) / wb_map
 
     if pad_top > 0 or pad_left > 0:
         cfa_norm = pad_same_phase(cfa_norm, pad_top, pad_left, period)
 
     h_aligned, w_aligned = cfa_norm.shape
 
-    r_mask, g_mask, b_mask = make_channel_masks(patch_size, patch_size, ref_pattern)
-    masks = torch.cat([r_mask.unsqueeze(0), g_mask.unsqueeze(0), b_mask.unsqueeze(0)], dim=0).to(device)
-
-    # Per-pixel clip level map for one tile (CFA-aligned after padding, so periodic)
-    tile_cfa = make_cfa_mask(patch_size, patch_size, ref_pattern).numpy()
-    tile_clip_level = np.array([clip_levels[int(c)] for c in tile_cfa.flat],
-                               dtype=np.float32).reshape(patch_size, patch_size)
+    masks = make_channel_masks(patch_size, patch_size, ref_pattern).to(device)
 
     confidence_map = None
     variance = None
@@ -243,10 +219,7 @@ def process_raw(raw_path: str, model: torch.nn.Module, device: str,
                 for x in range(0, w_pad, patch_size):
                     crop = cfa_padded[y:y+patch_size, x:x+patch_size]
                     cfa_t = torch.from_numpy(crop).unsqueeze(0).unsqueeze(0).float().to(device)
-                    raw_ratio = np.clip(crop / (tile_clip_level + 1e-8), 0, 1)
-                    clip_ratio = torch.from_numpy(np.clip((raw_ratio - 0.5) * 2.0, 0, 1).astype(np.float32)).unsqueeze(0).unsqueeze(0).to(device)
-                    inp = torch.cat([cfa_t, masks.unsqueeze(0), clip_ratio], dim=1)
-                    out = model(inp)[0].cpu().numpy()
+                    out = model(make_model_input(cfa_t, masks))[0].cpu().numpy()
                     output[:, y:y+patch_size, x:x+patch_size] = out
     else:
         stride = patch_size - overlap
@@ -257,7 +230,7 @@ def process_raw(raw_path: str, model: torch.nn.Module, device: str,
         cfa_padded[:h_aligned, :w_aligned] = cfa_norm
         
         # Ramps stay positive (a 0 at the tile edge left row/column 0 unweighted, i.e. black);
-        # opposing ramps sum to 1. Matches blendWeights1d in the web app.
+        # opposing ramps sum to 1. Matches blendWeights1d in the app.
         ramp = np.arange(1, overlap + 1, dtype=np.float32) / (overlap + 1)
         weight_1d = np.ones(patch_size, dtype=np.float32)
         weight_1d[:overlap] = ramp
@@ -273,10 +246,7 @@ def process_raw(raw_path: str, model: torch.nn.Module, device: str,
                 for x in range(0, w_pad - patch_size + 1, stride):
                     crop = cfa_padded[y:y+patch_size, x:x+patch_size]
                     cfa_t = torch.from_numpy(crop).unsqueeze(0).unsqueeze(0).float().to(device)
-                    raw_ratio = np.clip(crop / (tile_clip_level + 1e-8), 0, 1)
-                    clip_ratio = torch.from_numpy(np.clip((raw_ratio - 0.5) * 2.0, 0, 1).astype(np.float32)).unsqueeze(0).unsqueeze(0).to(device)
-                    inp = torch.cat([cfa_t, masks.unsqueeze(0), clip_ratio], dim=1)
-                    out = model(inp)[0].cpu().numpy()
+                    out = model(make_model_input(cfa_t, masks))[0].cpu().numpy()
 
                     for c in range(3):
                         output[c, y:y+patch_size, x:x+patch_size] += out[c] * blend_weight
@@ -297,12 +267,11 @@ def process_raw(raw_path: str, model: torch.nn.Module, device: str,
 
     rgb = rgb.transpose(1, 2, 0)
 
-    if not apply_wb_to_cfa:
-        # The model worked in raw space; white-balance its output.
-        rgb = rgb * wb[np.newaxis, np.newaxis, :]
+    # The model works in raw space; white-balance its output.
+    rgb = rgb * wb[np.newaxis, np.newaxis, :]
 
     if hlrecon == "rgb":
-        # Post-demosaic highlight recovery on WB'd RGB
+        # Post-demosaic highlight recovery on white-balanced RGB
         clip_levels_rgb = np.array([1.0, 1.0, 1.0], dtype=np.float32) * wb
         rgb = reconstruct_highlights_rgb(rgb, clip_levels_rgb)
 
@@ -359,13 +328,10 @@ def main():
     parser.add_argument("input")
     parser.add_argument("output", nargs="?")
     parser.add_argument("--batch", action="store_true")
-    parser.add_argument("--checkpoint", required=True, help="Path to a .pt checkpoint")
+    parser.add_argument("--checkpoint", default="checkpoints_v4_ft/best.pt")
     parser.add_argument("--patch-size", type=int, default=288)
     parser.add_argument("--overlap", type=int, default=48)
     parser.add_argument("--quality", type=int, default=90)
-    parser.add_argument("--wb-cfa", action="store_true",
-                        help="Feed white-balanced CFA to the model. Default: taken from the checkpoint's "
-                             "config.json (apply_wb); checkpoints are trained without WB unless --apply-wb")
     parser.add_argument("--hlrecon", choices=["cfa", "rgb"], default="cfa",
                         help="Highlight reconstruction mode: cfa (pre-demosaic) or rgb (post-demosaic)")
     args = parser.parse_args()
@@ -374,15 +340,11 @@ def main():
     print(f"Device: {device}")
     
     ckpt = torch.load(args.checkpoint, map_location=device, weights_only=False)
-    _cfa_p = cfa_period(CFA_REGISTRY[ckpt.get("cfa_type", "xtrans")])
-    model = XTransUNet(base_width=ckpt.get("base_width", 64), cfa_period=_cfa_p)
-    model.load_state_dict(ckpt["model"])  # strict: a mismatched architecture must fail, not load partially
+    model = load_model(ckpt, args.checkpoint)
     model.to(device)
     model.eval()
     ckpt_cfa = ckpt.get("cfa_type")
-    apply_wb = args.wb_cfa or checkpoint_applies_wb(args.checkpoint)
-    print(f"Checkpoint: {args.checkpoint}" + (f" (cfa_type={ckpt_cfa})" if ckpt_cfa else "")
-          + (" — model expects white-balanced CFA" if apply_wb else ""))
+    print(f"Checkpoint: {args.checkpoint}" + (f" (cfa_type={ckpt_cfa})" if ckpt_cfa else ""))
 
     raw_globs = ["*.RAF", "*.raf", "*.CR2", "*.cr2", "*.CR3", "*.cr3",
                  "*.NEF", "*.nef", "*.ARW", "*.arw", "*.DNG", "*.dng"]
@@ -398,7 +360,7 @@ def main():
             out_path = output_dir / f"{raw_file.stem}_hdr.avif"
             print(f"Processing {raw_file.name}...")
             rgb, meta = process_raw(str(raw_file), model, device, args.patch_size, args.overlap,
-                                    apply_wb_to_cfa=apply_wb, hlrecon=args.hlrecon)
+                                    hlrecon=args.hlrecon)
             save_hdr_avif(rgb, str(out_path), args.quality,
                          exif_flip=meta.get("exif_flip", 0),
                          dr_gain=meta.get("dr_gain", 1.0))
@@ -407,7 +369,7 @@ def main():
         output_path = Path(args.output) if args.output else input_path.with_suffix(".avif")
         print(f"Processing {input_path.name}...")
         rgb, meta = process_raw(str(input_path), model, device, args.patch_size, args.overlap,
-                                apply_wb_to_cfa=apply_wb, hlrecon=args.hlrecon)
+                                hlrecon=args.hlrecon)
         save_hdr_avif(rgb, str(output_path), args.quality,
                      exif_flip=meta.get("exif_flip", 0),
                      dr_gain=meta.get("dr_gain", 1.0))

@@ -1,18 +1,23 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2024-present X-Veon contributors
 """
-Loss functions for X-Trans demosaicing.
+Loss and metric for demosaicing training.
 
-Components:
-- L1: pixel-level accuracy (drives PSNR)
-- Gradient (Sobel): edge preservation
-- MS-SSIM: multi-scale structural similarity (texture/detail)
-- Chroma: penalizes false color artifacts
+Both work on encoded values: each patch is divided by its own target mean and passed
+through a power curve. The loss therefore does not change when a patch is made brighter
+or darker (while its target mean stays at or above MEAN_FLOOR), and every patch weighs
+the same.
 """
+
+from __future__ import annotations
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+GAMMA = 1.0 / 2.2
+TOE = 0.02          # gives the curve a finite slope at black
+MEAN_FLOOR = 1e-4   # patches darker than this are scored on a fixed scale
 
 
 def _gaussian_kernel_1d(size: int, sigma: float) -> torch.Tensor:
@@ -23,99 +28,78 @@ def _gaussian_kernel_1d(size: int, sigma: float) -> torch.Tensor:
 
 
 def _gaussian_kernel_2d(size: int, sigma: float, channels: int) -> torch.Tensor:
-    """Create 2D Gaussian kernel for conv2d."""
+    """Create 2D Gaussian kernel for conv2d (used by the OLPF augmentation)."""
     kernel_1d = _gaussian_kernel_1d(size, sigma)
     kernel_2d = kernel_1d.outer(kernel_1d)
     kernel_2d = kernel_2d / kernel_2d.sum()
     return kernel_2d.view(1, 1, size, size).repeat(channels, 1, 1, 1)
 
 
-class SobelGradientLoss(nn.Module):
-    """Compare spatial gradients (edges) between prediction and target."""
+def encode(values: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
+    """Power curve on values / scale, continued as a straight line below zero.
 
-    def __init__(self):
-        super().__init__()
-        sobel_x = torch.tensor([
-            [-1, 0, 1], [-2, 0, 2], [-1, 0, 1]
-        ], dtype=torch.float32).view(1, 1, 3, 3)
-        sobel_y = torch.tensor([
-            [-1, -2, -1], [0, 0, 0], [1, 2, 1]
-        ], dtype=torch.float32).view(1, 1, 3, 3)
-        self.register_buffer('sobel_x', sobel_x)
-        self.register_buffer('sobel_y', sobel_y)
-
-    def _sobel(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        B, C, H, W = x.shape
-        x_flat = x.reshape(B * C, 1, H, W)
-        gx = F.conv2d(x_flat, self.sobel_x, padding=1).reshape(B, C, H, W)
-        gy = F.conv2d(x_flat, self.sobel_y, padding=1).reshape(B, C, H, W)
-        return gx, gy
-
-    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        gx_p, gy_p = self._sobel(pred)
-        gx_t, gy_t = self._sobel(target)
-        return ((gx_p - gx_t).abs() + (gy_p - gy_t).abs()).mean()
+    Written without a branch: the power is only ever taken of a non-negative number.
+    (A torch.where between two branches evaluates the power for negative inputs too
+    and returns NaN gradients there.)
+    """
+    u = values.float() / scale
+    p = u.clamp(min=0.0)
+    encoded: torch.Tensor = torch.pow(p + TOE, GAMMA) - TOE ** GAMMA + GAMMA * TOE ** (GAMMA - 1.0) * (u - p)
+    return encoded
 
 
-class ChromaLoss(nn.Module):
-    """Penalize high-frequency chrominance (false color artifacts)."""
-
-    def __init__(self, kernel_size: int = 5):
-        super().__init__()
-        self.kernel_size = kernel_size
-        sigma = kernel_size / 4.0
-        kernel = _gaussian_kernel_2d(kernel_size, sigma, channels=1)
-        self.register_buffer('lowpass', kernel[:1])  # Single channel
-
-    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        # RGB to YCbCr (simplified)
-        def to_chroma(rgb):
-            r, g, b = rgb[:, 0:1], rgb[:, 1:2], rgb[:, 2:3]
-            cb = -0.169 * r - 0.331 * g + 0.500 * b
-            cr = 0.500 * r - 0.419 * g - 0.081 * b
-            return torch.cat([cb, cr], dim=1)
-
-        pred_chroma = to_chroma(pred)
-        target_chroma = to_chroma(target)
-
-        # High-pass = original - low-pass
-        pad = self.kernel_size // 2
-        B, C, H, W = pred_chroma.shape
-        pred_flat = pred_chroma.reshape(B * C, 1, H, W)
-        target_flat = target_chroma.reshape(B * C, 1, H, W)
-
-        pred_hp = pred_flat - F.conv2d(pred_flat, self.lowpass, padding=pad)
-        target_hp = target_flat - F.conv2d(target_flat, self.lowpass, padding=pad)
-
-        return F.l1_loss(pred_hp, target_hp)
+def encode_pair(pred: torch.Tensor, target: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Encode prediction and target with the target patch's own mean as the scale."""
+    target = target.float()
+    scale = target.mean(dim=(1, 2, 3), keepdim=True).clamp(min=MEAN_FLOOR)
+    return encode(pred, scale), encode(target, scale)
 
 
-class ZipperLoss(nn.Module):
-    """Penalize spurious high-frequency oscillations (zipper artifacts).
+class EncodedPSNR:
+    """PSNR on encoded values, pooled over a whole pass.
 
-    Uses the Laplacian (2nd-order derivative) to detect alternating pixel
-    patterns that shouldn't exist in a properly demosaiced image.  The
-    first-order Sobel gradient loss already penalizes edge errors, but
-    zipper is specifically a *second-order* phenomenon — rapid sign
-    alternation — that Sobel largely misses.
+    Squared error and element count are summed over every batch and the logarithm is
+    taken once, so the score does not depend on how predictions are grouped in batches.
     """
 
-    def __init__(self):
-        super().__init__()
-        laplacian = torch.tensor([
-            [0,  1, 0],
-            [1, -4, 1],
-            [0,  1, 0],
-        ], dtype=torch.float32).view(1, 1, 3, 3)
-        self.register_buffer('laplacian', laplacian)
+    def __init__(self) -> None:
+        self.sse: torch.Tensor | None = None
+        self.count = 0
 
-    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        B, C, H, W = pred.shape
-        pred_flat = pred.reshape(B * C, 1, H, W)
-        target_flat = target.reshape(B * C, 1, H, W)
-        lap_pred = F.conv2d(pred_flat, self.laplacian, padding=1)
-        lap_target = F.conv2d(target_flat, self.laplacian, padding=1)
-        return F.l1_loss(lap_pred, lap_target)
+    def update(self, pred: torch.Tensor, target: torch.Tensor) -> None:
+        enc_pred, enc_target = encode_pair(pred.detach(), target)
+        sse = ((enc_pred - enc_target) ** 2).sum()
+        self.sse = sse if self.sse is None else self.sse + sse
+        self.count += enc_pred.numel()
+
+    def value(self) -> float:
+        if self.sse is None or self.count == 0:
+            return float("nan")
+        mse = (self.sse / self.count).clamp(min=1e-10)
+        return float(-10.0 * torch.log10(mse))
+
+
+class FFTMagnitudeLoss(nn.Module):
+    """L1 between the magnitude spectra of encoded prediction and target, DC excluded.
+
+    Magnitude only: texture in a slightly different place costs nothing, texture that is
+    missing costs its energy, so the term pushes against flattening fine detail that the
+    L1 alone would average away. (train-v6's FFTLoss took the magnitude of the complex
+    difference, which keeps the phase and, like a pixel loss, favours blur where the
+    position of fine detail is uncertain.) The magnitude has a small floor under the square
+    root so a flat spectrum does not give NaN gradients.
+    """
+
+    def forward(self, enc_pred: torch.Tensor, enc_target: torch.Tensor) -> torch.Tensor:
+        def magnitude(x: torch.Tensor) -> torch.Tensor:
+            f = torch.fft.rfft2(x.float(), norm="ortho")
+            return torch.sqrt(f.real ** 2 + f.imag ** 2 + 1e-12)
+
+        diff = (magnitude(enc_pred) - magnitude(enc_target)).abs()
+        not_dc = torch.ones_like(diff[:1, :1])
+        not_dc[..., 0, 0] = 0.0
+        loss: torch.Tensor = (diff * not_dc).mean()
+        return loss
 
 
 class ColorBiasLoss(nn.Module):
@@ -127,285 +111,74 @@ class ColorBiasLoss(nn.Module):
         return F.l1_loss(pred_mean, target_mean)
 
 
-class SSIM(nn.Module):
-    """Single-scale Structural Similarity Index."""
-
-    def __init__(self, window_size: int = 11, sigma: float = 1.5, channels: int = 3,
-                 data_range: float = 1.0):
-        super().__init__()
-        self.window_size = window_size
-        self.channels = channels
-        self.data_range = data_range
-        self.register_buffer('kernel', _gaussian_kernel_2d(window_size, sigma, channels))
-
-    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        """Returns SSIM value (higher is better, max 1.0)."""
-        C1 = (0.01 * self.data_range) ** 2
-        C2 = (0.03 * self.data_range) ** 2
-        pad = self.window_size // 2
-
-        mu1 = F.conv2d(pred, self.kernel, padding=pad, groups=self.channels)
-        mu2 = F.conv2d(target, self.kernel, padding=pad, groups=self.channels)
-
-        mu1_sq, mu2_sq = mu1.pow(2), mu2.pow(2)
-        mu1_mu2 = mu1 * mu2
-
-        sigma1_sq = F.conv2d(pred * pred, self.kernel, padding=pad, groups=self.channels) - mu1_sq
-        sigma2_sq = F.conv2d(target * target, self.kernel, padding=pad, groups=self.channels) - mu2_sq
-        sigma12 = F.conv2d(pred * target, self.kernel, padding=pad, groups=self.channels) - mu1_mu2
-
-        ssim_map = ((2 * mu1_mu2 + C1) * (2 * sigma12 + C2)) / \
-                   ((mu1_sq + mu2_sq + C1) * (sigma1_sq + sigma2_sq + C2))
-        return ssim_map.mean()
-
-
-class MSSSIM(nn.Module):
-    """
-    Multi-Scale Structural Similarity Index.
-    
-    Computes SSIM at multiple scales (via downsampling) and combines them.
-    Better captures structure at different frequencies than single-scale SSIM.
-    
-    Default weights from Wang et al. 2003 (5 scales).
-    """
-
-    def __init__(
-        self,
-        window_size: int = 11,
-        sigma: float = 1.5,
-        channels: int = 3,
-        weights: list[float] | None = None,
-        data_range: float = 1.0,
-    ):
-        super().__init__()
-        self.window_size = window_size
-        self.channels = channels
-        self.data_range = data_range
-        # Default weights for 5 scales (from the MS-SSIM paper)
-        self.weights = weights or [0.0448, 0.2856, 0.3001, 0.2363, 0.1333]
-        self.n_scales = len(self.weights)
-        self.register_buffer('kernel', _gaussian_kernel_2d(window_size, sigma, channels))
-
-    def _ssim_components(
-        self, pred: torch.Tensor, target: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Compute luminance*contrast (l*c) and structure (s) components."""
-        C1 = (0.01 * self.data_range) ** 2
-        C2 = (0.03 * self.data_range) ** 2
-        C3 = C2 / 2
-        pad = self.window_size // 2
-
-        mu1 = F.conv2d(pred, self.kernel, padding=pad, groups=self.channels)
-        mu2 = F.conv2d(target, self.kernel, padding=pad, groups=self.channels)
-
-        mu1_sq, mu2_sq = mu1.pow(2), mu2.pow(2)
-        mu1_mu2 = mu1 * mu2
-
-        sigma1_sq = F.conv2d(pred * pred, self.kernel, padding=pad, groups=self.channels) - mu1_sq
-        sigma2_sq = F.conv2d(target * target, self.kernel, padding=pad, groups=self.channels) - mu2_sq
-        sigma12 = F.conv2d(pred * target, self.kernel, padding=pad, groups=self.channels) - mu1_mu2
-
-        # Clamp variances to avoid sqrt of negative
-        sigma1_sq = torch.clamp(sigma1_sq, min=0)
-        sigma2_sq = torch.clamp(sigma2_sq, min=0)
-        sigma1 = torch.sqrt(sigma1_sq)
-        sigma2 = torch.sqrt(sigma2_sq)
-
-        # Luminance comparison
-        l = (2 * mu1_mu2 + C1) / (mu1_sq + mu2_sq + C1)
-        # Contrast-structure (combined for numerical stability at coarse scales)
-        cs = (2 * sigma12 + C2) / (sigma1_sq + sigma2_sq + C2)
-
-        return l.mean(), cs.mean()
-
-    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        """Returns MS-SSIM value (higher is better, max 1.0)."""
-        weights = torch.tensor(self.weights, device=pred.device, dtype=pred.dtype)
-        
-        msssim = torch.ones(1, device=pred.device, dtype=pred.dtype)
-        
-        for i in range(self.n_scales):
-            if i > 0:
-                # Downsample by 2x
-                pred = F.avg_pool2d(pred, kernel_size=2, stride=2)
-                target = F.avg_pool2d(target, kernel_size=2, stride=2)
-            
-            # Check minimum size
-            if pred.shape[2] < self.window_size or pred.shape[3] < self.window_size:
-                # Not enough resolution for this scale, use remaining weight on last valid
-                break
-            
-            l, cs = self._ssim_components(pred, target)
-            
-            if i == self.n_scales - 1:
-                # Last scale: include luminance
-                msssim = msssim * (l.clamp(min=1e-8) ** weights[i]) * (cs.clamp(min=1e-8) ** weights[i])
-            else:
-                # Intermediate scales: only contrast-structure
-                msssim = msssim * (cs.clamp(min=1e-8) ** weights[i])
-        
-        return msssim
-
-
 class DemosaicLoss(nn.Module):
-    """
-    Unified loss for X-Trans demosaicing training.
-    
-    Components:
-    - L1: pixel accuracy (PSNR)
-    - MS-SSIM: multi-scale structure (texture/detail)
-    - Gradient: edge preservation  
-    - Chroma: false color penalty
-    Presets:
-    - "base": L1-heavy for initial training (high PSNR)
-    - "finetune": MS-SSIM + gradient for texture recovery
-    
+    """L1 (or Huber) between encoded prediction and encoded target, plus an optional
+    magnitude-spectrum term on the same encoded values.
+
     Options:
-    - per_channel_norm: normalize loss per channel before combining (addresses G >> R,B)
-    - recon_only: compute L1/Huber only on pixels under reconstruction (not sampled by CFA),
-      with a small known_pixel_weight penalty to prevent drift at sampled positions
+    - recon_only: score only the values the CFA did not sample, plus
+      known_pixel_weight times the loss on the sampled ones.
+    - color_bias_weight: mean colour shift penalty on un-encoded values (off by default).
+    - fft_weight: FFTMagnitudeLoss on the encoded values of the whole patch (off by default;
+      the S configuration uses 0.5).
     """
 
     def __init__(
         self,
         l1_weight: float = 1.0,
-        msssim_weight: float = 0.0,
-        gradient_weight: float = 0.1,
-        chroma_weight: float = 0.05,
         color_bias_weight: float = 0.0,
-        zipper_weight: float = 0.0,
-        per_channel_norm: bool = False,
         use_huber: bool = False,
         huber_delta: float = 1.0,
-        data_range: float = 1.0,
         recon_only: bool = False,
         known_pixel_weight: float = 0.1,
-    ):
+        fft_weight: float = 0.0,
+    ) -> None:
         super().__init__()
         self.l1_weight = l1_weight
-        self.msssim_weight = msssim_weight
-        self.gradient_weight = gradient_weight
-        self.chroma_weight = chroma_weight
         self.color_bias_weight = color_bias_weight
-        self.zipper_weight = zipper_weight
-        self.per_channel_norm = per_channel_norm
         self.use_huber = use_huber
         self.huber_delta = huber_delta
-        self.data_range = data_range
         self.recon_only = recon_only
         self.known_pixel_weight = known_pixel_weight
-
-        self.msssim = MSSSIM(data_range=data_range) if msssim_weight > 0 else None
-        self.gradient = SobelGradientLoss() if gradient_weight > 0 else None
-        self.chroma = ChromaLoss() if chroma_weight > 0 else None
         self.color_bias = ColorBiasLoss() if color_bias_weight > 0 else None
-        self.zipper = ZipperLoss() if zipper_weight > 0 else None
+        self.fft_weight = fft_weight
+        self.fft = FFTMagnitudeLoss() if fft_weight > 0 else None
 
-    @classmethod
-    def base(cls, data_range: float = 1.0) -> "DemosaicLoss":
-        """Preset for initial training: L1-focused for high PSNR."""
-        return cls(l1_weight=1.0, msssim_weight=0.0, gradient_weight=0.1, chroma_weight=0.05,
-                   zipper_weight=0.05, data_range=data_range)
-
-    @classmethod
-    def finetune(cls, msssim_weight: float = 0.3, gradient_weight: float = 0.2,
-                 data_range: float = 1.0) -> "DemosaicLoss":
-        """Preset for fine-tuning: MS-SSIM + gradient for texture."""
-        return cls(
-            l1_weight=0.5,
-            msssim_weight=msssim_weight,
-            gradient_weight=gradient_weight,
-            chroma_weight=0.02,
-            zipper_weight=0.1,
-            data_range=data_range,
-        )
-
-    def _masked_loss(
-        self, pred: torch.Tensor, target: torch.Tensor,
-        mask: torch.Tensor, loss_fn,
-    ) -> torch.Tensor:
-        """Compute mean loss over masked pixels only."""
-        diff = (pred - target).abs() if loss_fn is F.l1_loss else None
-        if diff is not None:
-            return (diff * mask).sum() / mask.sum().clamp(min=1)
-        # Huber: element-wise then mask
-        elem = F.huber_loss(pred, target, delta=self.huber_delta, reduction='none')
-        return (elem * mask).sum() / mask.sum().clamp(min=1)
+    def _elementwise(self, enc_pred: torch.Tensor, enc_target: torch.Tensor) -> torch.Tensor:
+        if self.use_huber:
+            return F.huber_loss(enc_pred, enc_target, delta=self.huber_delta, reduction="none")
+        return (enc_pred - enc_target).abs()
 
     def forward(
         self, pred: torch.Tensor, target: torch.Tensor,
-        clip_levels: torch.Tensor | None = None,
         channel_masks: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         components: dict[str, torch.Tensor] = {}
-        total = torch.tensor(0.0, device=pred.device, dtype=pred.dtype)
+        name = "huber" if self.use_huber else "l1"
+        enc_pred, enc_target = encode_pair(pred, target)
+        elem = self._elementwise(enc_pred, enc_target)
 
-        # Build known/unknown masks for reconstruction-only mode
-        # channel_masks: (B, 3, H, W) binary — 1 where CFA samples that channel
-        use_recon_mask = self.recon_only and channel_masks is not None
-        if use_recon_mask:
-            known_mask = channel_masks  # (B, 3, H, W)
-            unknown_mask = 1.0 - known_mask
+        if self.recon_only and channel_masks is not None:
+            known = channel_masks.to(elem.dtype).expand_as(elem)
+            unknown = 1.0 - known
+            recon = (elem * unknown).sum() / unknown.sum().clamp(min=1)
+            kept = (elem * known).sum() / known.sum().clamp(min=1)
+            pixel_loss = recon + self.known_pixel_weight * kept
+            components[f"{name}_recon"] = recon.detach()
+            components[f"{name}_known"] = kept.detach()
+        else:
+            pixel_loss = elem.mean()
+        components[name] = pixel_loss.detach()
+        total = self.l1_weight * pixel_loss
 
-        # L1 or Huber (optionally per-channel normalized)
-        if self.l1_weight > 0:
-            loss_name = 'huber' if self.use_huber else 'l1'
-            loss_fn = (lambda p, t: F.huber_loss(p, t, delta=self.huber_delta)) if self.use_huber else F.l1_loss
-            if use_recon_mask:
-                # Loss on reconstructed (unknown) pixels
-                recon_loss = self._masked_loss(pred, target, unknown_mask, loss_fn)
-                # Small penalty to preserve known pixels
-                known_loss = self._masked_loss(pred, target, known_mask, loss_fn)
-                pixel_loss = recon_loss + self.known_pixel_weight * known_loss
-                components[f'{loss_name}_recon'] = recon_loss.detach()
-                components[f'{loss_name}_known'] = known_loss.detach()
-            elif self.per_channel_norm:
-                loss_r = loss_fn(pred[:, 0], target[:, 0])
-                loss_g = loss_fn(pred[:, 1], target[:, 1])
-                loss_b = loss_fn(pred[:, 2], target[:, 2])
-                pixel_loss = (loss_r + loss_g + loss_b) / 3
-                components[f'{loss_name}_r'] = loss_r.detach()
-                components[f'{loss_name}_g'] = loss_g.detach()
-                components[f'{loss_name}_b'] = loss_b.detach()
-            else:
-                pixel_loss = loss_fn(pred, target)
-            components[loss_name] = pixel_loss.detach()
-            total = total + self.l1_weight * pixel_loss
-
-        # MS-SSIM (1 - msssim, so lower is better)
-        if self.msssim is not None and self.msssim_weight > 0:
-            msssim_val = self.msssim(pred, target)
-            msssim_loss = 1 - msssim_val
-            components['msssim'] = msssim_val.detach()
-            total = total + self.msssim_weight * msssim_loss
-
-        # Gradient
-        if self.gradient is not None and self.gradient_weight > 0:
-            grad = self.gradient(pred, target)
-            components['gradient'] = grad.detach()
-            total = total + self.gradient_weight * grad
-
-        # Chroma
-        if self.chroma is not None and self.chroma_weight > 0:
-            chroma = self.chroma(pred, target)
-            components['chroma'] = chroma.detach()
-            total = total + self.chroma_weight * chroma
-
-        # Zipper (2nd-order oscillation penalty)
-        if self.zipper is not None and self.zipper_weight > 0:
-            zipper = self.zipper(pred, target)
-            components['zipper'] = zipper.detach()
-            total = total + self.zipper_weight * zipper
-
-        # Color bias (DC shift penalty)
-        if self.color_bias is not None and self.color_bias_weight > 0:
-            cb = self.color_bias(pred, target)
-            components['color_bias'] = cb.detach()
+        if self.fft is not None:
+            fft = self.fft(enc_pred, enc_target)
+            components["fft"] = fft.detach()
+            total = total + self.fft_weight * fft
+        if self.color_bias is not None:
+            cb = self.color_bias(pred.float(), target.float())
+            components["color_bias"] = cb.detach()
             total = total + self.color_bias_weight * cb
 
-        components['total'] = total.detach()
+        components["total"] = total.detach()
         return total, components
-
-
-# Backwards compatibility aliases
-CombinedLoss = DemosaicLoss

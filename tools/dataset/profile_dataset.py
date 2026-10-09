@@ -33,33 +33,14 @@ def profile_getitem(dataset, indices, warmup=10):
 
         t0 = time.perf_counter()
         max_y, max_x = h - dataset.patch_size, w - dataset.patch_size
-        top = (rng.randint(0, max(0, max_y)) // dataset.period) * dataset.period
-        left = (rng.randint(0, max(0, max_x)) // dataset.period) * dataset.period
+        top = rng.randint(0, max(0, max_y))
+        left = rng.randint(0, max(0, max_x))
         patch = img[top:top + dataset.patch_size, left:left + dataset.patch_size]
         t["crop"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
-        rgb = torch.from_numpy(np.ascontiguousarray(patch)).permute(2, 0, 1).contiguous()
+        rgb = torch.from_numpy(np.ascontiguousarray(patch, dtype=np.float32) / 65535.0).permute(2, 0, 1).contiguous()
         t["to_tensor"] = time.perf_counter() - t0
-
-        t0 = time.perf_counter()
-        wb = torch.ones(3)
-        if dataset.wb_multipliers is not None:
-            wb = torch.from_numpy(dataset.wb_multipliers[img_idx]).float()
-            if dataset.augment and dataset.wb_aug_range > 0:
-                r_shift = math.exp(rng.uniform(-dataset.wb_aug_range, dataset.wb_aug_range))
-                b_shift = math.exp(rng.uniform(-dataset.wb_aug_range, dataset.wb_aug_range))
-                wb = wb * torch.tensor([r_shift, 1.0, b_shift])
-            rgb = rgb * wb.view(3, 1, 1)
-        t["wb"] = time.perf_counter() - t0
-
-        t0 = time.perf_counter()
-        clip_scale = 1.0
-        do_bright_spots = (dataset.bright_spot_prob > 0
-                           and rng.random() < dataset.bright_spot_prob)
-        if do_bright_spots:
-            rgb = dataset._add_bright_spots(rgb, wb, clip_scale, rng)
-        t["bright_spots"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
         if dataset.augment:
@@ -73,7 +54,7 @@ def profile_getitem(dataset, indices, warmup=10):
         t["augment_geo"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
-        ref = rgb
+        ref = rgb.clamp(max=1.0)
         if dataset.augment and dataset.olpf_sigma[1] > 0:
             sigma = rng.uniform(*dataset.olpf_sigma)
             if sigma > 0:
@@ -84,16 +65,8 @@ def profile_getitem(dataset, indices, warmup=10):
         t["olpf"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
-        cfa_img = mosaic(rgb, dataset.masks)
+        cfa_img = mosaic(rgb, dataset.cfa)
         t["mosaic"] = time.perf_counter() - t0
-
-        t0 = time.perf_counter()
-        clip_levels = wb[dataset.cfa.long()].unsqueeze(0) * clip_scale
-        if do_bright_spots:
-            cfa_img = cfa_img.clamp(max=clip_levels)
-        raw_ratio = (cfa_img / (clip_levels + 1e-8)).clamp(0, 1)
-        clip_ratio = ((raw_ratio - 0.5) * 2.0).clamp(0, 1)
-        t["clip_ratio"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
         read_sigma = rng.uniform(*dataset.noise_sigma)
@@ -101,12 +74,8 @@ def profile_getitem(dataset, indices, warmup=10):
         if read_sigma > 0 or shot_coeff > 0:
             noise_var = shot_coeff * cfa_img.clamp(min=0) + read_sigma ** 2
             cfa_img = cfa_img + torch.randn_like(cfa_img) * noise_var.sqrt()
+        cfa_img = cfa_img.clamp(max=1.0)
         t["noise"] = time.perf_counter() - t0
-
-        t0 = time.perf_counter()
-        input_tensor = torch.cat([cfa_img, dataset.masks, clip_ratio], dim=0)
-        clip_ch = wb * clip_scale
-        t["cat_output"] = time.perf_counter() - t0
 
         for k, v in t.items():
             timings.setdefault(k, []).append(v)
@@ -140,9 +109,6 @@ def main():
         noise_sigma=(0.0, 0.005),
         shot_noise=(0.0, 0.0001),
         cfa_type=args.cfa_type,
-        bright_spot_prob=0.2,
-        bright_spot_intensity=(1.5, 4.0),
-        bright_spot_sigma=(2.0, 20.0),
     )
 
     sampler = ImageGroupedSampler(len(train_files), dataset.patches_per_image)

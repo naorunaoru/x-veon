@@ -1,142 +1,106 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2024-present X-Veon contributors
 """
-U-Net for X-Trans demosaicing.
+Packed demosaicing network (architecture v7).
 
-Architecture: encoder-decoder with skip connections.
-- Input: 5 channels (CFA + position masks + clip ratio)
-- Output: 3 channels (RGB)
-- Additive residual: output = CFA_per_channel + learned_delta
-- 4 levels: 64 -> 128 -> 256 -> 512
-- 3x3 convolutions throughout
-- Receptive field easily covers 2-3 X-Trans repeats (12-18 pixels)
+- Input: 5 channels (mosaic, R/G/B position masks, clip ratio), as the app sends them.
+- The mosaic is divided by its mean before the network and the result multiplied back,
+  so a tile's exposure does not change what the network sees.
+- The input is packed by space-to-depth (3x3 for X-Trans, 2x2 for Bayer): every channel
+  is one photosite position, and the network works at 1/f and coarser resolutions.
+- Output: 3 channels (RGB) = measured samples in their own channels + learned correction.
 """
 
-import math
+from __future__ import annotations
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+
+ARCHITECTURE_TAG = "v7"
+
+# Tiles whose mean is below this are processed at a fixed scale. A numerical-stability
+# choice: a black or noisy near-black tile can have a mean of zero or less.
+MEAN_FLOOR = 1e-4
 
 
-
-class ConvBlock(nn.Module):
-    """Two convolutions with LayerNorm and ReLU. First kernel size is configurable."""
-
-    def __init__(self, in_ch: int, out_ch: int, first_kernel: int = 3):
-        super().__init__()
-        self.block = nn.Sequential(
-            nn.Conv2d(in_ch, out_ch, first_kernel, padding=first_kernel // 2),
-            nn.GroupNorm(1, out_ch),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(out_ch, out_ch, 3, padding=1),
-            nn.GroupNorm(1, out_ch),
-            nn.ReLU(inplace=True),
-        )
-
-    def forward(self, x):
-        return self.block(x)
+def packed_channels(base_width: int, cfa_period: int) -> int:
+    """Channels at the packed resolution: 72 (X-Trans) and 44 (Bayer) for base_width 16."""
+    return base_width * 9 // 2 if cfa_period > 2 else base_width * 11 // 4
 
 
-class DownBlock(nn.Module):
-    """Downsample with strided convolution then ConvBlock."""
-
-    def __init__(self, in_ch: int, out_ch: int):
-        super().__init__()
-        self.down = nn.Conv2d(in_ch, in_ch, 2, stride=2)
-        self.conv = ConvBlock(in_ch, out_ch)
-
-    def forward(self, x):
-        return self.conv(self.down(x))
-
-
-class UpBlock(nn.Module):
-    """Upsample with PixelShuffle, concatenate skip, then ConvBlock."""
-
-    def __init__(self, in_ch: int, out_ch: int):
-        super().__init__()
-        self.up = nn.Sequential(
-            nn.Conv2d(in_ch, out_ch * 4, 1),
-            nn.PixelShuffle(2),
-        )
-        self.conv = ConvBlock(out_ch * 2, out_ch)  # *2 for skip concat
-
-    def forward(self, x, skip):
-        x = self.up(x)
-        x = torch.cat([x, skip], dim=1)
-        return self.conv(x)
+def _block(in_ch: int, out_ch: int) -> nn.Sequential:
+    """Two 3x3 convolutions with ReLU. No normalisation layers."""
+    return nn.Sequential(
+        nn.Conv2d(in_ch, out_ch, 3, padding=1),
+        nn.ReLU(inplace=True),
+        nn.Conv2d(out_ch, out_ch, 3, padding=1),
+        nn.ReLU(inplace=True),
+    )
 
 
 class XTransUNet(nn.Module):
-    """
-    U-Net for X-Trans demosaicing.
+    """Packed U-shaped network for X-Trans (cfa_period=6) and Bayer (cfa_period=2).
 
-    4 encoder levels, 4 decoder levels, skip connections at each level.
-    Channel widths: base_width * [1, 2, 4, 8, 16] (default 64 → 64..1024).
+    `stages` counts resolution reductions, the packing being the first: S uses 2
+    (1/3 and 1/6 for X-Trans, 1/2 and 1/4 for Bayer).
     """
 
-    def __init__(self, in_channels: int = 5, out_channels: int = 3,
-                 base_width: int = 64, cfa_period: int = 2):
+    def __init__(self, base_width: int = 16, cfa_period: int = 2, stages: int = 2,
+                 gain_jitter_stops: float = 0.0) -> None:
         super().__init__()
-        w = base_width
+        if stages < 2:
+            raise ValueError("stages must be at least 2 (the packing and one halving)")
         self.cfa_period = cfa_period
+        self.stages = stages
+        self.gain_jitter_stops = gain_jitter_stops
+        self.factor = 3 if cfa_period > 2 else 2
+        # X-Trans 3x3 cells come in two types (red and blue swapped); the packed masks
+        # tell the network which one it is in. Every Bayer cell is the same.
+        self.pack_masks = cfa_period > 2
 
-        # Positional encoding channels: sin/cos for row and column phase
-        pos_channels = 4 if cfa_period > 2 else 0
-        stem_kernel = 7 if cfa_period > 2 else 3
+        c = packed_channels(base_width, cfa_period)
+        self.enc = _block((5 if self.pack_masks else 2) * self.factor ** 2, c)
+        self.downs = nn.ModuleList()
+        self.down_blocks = nn.ModuleList()
+        self.ups = nn.ModuleList()
+        self.up_blocks = nn.ModuleList()
+        ch = c
+        for _ in range(stages - 1):
+            self.downs.append(nn.Conv2d(ch, ch, 2, stride=2))
+            self.down_blocks.append(_block(ch, ch * 2))
+            ch *= 2
+        for _ in range(stages - 1):
+            self.ups.append(nn.Sequential(nn.Conv2d(ch, ch * 2, 1), nn.PixelShuffle(2)))
+            self.up_blocks.append(_block(ch, ch // 2))
+            ch //= 2
+        self.head = nn.Conv2d(c, 3 * self.factor ** 2, 1)
 
-        # Encoder
-        self.enc1 = ConvBlock(in_channels + pos_channels, w, first_kernel=stem_kernel)
-        self.enc2 = DownBlock(w, w * 2)
-        self.enc3 = DownBlock(w * 2, w * 4)
-        self.enc4 = DownBlock(w * 4, w * 8)
+    def body(self, cfa_n: torch.Tensor, masks: torch.Tensor, clip: torch.Tensor) -> torch.Tensor:
+        """Full-resolution correction from the normalised mosaic."""
+        x = torch.cat([cfa_n, masks, clip] if self.pack_masks else [cfa_n, clip], dim=1)
+        x = self.enc(F.pixel_unshuffle(x, self.factor))
+        skips: list[torch.Tensor] = []
+        for down, block in zip(self.downs, self.down_blocks):
+            skips.append(x)
+            x = block(down(x))
+        for up, block in zip(self.ups, self.up_blocks):
+            x = block(torch.cat([up(x), skips.pop()], dim=1))
+        return F.pixel_shuffle(self.head(x), self.factor)
 
-        # Bottleneck
-        self.bottleneck = DownBlock(w * 8, w * 16)
-
-        # Decoder
-        self.dec4 = UpBlock(w * 16, w * 8)
-        self.dec3 = UpBlock(w * 8, w * 4)
-        self.dec2 = UpBlock(w * 4, w * 2)
-        self.dec1 = UpBlock(w * 2, w)
-
-        # Output
-        self.out_conv = nn.Conv2d(w, out_channels, 1)
-
-    def forward(self, x):
-        cfa = x[:, 0:1]    # (B, 1, H, W)
-        masks = x[:, 1:4]  # (B, 3, H, W) — R, G, B position masks
-        baseline = cfa * masks  # (B, 3, H, W) — value only in its true channel
-
-        # CFA periodic positional encoding for non-Bayer patterns
-        if self.cfa_period > 2:
-            B, _, H, W = x.shape
-            y = torch.arange(H, device=x.device, dtype=x.dtype).unsqueeze(1).expand(H, W)
-            xc = torch.arange(W, device=x.device, dtype=x.dtype).unsqueeze(0).expand(H, W)
-            phase = 2 * math.pi / self.cfa_period
-            pos_enc = torch.stack([
-                torch.sin(phase * y),
-                torch.cos(phase * y),
-                torch.sin(phase * xc),
-                torch.cos(phase * xc),
-            ]).unsqueeze(0).expand(B, -1, -1, -1)  # (B, 4, H, W)
-            x = torch.cat([x, pos_enc], dim=1)
-
-        # Encoder
-        e1 = self.enc1(x)   # 64, H, W
-        e2 = self.enc2(e1)  # 128, H/2, W/2
-        e3 = self.enc3(e2)  # 256, H/4, W/4
-        e4 = self.enc4(e3)  # 512, H/8, W/8
-
-        # Bottleneck
-        b = self.bottleneck(e4)  # 1024, H/16, W/16
-
-        # Decoder with skip connections
-        d4 = self.dec4(b, e4)   # 512, H/8, W/8
-        d3 = self.dec3(d4, e3)  # 256, H/4, W/4
-        d2 = self.dec2(d3, e2)  # 128, H/2, W/2
-        d1 = self.dec1(d2, e1)  # 64, H, W
-
-        return baseline + self.out_conv(d1)  # 3, H, W
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # The mean, the division and the multiplication back stay in float32 whatever the
+        # autocast setting: normalised values have no upper bound.
+        x = x.float()
+        cfa, masks, clip = x[:, 0:1], x[:, 1:4], x[:, 4:5]
+        s = cfa.mean(dim=(2, 3), keepdim=True).clamp(min=MEAN_FLOOR)
+        if self.training and self.gain_jitter_stops > 0:
+            # The network sees patches whose mean is not exactly 1; the same perturbed
+            # scale divides and multiplies back, so the output stays in raw units.
+            s = s * torch.pow(2.0, (torch.rand_like(s) * 2.0 - 1.0) * self.gain_jitter_stops)
+        cfa_n = cfa / s
+        delta = self.body(cfa_n, masks, clip).float()
+        return (cfa_n * masks + delta) * s
 
 
 def count_parameters(model: nn.Module) -> int:
@@ -144,14 +108,7 @@ def count_parameters(model: nn.Module) -> int:
 
 
 if __name__ == "__main__":
-    import sys
-
-    base_width = int(sys.argv[1]) if len(sys.argv) > 1 else 64
-    model = XTransUNet(base_width=base_width)
-    print(f"base_width={base_width}, Parameters: {count_parameters(model):,}")
-
-    # Test forward pass
-    x = torch.randn(1, 5, 256, 256)
-    y = model(x)
-    print(f"Input:  {x.shape}")
-    print(f"Output: {y.shape}")
+    for period in (6, 2):
+        m = XTransUNet(base_width=16, cfa_period=period)
+        y = m(torch.rand(1, 5, 288, 288))
+        print(f"cfa_period={period}: {count_parameters(m):,} parameters, output {tuple(y.shape)}")

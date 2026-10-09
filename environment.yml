@@ -17,4 +17,6 @@ dependencies:
       - gradio
       - onnx
       - onnxconverter-common
-      - onnxscript
+      - onnxscript>=0.7.1
+      - onnxruntime
+      - mypy

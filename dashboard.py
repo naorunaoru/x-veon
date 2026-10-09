@@ -23,6 +23,7 @@ Usage:
 """
 
 import atexit
+import json
 import math
 import shutil
 import threading
@@ -30,6 +31,7 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 from rich.console import Console, Group
@@ -95,7 +97,6 @@ LEVEL_STYLES = {
     "ERROR": "bold red",
 }
 
-HIGHER_IS_BETTER = {"msssim"}
 
 BORDER_GENERAL = "bright_blue"
 BORDER_PSNR = "bright_green"
@@ -311,12 +312,20 @@ class TrainingDashboard:
         rolling_window: int = 10,
         log_capacity: int = 10,
         best_val_psnr: float = 0.0,
+        best_metric: str = "psnr",
+        loss_weights: dict[str, float] | None = None,
+        config: dict | None = None,
     ):
         self.total_epochs = total_epochs
         self.start_epoch = start_epoch
         self.rolling_window = rolling_window
         self.best_val_psnr = best_val_psnr
         self.best_val_epoch = 0
+        self.best_metric = best_metric
+        self.loss_weights = loss_weights or {}
+        self.config = dict(config) if config else {}
+        self._last_error: dict | None = None
+        self._terminal_status: str | None = None
 
         self.history: list[EpochData] = []
         self.logs: deque[LogEntry] = deque(maxlen=log_capacity)
@@ -324,6 +333,7 @@ class TrainingDashboard:
         self._fatal = False
         self._sys: SystemSnapshot = SystemSnapshot()
         self._sys_history: deque[SystemSnapshot] = deque(maxlen=SYS_SPARK_WIDTH * 2)
+        self._metric_label = "PSNR"
 
         term_size = shutil.get_terminal_size((160, 40))
         self.console = Console(
@@ -334,7 +344,16 @@ class TrainingDashboard:
         self._sys_stop: Optional[threading.Event] = None
         self._sys_thread: Optional[threading.Thread] = None
 
+    _active_instance: "Optional[TrainingDashboard]" = None
+
     # ── Lifecycle ────────────────────────────────────────────────────────
+
+    @classmethod
+    def force_stop(cls):
+        """Stop the active dashboard (if any) so tracebacks print cleanly."""
+        if cls._active_instance is not None:
+            cls._active_instance.stop()
+            cls._active_instance = None
 
     def start(self):
         self.start_time = time.time()
@@ -347,6 +366,7 @@ class TrainingDashboard:
             screen=True,
         )
         self._live.start()
+        TrainingDashboard._active_instance = self
         atexit.register(self.stop)
         # Background system sampling every 5 seconds
         self._sys_stop = threading.Event()
@@ -354,6 +374,7 @@ class TrainingDashboard:
         self._sys_thread.start()
 
     def stop(self):
+        TrainingDashboard._active_instance = None
         if self._sys_stop:
             self._sys_stop.set()
         if self._sys_thread:
@@ -380,6 +401,12 @@ class TrainingDashboard:
     def __exit__(self, *args):
         self.stop()
 
+    # ── Helpers ────────────────────────────────────────────────────────
+
+    def _best_metric_value(self, data: EpochData) -> float:
+        """Extract the value used for best-checkpoint comparison."""
+        return data.val_psnr
+
     # ── Public API ───────────────────────────────────────────────────────
 
     def log(self, message: str, level: str = "INFO"):
@@ -390,26 +417,31 @@ class TrainingDashboard:
 
     def update(self, data: EpochData):
         """Record epoch results and refresh display."""
-        all_values = (
-            list(data.train_components.values())
-            + list(data.val_components.values())
-            + [data.train_psnr, data.val_psnr]
-        )
-        for v in all_values:
+        bad_keys: list[str] = []
+        for k, v in data.train_components.items():
             if math.isnan(v) or math.isinf(v):
-                self.log(
-                    f"NaN/Inf detected in epoch {data.epoch} metrics! "
-                    "Training should be stopped.", "ERROR"
-                )
-                self._fatal = True
-                break
+                bad_keys.append(f"train/{k}={v}")
+        for k, v in data.val_components.items():
+            if math.isnan(v) or math.isinf(v):
+                bad_keys.append(f"val/{k}={v}")
+        if math.isnan(data.train_psnr) or math.isinf(data.train_psnr):
+            bad_keys.append(f"train_psnr={data.train_psnr}")
+        if math.isnan(data.val_psnr) or math.isinf(data.val_psnr):
+            bad_keys.append(f"val_psnr={data.val_psnr}")
+        if bad_keys:
+            self.log(
+                f"NaN/Inf in epoch {data.epoch}: {', '.join(bad_keys)}. "
+                "Training should be stopped.", "ERROR"
+            )
+            self._fatal = True
 
         self.history.append(data)
 
-        if not math.isnan(data.val_psnr) and data.val_psnr > self.best_val_psnr:
-            self.best_val_psnr = data.val_psnr
+        metric_val = self._best_metric_value(data)
+        if not math.isnan(metric_val) and metric_val > self.best_val_psnr:
+            self.best_val_psnr = metric_val
             self.best_val_epoch = data.epoch
-            self.log(f"New best val ({data.val_psnr:.2f} dB)")
+            self.log(f"New best val ({metric_val:.2f} dB)")
 
         self._refresh()
 
@@ -426,8 +458,9 @@ class TrainingDashboard:
                     self._fatal = True
                     break
             self.history.append(data)
-            if not math.isnan(data.val_psnr) and data.val_psnr > self.best_val_psnr:
-                self.best_val_psnr = data.val_psnr
+            metric_val = self._best_metric_value(data)
+            if not math.isnan(metric_val) and metric_val > self.best_val_psnr:
+                self.best_val_psnr = metric_val
                 self.best_val_epoch = data.epoch
 
         if self.history:
@@ -437,9 +470,10 @@ class TrainingDashboard:
                 f"Loaded epochs {first}-{last} ({len(self.history)} total)",
             ))
             if self.best_val_epoch > 0:
+                best_str = f"{self.best_val_psnr:.2f} dB"
                 self.logs.append(LogEntry(
                     datetime.now(), "INFO",
-                    f"Best val: {self.best_val_psnr:.2f} dB (ep {self.best_val_epoch})",
+                    f"Best val {self._metric_label}: {best_str} (ep {self.best_val_epoch})",
                 ))
             if self._fatal:
                 self.logs.append(LogEntry(
@@ -451,6 +485,114 @@ class TrainingDashboard:
     @property
     def has_fatal_error(self) -> bool:
         return self._fatal
+
+    # ── Observer contract ────────────────────────────────────────────────
+
+    def event(self, kind: str, payload: dict | None = None) -> None:
+        """Record a lifecycle event. Unknown kinds are ignored."""
+        payload = dict(payload or {})
+        if kind == "new_best":
+            # Snapshot state only; the actual update path still happens via
+            # update() to keep UI deltas consistent.
+            value = payload.get("value")
+            epoch = payload.get("epoch")
+            if isinstance(value, (int, float)) and not (
+                isinstance(value, float) and math.isnan(value)
+            ):
+                if value > self.best_val_psnr:
+                    self.best_val_psnr = float(value)
+                    if epoch is not None:
+                        self.best_val_epoch = int(epoch)
+        elif kind == "training_done":
+            self._terminal_status = str(payload.get("status", "completed"))
+        elif kind == "error":
+            self._fatal = True
+            self._terminal_status = "error"
+            self._last_error = {
+                "type": str(payload.get("type", "Error")),
+                "message": str(payload.get("message", "")),
+                "traceback": str(payload.get("traceback", "")),
+                "ts": time.time(),
+            }
+            self.log(
+                f"{self._last_error['type']}: {self._last_error['message']}",
+                "ERROR",
+            )
+        # other kinds are silently ignored
+
+    def get_snapshot(self) -> dict:
+        """Return a JSON-safe snapshot dict, shape-compatible with
+        ``observer.TrainingStateSnapshot.to_dict()``.
+        """
+        # Build inline to avoid a circular import with observer.py.
+        def _safe(v):
+            if isinstance(v, float):
+                if math.isnan(v) or math.isinf(v):
+                    return None
+                return v
+            if isinstance(v, dict):
+                return {str(k): _safe(x) for k, x in v.items()}
+            if isinstance(v, (list, tuple)):
+                return [_safe(x) for x in v]
+            if isinstance(v, (int, bool, str)) or v is None:
+                return v
+            return str(v)
+
+        latest: dict | None = None
+        current_epoch = self.start_epoch
+        if self.history:
+            h = self.history[-1]
+            current_epoch = h.epoch
+            latest = _safe({
+                "epoch": h.epoch,
+                "train_psnr": h.train_psnr,
+                "val_psnr": h.val_psnr,
+                "train_components": h.train_components,
+                "val_components": h.val_components,
+                "lr": h.lr,
+                "epoch_time": h.epoch_time,
+                "train_time": h.train_time,
+                "val_time": h.val_time,
+            })
+
+        if self._terminal_status is not None:
+            status = self._terminal_status
+        elif self._fatal:
+            status = "error"
+        elif self.start_time is None:
+            status = "starting"
+        else:
+            status = "running"
+
+        elapsed = 0.0
+        if self.start_time is not None:
+            elapsed = max(0.0, time.time() - self.start_time)
+
+        return {
+            "status": status,
+            "total_epochs": self.total_epochs,
+            "start_epoch": self.start_epoch,
+            "current_epoch": current_epoch,
+            "start_time": self.start_time,
+            "elapsed_seconds": elapsed,
+            "best": {
+                "metric": self.best_metric,
+                "value": self.best_val_psnr if self.best_val_epoch else None,
+                "epoch": self.best_val_epoch or None,
+            },
+            "latest_epoch": latest,
+            "loss_weights": _safe(self.loss_weights) or {},
+            "config": _safe(self.config) or {},
+            "recent_logs": [
+                {
+                    "ts": e.timestamp.timestamp(),
+                    "level": e.level,
+                    "message": e.message,
+                }
+                for e in list(self.logs)
+            ],
+            "last_error": _safe(self._last_error),
+        }
 
     def print_static(self):
         """Render once without Live context."""
@@ -520,7 +662,7 @@ class TrainingDashboard:
     def _render_general(self) -> Panel:
         parts: list = []
         current = self.history[-1] if self.history else None
-        n_done = current.epoch if current else self.start_epoch
+        n_done = max(current.epoch, self.start_epoch) if current else self.start_epoch
 
         # Progress bar
         pct = n_done / self.total_epochs if self.total_epochs > 0 else 0
@@ -765,9 +907,9 @@ class TrainingDashboard:
         if len(val_psnrs) >= 2:
             parts.append(self._psnr_delta_line(val_psnrs))
 
-        # Best
+        # Best (metric-aware)
         best = Text()
-        best.append("       Best: ", style="dim")
+        best.append(f"  Best {self._metric_label}: ", style="dim")
         best.append(f"{self.best_val_psnr:.2f} dB", style="bold bright_green")
         best.append(f" (ep {self.best_val_epoch})", style="dim")
         parts.append(best)
@@ -805,6 +947,7 @@ class TrainingDashboard:
         )
         table.add_column("", style="bold", no_wrap=True)
         table.add_column("Value", justify="right", no_wrap=True)
+        table.add_column("%", justify="right", no_wrap=True)
         table.add_column("Δ", justify="right", no_wrap=True)
         table.add_column(f"avg/{self.rolling_window}ep", justify="right", no_wrap=True)
 
@@ -818,6 +961,21 @@ class TrainingDashboard:
         current = self.history[-1]
         comps = current.train_components if is_train else current.val_components
 
+        # Compute contribution percentages from loss_weights
+        total_val = comps.get("total", 0.0)
+        contrib_pct: dict[str, float | None] = {}
+        if self.loss_weights and total_val and not math.isnan(total_val) and total_val > 0:
+            # Map component name → weight key
+            _COMP_TO_WEIGHT = {
+                "l1": "l1", "huber": "l1", "fft": "fft", "color_bias": "color_bias",
+            }
+            for comp_name, comp_val in comps.items():
+                wkey = _COMP_TO_WEIGHT.get(comp_name)
+                if wkey and not math.isnan(comp_val):
+                    w = self.loss_weights.get(wkey, 0.0)
+                    wtd = w * comp_val
+                    contrib_pct[comp_name] = wtd / total_val * 100.0
+
         for name, value in comps.items():
             if name == "total":
                 continue
@@ -828,11 +986,19 @@ class TrainingDashboard:
                     Text("NaN!", style="bold red"),
                     Text("─", style="dim"),
                     Text("─", style="dim"),
+                    Text("─", style="dim"),
                 )
                 continue
 
             val_str = f"{value:.4f}"
-            invert = name not in HIGHER_IS_BETTER
+            invert = True
+
+            # Contribution percentage
+            pct = contrib_pct.get(name)
+            if pct is not None:
+                pct_text = Text(f"{pct:.0f}%", style="dim")
+            else:
+                pct_text = Text("─", style="dim")
 
             # Instant delta
             if len(self.history) >= 2:
@@ -864,7 +1030,7 @@ class TrainingDashboard:
             else:
                 rd_text = Text("─", style="dim")
 
-            table.add_row(name, val_str, d, rd_text)
+            table.add_row(name, val_str, pct_text, d, rd_text)
 
         return Panel(
             table,
@@ -898,7 +1064,6 @@ class TrainingDashboard:
 # ── History loading helper ───────────────────────────────────────────────────
 
 def _load_history_entries(history_path: str) -> list[EpochData]:
-    import json
     with open(history_path) as f:
         history = json.load(f)
     return [
@@ -922,7 +1087,23 @@ def _load_history_entries(history_path: str) -> list[EpochData]:
 def replay_history(history_path: str, animate: bool = False):
     entries = _load_history_entries(history_path)
     total = len(entries)
-    dashboard = TrainingDashboard(total_epochs=total, rolling_window=10)
+
+    # Try to load loss weights from sibling config.json
+    loss_weights: dict[str, float] = {}
+    config_path = Path(history_path).parent / "config.json"
+    if config_path.exists():
+        try:
+            with open(config_path) as f:
+                cfg = json.load(f)
+            for key in ("l1", "fft", "color_bias"):
+                w = cfg.get(f"{key}_weight", 0.0)
+                if w:
+                    loss_weights[key] = w
+        except Exception:
+            pass
+
+    dashboard = TrainingDashboard(total_epochs=total, rolling_window=10,
+                                  loss_weights=loss_weights)
 
     if animate:
         with dashboard:
@@ -958,8 +1139,7 @@ def mock_training(total_epochs: int = 300, fast: bool = False):
 
     comp_cfg = {
         "l1_recon": (0.05, 0.005), "l1_known": (0.02, 0.004),
-        "l1": (0.05, 0.005), "gradient": (0.15, 0.003),
-        "chroma": (0.01, 0.003), "color_bias": (0.008, 0.004),
+        "l1": (0.05, 0.005), "fft": (0.04, 0.004), "color_bias": (0.008, 0.004),
     }
 
     dashboard = TrainingDashboard(total_epochs=total_epochs, rolling_window=10)
@@ -977,8 +1157,6 @@ def mock_training(total_epochs: int = 300, fast: bool = False):
             for name, (base, decay) in comp_cfg.items():
                 train_comps[name] = _loss(ep, base, decay)
                 val_comps[name] = _loss(ep, base, decay) * 0.9
-            train_comps["msssim"] = min(1.0, 0.998 + ep * 3e-6 + rng.gauss(0, 0.0001))
-            val_comps["msssim"] = min(1.0, 0.998 + ep * 3e-6 + rng.gauss(0, 0.0001))
 
             lr = 1e-3 * 0.5 * (1 + math.cos(math.pi * ep / total_epochs))
             if ep == 250:
