@@ -150,6 +150,11 @@ class FFTMagnitudeTest(unittest.TestCase):
         self.assertNotIn("fft", components)
         total, components = DemosaicLoss(fft_weight=0.5)(pred, target)
         self.assertAlmostEqual(float(total), float(plain) + 0.5 * float(components["fft"]), places=6)
+        # The term sees the same encoded values as the L1 term, not the raw ones.
+        on_encoded = float(FFTMagnitudeLoss()(*encode_pair(pred, target)))
+        on_raw = float(FFTMagnitudeLoss()(pred, target))
+        self.assertAlmostEqual(float(components["fft"]), on_encoded, places=6)
+        self.assertNotAlmostEqual(on_encoded, on_raw, places=3)
 
 
 if __name__ == "__main__":
