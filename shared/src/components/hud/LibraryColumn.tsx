@@ -58,6 +58,8 @@ export function LibraryColumn() {
 
   const selected = new Set(selectedIds);
   const allShownSelected = shown.every((f) => selected.has(f.id));
+  // Roving tabindex: the listbox is one tab stop, on the current cell (else the first).
+  const tabStopId = shown.some((f) => f.id === currentId) ? currentId : shown[0]?.id;
   const canExport = currentFile?.status === 'done' && exportAvailable;
 
   const onEdgeDown = (e: PointerEvent<HTMLDivElement>) => {
@@ -106,6 +108,7 @@ export function LibraryColumn() {
               aria-selected={selected.has(f.id)}
               data-current={current || undefined}
               aria-label={f.originalName}
+              tabIndex={f.id === tabStopId ? 0 : -1}
               onClick={(e) => clickCell(f.id, { meta: e.metaKey || e.ctrlKey, shift: e.shiftKey })}
             >
               {f.thumbnailUrl && <img src={f.thumbnailUrl} alt="" draggable={false} />}

@@ -26,6 +26,8 @@ it('renders one option per photo with current and selected state', () => {
   expect(cells[0]).toHaveAttribute('data-current', 'true');
   expect(cells[0]).toHaveAttribute('aria-selected', 'true');
   expect(cells[1]).toHaveAttribute('aria-selected', 'false');
+  expect(cells[0]).toHaveAttribute('tabindex', '0');
+  expect(cells[1]).toHaveAttribute('tabindex', '-1');
   expect(cells[1].querySelector('img')).toHaveAttribute('src', 'blob:b');
   expect(cells[1].querySelector('.xv-cell__edited')).not.toBeNull();
   expect(cells[2].querySelector('.xv-cell__edited')).toBeNull();
