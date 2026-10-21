@@ -4,7 +4,7 @@ beforeHostTest(() => {
 });
 import { getHost } from '@/app/services/host';
 import { renderHook, fireEvent } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const remove = vi.hoisted(() => vi.fn());
 vi.mock('@/app/services/library', () => ({ removeFile: remove }));
 import { useLibraryShortcuts } from './useLibraryShortcuts';
@@ -47,6 +47,8 @@ describe('navigation keys', () => {
     files: [fromLibraryPhoto(fakePhoto('a')), fromLibraryPhoto(fakePhoto('b'))],
     columnWidth: 3, selectedIds: [], selectionAnchor: null,
   }));
+  // The moveCurrent spies would otherwise ride along into every later store state.
+  afterEach(() => vi.restoreAllMocks());
   it.each([
     ['ArrowRight', false, [1, false]], ['ArrowLeft', false, [-1, false]],
     ['ArrowDown', false, [3, false]], ['ArrowUp', true, [-3, true]],
@@ -99,6 +101,36 @@ describe('navigation keys', () => {
     expect(tab).toBe(true);                                             // Tab in a dialog keeps its default
     expect(useAppStore.getState().columnWidth).toBe(3);
   });
+  it('Tab from a control keeps its traversal', () => {
+    renderHook(useLibraryShortcuts);
+    const button = document.createElement('button');
+    document.body.append(button);
+    button.focus();
+    const tab = fireEvent.keyDown(button, { key: 'Tab' });
+    button.remove();
+    expect(tab).toBe(true);                                             // not defaultPrevented
+    expect(useAppStore.getState().columnWidth).toBe(3);
+  });
+  it('Tab from the column\'s cells toggles the column', () => {
+    renderHook(useLibraryShortcuts);
+    const listbox = document.createElement('div');
+    listbox.setAttribute('role', 'listbox');
+    const cell = document.createElement('button');
+    listbox.append(cell);
+    document.body.append(listbox);
+    cell.focus();
+    const tab = fireEvent.keyDown(cell, { key: 'Tab' });
+    listbox.remove();
+    expect(tab).toBe(false);                                            // defaultPrevented
+    expect(useAppStore.getState().columnWidth).toBe(0);
+  });
+  it('navigates on a host without remove (desktop)', () => {
+    delete getHost().library.remove;
+    useAppStore.setState({ currentId: 'a' });
+    renderHook(useLibraryShortcuts);
+    fireEvent.keyDown(document.body, { key: 'ArrowRight' });
+    expect(useAppStore.getState().currentId).toBe('b');
+  });
   it('a held Tab toggles once and swallows its repeats', () => {
     renderHook(useLibraryShortcuts);
     const held = fireEvent.keyDown(document.body, { key: 'Tab', repeat: true });
@@ -115,11 +147,12 @@ describe('navigation keys', () => {
     expect(useAppStore.getState().columnWidth).toBe(3);
   });
   it.each([
-    { key: 'ф', code: 'KeyA', ctrlKey: true },
-    { key: 'A', metaKey: true },
-  ])('⌘A selects all shown on any layout (key $key)', (init) => {
+    { key: 'ф', code: 'KeyA', ctrlKey: true, selected: ['a', 'b'] },
+    { key: 'A', metaKey: true, selected: ['a', 'b'] },
+    { key: 'q', code: 'KeyA', ctrlKey: true, selected: [] },        // AZERTY Ctrl+Q
+  ])('⌘A selects all shown on any layout (key $key)', ({ selected, ...init }) => {
     renderHook(useLibraryShortcuts);
     fireEvent.keyDown(document.body, init);
-    expect(useAppStore.getState().selectedIds).toEqual(['a', 'b']);
+    expect(useAppStore.getState().selectedIds).toEqual(selected);
   });
 });

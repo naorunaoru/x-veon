@@ -7,6 +7,13 @@ import { removeFile } from '@/app/services/library';
 const OWNS_KEYS = 'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="slider"], [role="textbox"], [role="dialog"], [role="alertdialog"], [role="menu"]';
 /** While one of these is open, the library keys are off. */
 const OVERLAY = '[role="dialog"], [role="alertdialog"], [role="menu"]';
+/** Tab toggles the column from nothing, the photo or the cells; from any other control it moves focus. */
+const TAB_TOGGLES = '.xv-canvas-host, [role="listbox"]';
+
+function tabTogglesColumn(): boolean {
+  const focus = document.activeElement;
+  return !focus || focus === document.body || !!focus.closest(TAB_TOGGLES);
+}
 
 export function useLibraryShortcuts() {
   useEffect(() => {
@@ -31,13 +38,13 @@ export function useLibraryShortcuts() {
       if (step !== 0 && !command && !event.altKey) {
         event.preventDefault();
         state.moveCurrent(step, event.shiftKey);
-      } else if ((event.key.toLowerCase() === 'a' || event.code === 'KeyA') && command && !event.altKey && !event.shiftKey) {
+      } else if ((event.key.toLowerCase() === 'a' || (!/^[a-z]$/i.test(event.key) && event.code === 'KeyA')) && command && !event.altKey && !event.shiftKey) {
         event.preventDefault();
         state.selectAllShown();
       } else if (event.key === 'Escape' && plain) {
         event.preventDefault();
         state.clearSelection();
-      } else if (event.key === 'Tab' && plain) {
+      } else if (event.key === 'Tab' && plain && tabTogglesColumn()) {
         event.preventDefault();
         // A held Tab toggles once; its repeats are swallowed, not passed on as focus moves.
         if (!event.repeat) state.toggleColumn();

@@ -45,6 +45,14 @@ it('clamps columnWidth to the window and remembers the last open width', () => {
     Object.defineProperty(window, 'innerWidth', innerWidth);
   }
 });
+it('ignores a non-finite width', () => {
+  expect(maxColumns(undefined as unknown as number)).toBe(0);
+  const before = useAppStore.getState();
+  before.setColumnWidth(NaN);
+  expect(useAppStore.getState()).toBe(before);
+  before.restoreFromDb([fromLibraryPhoto(fakePhoto('z'))], { columnWidth: 'x' as unknown as number });
+  expect(useAppStore.getState()).toMatchObject({ columnWidth: 1, lastColumnWidth: 1 });
+});
 it('prunes the selection when files change', () => {
   const s = useAppStore.getState();
   s.clickCell('a', { meta: false, shift: false });

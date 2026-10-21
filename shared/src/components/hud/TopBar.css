@@ -4,7 +4,8 @@
   padding: 12px; pointer-events: none;
 }
 .xv-topbar > * { pointer-events: auto; }
-.xv-topbar__left { display: flex; align-items: flex-start; gap: 8px; }
+/* Fills the bar so the file pill can ellipsise; its empty space passes the pointer to the photo. */
+.xv-topbar__left { display: flex; align-items: flex-start; gap: 8px; flex: 1; min-width: 0; pointer-events: none; }
 .xv-folder-menu { position: relative; pointer-events: auto; }
 .xv-folder-menu__trigger {
   border: 0; border-radius: var(--xv-radius-chrome); padding: 5px 10px;

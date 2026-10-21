@@ -127,7 +127,7 @@ export const createLibrarySlice: Slice<LibrarySlice> = (set, get) => ({
       modelSize: settings.modelSize ?? state.modelSize,
       exportFormat: settings.exportFormat ?? state.exportFormat,
       exportQuality: settings.exportQuality ?? state.exportQuality,
-      ...(settings.columnWidth === undefined ? {} : columnWidthPatch(settings.columnWidth, state.lastColumnWidth)),
+      ...(settings.columnWidth === undefined ? {} : columnWidthPatch(settings.columnWidth, state)),
     });
   },
 });

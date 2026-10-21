@@ -1,12 +1,12 @@
-/* N columns are 6 + N × 118 px of cells; content-box keeps the border outside that. */
+/* Sized by its cells (6 + N × 118 px) plus any scrollbar gutter; content-box keeps the border outside that. */
 .xv-column {
   position: relative; flex-shrink: 0; box-sizing: content-box;
-  width: calc(6px + var(--xv-columns) * 118px);
+  width: max-content;
   display: flex; flex-direction: column;
   background: var(--xv-card); border-right: 1px solid var(--xv-border);
 }
 .xv-column__cells {
-  flex: 1; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; padding: 6px;
+  flex: 1; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; padding: 6px;
   display: grid; grid-template-columns: repeat(var(--xv-columns), 112px); gap: 6px; align-content: start;
 }
 
