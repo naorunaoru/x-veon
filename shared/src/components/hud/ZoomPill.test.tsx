@@ -24,4 +24,9 @@ describe('ZoomPill', () => {
     screen.getByRole('button', { name: 'Fit' }).click();
     expect(resetView).toHaveBeenCalledTimes(1);
   });
+
+  it('names the zoom slider', () => {
+    render(<ZoomPill />);
+    expect(screen.getByRole('slider', { name: 'Zoom' })).toBeInTheDocument();
+  });
 });
