@@ -33,3 +33,4 @@
   background: var(--xv-primary); color: var(--xv-primary-foreground);
   font-family: var(--xv-font-sans); font-size: 12px; font-weight: 500; cursor: pointer;
 }
+.xv-stage__error .xv-btn:disabled { opacity: 0.5; cursor: default; }

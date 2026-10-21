@@ -1,6 +1,6 @@
 import { ImageOff } from 'lucide-react';
 import { useAppStore } from '@/app/store';
-import { processFile } from '@/app/services/processing';
+import { useProcessing } from '@/app/hooks/useProcessing';
 import { OutputCanvas } from '@/components/OutputCanvas';
 import { StartupError } from './StartupError';
 import './PhotoStage.css';
@@ -8,6 +8,7 @@ import './PhotoStage.css';
 export function PhotoStage() {
   const selectedFile = useAppStore((s) => s.files.find((f) => f.id === s.currentId));
   const initError = useAppStore((s) => s.initError);
+  const { processFile, isProcessing } = useProcessing();
 
   if (!selectedFile) {
     return (
@@ -40,7 +41,7 @@ export function PhotoStage() {
             <span className="xv-stage__error-title">Couldn't open this photo</span>
             <span className="xv-stage__error-detail">{selectedFile.error}</span>
             <span className="xv-stage__error-file">{selectedFile.originalName}</span>
-            <button type="button" className="xv-btn" onClick={() => processFile(selectedFile.id)}>Retry</button>
+            <button type="button" className="xv-btn" disabled={isProcessing} onClick={() => processFile(selectedFile.id)}>Retry</button>
           </div>
         </div>
       )}

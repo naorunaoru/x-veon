@@ -68,6 +68,12 @@ describe('FileMetaPill', () => {
     const note = screen.getByRole('img', { name: 'View only: newer schema' });
     expect(note).toHaveAttribute('title', 'View only: newer schema');
   });
+  it('labels a session note as session edits', () => {
+    useAppStore.setState({ files: [makeFile({ editing: 'session', editingNote: 'disk full' })], currentId: 'a' });
+    render(<FileMetaPill />);
+    const note = screen.getByRole('img', { name: 'Session edits: disk full' });
+    expect(note).toHaveAttribute('title', 'Session edits: disk full');
+  });
   it('shows no glyph for a saved photo', () => {
     useAppStore.setState({ files: [makeFile({ editing: 'saved', editingNote: null })], currentId: 'a' });
     render(<FileMetaPill />);
