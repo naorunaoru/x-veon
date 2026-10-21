@@ -6,11 +6,23 @@
  * nothing on wasm32) and leave its stack and heap corrupted, so the owner replaces this worker
  * after any failed decode instead of reusing the instance.
  */
-import init, { decode_image } from '../../../crates/rawloader-wasm/pkg/rawloader_wasm.js';
+import init, { decode_image, type Image } from '../../../crates/rawloader-wasm/pkg/rawloader_wasm.js';
 import { prepareCfa } from '../preprocess/preprocessor';
 import type { PreparedCfa, RawImage } from '../types';
 
 const ready = init();
+
+/** Plain arrays, so the tables pass through the result metadata and its storage unchanged. */
+function fujiLens(img: Image): RawImage['fujiLens'] {
+  const distortion = Array.from(img.get_fuji_lens_distortion());
+  if (distortion.length === 0) return null;
+  return {
+    distortion,
+    ca: Array.from(img.get_fuji_lens_ca()),
+    vignetting: Array.from(img.get_fuji_lens_vignetting()),
+    frame: Array.from(img.get_fuji_lens_frame()),
+  };
+}
 
 type Request = { type: 'ping' } | { type: 'decode'; bytes: ArrayBuffer };
 
@@ -45,6 +57,7 @@ self.onmessage = async (e: MessageEvent<Request>) => {
         lensModel: img.get_lens_model(),
         focalLength: img.get_focal_length(),
         fNumber: img.get_f_number(),
+        fujiLens: fujiLens(img),
       };
     } finally {
       img.free();

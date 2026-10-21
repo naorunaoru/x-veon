@@ -20,6 +20,9 @@ export interface RawImage {
   lensModel: string;
   focalLength: number;
   fNumber: number;
+  /** The camera's lens correction tables (Fuji RAF); `frame` is [full height, full width, crop top,
+   * crop left, cropped height, cropped width], zeros where the file lacks the crop tags. */
+  fujiLens: { distortion: number[]; ca: number[]; vignetting: number[]; frame: number[] } | null;
 }
 
 /** A decoded readout without its photosite data (what the decode worker sends back). */

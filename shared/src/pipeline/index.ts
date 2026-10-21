@@ -178,6 +178,9 @@ export async function processRaw(
         modelIdentity: resolved?.model,
         cfaType,
         modelNote: resolved?.note,
+        fujiCorrection: raw.fujiLens
+          ? { distortion: raw.fujiLens.distortion, ca: raw.fujiLens.ca, vignetting: raw.fujiLens.vignetting, centre: null }
+          : undefined,
       },
     };
 

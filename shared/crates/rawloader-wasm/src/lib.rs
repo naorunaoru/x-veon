@@ -60,6 +60,10 @@ pub struct Image {
     lens_model: String,
     focal_length: f32,
     f_number: f32,
+    fuji_lens_distortion: js_sys::Float32Array,
+    fuji_lens_ca: js_sys::Float32Array,
+    fuji_lens_vignetting: js_sys::Float32Array,
+    fuji_lens_frame: js_sys::Uint16Array,
 }
 
 #[wasm_bindgen]
@@ -147,6 +151,26 @@ impl Image {
     pub fn get_f_number(&self) -> f32 {
         self.f_number
     }
+
+    /// The camera's distortion table (Fuji RAF). It and the CA and vignetting tables are empty
+    /// when the file has none.
+    pub fn get_fuji_lens_distortion(&self) -> js_sys::Float32Array {
+        self.fuji_lens_distortion.clone()
+    }
+
+    pub fn get_fuji_lens_ca(&self) -> js_sys::Float32Array {
+        self.fuji_lens_ca.clone()
+    }
+
+    pub fn get_fuji_lens_vignetting(&self) -> js_sys::Float32Array {
+        self.fuji_lens_vignetting.clone()
+    }
+
+    /// [full height, full width, crop top, crop left, cropped height, cropped width], or empty
+    /// when the file has no tables.
+    pub fn get_fuji_lens_frame(&self) -> js_sys::Uint16Array {
+        self.fuji_lens_frame.clone()
+    }
 }
 
 #[wasm_bindgen]
@@ -176,6 +200,7 @@ pub fn decode_image(arr: js_sys::Uint8Array) -> Result<Image, JsValue> {
 
     let dr_gain = exif_parse::extract_dr_gain(&vec);
     let exif_meta = exif_parse::extract_exif_meta(&vec);
+    let lens = image.fuji_lens.as_ref();
 
     Ok(Image {
         make: image.make.clone(),
@@ -198,6 +223,10 @@ pub fn decode_image(arr: js_sys::Uint8Array) -> Result<Image, JsValue> {
         lens_model: exif_meta.lens_model,
         focal_length: exif_meta.focal_length,
         f_number: exif_meta.f_number,
+        fuji_lens_distortion: f32_to_js_f32(lens.map_or(&[], |l| &l.distortion[..])),
+        fuji_lens_ca: f32_to_js_f32(lens.map_or(&[], |l| &l.ca[..])),
+        fuji_lens_vignetting: f32_to_js_f32(lens.map_or(&[], |l| &l.vignetting[..])),
+        fuji_lens_frame: u16_to_js_u16(lens.map_or(&[], |l| &l.frame[..])),
         data: js_sys::Uint16Array::from(&vector[..]),
     })
 }

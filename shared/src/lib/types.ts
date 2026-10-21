@@ -17,6 +17,15 @@ export type LookPreset = 'opendrt-v1-default' | 'opendrt-v1-colorful' | 'opendrt
   | 'default' | 'colorful' | 'umbra' | 'base' | 'flat'
   | 'low-contrast' | 'medium-contrast' | 'aces-2' | 'marvelous';
 
+/** The camera's own lens correction tables (Fuji RAF), as the decoder read them. */
+export interface FujiCorrectionMeta {
+  distortion: number[];
+  ca: number[];
+  vignetting: number[];
+  /** camera crop-rectangle centre in texture pixels, or null when the frame tags are absent or inconsistent with the decoded size */
+  centre: [number, number] | null;
+}
+
 /** What the app stores and shows about a processed file (produced by the pipeline). */
 export interface ProcessingMetadata {
   make: string;
@@ -36,6 +45,7 @@ export interface ProcessingMetadata {
   modelIdentity?: ModelIdentity;
   cfaType?: CfaType;
   modelNote?: string | null;
+  fujiCorrection?: FujiCorrectionMeta;
 }
 
 /** Lightweight export data stored in Zustand; pixel data lives in OPFS. */

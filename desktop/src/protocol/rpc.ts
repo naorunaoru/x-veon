@@ -93,7 +93,9 @@ function result(x: unknown): boolean {
     && fields(m, ['make', 'model', 'backend', 'lensModel'], string)
     && fields(m, ['width', 'height', 'tileCount', 'inferenceTime', 'exposureBias', 'focalLength', 'fNumber', 'colorTemp', 'tint'], number)
     && optional(m, 'modelSize', v => oneOf(v, MODEL_SIZES)) && optional(m, 'modelIdentity', model)
-    && optional(m, 'cfaType', cfa) && optional(m, 'modelNote', nullableString);
+    && optional(m, 'cfaType', cfa) && optional(m, 'modelNote', nullableString)
+    && optional(m, 'fujiCorrection', v => record(v) && array(v.distortion, number) && array(v.ca, number) && array(v.vignetting, number)
+      && (v.centre === null || (array(v.centre, number) && v.centre.length === 2)));
 }
 function coefficients(x: unknown, required: string[], optionalNames: string[]): boolean {
   return record(x) && string(x.model) && fields(x, required, number) && optionalNames.every(k => optional(x, k, number));

@@ -59,6 +59,11 @@ describe('versioned process protocol', () => {
     expect(isPortRequest({ v: 1, rid: 1, op: 'saveEdit', id: p.id, edit: { ...p.edit, lens: { ...lens, distortion: 'yes' } } })).toBe(false);
     expect(isPortRequest({ v: 1, rid: 1, op: 'saveEdit', id: p.id, edit: { ...p.edit, lens: { ...lens, source: 'camera' } } })).toBe(false);
   });
+  it('accepts the camera correction tables in a result and rejects malformed ones', () => {
+    const withCorrection = (fujiCorrection: unknown) => ({ ...examples[1][1], facts: { ...p.facts, resultMeta: { ...p.facts.resultMeta!, metadata: { ...p.facts.resultMeta!.metadata, fujiCorrection } } } });
+    expect(isPortRequest(withCorrection({ distortion: [1], ca: [], vignetting: [], centre: null }))).toBe(true);
+    expect(isPortRequest(withCorrection({ distortion: 'x' }))).toBe(false);
+  });
 });
 
 describe('structured-cloned sparse arrays', () => {
