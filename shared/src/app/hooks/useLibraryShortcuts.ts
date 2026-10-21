@@ -17,6 +17,9 @@ export function useLibraryShortcuts() {
       if (document.querySelector(OVERLAY)) return;
 
       const state = useAppStore.getState();
+      const remove = event.key === 'Delete' || event.key === 'Backspace';
+      // No photos, no column: leave its keys to the browser.
+      if (!remove && state.files.length === 0) return;
       const command = event.metaKey || event.ctrlKey;
       const plain = !command && !event.altKey && !event.shiftKey;
       const rowStep = state.columnWidth >= 2 ? state.columnWidth : 1;
@@ -28,16 +31,17 @@ export function useLibraryShortcuts() {
       if (step !== 0 && !command && !event.altKey) {
         event.preventDefault();
         state.moveCurrent(step, event.shiftKey);
-      } else if (event.key === 'a' && command && !event.altKey && !event.shiftKey) {
+      } else if ((event.key.toLowerCase() === 'a' || event.code === 'KeyA') && command && !event.altKey && !event.shiftKey) {
         event.preventDefault();
         state.selectAllShown();
       } else if (event.key === 'Escape' && plain) {
         event.preventDefault();
         state.clearSelection();
-      } else if (event.key === 'Tab' && plain && !event.repeat) {
+      } else if (event.key === 'Tab' && plain) {
         event.preventDefault();
-        state.toggleColumn();
-      } else if ((event.key === 'Delete' || event.key === 'Backspace') && plain && !event.repeat) {
+        // A held Tab toggles once; its repeats are swallowed, not passed on as focus moves.
+        if (!event.repeat) state.toggleColumn();
+      } else if (remove && plain && !event.repeat) {
         if (!getHost().library.remove || !state.currentId) return;
         event.preventDefault();
         removeFile(state.currentId);

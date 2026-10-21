@@ -112,6 +112,19 @@ it('scrolls the current cell into view when current changes', () => {
   act(() => useAppStore.getState().setCurrent('c'));
   expect(scroll).toHaveBeenCalledWith({ block: 'nearest' });
 });
+it('moves keyboard focus with the current cell', () => {
+  render(<LibraryColumn />);
+  const cells = screen.getAllByTestId('column-cell');
+  cells[0].focus();
+  act(() => useAppStore.getState().setCurrent('c'));
+  expect(document.activeElement).toBe(cells[2]);
+});
+it('leaves focus outside the column where it is', () => {
+  render(<LibraryColumn />);
+  expect(document.activeElement).toBe(document.body);
+  act(() => useAppStore.getState().setCurrent('c'));
+  expect(document.activeElement).toBe(document.body);
+});
 it('scrolls the current cell into view when the column opens', () => {
   const scroll = vi.fn();
   Element.prototype.scrollIntoView = scroll;

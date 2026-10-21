@@ -31,10 +31,13 @@ export function LibraryColumn() {
   const dragRef = useRef<{ pointerId: number; columns: number } | null>(null);
   const rootRef = useRef<HTMLElement>(null);
   const currentRef = useRef<HTMLButtonElement>(null);
+  const cellsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     // Optional: jsdom has no scrollIntoView.
     currentRef.current?.scrollIntoView?.({ block: 'nearest' });
+    // Keyboard focus in the column follows the current cell; focus elsewhere stays put.
+    if (cellsRef.current?.contains(document.activeElement)) currentRef.current?.focus({ preventScroll: true });
   }, [currentId, columnWidth]);
 
   // Re-clamp when the window shrinks, so the stage keeps its minimum width.
@@ -94,7 +97,7 @@ export function LibraryColumn() {
       data-testid="library-column"
       data-dragging={preview !== null || undefined}
     >
-      <div className="xv-column__cells" role="listbox" aria-label="Photos" aria-multiselectable="true">
+      <div ref={cellsRef} className="xv-column__cells" role="listbox" aria-label="Photos" aria-multiselectable="true">
         {shown.map((f) => {
           const current = f.id === currentId;
           return (

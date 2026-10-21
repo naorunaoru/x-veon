@@ -43,7 +43,10 @@ it('protects editing, dialogs, modifier shortcuts, and held keys', () => {
   expect(remove).not.toHaveBeenCalled();
 });
 describe('navigation keys', () => {
-  beforeEach(() => useAppStore.setState({ columnWidth: 3, selectedIds: [], selectionAnchor: null }));
+  beforeEach(() => useAppStore.setState({
+    files: [fromLibraryPhoto(fakePhoto('a')), fromLibraryPhoto(fakePhoto('b'))],
+    columnWidth: 3, selectedIds: [], selectionAnchor: null,
+  }));
   it.each([
     ['ArrowRight', false, [1, false]], ['ArrowLeft', false, [-1, false]],
     ['ArrowDown', false, [3, false]], ['ArrowUp', true, [-3, true]],
@@ -95,5 +98,28 @@ describe('navigation keys', () => {
     expect(move).not.toHaveBeenCalled();
     expect(tab).toBe(true);                                             // Tab in a dialog keeps its default
     expect(useAppStore.getState().columnWidth).toBe(3);
+  });
+  it('a held Tab toggles once and swallows its repeats', () => {
+    renderHook(useLibraryShortcuts);
+    const held = fireEvent.keyDown(document.body, { key: 'Tab', repeat: true });
+    expect(held).toBe(false);                                           // defaultPrevented
+    expect(useAppStore.getState().columnWidth).toBe(3);
+  });
+  it('leaves the keys to the browser when there are no photos', () => {
+    useAppStore.setState({ files: [], currentId: null });
+    renderHook(useLibraryShortcuts);
+    const tab = fireEvent.keyDown(document.body, { key: 'Tab' });
+    const right = fireEvent.keyDown(document.body, { key: 'ArrowRight' });
+    expect(tab).toBe(true);
+    expect(right).toBe(true);
+    expect(useAppStore.getState().columnWidth).toBe(3);
+  });
+  it.each([
+    { key: 'ф', code: 'KeyA', ctrlKey: true },
+    { key: 'A', metaKey: true },
+  ])('⌘A selects all shown on any layout (key $key)', (init) => {
+    renderHook(useLibraryShortcuts);
+    fireEvent.keyDown(document.body, init);
+    expect(useAppStore.getState().selectedIds).toEqual(['a', 'b']);
   });
 });
