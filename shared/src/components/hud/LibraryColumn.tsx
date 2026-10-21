@@ -24,7 +24,7 @@ export function LibraryColumn() {
   const toggleSelectAll = useAppStore((s) => s.toggleSelectAll);
   const setColumnWidth = useAppStore((s) => s.setColumnWidth);
   const toggleColumn = useAppStore((s) => s.toggleColumn);
-  const { exportAvailable } = useExport();
+  const { exportAvailable, unavailableReason } = useExport();
   const [exportOpen, setExportOpen] = useState(false);
   // The width under the pointer while the edge is dragged; applied on release.
   const [preview, setPreview] = useState<number | null>(null);
@@ -35,7 +35,7 @@ export function LibraryColumn() {
   useEffect(() => {
     // Optional: jsdom has no scrollIntoView.
     currentRef.current?.scrollIntoView?.({ block: 'nearest' });
-  }, [currentId]);
+  }, [currentId, columnWidth]);
 
   // Re-clamp when the window shrinks, so the stage keeps its minimum width.
   useEffect(() => {
@@ -123,7 +123,13 @@ export function LibraryColumn() {
         >
           {allShownSelected ? 'None' : 'All'}
         </button>
-        <button type="button" className="xv-column__export" disabled={!canExport} onClick={() => setExportOpen(true)}>
+        <button
+          type="button"
+          className="xv-column__export"
+          disabled={!canExport}
+          title={unavailableReason ?? undefined}
+          onClick={() => setExportOpen(true)}
+        >
           Export
         </button>
       </div>

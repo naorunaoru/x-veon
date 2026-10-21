@@ -6,7 +6,7 @@
   background: var(--xv-card); border-right: 1px solid var(--xv-border);
 }
 .xv-column__cells {
-  flex: 1; overflow-y: auto; padding: 6px;
+  flex: 1; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; padding: 6px;
   display: grid; grid-template-columns: repeat(var(--xv-columns), 112px); gap: 6px; align-content: start;
 }
 

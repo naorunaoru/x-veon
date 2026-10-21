@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { useAppStore } from '@/app/store';
 import { fromLibraryPhoto } from '@/app/store/photo';
 import { fakePhoto } from '@/test/fake-host';
+import { getHost } from '@/app/services/host';
 vi.mock('@/app/services/export-jobs', () => ({ startExport: vi.fn() }));
 // Pointer events are fired the way Minimap.test.tsx fires them; jsdom has no PointerEvent class.
 import { startExport } from '@/app/services/export-jobs';
@@ -61,6 +62,13 @@ it('disables Export while the current photo is not done', () => {
   render(<LibraryColumn />);
   expect(screen.getByRole('button', { name: 'Export' })).toBeDisabled();
 });
+it('gives the disabled Export the unavailability reason as its tooltip', async () => {
+  vi.mocked(getHost().exporter.status).mockResolvedValue({ available: false, reason: 'The native encoder could not be loaded: test' });
+  render(<LibraryColumn />);
+  const button = screen.getByRole('button', { name: 'Export' });
+  await waitFor(() => expect(button).toHaveAttribute('title', 'The native encoder could not be loaded: test'));
+  expect(button).toBeDisabled();
+});
 it('collapsed shows only the edge tab, which restores the width', () => {
   useAppStore.setState({ columnWidth: 0, lastColumnWidth: 2 });
   render(<LibraryColumn />);
@@ -100,5 +108,14 @@ it('scrolls the current cell into view when current changes', () => {
   render(<LibraryColumn />);
   scroll.mockClear();                                        // the mount scrolls 'a' into view
   act(() => useAppStore.getState().setCurrent('c'));
+  expect(scroll).toHaveBeenCalledWith({ block: 'nearest' });
+});
+it('scrolls the current cell into view when the column opens', () => {
+  const scroll = vi.fn();
+  Element.prototype.scrollIntoView = scroll;
+  useAppStore.setState({ columnWidth: 0 });
+  render(<LibraryColumn />);
+  scroll.mockClear();
+  act(() => useAppStore.getState().setColumnWidth(1));
   expect(scroll).toHaveBeenCalledWith({ block: 'nearest' });
 });
