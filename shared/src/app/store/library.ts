@@ -1,6 +1,8 @@
 import type { FolderRef } from '@/host';
 import type { ModelIdentity, ModelSize } from '@/lib/types';
 import { editPhoto } from './photo';
+import { prune } from '@/app/selection';
+import { columnWidthPatch } from './selection';
 import type { DemosaicMethod, ExportFormat, ProcessingResultMeta } from '@/lib/types';
 import type { QuickMetadata } from '@/pipeline/decode/raf-thumbnail';
 import type { LensProfile } from '@/app/lens/lensfun';
@@ -12,6 +14,7 @@ export interface RestoredSettings {
   exportFormat?: ExportFormat;
   exportQuality?: number;
   currentId?: string | null;
+  columnWidth?: number;
 }
 
 export interface LibrarySlice {
@@ -59,7 +62,11 @@ export const createLibrarySlice: Slice<LibrarySlice> = (set, get) => ({
             ? files[Math.min(removedIndex, files.length - 1)].id
             : null
           : state.currentId;
-      return { files, currentId };
+      const selection = prune(
+        { currentId, selectedIds: state.selectedIds, anchorId: state.selectionAnchor },
+        new Set(files.map((f) => f.id)),
+      );
+      return { files, currentId, selectedIds: selection.selectedIds, selectionAnchor: selection.anchorId };
     }),
 
   setCurrent: (id) => set({ currentId: id }),
@@ -120,6 +127,7 @@ export const createLibrarySlice: Slice<LibrarySlice> = (set, get) => ({
       modelSize: settings.modelSize ?? state.modelSize,
       exportFormat: settings.exportFormat ?? state.exportFormat,
       exportQuality: settings.exportQuality ?? state.exportQuality,
+      ...(settings.columnWidth === undefined ? {} : columnWidthPatch(settings.columnWidth, state.lastColumnWidth)),
     });
   },
 });

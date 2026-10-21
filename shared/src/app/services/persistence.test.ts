@@ -61,6 +61,12 @@ it('debounces edits, omits transient updates and keeps settings separate', async
   s.setExportQuality(80);
   expect(putSetting).toHaveBeenCalledWith('exportQuality', 80);
 });
+it('persists columnWidth like the other settings', async () => {
+  const stop = startPersistence();
+  useAppStore.getState().setColumnWidth(2);
+  await vi.waitFor(() => expect(putSetting).toHaveBeenCalledWith('columnWidth', 2));
+  stop();
+});
 it('does not write on hydration or selection, and restores model defaults', async () => {
   vi.mocked(host.library.load).mockResolvedValue({ photos: [fakePhoto('r')], complete: true });
   vi.mocked(getSetting).mockImplementation(

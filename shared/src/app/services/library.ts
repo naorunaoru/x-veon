@@ -40,6 +40,7 @@ export async function switchFolder(load: () => Promise<LibrarySnapshot | null>):
   useAppStore.setState({
     files, folder: snapshot.folder ?? null,
     currentId: snapshot.selectedIds?.[0] ?? files[0]?.id ?? null,
+    selectedIds: [], selectionAnchor: null,
     // The processing service clears its busy gate when the discarded run settles.
     hydrationVersion: state.hydrationVersion + 1,
   });
@@ -102,7 +103,8 @@ export function startLibraryWatching(): () => void {
         for (const id of live.keys()) discardResult(id);
         const selection = snapshot.selectedIds?.[0] ?? state.currentId;
         useAppStore.setState({ files, hydrationVersion: state.hydrationVersion + 1,
-          currentId: files.some(f => f.id === selection) ? selection : files[0]?.id ?? null });
+          currentId: files.some(f => f.id === selection) ? selection : files[0]?.id ?? null,
+          selectedIds: [], selectionAnchor: null });
         retryUnsaved();
       }
       for (const photo of snapshot.photos) matchLensFor(photo.id);

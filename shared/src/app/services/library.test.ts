@@ -74,12 +74,13 @@ it('applies thumbnail facts without replacing a local edit and releases its subs
 
 const snapshot = (id: string) => ({ photos: [fakePhoto(id)], folder: { id, name: id }, complete: true });
 it('flushes before opening, replaces photos and disposes old results; cancellation keeps state', async () => {
-  useAppStore.setState({ files: [fromLibraryPhoto(fakePhoto('old'))] });
+  useAppStore.setState({ files: [fromLibraryPhoto(fakePhoto('old'))], selectedIds: ['a'], selectionAnchor: 'a' });
   host.library.openFolder = vi.fn(async () => snapshot('A'));
   await openFolder({ id: 'A', name: 'A' });
   expect(vi.mocked(flushPersistence).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(host.library.openFolder).mock.invocationCallOrder[0]);
   expect(host.library.openFolder).toHaveBeenCalledWith({ id: 'A', name: 'A' });
   expect(useAppStore.getState()).toMatchObject({ folder: { id: 'A' }, currentId: 'A', files: [{ id: 'A' }] });
+  expect(useAppStore.getState()).toMatchObject({ selectedIds: [], selectionAnchor: null });
   expect(discardResult).toHaveBeenCalledWith('old');
   const files = useAppStore.getState().files;
   vi.mocked(host.library.openFolder).mockResolvedValue(null);

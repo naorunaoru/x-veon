@@ -11,6 +11,7 @@ import type { SettingsSlice } from './settings';
 import type { GradingSlice } from './grading';
 import type { DisplaySlice } from './display';
 import type { ViewSlice } from './view';
+import type { SelectionSlice } from './selection';
 
 export type FileStatus = 'queued' | 'processing' | 'done' | 'error';
 
@@ -52,7 +53,7 @@ export interface ViewControls {
   panTo: (pan: { x: number; y: number }) => void;
 }
 
-export type AppState = InitSlice & LibrarySlice & SettingsSlice & GradingSlice & DisplaySlice & ViewSlice;
+export type AppState = InitSlice & LibrarySlice & SettingsSlice & GradingSlice & DisplaySlice & ViewSlice & SelectionSlice;
 
 /** A slice creator that can read and set the whole state (setCurrent sets settings, for example). */
 export type Slice<T> = StateCreator<AppState, [], [], T>;
