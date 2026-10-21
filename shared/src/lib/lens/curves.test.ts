@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { LfDistortion } from '../lensfun-types';
+import type { LfDistortion, LfTCA } from '../lensfun-types';
 import { NO_CURVES, evalDistortion, evalTca, evalVignettingGain, huginUnits, lensfunCurves, manualCurves } from './curves';
 
 describe('lensfun models', () => {
@@ -63,12 +63,18 @@ describe('lensfunCurves', () => {
     expect(lensfunCurves(two, 0, 4).distortion).toBeNull();
     expect(lensfunCurves({ ...base, distortion: [two.distortion[0]] }, 0, 4).distortion).not.toBeNull();
   });
-  it('is 1 at the centre and takes the entry itself at a calibrated focal length', () => {
+  it('takes the entry itself at a calibrated focal length', () => {
     const entry = (focal: number, k1: number) => ({ model: 'poly3', focal, k1 });
     const three = { ...base, distortion: [entry(18, 0.02), entry(35, 0.05), entry(55, -0.02)] };
-    expect(lensfunCurves(three, 28, 4).distortion!(0)).toBe(1);
     expect(lensfunCurves(three, 35, 4).distortion!(1)).toBeCloseTo(lensfunCurves({ ...base, distortion: [entry(35, 0.05)] }, 35, 4).distortion!(1), 12);
     expect(lensfunCurves({ ...base, distortion: [entry(35, 0.05)] }, 100, 4).distortion!(1)).toBeCloseTo(lensfunCurves(three, 35, 4).distortion!(1), 12);
+  });
+  it('at the centre the ratio is the model\'s constant term, blended like the rest', () => {
+    const at0 = (distortion: LfDistortion[], f = 35) => lensfunCurves({ ...base, distortion }, f, 4).distortion!(0);
+    expect(at0([{ model: 'poly3', focal: 35, k1: 0.02 }])).toBeCloseTo(0.98, 12);
+    expect(at0([{ model: 'ptlens', focal: 35, a: 0, b: -0.02, c: 0 }])).toBeCloseTo(1.02, 12);
+    expect(at0([{ model: 'poly5', focal: 35, k1: 0.02, k2: 0.01 }])).toBeCloseTo(1, 12);
+    expect(at0([{ model: 'poly3', focal: 18, k1: 0.02 }, { model: 'poly3', focal: 35, k1: 0.05 }], 28)).toBeCloseTo((7 / 17) * 0.98 + (10 / 17) * 0.95, 12);
   });
   it('blends curves of entries with different models, whatever order they come in', () => {
     const a = { model: 'poly3', focal: 18, k1: 0.02 };
@@ -88,29 +94,65 @@ describe('lensfunCurves', () => {
     const c = lensfunCurves(p, 36.5, 4);
     expect(c.caRed!(0.8)).toBeCloseTo(1.001, 9);
     expect(c.caBlue!(0.8)).toBeCloseTo(0.999, 9);
-    expect(c.caRed!(0)).toBe(1);
+    expect(c.caRed!(0)).toBeCloseTo(1.001, 12);   // the model's constant term, not 1
     const poly = lensfunCurves({ ...base, distortion: [], tca: [{ model: 'poly3', focal: 35, br: 0.001, vr: 1, vb: 1 }] }, 35, 4);
     expect(poly.caRed!(1)).toBeCloseTo(1 + 0.001 * g * g, 12);   // r = g at the corner; r_d / r = b r^2 + v
     expect(poly.caBlue!(1)).toBeCloseTo(1, 12);
+    expect(poly.caRed!(0)).toBe(1);   // v_R
+    const centre = (tca: LfTCA[]) => lensfunCurves({ ...base, distortion: [], tca }, 35, 4);
+    expect(centre([lin(35, 1.001, 0.999)]).caRed!(0)).toBeCloseTo(1.001, 12);
+    expect(centre([lin(35, 1.001, 0.999)]).caBlue!(0)).toBeCloseTo(0.999, 12);
+    expect(centre([{ model: 'poly3', focal: 35, br: 0.001, cr: 0.002, vr: 1.003, vb: 0.997 }]).caRed!(0)).toBeCloseTo(1.003, 12);
+    expect(centre([{ model: 'poly3', focal: 35, vr: 1.003, vb: 0.997 }]).caBlue!(0)).toBeCloseTo(0.997, 12);
   });
   it('vignetting: the radius unit follows the calibration sensor, the focal length is the nearest calibrated one', () => {
     const v = (focal: number, k1: number) => ({ model: 'pa', focal, aperture: 2, distance: 1000, k1, k2: 0, k3: 0 });
     const p = { ...base, calibCropfactor: 1, distortion: [], vignetting: [v(24, -0.5), v(70, -0.1)] };
     expect(lensfunCurves(p, 30, 2).vignetting!(1)).toBeCloseTo(1 / (1 - 0.5 * (2 / 3) ** 2), 12);
     expect(lensfunCurves(p, 60, 2).vignetting!(1)).toBeCloseTo(1 / (1 - 0.1 * (2 / 3) ** 2), 12);
-    expect(lensfunCurves(p, 0, 2).vignetting!(1)).toBeCloseTo(1 / (1 - 0.5 * (2 / 3) ** 2), 12);
   });
-  it('vignetting: an f-number outside the calibrated apertures, or 0, takes the nearest one', () => {
+  it('vignetting: an unknown focal length needs the entries to share one calibrated focal length', () => {
+    const v = (focal: number, k1: number) => ({ model: 'pa', focal, aperture: 2, distance: 1000, k1, k2: 0, k3: 0 });
+    const zoom = { ...base, distortion: [], vignetting: [v(24, -0.5), v(70, -0.1)] };
+    const prime = { ...base, distortion: [], vignetting: [v(35, -0.5), { ...v(35, -0.2), aperture: 4 }] };
+    for (const f of [0, -1, NaN, Infinity]) {
+      expect(lensfunCurves(zoom, f, 2).vignetting).toBeNull();
+      expect(lensfunCurves(prime, f, 2).vignetting!(1)).toBeCloseTo(2, 9);
+    }
+  });
+  it('vignetting: an f-number outside the calibrated apertures takes the nearest one', () => {
     const v = (aperture: number, k1: number) => ({ model: 'pa', focal: 35, aperture, distance: 1000, k1, k2: 0, k3: 0 });
     const p = { ...base, distortion: [], vignetting: [v(4, -0.2), v(2, -0.5)] };
     expect(lensfunCurves(p, 35, 11).vignetting!(1)).toBeCloseTo(1.25, 9);
     expect(lensfunCurves(p, 35, 1.4).vignetting!(1)).toBeCloseTo(2, 9);
-    expect(lensfunCurves(p, 35, 0).vignetting!(1)).toBeCloseTo(2, 9);
     expect(lensfunCurves(p, 35, Math.SQRT2 * 2).vignetting!(1)).toBeCloseTo(0.5 * (2 + 1.25), 9);   // f/2.83 is halfway in log2
   });
   it('vignetting: a single entry serves every f-number', () => {
     const p = { ...base, distortion: [], vignetting: [{ model: 'pa', focal: 35, aperture: 2.8, distance: 1000, k1: -0.5, k2: 0, k3: 0 }] };
-    for (const f of [0, 1.4, 2.8, 16]) expect(lensfunCurves(p, 35, f).vignetting!(1)).toBeCloseTo(2, 9);
+    for (const f of [1.4, 2.8, 16]) expect(lensfunCurves(p, 35, f).vignetting!(1)).toBeCloseTo(2, 9);
+  });
+  it('an unknown f-number (0, negative, NaN, infinite) gives no vignetting and leaves the rest alone', () => {
+    const entry = { model: 'pa', focal: 35, aperture: 2.8, distance: 1000, k1: -0.5, k2: 0, k3: 0 };
+    const one = { ...base, distortion: [{ model: 'poly3', focal: 35, k1: 0.02 }], vignetting: [entry] };
+    const two = { ...one, vignetting: [entry, { ...entry, aperture: 5.6 }] };
+    for (const f of [0, -2.8, NaN, Infinity]) {
+      expect(lensfunCurves(one, 35, f).vignetting).toBeNull();
+      expect(lensfunCurves(two, 35, f).vignetting).toBeNull();
+      expect(lensfunCurves(one, 35, f).distortion).not.toBeNull();
+    }
+  });
+  it('an unknown focal length (0, negative, NaN, infinite) takes the only entry or none, and never throws', () => {
+    const entry = (focal: number) => ({ model: 'poly3', focal, k1: 0.02 });
+    const lin = (focal: number) => ({ model: 'linear', focal, kr: 1.001, kb: 0.999 });
+    const one = { ...base, distortion: [entry(35)], tca: [lin(35)] };
+    const two = { ...base, distortion: [entry(18), entry(55)], tca: [lin(18), lin(55)] };
+    for (const f of [0, -35, NaN, Infinity, -Infinity]) {
+      const single = lensfunCurves(one, f, 4);
+      expect(single.distortion!(1)).toBeCloseTo(lensfunCurves(one, 35, 4).distortion!(1), 12);
+      expect(single.caRed!(1)).toBeCloseTo(1.001, 12);
+      const several = lensfunCurves(two, f, 4);
+      expect(several.distortion).toBeNull(); expect(several.caRed).toBeNull(); expect(several.caBlue).toBeNull();
+    }
   });
 });
 describe('manualCurves', () => {
