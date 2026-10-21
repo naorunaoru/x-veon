@@ -32,7 +32,7 @@ it('separates selected-photo model/method from defaults', () => {
   expect(useAppStore.getState().modelSize).toBe('M');
   expect(useAppStore.getState().files[0].edit.model).toBeNull();
 });
-it('omits absent capabilities and disables selected edits for view-only photos', () => {
+it('disables selected edits for view-only photos', () => {
   useAppStore.setState({
     files: [{ ...fromLibraryPhoto(fakePhoto()), editing: 'view-only', editingNote: 'newer schema' }],
   });

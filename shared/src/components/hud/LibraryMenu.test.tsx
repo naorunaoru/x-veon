@@ -17,14 +17,21 @@ it('renders nothing on a folder host', () => {
   expect(container).toBeEmptyDOMElement();
 });
 it('adds picked files through importFiles', () => {
+  const click = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {});
   render(<LibraryMenu />);
   fireEvent.click(screen.getByRole('button', { name: 'Library' }));
   fireEvent.click(screen.getByRole('menuitem', { name: 'Add files…' }));
   const input = document.querySelector('input[type=file]') as HTMLInputElement;
+  expect(click).toHaveBeenCalledTimes(1);
+  expect(click.mock.contexts[0]).toBe(input);
+  click.mockRestore();
   expect(input.accept).toContain('.raf');
   const file = new File([''], 'x.RAF');
+  // jsdom's value ignores fireEvent's files; a browser shows the picked path until it is reset.
+  Object.defineProperty(input, 'value', { configurable: true, writable: true, value: 'C:\\fakepath\\x.RAF' });
   fireEvent.change(input, { target: { files: [file] } });
   expect(importFiles).toHaveBeenCalledWith([file]);
+  expect(input.value).toBe('');
 });
 it('offers Clear library only when the host can clear, and confirms', async () => {
   render(<LibraryMenu />);
@@ -37,6 +44,17 @@ it('offers Clear library only when the host can clear, and confirms', async () =
   expect(screen.getByText('Removes every photo, edit and setting this build has stored in this browser.')).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: 'Remove photos, edits and settings' }));
   await waitFor(() => expect(clearLibrary).toHaveBeenCalledTimes(1));
+});
+it('keeps the failed-Clear notice after the dialog is cancelled', async () => {
+  vi.mocked(clearLibrary).mockRejectedValueOnce(new Error('IDB blocked'));
+  const host = fakeHost(); host.library.clear = vi.fn(); setHost(host);
+  render(<LibraryMenu />);
+  fireEvent.click(screen.getByRole('button', { name: 'Library' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Clear library' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Remove photos, edits and settings' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('IDB blocked');
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(screen.getByRole('alert')).toHaveTextContent('IDB blocked');
 });
 it.each(['empty', 'decode-error', 'startup-error'] as const)('keeps the Library menu reachable in the %s state', (state) => {
   const host = fakeHost(); host.library.clear = vi.fn(); setHost(host);

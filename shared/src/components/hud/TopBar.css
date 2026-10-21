@@ -23,3 +23,4 @@
 .xv-folder-menu__item:hover, .xv-folder-menu__item:focus-visible {
   background: var(--xv-bg-raised);
 }
+.xv-folder-menu__notice { margin: 6px 0 0; max-width: 280px; font: 11px var(--xv-font-mono); }

@@ -33,6 +33,7 @@ export function LibraryMenu() {
       <button type="button" className="xv-folder-menu__trigger xv-glass" {...menu.triggerProps}>
         Library
       </button>
+      {error && !confirm && <p role="alert" className="xv-folder-menu__notice">{error}</p>}
       {menu.open && (
         <div className="xv-folder-menu__list xv-glass-heavy" {...menu.menuProps}>
           <button
@@ -70,6 +71,7 @@ export function LibraryMenu() {
         hidden
         onChange={(e) => {
           if (e.target.files) void importFiles(Array.from(e.target.files));
+          e.target.value = '';
         }}
       />
       <Dialog
