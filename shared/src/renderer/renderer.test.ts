@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const { getDevice } = vi.hoisted(() => ({ getDevice: vi.fn() }));
 vi.mock('@/gpu/device', () => ({ getDevice }));
 import { createRenderer } from './index';
-import { LENS_TABLE_BYTES } from './lens-table';
+import { LENS_TABLE_BYTES, LENS_TABLE_DOMAIN } from './lens-table';
 const tex = (): GPUTexture => ({ destroy: vi.fn(), createView: () => ({}) }) as unknown as GPUTexture;
 function fixture(failAt?: number) {
   vi.stubGlobal('GPUBufferUsage', { UNIFORM: 1, COPY_DST: 2, COPY_SRC: 4, STORAGE: 8 });
@@ -36,6 +36,12 @@ function fixture(failAt?: number) {
       const lens = buffers.find((b) => b.size === LENS_TABLE_BYTES);
       if (!lens) throw new Error('no lens buffer');
       return lens.resource;
+    },
+    /** The histogram's params uniform: 16 floats. */
+    get histogramParams() {
+      const params = buffers.find((b) => b.size === 64);
+      if (!params) throw new Error('no histogram params buffer');
+      return params.resource;
     },
   };
 }
@@ -89,5 +95,18 @@ describe('renderer ownership', () => {
     renderer.setLens(null);
     renderer.dispose();
     expect(f.lensBuffer.destroy).toHaveBeenCalledTimes(1);
+  });
+  it('forwards the lens remap to the histogram params', async () => {
+    const f = fixture(); const renderer = await createRenderer(f.canvas);
+    const lastParams = () => {
+      const calls = f.device.queue.writeBuffer.mock.calls.filter((c: unknown[]) => c[0] === f.histogramParams);
+      return Array.from(calls[calls.length - 1][2] as Float32Array);
+    };
+    renderer.setLens({ table: new Float32Array(4096), scale: 1, centre: [30, 20], halfDiagPx: 50, width: 80, height: 60 });
+    const on = lastParams();
+    expect(on).toHaveLength(16);
+    expect(on.slice(7, 12)).toEqual([1, 30, 20, 50, LENS_TABLE_DOMAIN]);
+    renderer.setLens(null);
+    expect(lastParams()[7]).toBe(0);
   });
 });

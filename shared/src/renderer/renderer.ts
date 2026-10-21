@@ -94,7 +94,7 @@ export class HdrRenderer implements Renderer {
     this.lensBuffer = lensBuffer;
     this._isHdrDisplay = isHdr;
     this._hdrHeadroom = headroom;
-    this.histogram = new Histogram(device, shaderModule, pipelineLayout, uniformBuffer, uniformData);
+    this.histogram = new Histogram(device, shaderModule, pipelineLayout, uniformBuffer, uniformData, lensBuffer);
     this.exportTarget = new ExportTarget(device, EXPORT_FORMAT);
   }
   static async create(
@@ -235,6 +235,7 @@ export class HdrRenderer implements Renderer {
   setLens(remap: LensRemap | null): void {
     if (remap) this.device.queue.writeBuffer(this.lensBuffer, 0, remap.table as Float32Array<ArrayBuffer>);
     applyLensUniforms(this.uniformData, remap);
+    this.histogram.setLens(remap);
   }
 
   setViewport(viewport: DisplayViewport): void {
