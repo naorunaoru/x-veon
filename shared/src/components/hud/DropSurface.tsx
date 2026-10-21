@@ -17,20 +17,25 @@ type DropSurfaceProps = {
   active?: boolean;
   /** Overlay only — count shown in the "appending to N photos" pill. */
   fileCount?: number;
+  /** Empty state only — models and WASM are still loading: a spinner instead of
+   *  the drop prompt, and no file picker. */
+  loading?: boolean;
 };
 
 const CORNERS = ['tl', 'tr', 'bl', 'br'] as const;
 
-export function DropSurface({ overlay = false, active = false, fileCount = 0 }: DropSurfaceProps) {
+export function DropSurface({ overlay = false, active = false, fileCount = 0, loading = false }: DropSurfaceProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const onPick = useCallback((list: FileList | null) => {
     if (list) importFiles(Array.from(list));
   }, [importFiles]);
 
+  const pickable = !overlay && !loading;
   const className = [
     'xv-drop',
     overlay ? 'xv-drop--overlay' : 'xv-drop--empty',
+    loading ? 'xv-drop--loading' : '',
     active ? 'is-active' : '',
   ].filter(Boolean).join(' ');
 
@@ -38,31 +43,38 @@ export function DropSurface({ overlay = false, active = false, fileCount = 0 }: 
     <div
       data-testid={overlay ? 'drop-overlay' : 'empty-dropzone'}
       className={className}
-      onClick={overlay ? undefined : () => inputRef.current?.click()}
+      onClick={pickable ? () => inputRef.current?.click() : undefined}
     >
       <div className="xv-drop__frame" />
       {active && CORNERS.map((c) => <div key={c} className={`xv-drop__tick xv-drop__tick--${c}`} />)}
 
-      <div className="xv-drop__center">
-        <div className="xv-drop__glyph"><Upload size={30} strokeWidth={1.5} /></div>
-        <div className="xv-drop__title">
-          {overlay ? 'Drop to add to this session' : 'Drop RAW files to start'}
+      {loading ? (
+        <div className="xv-drop__center">
+          <div className="xv-drop__spinner" />
+          <div className="xv-drop__loading">Loading models and WASM…</div>
         </div>
-        <div className="xv-drop__format">{FORMAT_LINE}</div>
-
-        {overlay ? (
-          <div className="xv-drop__pill">
-            <span className="xv-drop__dot" />
-            appending to {fileCount} photo{fileCount === 1 ? '' : 's'} already loaded
+      ) : (
+        <div className="xv-drop__center">
+          <div className="xv-drop__glyph"><Upload size={30} strokeWidth={1.5} /></div>
+          <div className="xv-drop__title">
+            {overlay ? 'Drop to add to this session' : 'Drop RAW files to start'}
           </div>
-        ) : (
-          <div className="xv-drop__browse">
-            or <span className="xv-drop__browse-link">browse files</span>
-          </div>
-        )}
-      </div>
+          <div className="xv-drop__format">{FORMAT_LINE}</div>
 
-      {!overlay && (
+          {overlay ? (
+            <div className="xv-drop__pill">
+              <span className="xv-drop__dot" />
+              appending to {fileCount} photo{fileCount === 1 ? '' : 's'} already loaded
+            </div>
+          ) : (
+            <div className="xv-drop__browse">
+              or <span className="xv-drop__browse-link">browse files</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {pickable && (
         <input
           ref={inputRef}
           type="file"

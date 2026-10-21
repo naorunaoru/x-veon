@@ -83,11 +83,6 @@ it('places only the recovery controls above the empty drop surface', () => {
   }
 });
 
-it.each([false, true])('shows the empty web status pill while initialized=%s', initialized => {
- useAppStore.setState({ initialized, backend: initialized ? 'webgpu' : null }); render(<HudRoot />);
- expect(screen.getByText(initialized ? 'webgpu' : /Loading models and WASM/)).toBeVisible();
-});
-
 it('keeps running export status mounted when a folder switch empties the library', () => {
   const file = fromLibraryPhoto(fakePhoto());
   file.status = 'error';

@@ -3,8 +3,7 @@ import { importFiles } from '@/app/services/library';
 import { useAppStore } from '@/app/store';
 import { PhotoStage } from './PhotoStage';
 import { TopBar } from './TopBar';
-import { Filmstrip } from './Filmstrip';
-import { ActionHud } from './ActionHud';
+import { LibraryColumn } from './LibraryColumn';
 import { DropSurface } from './DropSurface';
 import { useFileDrag } from './useFileDrag';
 import { ToolRail } from './ToolRail';
@@ -36,33 +35,34 @@ export function HudRoot() {
   // Keep Settings mounted across empty/error transitions so Clear failures retain their notice.
   return (
     <div className="xv-hud-root">
-      {hasFiles && <PhotoStage />}
-      <div className={`xv-hud-overlay${chromeHidden ? ' xv-hud-overlay--folder-only' : ''}`} data-chrome-hidden={(hasFiles && chromeHidden) || undefined}>
-        <TopBar folderOnly={hasFiles && chromeHidden} />
-        {hasFiles && (
-          <>
-            <Filmstrip />
-            <ActionHud />
+      <LibraryColumn />
+      <div className="xv-hud-stage" data-testid="hud-stage">
+        {hasFiles && <PhotoStage />}
+        <div className={`xv-hud-overlay${chromeHidden ? ' xv-hud-overlay--folder-only' : ''}`} data-chrome-hidden={(hasFiles && chromeHidden) || undefined}>
+          <TopBar folderOnly={hasFiles && chromeHidden} />
+          {hasFiles && (
             <div className="xv-bottom-left-hud">
               <Minimap />
               <HistogramHud />
             </div>
-          </>
+          )}
+        </div>
+        <div className="xv-hud-overlay xv-hud-settings">
+          <UpdateNotice />
+          <ExportStatus />
+          <ToolRail settingsOnly={chromeHidden} />
+          <PanelHost settingsOnly={chromeHidden} />
+        </div>
+        {hasFiles ? (
+          dragging && <DropSurface overlay active fileCount={fileCount} />
+        ) : initError ? (
+          <StartupError message={initError} />
+        ) : initialized ? (
+          <DropSurface active={dragging} />
+        ) : (
+          <DropSurface loading />
         )}
       </div>
-      <div className="xv-hud-overlay xv-hud-settings">
-        <UpdateNotice />
-        <ExportStatus />
-        <ToolRail settingsOnly={chromeHidden} />
-        <PanelHost settingsOnly={chromeHidden} />
-      </div>
-      {hasFiles ? (
-        dragging && <DropSurface overlay active fileCount={fileCount} />
-      ) : initError ? (
-        <StartupError message={initError} />
-      ) : (
-        initialized && <DropSurface active={dragging} />
-      )}
     </div>
   );
 }
