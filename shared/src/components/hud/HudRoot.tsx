@@ -26,20 +26,20 @@ export function HudRoot() {
   const dragging = useFileDrag(importFiles);
   // Hide photo controls until the selected photo is
   // actually displayable — i.e. while loading, on a decode error, or with no
-  // result yet. Settings stays reachable for recovery and Clear library.
+  // result yet. Settings and the source pill stay reachable for recovery.
   const chromeHidden = useAppStore((s) => {
     const f = s.files.find((x) => x.id === s.currentId);
     return !f || f.status !== 'done' || !f.result;
   });
 
-  // Keep Settings mounted across empty/error transitions so Clear failures retain their notice.
+  // Keep Settings mounted across empty/error transitions so export status survives them.
   return (
     <div className="xv-hud-root">
       <LibraryColumn />
       <div className="xv-hud-stage" data-testid="hud-stage">
         {hasFiles && <PhotoStage />}
         <div className={`xv-hud-overlay${chromeHidden ? ' xv-hud-overlay--folder-only' : ''}`} data-chrome-hidden={(hasFiles && chromeHidden) || undefined}>
-          <TopBar folderOnly={hasFiles && chromeHidden} />
+          <TopBar folderOnly={chromeHidden} />
           {hasFiles && (
             <div className="xv-bottom-left-hud">
               <Minimap />

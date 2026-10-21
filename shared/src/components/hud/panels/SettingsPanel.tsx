@@ -3,19 +3,15 @@ import { FloatingPanel } from '../FloatingPanel';
 import { useAppStore } from '@/app/store';
 import { useModelSizes } from '@/app/hooks/useModelSizes';
 import { getHost } from '@/app/services/host';
-import { clearLibrary } from '@/app/services/library';
 import { demosaicMethodsFor, MODEL_SIZES } from '@/lib/catalog';
 import type { DemosaicMethod, ModelSize } from '@/lib/types';
 import { channelLabel } from '@/lib/channel';
-import { Dialog, DialogContent } from '@/components/dialogs/Dialog';
 import './Panels.css';
 export function SettingsPanel() {
   const state = useAppStore();
   const file = state.files.find((f) => f.id === state.currentId);
   const { available, modelFor } = useModelSizes(file?.cfaType ?? null);
   const host = getHost();
-  const [confirm, setConfirm] = useState(false);
-  const [clearing, setClearing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [exportReason, setExportReason] = useState<string | null>(null);
   useEffect(() => {
@@ -29,18 +25,6 @@ export function SettingsPanel() {
     return () => { active = false; };
   }, [host]);
   const methods = demosaicMethodsFor(file?.cfaType ?? null);
-  async function clear() {
-    setClearing(true);
-    setError(null);
-    try {
-      await clearLibrary();
-      setConfirm(false);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setClearing(false);
-    }
-  }
   const options = methods.map((method) => (
     <option key={method.id} value={method.id}>
       {method.label}
@@ -50,7 +34,7 @@ export function SettingsPanel() {
     <FloatingPanel title="Settings" onClose={() => state.setOpenPanel(null)}>
       {file && (
         <fieldset
-          disabled={file.editing === 'view-only' || clearing}
+          disabled={file.editing === 'view-only'}
           style={{ border: 0, padding: 0, margin: 0 }}
         >
           <legend className="xv-field__label">Selected photo</legend>
@@ -101,7 +85,6 @@ export function SettingsPanel() {
         <select
           id="default-method"
           className="xv-select"
-          disabled={clearing}
           value={state.demosaicMethod}
           onChange={(e) => state.setDemosaicMethod(e.target.value as DemosaicMethod)}
         >
@@ -117,7 +100,6 @@ export function SettingsPanel() {
         <select
           id="default-model"
           className="xv-select"
-          disabled={clearing}
           value={state.modelSize}
           onChange={(e) => state.setModelSize(e.target.value as ModelSize)}
         >
@@ -163,42 +145,7 @@ export function SettingsPanel() {
           )}
         </div>
       </div>
-      {host.library.clear && (
-        <button
-          className="xv-btn"
-          disabled={clearing}
-          onClick={() => {
-            setConfirm(true);
-            setError(null);
-          }}
-        >
-          Clear library
-        </button>
-      )}
-      {error && !confirm && <p role="alert">{error}</p>}
-      <Dialog
-        open={confirm}
-        onOpenChange={(open) => {
-          if (!clearing) setConfirm(open);
-        }}
-      >
-        <DialogContent
-          title="Clear library"
-          actions={
-            <>
-              <button className="xv-btn" disabled={clearing} onClick={() => setConfirm(false)}>
-                Cancel
-              </button>
-              <button className="xv-btn" disabled={clearing} onClick={clear}>
-                Remove photos, edits and settings
-              </button>
-            </>
-          }
-        >
-          <p>Removes every photo, edit and setting this build has stored in this browser.</p>
-          {error && <p role="alert">{error}</p>}
-        </DialogContent>
-      </Dialog>
+      {error && <p role="alert">{error}</p>}
     </FloatingPanel>
   );
 }

@@ -3,7 +3,7 @@ import { URL as NodeURL } from 'node:url';
 const hudCss = readFileSync(new NodeURL('./HudRoot.css', import.meta.url), 'utf8');
 const dropCss = readFileSync(new NodeURL('./DropSurface.css', import.meta.url), 'utf8');
 import { beforeEach, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { useAppStore } from '@/app/store';
 import { fromLibraryPhoto } from '@/app/store/photo';
 import { fakeHost, fakePhoto } from '@/test/fake-host';
@@ -28,7 +28,7 @@ beforeEach(() => {
   });
 });
 it.each(['empty', 'decode-error', 'startup-error'] as const)(
-  'keeps Settings and Clear reachable in %s state',
+  'keeps Settings reachable in %s state',
   (state) => {
     if (state === 'decode-error') {
       const file = fromLibraryPhoto(fakePhoto());
@@ -41,13 +41,6 @@ it.each(['empty', 'decode-error', 'startup-error'] as const)(
     const settings = screen.getByRole('button', { name: 'Settings' });
     expect(settings.closest('[data-chrome-hidden="true"], [inert]')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Exposure' })).toBeNull();
-    fireEvent.click(settings);
-    const clear = screen.getByRole('button', { name: 'Clear library' });
-    expect(clear.closest('[data-chrome-hidden="true"], [inert]')).toBeNull();
-    fireEvent.click(clear);
-    expect(
-      screen.getByText('Removes every photo, edit and setting this build has stored in this browser.'),
-    ).toBeVisible();
   },
 );
 it('keeps the Clear error and retry controls mounted when a partial failure empties the library', async () => {
@@ -58,8 +51,8 @@ it('keeps the Clear error and retry controls mounted when a partial failure empt
   file.status = 'error';
   useAppStore.setState({ files: [file], currentId: file.id });
   render(<HudRoot />);
-  fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Clear library' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Library' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Clear library' }));
   fireEvent.click(screen.getByRole('button', { name: 'Remove photos, edits and settings' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('OPFS denied');
   fireEvent.click(screen.getByRole('button', { name: 'Remove photos, edits and settings' }));
@@ -75,8 +68,10 @@ it('places only the recovery controls above the empty drop surface', () => {
     const settings = screen.getByRole('button', { name: 'Settings' });
     const overlay = settings.closest('.xv-hud-overlay')!;
     const drop = container.querySelector('.xv-drop')!;
-    const photoOverlay = container.querySelector('.xv-topbar')!.closest('.xv-hud-overlay')!;
-    expect(Number(getComputedStyle(photoOverlay).zIndex)).toBeLessThan(Number(getComputedStyle(drop).zIndex));
+    const library = screen.getByRole('button', { name: 'Library' });
+    const photoOverlay = library.closest('.xv-hud-overlay')!;
+    expect(Number(getComputedStyle(photoOverlay).zIndex)).toBeGreaterThan(Number(getComputedStyle(drop).zIndex));
+    expect(within(photoOverlay as HTMLElement).getAllByRole('button')).toEqual([library]);
     expect(Number(getComputedStyle(overlay).zIndex)).toBeGreaterThan(Number(getComputedStyle(drop).zIndex));
   } finally {
     style.remove();
