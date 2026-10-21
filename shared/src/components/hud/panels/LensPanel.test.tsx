@@ -72,6 +72,18 @@ describe('LensPanel', () => {
     expect(midpoint).toBe(0.5);
   });
 
+  it('shows the profile as no edit on the sliders, and a manual value as one', async () => {
+    await open();
+    expect(document.querySelectorAll('.xv-slider.is-modified')).toHaveLength(0);
+    expect(document.querySelectorAll('.xv-slider__delta')).toHaveLength(0);
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'manual' } });
+    expect(document.querySelectorAll('.xv-slider.is-modified')).toHaveLength(0);
+    act(() => useAppStore.getState().setFileLens('a', { manual: { ...DEFAULT_LENS_EDIT.manual, caBlue: 2 } }));
+    const modified = document.querySelectorAll('.xv-slider.is-modified');
+    expect(modified).toHaveLength(1);
+    expect(modified[0]).toHaveTextContent('Blue/yellow');
+  });
+
   it('switching to Manual enables the sliders and marks the section modified', async () => {
     await open();
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'manual' } });

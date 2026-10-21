@@ -35,6 +35,8 @@ export function LensPanel({ embedded = false }: { embedded?: boolean }) {
 
   // The sliders are the correction in force only in Manual; otherwise they show the profile's effect at the corner.
   const shown: LensManual = manualLive ? edit.manual : { ...DEFAULT_LENS_EDIT.manual, ...readouts };
+  // A profile's readout is not an edit: against itself the slider shows no delta and no fill.
+  const defaults: LensManual = manualLive ? DEFAULT_LENS_EDIT.manual : shown;
 
   return (
     <FloatingPanel
@@ -72,7 +74,7 @@ export function LensPanel({ embedded = false }: { embedded?: boolean }) {
             <Toggle label="Distortion" checked={edit.distortion} onChange={(on) => lens.setToggle('distortion', on)} />
           </div>
           <Slider
-            label="Amount" unit="%" min={-20} max={20} step={0.1} defaultValue={0}
+            label="Amount" unit="%" min={-20} max={20} step={0.1} defaultValue={defaults.distortion}
             value={shown.distortion} disabled={!manualLive}
             onChange={(v) => lens.setManual('distortion', v)}
           />
@@ -84,12 +86,12 @@ export function LensPanel({ embedded = false }: { embedded?: boolean }) {
             <Toggle label="Chromatic aberration" checked={edit.ca} onChange={(on) => lens.setToggle('ca', on)} />
           </div>
           <Slider
-            label="Red/cyan" unit="px" min={-10} max={10} step={0.1} defaultValue={0}
+            label="Red/cyan" unit="px" min={-10} max={10} step={0.1} defaultValue={defaults.caRed}
             value={shown.caRed} disabled={!manualLive}
             onChange={(v) => lens.setManual('caRed', v)}
           />
           <Slider
-            label="Blue/yellow" unit="px" min={-10} max={10} step={0.1} defaultValue={0}
+            label="Blue/yellow" unit="px" min={-10} max={10} step={0.1} defaultValue={defaults.caBlue}
             value={shown.caBlue} disabled={!manualLive}
             onChange={(v) => lens.setManual('caBlue', v)}
           />
@@ -101,12 +103,12 @@ export function LensPanel({ embedded = false }: { embedded?: boolean }) {
             <Toggle label="Vignetting" checked={edit.vignetting} onChange={(on) => lens.setToggle('vignetting', on)} />
           </div>
           <Slider
-            label="Amount" unit="EV" min={-3} max={3} step={0.05} defaultValue={0}
+            label="Amount" unit="EV" min={-3} max={3} step={0.05} defaultValue={defaults.vignetting}
             value={shown.vignetting} disabled={!manualLive}
             onChange={(v) => lens.setManual('vignetting', v)}
           />
           <Slider
-            label="Midpoint" min={0.1} max={0.9} step={0.01} defaultValue={0.5}
+            label="Midpoint" min={0.1} max={0.9} step={0.01} defaultValue={defaults.midpoint}
             value={shown.midpoint} disabled={!manualLive}
             onChange={(v) => lens.setManual('midpoint', v)}
           />
