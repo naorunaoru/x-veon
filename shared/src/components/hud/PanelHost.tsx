@@ -75,8 +75,8 @@ export function PanelHost({ settingsOnly = false }: { settingsOnly?: boolean }) 
       if (event.clientX < rect.left || event.clientX >= rect.right) return;
       if (event.clientY < rect.top || event.clientY >= rect.bottom) return;
       // Capture before the photo's wheel listener, including below the shortened
-      // glass surface. The column stops short of the top bar and the bottom HUD row,
-      // so the filmstrip and zoom controls keep their own wheel handling.
+      // glass surface. The column starts below the top bar, so the zoom controls
+      // keep their own wheel handling.
       event.preventDefault();
       event.stopPropagation();
       const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? container.clientHeight : 1;

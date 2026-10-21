@@ -5,7 +5,7 @@ import { fromLibraryPhoto } from '@/app/store/photo';
 import { fakePhoto } from '@/test/fake-host';
 import { HudRoot } from './HudRoot';
 vi.mock('@/components/OutputCanvas', () => ({ OutputCanvas: () => null }));
-beforeEach(() => useAppStore.setState({ files: [], currentId: null, initialized: true, initError: null, columnWidth: 1, lastColumnWidth: 1 }));
+beforeEach(() => useAppStore.setState({ files: [], currentId: null, initialized: true, initError: null, backend: 'webgpu', columnWidth: 1, lastColumnWidth: 1 }));
 
 it('shows the loading text in the empty state before initialisation', () => {
   useAppStore.setState({ initialized: false });

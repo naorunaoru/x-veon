@@ -1,8 +1,8 @@
 .xv-panel.xv-adjustments {
-  width: min(388px, calc(100vw - 76px));
-  /* The column runs between the top bar and the bottom HUD row (filmstrip, Export/Process),
-     so neither its surface nor its scroll/wheel area ever covers them. */
-  top: 52px; bottom: 72px; height: auto; max-height: none; transform: none;
+  width: min(388px, calc(100% - 76px));
+  /* The column starts below the top bar, so neither its surface nor its
+     scroll/wheel area ever covers it. */
+  top: 52px; bottom: 12px; height: auto; max-height: none; transform: none;
   animation-name: xv-adjustments-in;
   padding: 1px; pointer-events: none;
 }
