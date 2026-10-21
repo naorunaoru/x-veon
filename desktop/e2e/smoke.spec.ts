@@ -80,11 +80,12 @@ test('open a folder, process RAF and ARW, edit, export an AVIF that decodes', as
     }
     await page.getByRole('button', { name: 'Open folder…', exact: true }).click();
     await page.getByRole('menuitem', { name: 'Open folder…', exact: true }).click();
-    const thumbs = page.getByTestId('filmstrip-thumb');
-    await expect(thumbs).toHaveCount(2, { timeout: 60_000 });
-    await expect(thumbs.nth(0).locator('.xv-thumb__dot.done')).toBeVisible({ timeout: 180_000 });
-    await thumbs.nth(1).click();
-    await expect(thumbs.nth(1).locator('.xv-thumb__dot.done')).toBeVisible({ timeout: 180_000 });
+    const cells = page.getByTestId('column-cell');
+    await expect(cells).toHaveCount(2, { timeout: 60_000 });
+    await expect(page.getByRole('slider', { name: 'Zoom', exact: true })).toBeVisible({ timeout: 180_000 });
+    await cells.nth(1).click();
+    await expect(cells.nth(1)).toHaveAttribute('data-current', 'true');
+    await expect(page.getByRole('slider', { name: 'Zoom', exact: true })).toBeVisible({ timeout: 180_000 });
     const readings = await page.evaluate(() => (window as unknown as { xveon: { displayReadings(): Promise<unknown> } }).xveon.displayReadings());
     provenance.displayReadings = readings;
     expect(readings, 'native display readings in the packaged app').not.toBeNull();
