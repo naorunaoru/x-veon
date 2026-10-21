@@ -72,10 +72,17 @@ function overrides(x: unknown, shape: object): boolean {
   return record(x) && Object.entries(x).every(([key, value]) => Object.hasOwn(shape, key)
     && (typeof (shape as RecordValue)[key] === 'boolean' ? typeof value === 'boolean' : number(value)));
 }
+const lensfunSource = (x: unknown) => record(x) && record(x.lensfun) && string(x.lensfun.file) && string(x.lensfun.model);
+function lensEdit(x: unknown): boolean {
+  return record(x) && (oneOf(x.source, ['auto', 'manual']) || lensfunSource(x.source))
+    && fields(x, ['distortion', 'ca', 'vignetting'], v => typeof v === 'boolean')
+    && record(x.manual) && fields(x.manual, ['distortion', 'caRed', 'caBlue', 'vignetting', 'midpoint'], number);
+}
 function edit(x: unknown): x is PhotoEdit {
   return record(x) && x.version === 1 && string(x.lookPreset) && Object.hasOwn(LOOK_PRESETS, x.lookPreset)
     && overrides(x.openDrtOverrides, defaults) && overrides(x.preProcessOverrides, DEFAULT_PREPROCESS)
-    && (x.demosaicMethod === null || method(x.demosaicMethod)) && (x.model === null || model(x.model));
+    && (x.demosaicMethod === null || method(x.demosaicMethod)) && (x.model === null || model(x.model))
+    && optional(x, 'lens', lensEdit);
 }
 function result(x: unknown): boolean {
   if (!record(x) || !record(x.exportData) || !record(x.metadata)) return false;

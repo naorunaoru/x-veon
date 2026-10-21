@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { isPortRequest, isPortReply, isPortEvent, isMainToWorker, isWorkerToMain, isListingFrame } from './rpc';
 import { photo } from './test-fixtures';
+import { DEFAULT_LENS_EDIT } from '@/lib/lens/edit';
 const p = photo();
 const folder = { id: 'folder', name: 'Photos' };
 const examples = [
@@ -51,6 +52,12 @@ describe('versioned process protocol', () => {
       expect(isListingFrame({ ...examples[18][1], photos: [{ ...p, facts: value }] })).toBe(false);
     }
     expect(isListingFrame({ ...examples[18][1], photos: [{ ...p, fileSize: NaN }] })).toBe(false);
+  });
+  it('accepts an edit with a lens block and rejects a malformed one', () => {
+    const lens = { ...DEFAULT_LENS_EDIT, source: { lensfun: { file: 'misc.json', model: 'X' } } };
+    expect(isPortRequest({ v: 1, rid: 1, op: 'saveEdit', id: p.id, edit: { ...p.edit, lens } })).toBe(true);
+    expect(isPortRequest({ v: 1, rid: 1, op: 'saveEdit', id: p.id, edit: { ...p.edit, lens: { ...lens, distortion: 'yes' } } })).toBe(false);
+    expect(isPortRequest({ v: 1, rid: 1, op: 'saveEdit', id: p.id, edit: { ...p.edit, lens: { ...lens, source: 'camera' } } })).toBe(false);
   });
 });
 

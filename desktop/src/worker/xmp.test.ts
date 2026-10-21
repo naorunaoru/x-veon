@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
 import { describe, expect, it } from 'vitest';
 import { defaultPhotoEdit } from '@/app/photo-edit';
+import { DEFAULT_LENS_EDIT } from '@/lib/lens/edit';
 import { mergeSidecar, readSidecar, XVEON_NS } from './xmp';
 
 const RDF_NS = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#';
@@ -160,5 +161,30 @@ describe('XMP sidecar codec', () => {
     expect(resetItem.hasAttributeNS(XVEON_NS, 'Look')).toBe(false);
     expect(resetItem.getAttributeNS(XVEON_NS, 'Future')).toBe('unknown');
     expect(resetItem.getAttributeNS(XVEON_NS, 'SchemaVersion')).toBe('1');
+  });
+
+  it('round-trips a lens block as flat attributes and writes nothing for the defaults', () => {
+    const lens = { ...DEFAULT_LENS_EDIT, vignetting: false, source: { lensfun: { file: 'misc.json', model: '23mmF1.4XM' } }, manual: { ...DEFAULT_LENS_EDIT.manual, caRed: 1.5 } };
+    const xml = mergeSidecar(null, { ...defaultPhotoEdit(), lens })!;
+    expect(xml).toContain('xveon:LensSource="lensfun"');
+    expect(xml).toContain('xveon:LensModel="23mmF1.4XM"');
+    expect(xml).toContain('xveon:LensVignetting="False"');
+    expect(xml).toContain('xveon:LensManualCaRed="1.5"');
+    expect(xml).not.toContain('LensDistortion');
+    expect(xml).toContain('xveon:SchemaVersion="1"');
+    expect(readSidecar(xml)).toEqual({ kind: 'ok', edit: expect.objectContaining({ lens }) });
+    expect(mergeSidecar(null, { ...defaultPhotoEdit(), lens: { ...DEFAULT_LENS_EDIT } })).toBeNull();
+  });
+
+  it('rejects a lensfun source without a model', () => {
+    const xml = mergeSidecar(null, { ...defaultPhotoEdit(), preProcessOverrides: { exposure: 0.3 } })!;
+    expect(readSidecar(xml).kind).toBe('ok');
+    expect(readSidecar(xml.replace('xveon:SchemaVersion="1"', 'xveon:SchemaVersion="1" xveon:LensSource="lensfun"')).kind).toBe('unreadable');
+  });
+
+  it('removes the lens attributes when the block returns to the defaults', () => {
+    const xml = mergeSidecar(null, { ...defaultPhotoEdit(), lens: { ...DEFAULT_LENS_EDIT, ca: false, source: 'manual' } })!;
+    expect(xml).toContain('xveon:LensCa="False"');
+    expect(mergeSidecar(xml, defaultPhotoEdit())).toBeNull();
   });
 });

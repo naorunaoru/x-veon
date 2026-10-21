@@ -1,5 +1,6 @@
 import type { CfaType, DemosaicMethod, LookPreset, ModelIdentity, SerializableResultMeta } from '@/lib/types';
 import type { LensProfile } from '@/app/lens/lensfun';
+import type { LensEdit } from '@/lib/lens/edit';
 import type { LibraryPhoto, PhotoEdit, PhotoFacts } from '@/host';
 import { transact, openDatabase, assertDatabaseActive } from '@/app/storage/database';
 export interface PersistedFile {
@@ -24,6 +25,7 @@ export interface PersistedFile {
   preProcessOverrides: Record<string, number>;
   addedAt: number;
   model?: ModelIdentity | null;
+  lens?: LensEdit;
 }
 
 export function createFileStorage(dbName: string) {
@@ -70,6 +72,7 @@ export function fromRecord(p: PersistedFile, thumbnailUrl: string | null): Libra
       preProcessOverrides: p.preProcessOverrides ?? {},
       demosaicMethod: 'editMethod' in p ? p.editMethod ?? null : p.resultMethod,
       model: p.model ?? null,
+      ...(p.lens ? { lens: p.lens } : {}),
     },
     facts: {
       cfaType: p.cfaType,
@@ -107,6 +110,7 @@ export function toRecord(
     openDrtOverrides: edit.openDrtOverrides,
     preProcessOverrides: edit.preProcessOverrides,
     model: edit.model,
+    ...(edit.lens ? { lens: edit.lens } : {}),
     addedAt,
   };
 }
