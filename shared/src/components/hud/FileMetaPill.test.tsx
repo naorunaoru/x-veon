@@ -61,4 +61,16 @@ describe('FileMetaPill', () => {
     expect(screen.getByText(/DSCF8037\.RAF/)).toBeInTheDocument();
     expect(screen.getByText(/X-T5/)).toBeInTheDocument();
   });
+
+  it('carries the editing note as a glyph with a tooltip', () => {
+    useAppStore.setState({ files: [makeFile({ editing: 'view-only', editingNote: 'newer schema' })], currentId: 'a' });
+    render(<FileMetaPill />);
+    const note = screen.getByRole('img', { name: 'View only: newer schema' });
+    expect(note).toHaveAttribute('title', 'View only: newer schema');
+  });
+  it('shows no glyph for a saved photo', () => {
+    useAppStore.setState({ files: [makeFile({ editing: 'saved', editingNote: null })], currentId: 'a' });
+    render(<FileMetaPill />);
+    expect(screen.queryByRole('img')).toBeNull();
+  });
 });

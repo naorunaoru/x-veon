@@ -1,5 +1,6 @@
 import { ImageOff } from 'lucide-react';
 import { useAppStore } from '@/app/store';
+import { processFile } from '@/app/services/processing';
 import { OutputCanvas } from '@/components/OutputCanvas';
 import { StartupError } from './StartupError';
 import './PhotoStage.css';
@@ -39,6 +40,7 @@ export function PhotoStage() {
             <span className="xv-stage__error-title">Couldn't open this photo</span>
             <span className="xv-stage__error-detail">{selectedFile.error}</span>
             <span className="xv-stage__error-file">{selectedFile.originalName}</span>
+            <button type="button" className="xv-btn" onClick={() => processFile(selectedFile.id)}>Retry</button>
           </div>
         </div>
       )}

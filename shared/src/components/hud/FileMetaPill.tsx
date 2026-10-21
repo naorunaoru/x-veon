@@ -1,3 +1,4 @@
+import { TriangleAlert } from 'lucide-react';
 import { useAppStore } from '@/app/store';
 import './FileMetaPill.css';
 
@@ -25,10 +26,18 @@ export function FileMetaPill() {
   const lensGroup = lensSubParts.join(' · ');
 
   const parts = [camera, lensGroup].filter(Boolean);
+  const note = file.editing !== 'saved' && file.editingNote
+    ? `${file.editing === 'session' ? 'Session edits' : 'View only'}: ${file.editingNote}`
+    : null;
 
   return (
     <div className="xv-filemeta xv-glass xv-over-image">
       <span className="xv-filemeta__name">{file.originalName}</span>
+      {note && (
+        <span className="xv-filemeta__note" role="img" aria-label={note} title={note}>
+          <TriangleAlert size={10} />
+        </span>
+      )}
       {parts.map((p, i) => (
         <span key={i} className="xv-filemeta__part">
           <span className="xv-filemeta__sep">·</span> {p}
