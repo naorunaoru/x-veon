@@ -561,6 +561,7 @@ fn bicubic_row(lo: vec2i, dy: i32, size: vec2i, w: vec4f) -> vec4f {
 }
 
 // Catmull-Rom bicubic over 4 × 4 texels, clamped to the edge: the export's resampling.
+// Its ringing can dip below zero at hard edges; rgb is held at 0 so OpenDRT never sees a negative.
 fn sample_bicubic(uv: vec2f) -> vec4f {
   let size = vec2i(textureDimensions(t_image));
   let p = uv * vec2f(size) - 0.5;
@@ -568,10 +569,11 @@ fn sample_bicubic(uv: vec2f) -> vec4f {
   let f = fract(p);
   let wx = catmull_rom(f.x);
   let wy = catmull_rom(f.y);
-  return wy.x * bicubic_row(lo, -1, size, wx)
-       + wy.y * bicubic_row(lo, 0, size, wx)
-       + wy.z * bicubic_row(lo, 1, size, wx)
-       + wy.w * bicubic_row(lo, 2, size, wx);
+  let c = wy.x * bicubic_row(lo, -1, size, wx)
+        + wy.y * bicubic_row(lo, 0, size, wx)
+        + wy.z * bicubic_row(lo, 1, size, wx)
+        + wy.w * bicubic_row(lo, 2, size, wx);
+  return vec4f(max(c.rgb, vec3f(0.0)), c.a);
 }
 
 // Bicubic for the export, bilinear on screen at every zoom (nearest would show warped texel blocks).
