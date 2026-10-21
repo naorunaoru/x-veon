@@ -6,60 +6,11 @@
  * (distortion, TCA, vignetting) for GPU lens correction.
  */
 
-// ── LensFun data model (matches JSON from convert-lensfun-db.ts) ────
+import type { LfCamera, LfLens, LensProfile } from '@/lib/lensfun-types';
 
-export interface LfCamera {
-  make: string;
-  model: string;
-  mount: string;
-  cropfactor: number;
-  variant?: string;
-}
+export type { LfCamera, LfDistortion, LfTCA, LfVignetting, LfLens, LensProfile } from '@/lib/lensfun-types';
 
-export interface LfDistortion {
-  model: string;
-  focal: number;
-  k1?: number;
-  k2?: number;
-  a?: number;
-  b?: number;
-  c?: number;
-}
-
-export interface LfTCA {
-  model: string;
-  focal: number;
-  vr?: number;
-  vb?: number;
-  br?: number;
-  cr?: number;
-  bb?: number;
-  cb?: number;
-  kr?: number;
-  kb?: number;
-}
-
-export interface LfVignetting {
-  model: string;
-  focal: number;
-  aperture: number;
-  distance: number;
-  k1: number;
-  k2: number;
-  k3: number;
-}
-
-export interface LfLens {
-  make: string;
-  model: string;
-  aliases: string[];
-  mounts: string[];
-  cropfactor: number;
-  type?: string;
-  distortion: LfDistortion[];
-  tca: LfTCA[];
-  vignetting: LfVignetting[];
-}
+// ── Database file shapes (the record types live in lib/lensfun-types) ────
 
 interface LfDbFile {
   cameras: LfCamera[];
@@ -70,17 +21,6 @@ interface LfIndexEntry {
   file: string;
   cameras: string[];
   lenses: string[];
-}
-
-// ── Match result (stored on QueuedFile) ─────────────────────────────
-
-export interface LensProfile {
-  lensModel: string;
-  mount: string;
-  cropfactor: number;
-  distortion: LfDistortion[];
-  tca: LfTCA[];
-  vignetting: LfVignetting[];
 }
 
 // ── In-memory cache ─────────────────────────────────────────────────
@@ -290,6 +230,8 @@ export async function matchLens(
     lensModel: best.lens.model,
     mount: mount ?? best.lens.mounts[0] ?? '',
     cropfactor: matchedCamera?.cropfactor ?? best.lens.cropfactor,
+    calibCropfactor: best.lens.cropfactor,
+    calibAspectRatio: best.lens.aspectRatio ?? 1.5,
     distortion: best.lens.distortion,
     tca: best.lens.tca,
     vignetting: best.lens.vignetting,
