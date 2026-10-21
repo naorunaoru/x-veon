@@ -33,11 +33,15 @@ struct Uniforms {
   cwp_adapt_col2: vec4f,
   view_x: vec4f,
   view_y: vec4f,
+  lens_frame: vec4f,          // (width, height, halfDiagPx, scale)
+  lens_centre: vec4f,         // (centre.x − width/2, centre.y − height/2, enabled, table domain)
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
 @group(0) @binding(1) var t_image: texture_2d<f32>;
 @group(0) @binding(2) var s_image: sampler;
+// Bindings 3 and 4 are taken by the shader check's compute harness (tests/opendrt).
+@group(0) @binding(5) var<storage, read> lens_table: array<vec4f>;  // (m_R, m_G, m_B, gain) over ρ in [0, domain]
 
 // ── Constants ───────────────────────────────────────────────────────────
 
@@ -483,6 +487,10 @@ fn opendrt(rgb_in: vec3f) -> vec3f {
 // the preview while retaining exact texels for exports and pixel inspection.
 fn sample_image(uv: vec2f, filtered: bool) -> vec4f {
   if (!filtered) { return textureSampleLevel(t_image, s_image, uv, 0.0); }
+  return sample_bilinear(uv);
+}
+
+fn sample_bilinear(uv: vec2f) -> vec4f {
   let size = vec2i(textureDimensions(t_image));
   let p = uv * vec2f(size) - 0.5;
   let lo = vec2i(floor(p));
@@ -494,21 +502,124 @@ fn sample_image(uv: vec2f, filtered: bool) -> vec4f {
   return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
 
+// ── Lens remap ──────────────────────────────────────────────────────────
+// The shader twin of lensSourceUv (renderer/lens-table.ts): keep every step identical.
+
+struct LensSample {
+  uv_r: vec2f,
+  uv_g: vec2f,
+  uv_b: vec2f,
+  gain: f32,
+}
+
+// The radial table at the radius rho, linearly interpolated and held at the ends.
+fn lens_lookup(rho: f32) -> vec4f {
+  let n = arrayLength(&lens_table);
+  let last = f32(n - 1u);
+  let x = clamp(rho / u.lens_centre.w * last, 0.0, last);
+  let i = min(u32(floor(x)), n - 2u);
+  let a = lens_table[i];
+  return a + (lens_table[i + 1u] - a) * (x - f32(i));
+}
+
+// Where each channel of the output pixel at uv samples the source, and the vignetting gain.
+fn lens_remap(uv: vec2f) -> LensSample {
+  let size = u.lens_frame.xy;
+  let offset = u.lens_centre.xy;  // optical centre − texture middle, in pixels
+  let d = ((uv - 0.5) * size - offset) / u.lens_frame.w;
+  let rho = length(d) / u.lens_frame.z;
+  let m = lens_lookup(rho);
+  let centre = size * 0.5 + offset;
+  var s: LensSample;
+  s.uv_r = (centre + d * m.x) / size;
+  s.uv_g = (centre + d * m.y) / size;
+  s.uv_b = (centre + d * m.z) / size;
+  s.gain = lens_lookup(rho * m.y).w;
+  return s;
+}
+
+fn load_clamped(p: vec2i, size: vec2i) -> vec4f {
+  return textureLoad(t_image, clamp(p, vec2i(0), size - 1), 0);
+}
+
+// Catmull-Rom weights of the taps at −1, 0, 1, 2 around a sample at fraction t.
+fn catmull_rom(t: f32) -> vec4f {
+  let t2 = t * t;
+  let t3 = t2 * t;
+  return 0.5 * vec4f(
+    -t3 + 2.0 * t2 - t,
+    3.0 * t3 - 5.0 * t2 + 2.0,
+    -3.0 * t3 + 4.0 * t2 + t,
+    t3 - t2);
+}
+
+fn bicubic_row(lo: vec2i, dy: i32, size: vec2i, w: vec4f) -> vec4f {
+  return w.x * load_clamped(lo + vec2i(-1, dy), size)
+       + w.y * load_clamped(lo + vec2i(0, dy), size)
+       + w.z * load_clamped(lo + vec2i(1, dy), size)
+       + w.w * load_clamped(lo + vec2i(2, dy), size);
+}
+
+// Catmull-Rom bicubic over 4 × 4 texels, clamped to the edge: the export's resampling.
+fn sample_bicubic(uv: vec2f) -> vec4f {
+  let size = vec2i(textureDimensions(t_image));
+  let p = uv * vec2f(size) - 0.5;
+  let lo = vec2i(floor(p));
+  let f = fract(p);
+  let wx = catmull_rom(f.x);
+  let wy = catmull_rom(f.y);
+  return wy.x * bicubic_row(lo, -1, size, wx)
+       + wy.y * bicubic_row(lo, 0, size, wx)
+       + wy.z * bicubic_row(lo, 1, size, wx)
+       + wy.w * bicubic_row(lo, 2, size, wx);
+}
+
+// Bicubic for the export, bilinear on screen at every zoom (nearest would show warped texel blocks).
+fn lens_sample(uv: vec2f) -> vec4f {
+  if (u.ts_x0_and_flags.z > 0.5) { return sample_bicubic(uv); }
+  return sample_bilinear(uv);
+}
+
+// Each channel at its own source position offset by delta, alpha from green, times the vignetting gain.
+fn lens_fetch(s: LensSample, delta: vec2f) -> vec4f {
+  let g = lens_sample(s.uv_g + delta);
+  let rgb = vec3f(lens_sample(s.uv_r + delta).r, g.g, lens_sample(s.uv_b + delta).b);
+  return vec4f(rgb * s.gain, g.a);
+}
+
+// ── Shading ─────────────────────────────────────────────────────────────
+
 fn shade(uv: vec2f, filtered: bool) -> vec4f {
-  let sample = sample_image(uv, filtered);
-  var linear = sample.rgb;
+  var linear: vec3f;
 
   let sharpen_amount = u.preprocess.w;
   let texel_size = u.texel_size_pad.xy;
 
-  // Unsharp mask sharpening
-  if (sharpen_amount > 0.0) {
-    let t = sample_image(uv + vec2f(0.0, texel_size.y), filtered).rgb;
-    let b = sample_image(uv - vec2f(0.0, texel_size.y), filtered).rgb;
-    let l = sample_image(uv - vec2f(texel_size.x, 0.0), filtered).rgb;
-    let r = sample_image(uv + vec2f(texel_size.x, 0.0), filtered).rgb;
-    let blur = (t + b + l + r) * 0.25;
-    linear = max(linear + sharpen_amount * (linear - blur), vec3f(0.0));
+  if (u.lens_centre.z > 0.5) {
+    // Lens correction: remap once, then sample and sharpen in source space
+    let s = lens_remap(uv);
+    linear = lens_fetch(s, vec2f(0.0)).rgb;
+    if (sharpen_amount > 0.0) {
+      let t = lens_fetch(s, vec2f(0.0, texel_size.y)).rgb;
+      let b = lens_fetch(s, -vec2f(0.0, texel_size.y)).rgb;
+      let l = lens_fetch(s, -vec2f(texel_size.x, 0.0)).rgb;
+      let r = lens_fetch(s, vec2f(texel_size.x, 0.0)).rgb;
+      let blur = (t + b + l + r) * 0.25;
+      linear = max(linear + sharpen_amount * (linear - blur), vec3f(0.0));
+    }
+  } else {
+    let sample = sample_image(uv, filtered);
+    linear = sample.rgb;
+
+    // Unsharp mask sharpening
+    if (sharpen_amount > 0.0) {
+      let t = sample_image(uv + vec2f(0.0, texel_size.y), filtered).rgb;
+      let b = sample_image(uv - vec2f(0.0, texel_size.y), filtered).rgb;
+      let l = sample_image(uv - vec2f(texel_size.x, 0.0), filtered).rgb;
+      let r = sample_image(uv + vec2f(texel_size.x, 0.0), filtered).rgb;
+      let blur = (t + b + l + r) * 0.25;
+      linear = max(linear + sharpen_amount * (linear - blur), vec3f(0.0));
+    }
   }
 
   // Pre-processing: exposure + white balance correction

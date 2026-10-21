@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyOpenDrtUniforms, UNIFORM_FLOATS, U_CWP_C0, U_ODRT_RS, U_P3_DSP_C0 } from './uniforms';
+import { applyLensUniforms, applyOpenDrtUniforms, UNIFORM_FLOATS, U_CWP_C0, U_LENS_CENTRE, U_LENS_FRAME, U_ODRT_RS, U_P3_DSP_C0 } from './uniforms';
 import { configFromPreset, configWithOverrides, computeTonescaleParams } from './grading/opendrt-params';
 import { computeCwpAdaptMatrix } from './color-matrices';
 
@@ -32,5 +32,16 @@ describe('OpenDRT output uniforms', () => {
     const data = new Float32Array(UNIFORM_FLOATS);
     applyOpenDrtUniforms(data, computeTonescaleParams(cfg), cfg, 'rec709');
     expect(data[U_ODRT_RS]).toBeCloseTo(0.6);
+  });
+});
+
+describe('lens uniforms', () => {
+  it('packs the lens frame and flag, and clears them for null', () => {
+    const d = new Float32Array(UNIFORM_FLOATS);
+    applyLensUniforms(d, { table: new Float32Array(4096), scale: 0.97, centre: [1510, 1000], halfDiagPx: 1802.8, width: 3000, height: 2000 });
+    expect(Array.from(d.slice(U_LENS_FRAME, U_LENS_FRAME + 4))).toEqual([3000, 2000, expect.closeTo(1802.8, 3), expect.closeTo(0.97, 6)]);
+    expect(Array.from(d.slice(U_LENS_CENTRE, U_LENS_CENTRE + 4))).toEqual([10, 0, 1, 1.25]);
+    applyLensUniforms(d, null);
+    expect(d[U_LENS_CENTRE + 2]).toBe(0);
   });
 });
