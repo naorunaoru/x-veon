@@ -15,6 +15,7 @@
     "preview": "npm run preview --workspace web",
     "test": "npm test --workspace shared --workspace web --workspace desktop",
     "typecheck": "npm run typecheck --workspace shared --workspace web --workspace desktop",
-    "test:opendrt": "python3 tests/opendrt/check_shader.py"
+    "test:opendrt": "python3 tests/opendrt/check_shader.py",
+    "test:lens": "python3 tests/lens/check_remap.py"
   }
 }
