@@ -159,6 +159,15 @@ describe('processRaw camera lens tables', () => {
     expect(image.meta.metadata.fujiCorrection).toEqual({ distortion: [1, 2], ca: [3], vignetting: [4], centre: null });
     image.dispose();
   });
+  it('resolves the camera frame centre in the visible texture', async () => {
+    fixture({
+      width: 6, height: 4, data: new Uint16Array(24).fill(100),
+      fujiLens: { distortion: [1, 2], ca: [3], vignetting: [4], frame: [4, 6, 1, 1, 2, 4] },
+    });
+    const image = await processRaw(new ArrayBuffer(0), options, ctx);
+    expect(image.meta.metadata.fujiCorrection).toEqual({ distortion: [1, 2], ca: [3], vignetting: [4], centre: [3, 2] });
+    image.dispose();
+  });
   it('omits fujiCorrection for a raw without tables', async () => {
     fixture({ fujiLens: null });
     const image = await processRaw(new ArrayBuffer(0), options, ctx);
