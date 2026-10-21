@@ -1,6 +1,7 @@
 import type { FolderRef, LibrarySnapshot } from '@/host';
 import { useAppStore } from '@/app/store';
 import { fromLibraryPhoto, mergeLibraryPhoto } from '@/app/store/photo';
+import { prune } from '@/app/selection';
 import { matchLens } from '@/app/lens/lensfun';
 import { discardResult } from './processing';
 import { getHost } from './host';
@@ -102,9 +103,12 @@ export function startLibraryWatching(): () => void {
         });
         for (const id of live.keys()) discardResult(id);
         const selection = snapshot.selectedIds?.[0] ?? state.currentId;
+        // A rescan of the same folder keeps the selection, minus photos that left it.
+        const before = { currentId: state.currentId, selectedIds: state.selectedIds, anchorId: state.selectionAnchor };
+        const kept = prune(before, new Set(files.map(f => f.id)));
         useAppStore.setState({ files, hydrationVersion: state.hydrationVersion + 1,
           currentId: files.some(f => f.id === selection) ? selection : files[0]?.id ?? null,
-          selectedIds: [], selectionAnchor: null });
+          ...(kept === before ? {} : { selectedIds: kept.selectedIds, selectionAnchor: kept.anchorId }) });
         retryUnsaved();
       }
       for (const photo of snapshot.photos) matchLensFor(photo.id);
@@ -137,14 +141,14 @@ export async function clearLibrary(): Promise<void> {
     await pausePersistence();
     for (const file of useAppStore.getState().files) discardResult(file.id);
     await clear();
-    useAppStore.setState({ files: [], currentId: null });
+    useAppStore.setState({ files: [], currentId: null, selectedIds: [], selectionAnchor: null });
     suspended = false;
     resumePersistence();
   } catch (error) {
     // A blocked IDB delete cannot be cancelled. Reopening here would stall behind it.
     // Keep writers/imports suspended until Clear is retried or the app is reloaded.
     suspended = true;
-    useAppStore.setState({ files: [], currentId: null });
+    useAppStore.setState({ files: [], currentId: null, selectedIds: [], selectionAnchor: null });
     throw error;
   } finally {
     clearing = false;

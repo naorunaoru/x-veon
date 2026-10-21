@@ -20,7 +20,7 @@ it('surfaces a blocked clear promptly and keeps writes suspended until retry suc
     .mockRejectedValueOnce(new Error('Close other tabs'))
     .mockResolvedValue(undefined);
   setHost(host);
-  useAppStore.setState({ files: [fromLibraryPhoto(fakePhoto())], currentId: 'a' });
+  useAppStore.setState({ files: [fromLibraryPhoto(fakePhoto())], currentId: 'a', selectedIds: ['a'], selectionAnchor: 'a' });
   const failed = clearLibrary();
   // Rejection must not wait for a fresh DB open behind an uncancellable blocked delete.
   const outcome = await Promise.race([
@@ -31,11 +31,14 @@ it('surfaces a blocked clear promptly and keeps writes suspended until retry suc
     new Promise((resolve) => setTimeout(() => resolve('stalled'), 30)),
   ]);
   expect(outcome).toBe('Close other tabs');
+  expect(useAppStore.getState()).toMatchObject({ selectedIds: [], selectionAnchor: null });
   expect(restore).not.toHaveBeenCalled();
   expect(resumePersistence).not.toHaveBeenCalled();
   await importFiles([new File(['x'], 'a.raf')]);
   expect(host.library.addFiles).not.toHaveBeenCalled();
+  useAppStore.setState({ selectedIds: ['a'], selectionAnchor: 'a' });
   await clearLibrary();
+  expect(useAppStore.getState()).toMatchObject({ selectedIds: [], selectionAnchor: null });
   expect(pausePersistence).toHaveBeenCalledTimes(2);
   expect(resumePersistence).toHaveBeenCalledOnce();
 });

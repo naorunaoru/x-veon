@@ -132,6 +132,18 @@ it('ignores facts and replacement snapshots from an earlier folder', () => {
   expect(useAppStore.getState().files).toMatchObject([{ id: 'a', thumbnailUrl: null }]);
   stop();
 });
+it('keeps the selection across a same-folder replace, dropping photos that left', () => {
+  let publish!: Parameters<NonNullable<typeof host.library.onChange>>[0];
+  host.library.onChange = listener => { publish = listener; return () => {}; };
+  useAppStore.setState({
+    files: ['a', 'b', 'c'].map(id => fromLibraryPhoto(fakePhoto(id))), folder: { id: 'A', name: 'A' },
+    currentId: 'a', selectedIds: ['a', 'c'], selectionAnchor: 'c',
+  });
+  const stop = startLibraryWatching();
+  publish({ kind: 'replace', snapshot: { ...snapshot('A'), photos: [fakePhoto('a'), fakePhoto('b')] } });
+  expect(useAppStore.getState()).toMatchObject({ currentId: 'a', selectedIds: ['a'], selectionAnchor: null });
+  stop();
+});
 
 it.each(['loading', 'flushing'])('cancellation preserves the earlier %s choice and bootstrap version', async phase => {
  const { folderSwitchVersion } = await import('./library'); const version = folderSwitchVersion();
