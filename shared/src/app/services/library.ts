@@ -110,13 +110,21 @@ export function startLibraryWatching(): () => void {
   );
 }
 export function matchLensFor(fileId: string): void {
-  const file = useAppStore.getState().files.find((f) => f.id === fileId);
-  if (!file || file.lensProfile || !file.metadata?.lensModel) return;
-  void matchLens(file.metadata.camera, file.metadata.lensModel)
+  const state = useAppStore.getState();
+  const file = state.files.find((f) => f.id === fileId);
+  if (!file) return;
+  const { metadata } = file;
+  // A stored profile without the calibration crop factor predates the calibration fields: it is matched again.
+  if (!metadata?.lensModel || typeof file.lensProfile?.calibCropfactor === 'number') {
+    state.markLensMatched(fileId);
+    return;
+  }
+  void matchLens(metadata.camera, metadata.lensModel)
     .then((profile) => {
       if (profile && !clearing) useAppStore.getState().setFileLensProfile(fileId, profile);
     })
-    .catch((error) => console.warn('Lens match failed:', error));
+    .catch((error) => console.warn('Lens match failed:', error))
+    .finally(() => useAppStore.getState().markLensMatched(fileId));
 }
 export async function removeFile(id: string): Promise<void> {
   const remove = getHost().library.remove;

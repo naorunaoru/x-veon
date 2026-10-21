@@ -101,7 +101,9 @@ function coefficients(x: unknown, required: string[], optionalNames: string[]): 
   return record(x) && string(x.model) && fields(x, required, number) && optionalNames.every(k => optional(x, k, number));
 }
 function lens(x: unknown): boolean {
+  // The calibration fields are optional: facts persisted before they existed lack them (the app matches those again).
   return record(x) && string(x.lensModel) && string(x.mount) && number(x.cropfactor)
+    && optional(x, 'calibCropfactor', number) && optional(x, 'calibAspectRatio', number)
     && array(x.distortion, v => coefficients(v, ['focal'], ['k1', 'k2', 'a', 'b', 'c']))
     && array(x.tca, v => coefficients(v, ['focal'], ['vr', 'vb', 'br', 'cr', 'bb', 'cb', 'kr', 'kb']))
     && array(x.vignetting, v => coefficients(v, ['focal', 'aperture', 'distance', 'k1', 'k2', 'k3'], []));

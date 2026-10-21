@@ -46,12 +46,16 @@ describe('versioned process protocol', () => {
   it('validates nested edits, metadata, result arrays, and lens coefficients', () => {
     const edits: unknown[] = [ { ...p.edit, lookPreset: 'unknown' }, { ...p.edit, preProcessOverrides: { exposure: '1' } }, { ...p.edit, openDrtOverrides: { tn_lcon_enable: 1 } }, { ...p.edit, openDrtOverrides: { constructor: 1 } }, { ...p.edit, model: { size: 'XL', sha256: 'a' } } ];
     for (const edit of edits) expect(isPortRequest({ ...examples[0][1], edit })).toBe(false);
-    const facts = [ { ...p.facts, metadata: { ...p.facts.metadata, focalLength: '35' } }, { ...p.facts, resultMeta: { ...p.facts.resultMeta, exportData: { ...p.facts.resultMeta!.exportData, wbCoeffs: [1, '2'] } } }, { ...p.facts, resultMeta: { ...p.facts.resultMeta, metadata: { ...p.facts.resultMeta!.metadata, width: '7728' } } }, { ...p.facts, lensProfile: { ...p.facts.lensProfile, distortion: [{ model: 'ptlens', focal: 35, a: 'bad' }] } }, { ...p.facts, error: 42 } ];
+    const facts = [ { ...p.facts, metadata: { ...p.facts.metadata, focalLength: '35' } }, { ...p.facts, resultMeta: { ...p.facts.resultMeta, exportData: { ...p.facts.resultMeta!.exportData, wbCoeffs: [1, '2'] } } }, { ...p.facts, resultMeta: { ...p.facts.resultMeta, metadata: { ...p.facts.resultMeta!.metadata, width: '7728' } } }, { ...p.facts, lensProfile: { ...p.facts.lensProfile, distortion: [{ model: 'ptlens', focal: 35, a: 'bad' }] } }, { ...p.facts, lensProfile: { ...p.facts.lensProfile, calibCropfactor: 'x' } }, { ...p.facts, lensProfile: { ...p.facts.lensProfile, calibAspectRatio: 'x' } }, { ...p.facts, error: 42 } ];
     for (const value of facts) {
       expect(isPortRequest({ ...examples[1][1], facts: value })).toBe(false);
       expect(isListingFrame({ ...examples[18][1], photos: [{ ...p, facts: value }] })).toBe(false);
     }
     expect(isListingFrame({ ...examples[18][1], photos: [{ ...p, fileSize: NaN }] })).toBe(false);
+  });
+  it('accepts a stored lens profile that predates the calibration fields', () => {
+    const { calibCropfactor, calibAspectRatio, ...stored } = p.facts.lensProfile!;
+    expect(isPortRequest({ ...examples[1][1], facts: { ...p.facts, lensProfile: stored } })).toBe(true);
   });
   it('accepts an edit with a lens block and rejects a malformed one', () => {
     const lens = { ...DEFAULT_LENS_EDIT, source: { lensfun: { file: 'misc.json', model: 'X' } } };

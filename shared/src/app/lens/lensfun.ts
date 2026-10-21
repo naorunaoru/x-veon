@@ -174,6 +174,26 @@ function scoreLensMatch(exifLens: string, lens: LfLens, mount: string | null): n
   return bestStringScore * 0.8 + mountScore * 0.2;
 }
 
+// ── Profiles ────────────────────────────────────────────────────────
+
+function calibrationCount(lens: LfLens): number {
+  return lens.distortion.length + lens.tca.length + lens.vignetting.length;
+}
+
+/** The profile of a lens on a camera: the camera's mount and crop factor when it is known, else the lens's own. */
+function toProfile(lens: LfLens, camera: LfCamera | null): LensProfile {
+  return {
+    lensModel: lens.model,
+    mount: camera?.mount ?? lens.mounts[0] ?? '',
+    cropfactor: camera?.cropfactor ?? lens.cropfactor,
+    calibCropfactor: lens.cropfactor,
+    calibAspectRatio: lens.aspectRatio ?? 1.5,
+    distortion: lens.distortion,
+    tca: lens.tca,
+    vignetting: lens.vignetting,
+  };
+}
+
 // ── Public API ──────────────────────────────────────────────────────
 
 export async function matchLens(
@@ -210,9 +230,7 @@ export async function matchLens(
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
       // Tiebreak: prefer lens with more calibration data
-      const aCount = a.lens.distortion.length + a.lens.tca.length + a.lens.vignetting.length;
-      const bCount = b.lens.distortion.length + b.lens.tca.length + b.lens.vignetting.length;
-      return bCount - aCount;
+      return calibrationCount(b.lens) - calibrationCount(a.lens);
     });
 
   if (scored.length === 0) {
@@ -226,14 +244,46 @@ export async function matchLens(
     `dist=${best.lens.distortion.length}, tca=${best.lens.tca.length}, vig=${best.lens.vignetting.length})`,
   );
 
-  return {
-    lensModel: best.lens.model,
-    mount: mount ?? best.lens.mounts[0] ?? '',
-    cropfactor: matchedCamera?.cropfactor ?? best.lens.cropfactor,
-    calibCropfactor: best.lens.cropfactor,
-    calibAspectRatio: best.lens.aspectRatio ?? 1.5,
-    distortion: best.lens.distortion,
-    tca: best.lens.tca,
-    vignetting: best.lens.vignetting,
-  };
+  return toProfile(best.lens, matchedCamera);
+}
+
+/** A lens to pick by hand: where it lives (`file`) and how the list shows it. */
+export interface LensChoice { file: string; make: string; model: string }
+
+const byName = new Intl.Collator('en');
+
+/** The lenses to choose from for a camera: those of its make's files and of the third-party files, from the index alone. */
+export async function listLenses(camera: string): Promise<LensChoice[]> {
+  const index = await fetchIndex();
+  const files = findRelevantFiles(index, camera);
+  const choices = new Map<string, LensChoice>();
+  for (const entry of index) {
+    if (!files.includes(entry.file)) continue;
+    for (const name of entry.lenses) {
+      // "Make|Model": the model can hold a bar of its own ("… DC DN | Contemporary 016"), the make never does.
+      const bar = name.indexOf('|');
+      choices.set(`${entry.file}|${name}`, { file: entry.file, make: name.slice(0, bar), model: name.slice(bar + 1) });
+    }
+  }
+  return [...choices.values()].sort((a, b) => byName.compare(a.make, b.make) || byName.compare(a.model, b.model));
+}
+
+async function findCamera(camera: string): Promise<LfCamera | null> {
+  const index = await fetchIndex();
+  const dbFiles = await Promise.all(findRelevantFiles(index, camera).map(fetchDbFile));
+  return matchCamera(camera, dbFiles.flatMap((d) => d.cameras));
+}
+
+/** The profile of a hand-picked lens on this camera; null when the file has no such model. */
+export async function loadLensProfile(
+  choice: { file: string; model: string },
+  camera: string,
+): Promise<LensProfile | null> {
+  const [file, matchedCamera] = await Promise.all([fetchDbFile(choice.file), findCamera(camera)]);
+  // A file can list one model several times (one entry per mount or crop factor): take the entry that fits the camera.
+  const fitsMount = (lens: LfLens) => (matchedCamera && lens.mounts.includes(matchedCamera.mount) ? 1 : 0);
+  const [lens] = file.lenses
+    .filter((l) => l.model === choice.model)
+    .sort((a, b) => fitsMount(b) - fitsMount(a) || calibrationCount(b) - calibrationCount(a));
+  return lens ? toProfile(lens, matchedCamera) : null;
 }
