@@ -74,7 +74,8 @@ it('applies thumbnail facts without replacing a local edit and releases its subs
 
 const snapshot = (id: string) => ({ photos: [fakePhoto(id)], folder: { id, name: id }, complete: true });
 it('flushes before opening, replaces photos and disposes old results; cancellation keeps state', async () => {
-  useAppStore.setState({ files: [fromLibraryPhoto(fakePhoto('old'))], selectedIds: ['a'], selectionAnchor: 'a' });
+  // 'A' is in the new folder too: a switch clears the selection outright, it does not prune it.
+  useAppStore.setState({ files: [fromLibraryPhoto(fakePhoto('old'))], selectedIds: ['A'], selectionAnchor: 'A' });
   host.library.openFolder = vi.fn(async () => snapshot('A'));
   await openFolder({ id: 'A', name: 'A' });
   expect(vi.mocked(flushPersistence).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(host.library.openFolder).mock.invocationCallOrder[0]);

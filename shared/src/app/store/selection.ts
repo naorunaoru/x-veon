@@ -58,7 +58,11 @@ export const createSelectionSlice: Slice<SelectionSlice> = (set, get) => {
     selectAllShown: () => apply(reducer.selectAllShown),
     toggleSelectAll: () => apply(reducer.toggleSelectAll),
     clearSelection: () => apply(reducer.clearSelection),
-    setColumnWidth: (columns) => set(columnWidthPatch(columns, get().lastColumnWidth)),
+    setColumnWidth: (columns) => {
+      const { columnWidth, lastColumnWidth } = get();
+      const next = columnWidthPatch(columns, lastColumnWidth);
+      if (next.columnWidth !== columnWidth || next.lastColumnWidth !== lastColumnWidth) set(next);
+    },
     toggleColumn: () => {
       const { columnWidth, lastColumnWidth, setColumnWidth } = get();
       setColumnWidth(columnWidth > 0 ? 0 : lastColumnWidth);
