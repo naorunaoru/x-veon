@@ -74,8 +74,16 @@ export function evalTca(entry: LfTCA, r: number): { red: number; blue: number } 
   return { red: m.red * r, blue: m.blue * r };
 }
 
-/** The smallest vignetting denominator used: caps the gain at 20 (about 4.3 stops). */
-const MIN_VIGNETTING_DENOMINATOR = 0.05;
+/** Floor for the pa denominator: a gain of at most 8× (3 EV), beyond any real corner falloff. */
+const MIN_VIGNETTING_DENOMINATOR = 0.125;
+/**
+ * A pa fit whose denominator at the calibration corner (r = 1) is below this is over-fitted (about
+ * 1 % of lensfun's entries reach zero there) and would blow the corners; such an entry is unusable.
+ */
+const MIN_USABLE_VIGNETTING_DENOMINATOR = 0.1;
+function usableVignetting(e: LfVignetting): boolean {
+  return e.model !== 'pa' || 1 + e.k1 + e.k2 + e.k3 >= MIN_USABLE_VIGNETTING_DENOMINATOR;
+}
 
 /**
  * Brightness gain at source radius `r` (half-diagonal units of the calibration sensor). An unknown model is 1.
@@ -134,7 +142,8 @@ function byFocal<E extends { focal: number }>(entries: E[], focal: number, curve
  * Vignetting entries at the nearest calibrated focal length (an unknown one needs all entries to share a single
  * focal length), one per aperture (distance nearest 1000 m), blended in log2 f-number; none without a known f-number.
  */
-function vignettingByAperture(entries: LfVignetting[], focal: number, fNumber: number, scale: number): Curve | null {
+function vignettingByAperture(all: LfVignetting[], focal: number, fNumber: number, scale: number): Curve | null {
+  const entries = all.filter(usableVignetting);
   if (entries.length === 0 || !isKnown(fNumber)) return null;
   let nearest = entries[0].focal;
   if (isKnown(focal)) {

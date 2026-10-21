@@ -26,7 +26,7 @@ describe('lensfun models', () => {
       expect(Number.isFinite(gain)).toBe(true);
       expect(gain).toBeGreaterThan(0);
     }
-    expect(evalVignettingGain(entry(-1), 1)).toBeCloseTo(20, 9);   // denominator held at 0.05
+    expect(evalVignettingGain(entry(-1), 1)).toBeCloseTo(8, 9);    // denominator held at 0.125 (3 EV)
     // A lens calibrated on a smaller sensor than the camera's reaches r > 1 on the image corner.
     const profile = { lensModel: 'L', mount: 'Fujifilm X', cropfactor: 1.5, calibCropfactor: 2, calibAspectRatio: 1.5, distortion: [], tca: [], vignetting: [entry(-0.6)] };
     const curve = lensfunCurves(profile, 35, 2).vignetting!;
@@ -65,6 +65,16 @@ describe('lensfunCurves', () => {
     expect(at(36.5)).toBeCloseTo((at(18) + at(55)) / 2, 9);
     expect(at(10)).toBeCloseTo(at(18), 9); expect(at(100)).toBeCloseTo(at(55), 9);
     expect(at(18)).toBeCloseTo(evalDistortion(p.distortion[0], 1.802776) / 1.802776, 5);
+  });
+  it('a pa entry whose denominator at r = 1 is below 0.1 is unusable; the nearest usable aperture takes over', () => {
+    const v = (aperture: number, k1: number, k3 = 0) => ({ model: 'pa', focal: 35, aperture, distance: 1000, k1, k2: 0, k3 });
+    // f/2 is over-fitted (denominator 0.05 at the corner); f/4 is sane (0.6) and is the only usable entry.
+    const p = { ...base, distortion: [], vignetting: [v(2, -0.95), v(4, -0.4)] };
+    expect(lensfunCurves(p, 35, 2).vignetting!(1)).toBeCloseTo(1 / 0.6, 9);
+    // Every entry over-fitted: no vignetting curve at all, rather than blown corners.
+    expect(lensfunCurves({ ...base, distortion: [], vignetting: [v(2, -0.95), v(4, -0.5, -0.45)] }, 35, 2.8).vignetting).toBeNull();
+    // A steep but sane fit (denominator 0.15) stays usable and is not floored.
+    expect(lensfunCurves({ ...base, distortion: [], vignetting: [v(2, -0.85)] }, 35, 2).vignetting!(1)).toBeCloseTo(1 / 0.15, 9);
   });
   it('vignetting: nearest focal, apertures blended in log2 f-number, distance nearest 1000 m', () => {
     const v = (aperture: number, distance: number, k1: number) => ({ model: 'pa', focal: 35, aperture, distance, k1, k2: 0, k3: 0 });
