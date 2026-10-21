@@ -41,7 +41,7 @@ const pointer = (target: EventTarget, type: string, x: number, y: number) =>
   });
 
 describe('tone curve handles', () => {
-  beforeEach(() => useAppStore.setState({ files: [file], selectedFileId: 'a', displayHdr: false }));
+  beforeEach(() => useAppStore.setState({ files: [file], currentId: 'a', displayHdr: false }));
 
   it.each(KEYS.map((key, i) => [key, i] as const))(
     'pressing the %s handle without moving leaves it unchanged',

@@ -28,7 +28,7 @@ beforeEach(() => {
   setHost(host);
   useAppStore.setState({
     files: [photo()],
-    selectedFileId: 'a',
+    currentId: 'a',
     folder: { id: 'A', name: 'A' },
     exportQuality: 95,
     modelSize: 'S',
@@ -68,7 +68,7 @@ it('does not write on hydration or selection, and restores model defaults', asyn
   );
   const restored = await restore();
   useAppStore.getState().restoreFromDb(restored.files, restored.settings);
-  useAppStore.getState().selectFile('r');
+  useAppStore.getState().setCurrent('r');
   await flush();
   expect(host.library.save).not.toHaveBeenCalled();
   expect(restored.settings.modelSize).toBe('M');

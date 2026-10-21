@@ -11,7 +11,7 @@ import { Dialog, DialogContent } from '@/components/dialogs/Dialog';
 import './Panels.css';
 export function SettingsPanel() {
   const state = useAppStore();
-  const file = state.files.find((f) => f.id === state.selectedFileId);
+  const file = state.files.find((f) => f.id === state.currentId);
   const { available, modelFor } = useModelSizes(file?.cfaType ?? null);
   const host = getHost();
   const [confirm, setConfirm] = useState(false);

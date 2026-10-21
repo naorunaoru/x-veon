@@ -21,7 +21,7 @@ beforeEach(() => {
   setHost(host);
   useAppStore.setState({
     files: [],
-    selectedFileId: null,
+    currentId: null,
     initialized: true,
     initError: null,
     openPanel: null,
@@ -34,7 +34,7 @@ it.each(['empty', 'decode-error', 'startup-error'] as const)(
       const file = fromLibraryPhoto(fakePhoto());
       file.status = 'error';
       file.error = 'bad RAW';
-      useAppStore.setState({ files: [file], selectedFileId: file.id });
+      useAppStore.setState({ files: [file], currentId: file.id });
     }
     if (state === 'startup-error') useAppStore.setState({ initialized: false, initError: 'No GPU' });
     render(<HudRoot />);
@@ -56,7 +56,7 @@ it('keeps the Clear error and retry controls mounted when a partial failure empt
   setHost(host);
   const file = fromLibraryPhoto(fakePhoto());
   file.status = 'error';
-  useAppStore.setState({ files: [file], selectedFileId: file.id });
+  useAppStore.setState({ files: [file], currentId: file.id });
   render(<HudRoot />);
   fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
   fireEvent.click(screen.getByRole('button', { name: 'Clear library' }));
@@ -91,13 +91,13 @@ it.each([false, true])('shows the empty web status pill while initialized=%s', i
 it('keeps running export status mounted when a folder switch empties the library', () => {
   const file = fromLibraryPhoto(fakePhoto());
   file.status = 'error';
-  useAppStore.setState({ files: [file], selectedFileId: file.id });
+  useAppStore.setState({ files: [file], currentId: file.id });
   useExportJobs.setState({ jobs: [{ id: 'export', fileId: file.id, label: 'a.avif', state: 'encoding', error: null, result: null, destination: null }] });
   render(<HudRoot />);
   const status = screen.getByRole('status', { name: '' });
   expect(screen.getByText('Encoding a.avif…')).toBeVisible();
   expect(status.closest('.xv-hud-settings')).not.toBeNull();
-  act(() => useAppStore.setState({ files: [], selectedFileId: null }));
+  act(() => useAppStore.setState({ files: [], currentId: null }));
   expect(screen.getByText('Encoding a.avif…')).toBeVisible();
   expect(screen.getByRole('button', { name: 'Cancel export of a.avif' })).toBeEnabled();
   act(() => useExportJobs.setState({ jobs: [] }));

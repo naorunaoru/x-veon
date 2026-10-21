@@ -5,7 +5,7 @@ import { useAppStore } from '@/app/store';
 
 describe('ExportDialog', () => {
   beforeEach(() => useAppStore.setState({
-    files: [], selectedFileId: null, exportFormat: 'jpeg-hdr', exportQuality: 95,
+    files: [], currentId: null, exportFormat: 'jpeg-hdr', exportQuality: 95,
   }));
 
   it('lists the three formats and selects one', () => {

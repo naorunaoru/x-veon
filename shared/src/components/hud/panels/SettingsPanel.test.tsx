@@ -40,7 +40,7 @@ describe('SettingsPanel', () => {
     useAppStore.setState({
       openPanel: 'settings',
       files: [makeFile()],
-      selectedFileId: 'a',
+      currentId: 'a',
       demosaicMethod: 'neural-net',
       modelSize: 'S',
     }),

@@ -38,7 +38,7 @@ function makeFile(id: string, status: QueuedFile['status']): QueuedFile {
 describe('ActionHud', () => {
   beforeEach(() => {
     capability.exportAvailable = true; capability.unavailableReason = null; capability.retry.mockClear();
-    useAppStore.setState({ initialized: true, files: [], selectedFileId: null });
+    useAppStore.setState({ initialized: true, files: [], currentId: null });
   });
 
   it('disables Process when nothing is selected', () => {
@@ -47,20 +47,20 @@ describe('ActionHud', () => {
   });
 
   it('enables Process for a selected, initialized file', () => {
-    useAppStore.setState({ files: [makeFile('a', 'queued')], selectedFileId: 'a' });
+    useAppStore.setState({ files: [makeFile('a', 'queued')], currentId: 'a' });
     render(<ActionHud />);
     expect(screen.getByRole('button', { name: 'Process' })).not.toBeDisabled();
   });
 
   it('disables Export until the file is done', () => {
-    useAppStore.setState({ files: [makeFile('a', 'queued')], selectedFileId: 'a' });
+    useAppStore.setState({ files: [makeFile('a', 'queued')], currentId: 'a' });
     render(<ActionHud />);
     expect(screen.getByRole('button', { name: 'Export' })).toBeDisabled();
   });
 
   it('enables Export when the file is done while another export is running', () => {
     useExportJobs.setState({ jobs: [{ id: 'running', fileId: 'b', label: 'b.avif', state: 'encoding', error: null, result: null, destination: null }] });
-    useAppStore.setState({ files: [makeFile('a', 'done')], selectedFileId: 'a' });
+    useAppStore.setState({ files: [makeFile('a', 'done')], currentId: 'a' });
     render(<ActionHud />);
     expect(screen.getByRole('button', { name: 'Export' })).not.toBeDisabled();
   });

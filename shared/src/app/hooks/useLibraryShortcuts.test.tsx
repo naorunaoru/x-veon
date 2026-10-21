@@ -11,7 +11,7 @@ import { useLibraryShortcuts } from './useLibraryShortcuts';
 import { useAppStore } from '@/app/store';
 beforeEach(() => {
   remove.mockClear();
-  useAppStore.setState({ selectedFileId: 'b' });
+  useAppStore.setState({ currentId: 'b' });
 });
 it.each(['Delete', 'Backspace'])('removes the selected photo with %s', (key) => {
   renderHook(useLibraryShortcuts);

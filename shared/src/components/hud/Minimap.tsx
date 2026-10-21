@@ -9,7 +9,7 @@ const BOX_W = 200;
 const BOX_H = 132.5;
 
 export function Minimap() {
-  const file = useAppStore((s) => s.files.find((f) => f.id === s.selectedFileId));
+  const file = useAppStore((s) => s.files.find((f) => f.id === s.currentId));
   const scale = useAppStore((s) => s.viewScale);
   const fitScale = useAppStore((s) => s.viewFitScale);
   const pan = useAppStore((s) => s.viewPan);

@@ -35,7 +35,7 @@ describe('shouldAutoProcess', () => {
 it('processes an untouched Bayer photo with the neural net when its default is X-Trans only', async () => {
   const file = fromLibraryPhoto(fakePhoto());
   file.cfaType = 'bayer';
-  useAppStore.setState({ files: [file], selectedFileId: file.id, demosaicMethod: 'markesteijn3', initialized: true });
+  useAppStore.setState({ files: [file], currentId: file.id, demosaicMethod: 'markesteijn3', initialized: true });
   const processFile = vi.fn();
   vi.mocked(useProcessing).mockReturnValue({ processFile, isProcessing: false } as never);
   const methodChange = vi.spyOn(useAppStore.getState(), 'setFileDemosaicMethod');
@@ -62,7 +62,7 @@ it('reprocesses an untouched result after its default method changes', () => {
   const file = fromLibraryPhoto(fakePhoto());
   file.status = 'done';
   file.processedKey = 'dht';
-  useAppStore.setState({ files: [file], selectedFileId: file.id, demosaicMethod: 'neural-net', initialized: true });
+  useAppStore.setState({ files: [file], currentId: file.id, demosaicMethod: 'neural-net', initialized: true });
   const processFile = vi.fn();
   vi.mocked(useProcessing).mockReturnValue({ processFile, isProcessing: false } as never);
   renderHook(useAutoProcess);
@@ -74,7 +74,7 @@ it('processes a restored result whose previous processing key is unavailable', (
   const file = fromLibraryPhoto(fakePhoto());
   file.status = 'done';
   file.resultMethod = 'dht';
-  useAppStore.setState({ files: [file], selectedFileId: file.id, demosaicMethod: 'neural-net', initialized: true });
+  useAppStore.setState({ files: [file], currentId: file.id, demosaicMethod: 'neural-net', initialized: true });
   const processFile = vi.fn();
   vi.mocked(useProcessing).mockReturnValue({ processFile, isProcessing: false } as never);
   renderHook(useAutoProcess);

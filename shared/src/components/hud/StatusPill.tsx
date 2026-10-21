@@ -4,7 +4,7 @@ import './StatusPill.css';
 export function StatusPill() {
   const initialized = useAppStore((s) => s.initialized);
   const initError = useAppStore((s) => s.initError);
-  const file = useAppStore(s => s.files.find(f => f.id === s.selectedFileId));
+  const file = useAppStore(s => s.files.find(f => f.id === s.currentId));
   const backend = useAppStore((s) => s.backend);
   const displayHdr = useAppStore((s) => s.displayHdr);
 

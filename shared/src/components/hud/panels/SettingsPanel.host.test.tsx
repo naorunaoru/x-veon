@@ -20,7 +20,7 @@ beforeEach(() => {
   setHost(host);
   useAppStore.setState({
     files: [fromLibraryPhoto(fakePhoto())],
-    selectedFileId: 'a',
+    currentId: 'a',
     modelSize: 'S',
     demosaicMethod: 'neural-net',
   });

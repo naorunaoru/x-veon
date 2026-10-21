@@ -76,7 +76,7 @@ describe('web library', () => {
     appHost.library = host;
     setHost(appHost);
     setPipeline({} as never);
-    useAppStore.setState({ files: [fromLibraryPhoto(photo)], selectedFileId: photo.id, demosaicMethod: 'markesteijn3', modelSize: 'S', processingFileId: null, initialized: true });
+    useAppStore.setState({ files: [fromLibraryPhoto(photo)], currentId: photo.id, demosaicMethod: 'markesteijn3', modelSize: 'S', processingFileId: null, initialized: true });
     processRaw.mockImplementation(async (_bytes, options: { method: DemosaicMethod; resolveDefault?: boolean }) => processedImage(options.resolveDefault && !isMethodValidForCfa(options.method, 'bayer') ? 'neural-net' : options.method));
     const save = vi.spyOn(host, 'saveFacts');
     const stop = startPersistence();
@@ -99,7 +99,7 @@ describe('web library', () => {
     const nextHost = fakeHost();
     nextHost.library = reloaded;
     setHost(nextHost);
-    useAppStore.setState({ files: [fromLibraryPhoto(restored)], selectedFileId: photo.id, demosaicMethod: 'bilinear', modelSize: 'S', processingFileId: null, initialized: true });
+    useAppStore.setState({ files: [fromLibraryPhoto(restored)], currentId: photo.id, demosaicMethod: 'bilinear', modelSize: 'S', processingFileId: null, initialized: true });
     const { unmount } = renderHook(useAutoProcess);
     try {
       await vi.waitFor(() => expect(processRaw).toHaveBeenCalledTimes(2));
@@ -351,7 +351,7 @@ it('merges facts atomically without replacing an edit saved by another adapter',
 it.each(['ahd', 'ppg', 'mhc'] as const)('processes a Bayer RAF with default %s despite its web extension guess', async method => {
  const { host } = setup(); const p = (await host.addFiles([raw('bayer.RAF')])).photos[0]; expect(p.facts.cfaType).toBe('xtrans');
  const appHost = fakeHost(); appHost.library = host; setHost(appHost); setPipeline({} as never);
- useAppStore.setState({ files: [fromLibraryPhoto(p)], selectedFileId: p.id, demosaicMethod: method, modelSize: 'S', processingFileId: null });
+ useAppStore.setState({ files: [fromLibraryPhoto(p)], currentId: p.id, demosaicMethod: method, modelSize: 'S', processingFileId: null });
  processRaw.mockImplementationOnce(async (_bytes, options) => { expect(options).toMatchObject({ method, resolveDefault: true }); return processedImage(method); });
  try { await processFile(p.id); const file = useAppStore.getState().files[0]; expect(file).toMatchObject({ status: 'done', cfaType: 'bayer', resultMethod: method }); await host.saveFacts(p.id, factsOf(file)); expect((await host.load()).photos[0].edit.demosaicMethod).toBeNull(); }
  finally { discardResult(p.id); }

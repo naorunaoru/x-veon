@@ -54,7 +54,7 @@ async function harness() {
     updateUnsaved() {}, respondFlush() {}, onEvent: receive => { events.add(receive); return () => events.delete(receive); } };
   const host = createDesktopHost(bridge); setHost(host);
   const initial = fakePhoto('c'.repeat(22)); initial.edit.demosaicMethod = 'dht';
-  useAppStore.setState({ files: [fromLibraryPhoto(initial)], folder: null, selectedFileId: initial.id, initialized: false, initError: null, processingFileId: null });
+  useAppStore.setState({ files: [fromLibraryPhoto(initial)], folder: null, currentId: initial.id, initialized: false, initError: null, processingFileId: null });
   const stopCoordination = startHostCoordination(), stopWatching = startLibraryWatching(), stopPersistence = startPersistence();
   cleanups.push(async () => { port.hold = false; for (const message of port.sent) port.confirm(message); await Promise.all(unsavedEdits().map(e => cancelPhotoSave(e.id))); stopPersistence(); stopWatching(); stopCoordination(); worker.stop(); await store.flush(); await fs.rm(dir, { recursive: true, force: true }); });
   const fileMenu = buildMenuTemplate(store.recent(), emit, 'darwin').find(item => item.label === 'File')!.submenu as any[];

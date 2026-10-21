@@ -27,7 +27,7 @@ function makeFile(over: Partial<QueuedFile>): QueuedFile {
 }
 
 describe('FileMetaPill', () => {
-  beforeEach(() => useAppStore.setState({ files: [], selectedFileId: null }));
+  beforeEach(() => useAppStore.setState({ files: [], currentId: null }));
 
   it('renders nothing when no file is selected', () => {
     const { container } = render(<FileMetaPill />);
@@ -41,7 +41,7 @@ describe('FileMetaPill', () => {
           metadata: { camera: 'FUJIFILM X-T5', lensModel: 'XF35mmF1.4 R', focalLength: 35, fNumber: 1.4 },
         }),
       ],
-      selectedFileId: 'a',
+      currentId: 'a',
     });
     render(<FileMetaPill />);
     expect(screen.getByText(/DSCF8037\.RAF/)).toBeInTheDocument();
@@ -55,7 +55,7 @@ describe('FileMetaPill', () => {
   it('shows just filename + camera before the decode fills lens info', () => {
     useAppStore.setState({
       files: [makeFile({ metadata: { camera: 'FUJIFILM X-T5', lensModel: '', focalLength: 0, fNumber: 0 } })],
-      selectedFileId: 'a',
+      currentId: 'a',
     });
     render(<FileMetaPill />);
     expect(screen.getByText(/DSCF8037\.RAF/)).toBeInTheDocument();

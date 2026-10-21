@@ -34,7 +34,7 @@ function makeFile(id: string, status: QueuedFile['status'] = 'done'): QueuedFile
 
 describe('Filmstrip', () => {
   beforeEach(() => {
-    useAppStore.setState({ files: [makeFile('a'), makeFile('b', 'queued')], selectedFileId: 'a' });
+    useAppStore.setState({ files: [makeFile('a'), makeFile('b', 'queued')], currentId: 'a' });
   });
 
   it('renders one cell per file', () => {
@@ -45,14 +45,14 @@ describe('Filmstrip', () => {
   it('selects a file on click', () => {
     // Stub impl: assert the call, skip the real action's IDB/OPFS side effects
     // (fire-and-forget, .catch-guarded, but noisy in jsdom).
-    const spy = vi.spyOn(useAppStore.getState(), 'selectFile').mockImplementation(() => {});
+    const spy = vi.spyOn(useAppStore.getState(), 'setCurrent').mockImplementation(() => {});
     render(<Filmstrip />);
     fireEvent.click(screen.getAllByTestId('filmstrip-thumb')[1]);
     expect(spy).toHaveBeenCalledWith('b');
   });
 
   it('removes a file via the hover-× without selecting it', () => {
-    const select = vi.spyOn(useAppStore.getState(), 'selectFile').mockImplementation(() => {});
+    const select = vi.spyOn(useAppStore.getState(), 'setCurrent').mockImplementation(() => {});
     const remove = vi.mocked(removeFile);
     render(<Filmstrip />);
     const cellB = screen.getAllByTestId('filmstrip-thumb')[1];
@@ -68,13 +68,13 @@ describe('Filmstrip', () => {
 });
 
 it('maps a vertical wheel to horizontal scrolling without changing selection or intercepting pinch zoom', () => {
-  useAppStore.setState({ files: [], selectedFileId: 'selected' });
+  useAppStore.setState({ files: [], currentId: 'selected' });
   const { container } = render(<Filmstrip />);
   const strip = container.querySelector('.xv-filmstrip__scroll') as HTMLElement;
   Object.defineProperties(strip, { scrollWidth: { value: 1600 }, clientWidth: { value: 600 } });
   fireEvent.wheel(strip, { deltaY: 100 });
   expect(strip.scrollLeft).toBe(100);
-  expect(useAppStore.getState().selectedFileId).toBe('selected');
+  expect(useAppStore.getState().currentId).toBe('selected');
   fireEvent.wheel(strip, { deltaY: 100, ctrlKey: true });
   fireEvent.wheel(strip, { deltaX: 100 });
   expect(strip.scrollLeft).toBe(100);
@@ -82,7 +82,7 @@ it('maps a vertical wheel to horizontal scrolling without changing selection or 
 
 it('omits removal controls when the host does not support deletion', () => {
   delete getHost().library.remove;
-  useAppStore.setState({ files: [makeFile('a')], selectedFileId: 'a' });
+  useAppStore.setState({ files: [makeFile('a')], currentId: 'a' });
   render(<Filmstrip />);
   expect(screen.queryByRole('button', { name: 'Remove file' })).toBeNull();
 });

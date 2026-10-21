@@ -5,7 +5,7 @@ import type { FolderRef, PhotoEdit, PhotoFacts, PhotoId } from '@/host';
 import { getHost } from './host';
 import { getSetting, putSetting, pauseSettings, resumeSettings } from '@/app/storage/settings-storage';
 const SETTING_KEYS = [
-  'demosaicMethod', 'modelSize', 'exportFormat', 'exportQuality', 'selectedFileId',
+  'demosaicMethod', 'modelSize', 'exportFormat', 'exportQuality', 'currentId',
 ] as const;
 export interface UnsavedEdit {
   id: PhotoId;

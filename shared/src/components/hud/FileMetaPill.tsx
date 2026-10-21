@@ -7,7 +7,7 @@ function cleanCamera(camera: string): string {
 }
 
 export function FileMetaPill() {
-  const file = useAppStore((s) => s.files.find((f) => f.id === s.selectedFileId));
+  const file = useAppStore((s) => s.files.find((f) => f.id === s.currentId));
   if (!file) return null;
 
   const m = file.metadata;

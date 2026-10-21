@@ -9,8 +9,8 @@ import './Filmstrip.css';
 
 export function Filmstrip() {
   const files = useAppStore((s) => s.files);
-  const selectedFileId = useAppStore((s) => s.selectedFileId);
-  const selectFile = useAppStore((s) => s.selectFile);
+  const currentId = useAppStore((s) => s.currentId);
+  const setCurrent = useAppStore((s) => s.setCurrent);
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -39,8 +39,8 @@ export function Filmstrip() {
           <div
             key={f.id}
             data-testid="filmstrip-thumb"
-            className={`xv-thumb${f.id === selectedFileId ? ' is-selected' : ''}`}
-            onClick={() => selectFile(f.id)}
+            className={`xv-thumb${f.id === currentId ? ' is-selected' : ''}`}
+            onClick={() => setCurrent(f.id)}
           >
             {f.thumbnailUrl && <img src={f.thumbnailUrl} alt={f.originalName} />}
             <span className={`xv-thumb__dot ${f.status}`} />

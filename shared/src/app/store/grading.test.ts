@@ -51,7 +51,7 @@ describe('openPanel', () => {
 });
 
 describe('per-section override clears', () => {
-  beforeEach(() => useAppStore.setState({ files: [makeFile('a')], selectedFileId: 'a' }));
+  beforeEach(() => useAppStore.setState({ files: [makeFile('a')], currentId: 'a' }));
 
   it('clearFileOpenDrtOverrides removes only the named keys', () => {
     useAppStore.getState().clearFileOpenDrtOverrides('a', ['tn_con']);
@@ -69,7 +69,7 @@ describe('per-section override clears', () => {
 });
 
 describe('look history', () => {
-  beforeEach(() => useAppStore.setState({ files: [makeFile('a'), makeFile('b')], selectedFileId: 'a' }));
+  beforeEach(() => useAppStore.setState({ files: [makeFile('a'), makeFile('b')], currentId: 'a' }));
 
   it('keeps history per photo and preserves corrections made after choosing a look', () => {
     const original = useAppStore.getState().files[0];

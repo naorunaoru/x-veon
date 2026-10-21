@@ -5,7 +5,7 @@ import { StartupError } from './StartupError';
 import './PhotoStage.css';
 
 export function PhotoStage() {
-  const selectedFile = useAppStore((s) => s.files.find((f) => f.id === s.selectedFileId));
+  const selectedFile = useAppStore((s) => s.files.find((f) => f.id === s.currentId));
   const initError = useAppStore((s) => s.initError);
 
   if (!selectedFile) {

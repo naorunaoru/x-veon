@@ -13,7 +13,7 @@ const ADJUSTMENT_GROUPS = ['exposure', 'advanced', 'whiteBalance', 'detail'] as 
 const isAdjustment = (id: PanelId | null) => ADJUSTMENT_GROUPS.some((group) => group === id);
 
 export function PanelHost({ settingsOnly = false }: { settingsOnly?: boolean }) {
-  const viewOnly = useAppStore(s => s.files.find(f => f.id === s.selectedFileId)?.editing === 'view-only');
+  const viewOnly = useAppStore(s => s.files.find(f => f.id === s.currentId)?.editing === 'view-only');
   const openPanel = useAppStore((s) => s.openPanel);
   const revision = useAppStore((s) => s.panelNavigationRevision);
   const setOpenPanel = useAppStore((s) => s.setOpenPanel);

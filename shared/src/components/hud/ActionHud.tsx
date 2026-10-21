@@ -8,7 +8,7 @@ import './ActionHud.css';
 
 export function ActionHud() {
   const initialized = useAppStore((s) => s.initialized);
-  const selectedFile = useAppStore((s) => s.files.find((f) => f.id === s.selectedFileId));
+  const selectedFile = useAppStore((s) => s.files.find((f) => f.id === s.currentId));
   const { processFile, isProcessing } = useProcessing();
   const { exportAvailable, unavailableReason, retry } = useExport();
   const [exportOpen, setExportOpen] = useState(false);

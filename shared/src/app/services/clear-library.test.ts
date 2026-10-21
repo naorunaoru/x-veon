@@ -20,7 +20,7 @@ it('surfaces a blocked clear promptly and keeps writes suspended until retry suc
     .mockRejectedValueOnce(new Error('Close other tabs'))
     .mockResolvedValue(undefined);
   setHost(host);
-  useAppStore.setState({ files: [fromLibraryPhoto(fakePhoto())], selectedFileId: 'a' });
+  useAppStore.setState({ files: [fromLibraryPhoto(fakePhoto())], currentId: 'a' });
   const failed = clearLibrary();
   // Rejection must not wait for a fresh DB open behind an uncancellable blocked delete.
   const outcome = await Promise.race([

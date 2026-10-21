@@ -131,7 +131,7 @@ function publish(fileId: string, image: ProcessedImage): void {
 
 /** Evict least recently used results beyond RETAINED_RESULTS, never one on screen or selected. */
 function trim(): void {
-  const selected = useAppStore.getState().selectedFileId;
+  const selected = useAppStore.getState().currentId;
   const evictable = [...results.entries()]
     .filter(([id, entry]) => entry.pins === 0 && id !== selected)
     .sort((a, b) => a[1].lastUsed - b[1].lastUsed);

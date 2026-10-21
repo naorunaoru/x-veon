@@ -39,7 +39,7 @@ export async function switchFolder(load: () => Promise<LibrarySnapshot | null>):
   for (const file of state.files) discardResult(file.id);
   useAppStore.setState({
     files, folder: snapshot.folder ?? null,
-    selectedFileId: snapshot.selectedIds?.[0] ?? files[0]?.id ?? null,
+    currentId: snapshot.selectedIds?.[0] ?? files[0]?.id ?? null,
     // The processing service clears its busy gate when the discarded run settles.
     hydrationVersion: state.hydrationVersion + 1,
   });
@@ -62,7 +62,7 @@ export async function importFiles(files: File[]): Promise<void> {
     state.addFiles(
       snapshot.photos.filter((p) => !state.files.some((f) => f.id === p.id)).map(fromLibraryPhoto),
     );
-    if (snapshot.selectedIds?.[0]) useAppStore.getState().selectFile(snapshot.selectedIds[0]);
+    if (snapshot.selectedIds?.[0]) useAppStore.getState().setCurrent(snapshot.selectedIds[0]);
     for (const photo of snapshot.photos) matchLensFor(photo.id);
   } catch (error) {
     console.warn('RAW import failed:', error);
@@ -100,9 +100,9 @@ export function startLibraryWatching(): () => void {
           return merged.file;
         });
         for (const id of live.keys()) discardResult(id);
-        const selection = snapshot.selectedIds?.[0] ?? state.selectedFileId;
+        const selection = snapshot.selectedIds?.[0] ?? state.currentId;
         useAppStore.setState({ files, hydrationVersion: state.hydrationVersion + 1,
-          selectedFileId: files.some(f => f.id === selection) ? selection : files[0]?.id ?? null });
+          currentId: files.some(f => f.id === selection) ? selection : files[0]?.id ?? null });
         retryUnsaved();
       }
       for (const photo of snapshot.photos) matchLensFor(photo.id);
@@ -135,14 +135,14 @@ export async function clearLibrary(): Promise<void> {
     await pausePersistence();
     for (const file of useAppStore.getState().files) discardResult(file.id);
     await clear();
-    useAppStore.setState({ files: [], selectedFileId: null });
+    useAppStore.setState({ files: [], currentId: null });
     suspended = false;
     resumePersistence();
   } catch (error) {
     // A blocked IDB delete cannot be cancelled. Reopening here would stall behind it.
     // Keep writers/imports suspended until Clear is retried or the app is reloaded.
     suspended = true;
-    useAppStore.setState({ files: [], selectedFileId: null });
+    useAppStore.setState({ files: [], currentId: null });
     throw error;
   } finally {
     clearing = false;

@@ -33,7 +33,7 @@ function waitForPhoto(id: string): Promise<void> {
 }
 export async function runBench(): Promise<BenchReport> {
   const store = useAppStore.getState;
-  store().selectFile(null); store().setDemosaicMethod('neural-net'); store().setModelSize('S'); store().setExportQuality(95);
+  store().setCurrent(null); store().setDemosaicMethod('neural-net'); store().setModelSize('S'); store().setExportQuality(95);
   await models.switchSize('S');
   const response = await fetch(`${import.meta.env.BASE_URL}samples/${BENCH_SAMPLE}`);
   if (!response.ok) throw Error(`sample ${BENCH_SAMPLE}: HTTP ${response.status}`);
@@ -41,7 +41,7 @@ export async function runBench(): Promise<BenchReport> {
   await importFiles([new File([await response.blob()], BENCH_SAMPLE)]);
   const file = store().files.find(file => !previous.has(file.id));
   if (!file) throw Error('Benchmark import did not create a photo');
-  store().selectFile(file.id); await waitForPhoto(file.id);
+  store().setCurrent(file.id); await waitForPhoto(file.id);
   const data = store().files.find(candidate => candidate.id === file.id)?.result?.exportData;
   if (!data) throw Error('Benchmark result unavailable');
   const runs: BenchRun[] = [];

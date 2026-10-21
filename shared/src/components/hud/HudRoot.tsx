@@ -29,7 +29,7 @@ export function HudRoot() {
   // actually displayable — i.e. while loading, on a decode error, or with no
   // result yet. Settings stays reachable for recovery and Clear library.
   const chromeHidden = useAppStore((s) => {
-    const f = s.files.find((x) => x.id === s.selectedFileId);
+    const f = s.files.find((x) => x.id === s.currentId);
     return !f || f.status !== 'done' || !f.result;
   });
 

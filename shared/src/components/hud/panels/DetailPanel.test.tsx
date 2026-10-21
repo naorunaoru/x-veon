@@ -26,7 +26,7 @@ function makeFile(): QueuedFile {
 }
 
 describe('DetailPanel', () => {
-  beforeEach(() => useAppStore.setState({ openPanel: 'detail', files: [makeFile()], selectedFileId: 'a' }));
+  beforeEach(() => useAppStore.setState({ openPanel: 'detail', files: [makeFile()], currentId: 'a' }));
 
   it('renders only the sharpening control', () => {
     render(<DetailPanel />);

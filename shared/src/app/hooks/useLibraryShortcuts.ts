@@ -12,7 +12,7 @@ export function useLibraryShortcuts() {
       const target = event.target;
       if (target instanceof Element && target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="slider"], [role="textbox"], [role="dialog"], [role="alertdialog"]')) return;
       if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
-      const id = useAppStore.getState().selectedFileId;
+      const id = useAppStore.getState().currentId;
       if (!id) return;
       event.preventDefault();
       removeFile(id);

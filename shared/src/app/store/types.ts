@@ -54,5 +54,5 @@ export interface ViewControls {
 
 export type AppState = InitSlice & LibrarySlice & SettingsSlice & GradingSlice & DisplaySlice & ViewSlice;
 
-/** A slice creator that can read and set the whole state (selectFile sets settings, for example). */
+/** A slice creator that can read and set the whole state (setCurrent sets settings, for example). */
 export type Slice<T> = StateCreator<AppState, [], [], T>;

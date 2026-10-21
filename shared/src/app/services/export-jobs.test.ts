@@ -29,7 +29,7 @@ beforeEach(() => {
     },
     metadata: {} as never,
   };
-  useAppStore.setState({ files: [photo], selectedFileId: 'a', exportQuality: 95, exportFormat: 'tiff' });
+  useAppStore.setState({ files: [photo], currentId: 'a', exportQuality: 95, exportFormat: 'tiff' });
 });
 
 it('adds a queued named job, then keeps the result name and destination', async () => {

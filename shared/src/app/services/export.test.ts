@@ -27,7 +27,7 @@ beforeEach(() => {
     },
     metadata: {} as never,
   };
-  useAppStore.setState({ files: [photo], selectedFileId: 'a', exportQuality: 95, exportFormat: 'jpeg-hdr' });
+  useAppStore.setState({ files: [photo], currentId: 'a', exportQuality: 95, exportFormat: 'jpeg-hdr' });
 });
 it('asks availability and destination before rendering, and cancellation does no GPU work', async () => {
   vi.mocked(host.exporter.chooseDestination).mockResolvedValue(null);
@@ -192,7 +192,7 @@ it.each(['queued', 'rendering', 'encoding'] as const)('retains its snapshot thro
   if (phase === 'encoding') vi.mocked(host.exporter.encode).mockImplementationOnce(async () => { await gate; return {}; });
   const job = enqueueExport('a', 'tiff');
   await vi.waitFor(() => expect(phase === 'queued' ? vi.mocked(host.exporter.chooseDestination).mock.calls.length : job.state).toBe(phase === 'queued' ? 1 : phase));
-  useAppStore.setState({ files: [], selectedFileId: null });
+  useAppStore.setState({ files: [], currentId: null });
   if (phase === 'rendering') expect(m.release).not.toHaveBeenCalled();
   resume();
   await job.promise;

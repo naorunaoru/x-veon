@@ -13,7 +13,7 @@ interface ExportDialogProps {
 
 export function ExportDialog({ open, onOpenChange, onExport }: ExportDialogProps) {
   const fileName = useAppStore(
-    (state) => state.files.find((file) => file.id === state.selectedFileId)?.name ?? 'file',
+    (state) => state.files.find((file) => file.id === state.currentId)?.name ?? 'file',
   );
   const exportFormat = useAppStore((state) => state.exportFormat);
   const exportQuality = useAppStore((state) => state.exportQuality);
