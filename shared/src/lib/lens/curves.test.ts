@@ -19,6 +19,22 @@ describe('lensfun models', () => {
   it('a negative k1 brightens', () => {
     expect(evalVignettingGain({ model: 'pa', focal: 35, aperture: 2, distance: 1000, k1: -0.4, k2: 0.1, k3: 0.02 }, 1)).toBeCloseTo(1 / 0.72, 9);
   });
+  it('a vignetting polynomial that reaches or crosses zero gives a finite, positive gain', () => {
+    const entry = (k1: number) => ({ model: 'pa', focal: 35, aperture: 2, distance: 1000, k1, k2: 0, k3: 0 });
+    for (const k1 of [-1, -1.5]) {
+      const gain = evalVignettingGain(entry(k1), 1);
+      expect(Number.isFinite(gain)).toBe(true);
+      expect(gain).toBeGreaterThan(0);
+    }
+    expect(evalVignettingGain(entry(-1), 1)).toBeCloseTo(20, 9);   // denominator held at 0.05
+    // A lens calibrated on a smaller sensor than the camera's reaches r > 1 on the image corner.
+    const profile = { lensModel: 'L', mount: 'Fujifilm X', cropfactor: 1.5, calibCropfactor: 2, calibAspectRatio: 1.5, distortion: [], tca: [], vignetting: [entry(-0.6)] };
+    const curve = lensfunCurves(profile, 35, 2).vignetting!;
+    for (let rho = 0; rho <= 1.5; rho += 0.05) {
+      expect(Number.isFinite(curve(rho))).toBe(true);
+      expect(curve(rho)).toBeGreaterThan(0);
+    }
+  });
   it('hugin units: Fuji X on Fuji X, and a full-frame calibration on APS-C', () => {
     expect(huginUnits({ cropfactor: 1.5, calibCropfactor: 1.5, calibAspectRatio: 1.5 })).toEqual({ geometry: expect.closeTo(1.802776, 5), vignetting: 1 });
     expect(huginUnits({ cropfactor: 1.5, calibCropfactor: 1, calibAspectRatio: 1.5 })).toEqual({ geometry: expect.closeTo(1.201850, 5), vignetting: expect.closeTo(2 / 3, 9) });

@@ -40,7 +40,7 @@ struct Uniforms {
 @group(0) @binding(0) var<uniform> u: Uniforms;
 @group(0) @binding(1) var t_image: texture_2d<f32>;
 @group(0) @binding(2) var s_image: sampler;
-// Bindings 3 and 4 are taken by the shader check's compute harness (tests/opendrt).
+// Bindings 3 and 4 are taken by the shader checks' compute harnesses (tests/opendrt and tests/lens/check_remap.py).
 @group(0) @binding(5) var<storage, read> lens_table: array<vec4f>;  // (m_R, m_G, m_B, gain) over ρ in [0, domain]
 
 // ── Constants ───────────────────────────────────────────────────────────

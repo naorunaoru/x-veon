@@ -25,7 +25,12 @@ export const createLensSlice: Slice<LensSlice> = (set) => {
     setFileLens: (id, patch) =>
       update(id, (f, state) => editPhoto(f, { lens: { ...effectiveLensEdit(f.edit), ...patch } }, state)),
     resetFileLens: (id) => update(id, (f, state) => editPhoto(f, { lens: undefined }, state)),
+    // Called for every photo on every listing: an already-matched (or unknown) photo must not notify subscribers.
     markLensMatched: (id) =>
-      set((state) => ({ files: state.files.map((f) => (f.id === id ? { ...f, lensMatched: true } : f)) })),
+      set((state) =>
+        state.files.some((f) => f.id === id && !f.lensMatched)
+          ? { files: state.files.map((f) => (f.id === id ? { ...f, lensMatched: true } : f)) }
+          : state,
+      ),
   };
 };

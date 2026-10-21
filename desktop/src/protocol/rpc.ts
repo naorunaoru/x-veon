@@ -72,7 +72,9 @@ function overrides(x: unknown, shape: object): boolean {
   return record(x) && Object.entries(x).every(([key, value]) => Object.hasOwn(shape, key)
     && (typeof (shape as RecordValue)[key] === 'boolean' ? typeof value === 'boolean' : number(value)));
 }
-const lensfunSource = (x: unknown) => record(x) && record(x.lensfun) && string(x.lensfun.file) && string(x.lensfun.model);
+// The sidecar rejects an empty LensFile or LensModel, so an empty name here would leave the photo view-only.
+const lensfunSource = (x: unknown) => record(x) && record(x.lensfun) && string(x.lensfun.file) && x.lensfun.file !== ''
+  && string(x.lensfun.model) && x.lensfun.model !== '';
 function lensEdit(x: unknown): boolean {
   return record(x) && (oneOf(x.source, ['auto', 'manual']) || lensfunSource(x.source))
     && fields(x, ['distortion', 'ca', 'vignetting'], v => typeof v === 'boolean')

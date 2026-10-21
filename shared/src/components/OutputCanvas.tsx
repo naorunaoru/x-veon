@@ -81,7 +81,6 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
 
       try {
         renderer.setImage(lease.image.gpu);
-        applyFileLens(renderer, fileId);
       } catch (error) {
         lease.release();
         throw error;
@@ -90,6 +89,8 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
       leaseRef.current?.release();
       leaseRef.current = lease;
 
+      // After the handoff: a throw here must not release a texture the renderer still binds.
+      applyFileLens(renderer, fileId);
       renderer.setViewport(viewportRef.current);
       syncDisplay(renderer);
       applyFileGrade(renderer, fileId);

@@ -62,6 +62,10 @@ describe('versioned process protocol', () => {
     expect(isPortRequest({ v: 1, rid: 1, op: 'saveEdit', id: p.id, edit: { ...p.edit, lens } })).toBe(true);
     expect(isPortRequest({ v: 1, rid: 1, op: 'saveEdit', id: p.id, edit: { ...p.edit, lens: { ...lens, distortion: 'yes' } } })).toBe(false);
     expect(isPortRequest({ v: 1, rid: 1, op: 'saveEdit', id: p.id, edit: { ...p.edit, lens: { ...lens, source: 'camera' } } })).toBe(false);
+    // The sidecar rejects an empty LensFile or LensModel, which would leave the photo view-only.
+    for (const lensfun of [{ file: '', model: 'X' }, { file: 'misc.json', model: '' }]) {
+      expect(isPortRequest({ v: 1, rid: 1, op: 'saveEdit', id: p.id, edit: { ...p.edit, lens: { ...lens, source: { lensfun } } } })).toBe(false);
+    }
   });
   it('accepts the camera correction tables in a result and rejects malformed ones', () => {
     const withCorrection = (fujiCorrection: unknown) => ({ ...examples[1][1], facts: { ...p.facts, resultMeta: { ...p.facts.resultMeta!, metadata: { ...p.facts.resultMeta!.metadata, fujiCorrection } } } });

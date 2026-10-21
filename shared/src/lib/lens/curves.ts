@@ -74,11 +74,18 @@ export function evalTca(entry: LfTCA, r: number): { red: number; blue: number } 
   return { red: m.red * r, blue: m.blue * r };
 }
 
-/** Brightness gain at source radius `r` (half-diagonal units of the calibration sensor). An unknown model is 1. */
+/** The smallest vignetting denominator used: caps the gain at 20 (about 4.3 stops). */
+const MIN_VIGNETTING_DENOMINATOR = 0.05;
+
+/**
+ * Brightness gain at source radius `r` (half-diagonal units of the calibration sensor). An unknown model is 1.
+ * A lens calibrated on a smaller sensor than the camera's reaches r > 1, outside its calibration, where the polynomial
+ * can cross zero: the denominator is held above a floor so the gain stays finite and positive.
+ */
 export function evalVignettingGain(entry: LfVignetting, r: number): number {
   if (entry.model !== 'pa') return 1;
   const r2 = r * r;
-  return 1 / (1 + entry.k1 * r2 + entry.k2 * r2 * r2 + entry.k3 * r2 * r2 * r2);
+  return 1 / Math.max(1 + entry.k1 * r2 + entry.k2 * r2 * r2 + entry.k3 * r2 * r2 * r2, MIN_VIGNETTING_DENOMINATOR);
 }
 
 // ── Units ───────────────────────────────────────────────────────────
