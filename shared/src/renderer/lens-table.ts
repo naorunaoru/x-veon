@@ -46,42 +46,56 @@ function boundaryRadius(curves: LensCurves, toggles: LensToggles, d: number): nu
   return hi;
 }
 
+/** The frame with its optional fields filled in: the optical centre defaults to the texture's middle, the half-diagonal to half its diagonal. */
+function resolveFrame({ width, height, centre, halfDiagPx }: LensFrame): Omit<LensRemap, 'table' | 'scale'> {
+  return {
+    width,
+    height,
+    centre: centre ? [centre[0], centre[1]] : [width / 2, height / 2],
+    halfDiagPx: halfDiagPx ?? Math.hypot(width, height) / 2,
+  };
+}
+
+/** Whether an enabled correction moves pixels (distortion, CA), as opposed to scaling their brightness. */
+const movesPixels = (curves: LensCurves, toggles: LensToggles) =>
+  Boolean((toggles.distortion && curves.distortion) || (toggles.ca && (curves.caRed || curves.caBlue)));
+
 /**
  * The zoom that keeps every channel's source inside the frame (lensfun's autoscale): below 1 for barrel, above 1 for pincushion.
- * It is the largest ratio of boundary distance to solved radius over the corners (distance 1) and the edge midpoints,
- * which are symmetric, so three distances stand for lensfun's eight directions. 1 when the table's domain cannot reach a boundary.
+ * It is the largest ratio of boundary distance to solved radius over the texture's four corners and four edge midpoints,
+ * each measured from the optical centre in units of the half-diagonal, plus a 0.1% margin.
+ * Exactly 1 without a correction that moves pixels, and when the table's domain cannot reach a boundary point.
  */
 export function autoscale(curves: LensCurves, toggles: LensToggles, frame: LensFrame): number {
-  const diagonal = Math.hypot(frame.width, frame.height);
+  if (!movesPixels(curves, toggles)) return 1;
+  const { width, height, centre, halfDiagPx } = resolveFrame(frame);
   let scale = 0;
-  for (const d of [1, frame.width / diagonal, frame.height / diagonal]) {
-    const rho = boundaryRadius(curves, toggles, d);
-    if (rho === null) return 1;
-    scale = Math.max(scale, d / rho);
+  for (const x of [0, width / 2, width]) {
+    for (const y of [0, height / 2, height]) {
+      if (x === width / 2 && y === height / 2) continue;
+      const d = Math.hypot(x - centre[0], y - centre[1]) / halfDiagPx;
+      const rho = boundaryRadius(curves, toggles, d);
+      if (rho === null) return 1;
+      scale = Math.max(scale, d / rho);
+    }
   }
   return scale * AUTOSCALE_MARGIN;
 }
 
+/** A table value as stored: a NaN or infinite one (after the f32 rounding) is the neutral 1. */
+const finiteOrNeutral = (x: number) => (Number.isFinite(Math.fround(x)) ? x : 1);
+
 /** The radial table of the enabled corrections and the autoscale; null when none of them has a curve. */
 export function buildLensTable(curves: LensCurves, toggles: LensToggles, frame: LensFrame): LensRemap | null {
   const vignetting = toggles.vignetting ? curves.vignetting : null;
-  const corrects = (toggles.distortion && curves.distortion) || (toggles.ca && (curves.caRed || curves.caBlue)) || vignetting;
-  if (!corrects) return null;
+  if (!movesPixels(curves, toggles) && !vignetting) return null;
 
   const table = new Float32Array(LENS_TABLE_SIZE * 4);
   for (let i = 0; i < LENS_TABLE_SIZE; i++) {
     const rho = tableRadius(i);
-    table.set([...multipliersAt(curves, toggles, rho), vignetting ? vignetting(rho) : 1], i * 4);
+    table.set([...multipliersAt(curves, toggles, rho), vignetting ? vignetting(rho) : 1].map(finiteOrNeutral), i * 4);
   }
-  const { width, height } = frame;
-  return {
-    table,
-    scale: autoscale(curves, toggles, frame),
-    centre: frame.centre ? [frame.centre[0], frame.centre[1]] : [width / 2, height / 2],
-    halfDiagPx: frame.halfDiagPx ?? Math.hypot(width, height) / 2,
-    width,
-    height,
-  };
+  return { table, scale: autoscale(curves, toggles, frame), ...resolveFrame(frame) };
 }
 
 /** Linear interpolation of one table channel at the radius `rho`, held at the ends. */

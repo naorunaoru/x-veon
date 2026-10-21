@@ -14,8 +14,8 @@ describe('lens radial table', () => {
 
   it('autoscale zooms out for barrel, bound by the short-edge midpoints', () => expect(autoscale(barrel, ON, frame)).toBeCloseTo(0.968, 2));
   it('autoscale zooms in for pincushion, bound by the corners', () => expect(autoscale(pincushion, ON, frame)).toBeCloseTo(1.086, 2));
-  it('autoscale of the identity is 1.001, and 1 with a finite table when the solve cannot converge', () => {
-    expect(autoscale(NO_CURVES, ON, frame)).toBeCloseTo(1.001, 6);
+  it('autoscale of the identity is exactly 1, and 1 with a finite table when the solve cannot converge', () => {
+    expect(autoscale(NO_CURVES, ON, frame)).toBe(1);
     const extreme: LensCurves = { ...NO_CURVES, distortion: () => 0.1 };
     expect(autoscale(extreme, ON, frame)).toBe(1);
     expect(buildLensTable(extreme, ON, frame)!.table.every(Number.isFinite)).toBe(true);
@@ -29,9 +29,49 @@ describe('lens radial table', () => {
     // The red channel samples further out than green, so CA on zooms in beyond the distortion-only scale (0.968).
     expect(autoscale(curves, { ...ON, ca: false }, frame)).toBeCloseTo(0.968, 2);
     expect(autoscale(curves, ON, frame)).toBeGreaterThan(1);
-    expect(autoscale(curves, { ...ON, distortion: false, ca: false }, frame)).toBeCloseTo(1.001, 6);
+    expect(autoscale(curves, { ...ON, distortion: false, ca: false }, frame)).toBe(1);
     // CA alone on the identity geometry: red reaches 1.05 × the output radius.
     expect(autoscale(curves, { ...ON, distortion: false }, frame)).toBeCloseTo(1.05 * 1.001, 6);
+  });
+  it('the 0.1% margin applies only to a geometric correction', () => {
+    const vignetting: LensCurves = { ...NO_CURVES, vignetting: (r) => 1 + r };
+    expect(autoscale(vignetting, ON, frame)).toBe(1);
+    expect(buildLensTable(vignetting, ON, frame)!.scale).toBe(1);
+    expect(autoscale(barrel, ON, frame)).not.toBe(1);
+    expect(autoscale({ ...NO_CURVES, caRed: () => 1.01 }, ON, frame)).toBeCloseTo(1.01 * 1.001, 6);
+    // A geometric curve whose toggle is off does not count: the same curves, only vignetting enabled.
+    const all: LensCurves = { ...barrel, caRed: () => 1.01, vignetting: (r) => 1 + r };
+    expect(autoscale(all, { distortion: false, ca: false, vignetting: true }, frame)).toBe(1);
+  });
+  it('autoscale measures the boundary from the optical centre, in units of the half-diagonal', () => {
+    const centred = autoscale(barrel, ON, frame);
+    const off = autoscale(barrel, ON, { ...frame, centre: [1600, 1000] });
+    expect(off).toBeLessThan(0.968); expect(off).toBeGreaterThan(0.9);
+    expect(off).toBeLessThan(centred);
+    // A smaller half-diagonal puts every boundary point further out in ρ, where barrel needs a smaller scale still.
+    expect(autoscale(barrel, ON, { ...frame, halfDiagPx: 1750 })).toBeLessThan(centred);
+    expect(autoscale(barrel, ON, { ...frame, halfDiagPx: 1750 })).not.toBe(1);
+  });
+  it('every boundary point of an off-centre frame samples inside the source frame, and the tightest one just about touches it', () => {
+    const boundary: [number, number][] = [[0, 0], [1, 0], [0, 1], [1, 1], [0.5, 0], [0.5, 1], [0, 0.5], [1, 0.5]];
+    const withCa = (distortion: (r: number) => number): LensCurves => ({ distortion, caRed: () => 1.01, caBlue: () => 0.99, vignetting: null });
+    const frames = [{ ...frame, centre: [1600, 1000] as [number, number] }, { ...frame, centre: [1400, 1100] as [number, number], halfDiagPx: 1700 }];
+    for (const curves of [withCa((r) => 1 - 0.06 * r * r), withCa((r) => 1 + 0.06 * r * r)]) {
+      for (const f of frames) {
+        const remap = buildLensTable(curves, ON, f)!;
+        expect(remap.scale).not.toBe(1);
+        let margin = Infinity;
+        for (const uv of boundary) {
+          const out = lensSourceUv(remap, uv);
+          for (const c of [out.r, out.g, out.b]) {
+            expect(Math.min(c[0], c[1])).toBeGreaterThanOrEqual(-1e-6);
+            expect(Math.max(c[0], c[1])).toBeLessThanOrEqual(1 + 1e-6);
+            margin = Math.min(margin, c[0], 1 - c[0], c[1], 1 - c[1]);
+          }
+        }
+        expect(margin).toBeLessThan(0.002);
+      }
+    }
   });
   it('autoscale falls back to 1 for a curve that is not a number at the edge of the domain', () => {
     expect(autoscale({ ...NO_CURVES, distortion: () => NaN }, ON, frame)).toBe(1);
@@ -66,6 +106,16 @@ describe('lens radial table', () => {
   it('is null when the enabled corrections have no curve, even if a disabled one has', () => {
     expect(buildLensTable(barrel, { ...ON, distortion: false }, frame)).toBeNull();
     expect(buildLensTable({ ...NO_CURVES, vignetting: (r) => 1 + r }, { ...ON, vignetting: false }, frame)).toBeNull();
+  });
+
+  it('writes a non-finite curve value as the neutral 1', () => {
+    const remap = buildLensTable({ ...NO_CURVES, distortion: () => NaN, vignetting: (r) => (r < 0.5 ? Infinity : 2) }, ON, frame)!;
+    expect(remap.table.every(Number.isFinite)).toBe(true);
+    for (let i = 0; i < LENS_TABLE_SIZE; i++) expect(remap.table[i * 4 + 1]).toBe(1);
+    expect(remap.table[3]).toBe(1); expect(remap.table[(LENS_TABLE_SIZE - 1) * 4 + 3]).toBe(2);
+    expect(remap.scale).toBe(1);
+    // Finite in double precision but not in the table's f32.
+    expect(buildLensTable({ ...NO_CURVES, vignetting: () => 1e300 }, ON, frame)!.table.every(Number.isFinite)).toBe(true);
   });
 
   it('the CPU twin maps uv through centre, scale and table', () => {
