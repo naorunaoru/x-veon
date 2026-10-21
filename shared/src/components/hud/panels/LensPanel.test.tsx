@@ -121,6 +121,35 @@ describe('LensPanel', () => {
     expect(disabledSliders()).toBe(5);
   });
 
+  describe('on a photo without camera tables, whose lensfun match is in flight', () => {
+    const plain = (over: Partial<QueuedFile>) => xt3({
+      result: deserializeResultMeta({ ...XT3_RESULT, metadata: { ...XT3_RESULT.metadata, fujiCorrection: undefined } }),
+      lensProfile: null,
+      ...over,
+    });
+
+    it('keeps the sliders disabled until the match lands', async () => {
+      useAppStore.setState({ files: [plain({ lensMatched: false })] });
+      await open();
+      expect(screen.getByText('Matching lens')).toBeInTheDocument();
+      expect(disabledSliders()).toBe(5);
+    });
+
+    it('makes them live once the match finds no profile', async () => {
+      useAppStore.setState({ files: [plain({ lensMatched: true })] });
+      await open();
+      expect(screen.getByText('No profile for XF35mmF2 R WR')).toBeInTheDocument();
+      expect(disabledSliders()).toBe(0);
+    });
+
+    it('leaves a chosen Manual live while the match is in flight', async () => {
+      useAppStore.setState({ files: [plain({ lensMatched: false, edit: { ...edit(), lens: { ...DEFAULT_LENS_EDIT, source: 'manual' } } })] });
+      await open();
+      expect(screen.getByText('Manual', { selector: '.xv-readout' })).toBeInTheDocument();
+      expect(disabledSliders()).toBe(0);
+    });
+  });
+
   it('reset returns the photo to the defaults', async () => {
     useAppStore.setState({ files: [xt3({ edit: { ...edit(), lens: { ...DEFAULT_LENS_EDIT, source: 'manual', ca: false } } })] });
     await open();

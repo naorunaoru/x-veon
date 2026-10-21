@@ -60,7 +60,10 @@ export function useLens(): {
   const lensfunModel = typeof edit.source === 'object'
     ? picks[lensPickKey(edit.source.lensfun.file, edit.source.lensfun.model)]?.lensModel ?? null
     : file?.lensProfile?.lensModel ?? null;
-  const status = lensStatus({ resolved, edit, exifLens, lensfunModel, matching: !!exifLens && !file?.lensMatched });
+  const matching = !!exifLens && !file?.lensMatched;
+  const status = lensStatus({ resolved, edit, exifLens, lensfunModel, matching });
+  // Auto waits for the match rather than offering the sliders, which the profile would then take over from.
+  const manualLive = (resolved?.manualLive ?? false) && !(matching && edit.source === 'auto');
 
   const [loaded, setLoaded] = useState<{ camera: string; choices: LensChoice[] }>({ camera: '', choices: NO_LENSES });
   useEffect(() => {
@@ -93,7 +96,7 @@ export function useLens(): {
     resolved,
     readouts,
     status,
-    manualLive: resolved?.manualLive ?? false,
+    manualLive,
     modified: isLensEditModified(file?.edit ?? {}),
     lenses: loaded.camera === camera ? loaded.choices : NO_LENSES,
     setSource,
