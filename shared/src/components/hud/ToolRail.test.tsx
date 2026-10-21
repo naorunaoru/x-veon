@@ -3,6 +3,7 @@ import { fakePhoto, defaultEdit } from '@/test/fake-host';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { ToolRail } from './ToolRail';
+import { DEFAULT_LENS_EDIT } from '@/lib/lens/edit';
 import { useAppStore } from '@/app/store';
 import type { QueuedFile } from '@/app/store';
 
@@ -31,7 +32,7 @@ describe('ToolRail', () => {
 
   it('renders the rail buttons', () => {
     render(<ToolRail />);
-    ['Exposure', 'White balance', 'Rendering', 'Detail', 'Settings'].forEach((label) => {
+    ['Exposure', 'White balance', 'Rendering', 'Detail', 'Lens', 'Settings'].forEach((label) => {
       expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
     });
   });
@@ -56,5 +57,23 @@ describe('ToolRail', () => {
     });
     const { container } = render(<ToolRail />);
     expect(container.querySelector('.xv-rail-btn__dot')).not.toBeNull();
+  });
+
+  it('marks Lens, and only Lens, when the photo\'s lens block is not the default', () => {
+    useAppStore.setState({
+      files: [fileWith({ edit: { ...defaultEdit(), lens: { ...DEFAULT_LENS_EDIT, ca: false } } })],
+      selectedFileId: 'a',
+    });
+    render(<ToolRail />);
+    expect(screen.getByRole('button', { name: 'Lens' }).querySelector('.xv-rail-btn__dot')).not.toBeNull();
+    expect(document.querySelectorAll('.xv-rail-btn__dot')).toHaveLength(1);
+  });
+
+  it('leaves Lens unmarked at the defaults and with no photo', () => {
+    const { rerender } = render(<ToolRail />);
+    expect(document.querySelector('.xv-rail-btn__dot')).toBeNull();
+    useAppStore.setState({ files: [], selectedFileId: null });
+    rerender(<ToolRail />);
+    expect(document.querySelector('.xv-rail-btn__dot')).toBeNull();
   });
 });

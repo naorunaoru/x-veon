@@ -1,6 +1,8 @@
 import type { ComponentType } from 'react';
-import { Sun, Thermometer, Sliders, TriangleRight, Settings } from 'lucide-react';
+import { Sun, Thermometer, Sliders, TriangleRight, Aperture, Settings } from 'lucide-react';
 import { useAppStore } from '@/app/store';
+import { defaultPhotoEdit } from '@/app/photo-edit';
+import { isLensEditModified } from '@/lib/lens/edit';
 import { isSectionModified, type PanelId } from '@/renderer/grading/sections';
 import { configFromPreset } from '@/renderer/grading/opendrt-params';
 import './ToolRail.css';
@@ -13,6 +15,7 @@ const RAIL: RailItem[] = [
   { id: 'advanced', label: 'Rendering', Icon: Sliders },
   { id: 'whiteBalance', label: 'White balance', Icon: Thermometer },
   { id: 'detail', label: 'Detail', Icon: TriangleRight },
+  { id: 'lens', label: 'Lens', Icon: Aperture },
   { id: 'settings', label: 'Settings', Icon: Settings },
 ];
 
@@ -30,7 +33,10 @@ export function ToolRail({ settingsOnly = false }: { settingsOnly?: boolean }) {
     <div className="xv-toolrail xv-glass">
       {RAIL.filter(item => !settingsOnly || item.id === 'settings').map(({ id, label, Icon }) => {
         const active = openPanel === id;
-        const modified = isSectionModified(id, drt, pre, base);
+        // The lens block lives beside the grading overrides, not among them.
+        const modified = id === 'lens'
+          ? isLensEditModified(file?.edit ?? defaultPhotoEdit())
+          : isSectionModified(id, drt, pre, base);
         return (
           <button
             key={id}
