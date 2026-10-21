@@ -110,7 +110,8 @@ export function toRecord(
     openDrtOverrides: edit.openDrtOverrides,
     preProcessOverrides: edit.preProcessOverrides,
     model: edit.model,
-    ...(edit.lens ? { lens: edit.lens } : {}),
+    // An own `undefined` (after a reset) must override a lens block kept on the old record.
+    lens: edit.lens,
     addedAt,
   };
 }

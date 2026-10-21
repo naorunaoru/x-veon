@@ -114,8 +114,13 @@ export function matchLensFor(fileId: string): void {
   const file = state.files.find((f) => f.id === fileId);
   if (!file) return;
   const { metadata } = file;
+  if (!metadata?.lensModel) {
+    // A new import has no lens model until the decode result arrives: only a decoded photo is known to have none.
+    if (file.result) state.markLensMatched(fileId);
+    return;
+  }
   // A stored profile without the calibration crop factor predates the calibration fields: it is matched again.
-  if (!metadata?.lensModel || typeof file.lensProfile?.calibCropfactor === 'number') {
+  if (typeof file.lensProfile?.calibCropfactor === 'number') {
     state.markLensMatched(fileId);
     return;
   }
