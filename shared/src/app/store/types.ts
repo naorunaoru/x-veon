@@ -12,6 +12,7 @@ import type { GradingSlice } from './grading';
 import type { DisplaySlice } from './display';
 import type { ViewSlice } from './view';
 import type { SelectionSlice } from './selection';
+import type { LensSlice } from './lens';
 
 export type FileStatus = 'queued' | 'processing' | 'done' | 'error';
 
@@ -43,6 +44,8 @@ export interface QueuedFile {
   result: ProcessingResultMeta | null;
   resultMethod: DemosaicMethod | null;
   lensProfile: LensProfile | null;
+  /** Session-only: the lens database has been searched for this photo. */
+  lensMatched: boolean;
   /** Session-only history of look selections; never serialized with the photo. */
   lookHistory?: LookSnapshot[];
 }
@@ -53,7 +56,7 @@ export interface ViewControls {
   panTo: (pan: { x: number; y: number }) => void;
 }
 
-export type AppState = InitSlice & LibrarySlice & SettingsSlice & GradingSlice & DisplaySlice & ViewSlice & SelectionSlice;
+export type AppState = InitSlice & LibrarySlice & SettingsSlice & GradingSlice & DisplaySlice & ViewSlice & SelectionSlice & LensSlice;
 
 /** A slice creator that can read and set the whole state (setCurrent sets settings, for example). */
 export type Slice<T> = StateCreator<AppState, [], [], T>;

@@ -4,6 +4,7 @@ export type { DisplayViewport } from './viewport';
 export type { Renderer, HistogramControls, DisplayGamut } from './renderer';
 export type { HistogramMode, HistogramChannel } from './histogram';
 export type { GradingConfig, TonescaleParams } from './grading/opendrt-params';
+export type { LensRemap } from './lens-table';
 
 export function createRenderer(canvas: HTMLCanvasElement, opts?: { hdr?: boolean; headroom?: number }): Promise<Renderer> {
   return HdrRenderer.create(canvas, opts);

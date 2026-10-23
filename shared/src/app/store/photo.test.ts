@@ -1,7 +1,8 @@
 import { expect, it } from 'vitest';
 import { fakePhoto } from '@/test/fake-host';
-import { editPhoto, fromLibraryPhoto, processingKey } from './photo';
+import { editPhoto, fromLibraryPhoto, mergeLibraryPhoto, processingKey } from './photo';
 import { defaultEdit } from '@/test/fake-host';
+import { DEFAULT_LENS_EDIT } from '@/lib/lens/edit';
 const actual = { size: 'S' as const, sha256: 'shipped' };
 function processedPhoto() {
   const file = fromLibraryPhoto(fakePhoto());
@@ -71,4 +72,12 @@ it('uses a restored neural result identity on the first edit after reload', () =
   expect(edited.edit.demosaicMethod).toBe('neural-net');
   expect(edited.edit.model).toEqual(actual);
   expect(edited.modelNeedsResolution).toBe(false);
+});
+
+it('treats a changed lens block as a different edit when merging a listing', () => {
+  const live = fromLibraryPhoto(fakePhoto());
+  const incoming = fromLibraryPhoto({ ...fakePhoto(), edit: { ...defaultEdit(), lens: { ...DEFAULT_LENS_EDIT, vignetting: false } } });
+  const merged = mergeLibraryPhoto({ ...live, editRevision: 3 }, incoming, { demosaicMethod: 'neural-net', modelSize: 'S' });
+  expect(merged.invalidate).toBe(false);
+  expect(merged.file.edit.lens?.vignetting).toBe(false);
 });

@@ -7,6 +7,7 @@ import { createGradingSlice } from './grading';
 import { createDisplaySlice } from './display';
 import { createViewSlice } from './view';
 import { createSelectionSlice } from './selection';
+import { createLensSlice } from './lens';
 
 export type { AppState, FileStatus, QueuedFile, ViewControls } from './types';
 export type { RestoredSettings } from './library';
@@ -20,4 +21,5 @@ export const useAppStore = create<AppState>()((...a) => ({
   ...createDisplaySlice(...a),
   ...createViewSlice(...a),
   ...createSelectionSlice(...a),
+  ...createLensSlice(...a),
 }));

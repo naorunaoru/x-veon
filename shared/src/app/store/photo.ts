@@ -2,6 +2,7 @@ import type { LibraryPhoto, PhotoEdit, PhotoFacts } from '@/host';
 import { deserializeResultMeta, serializeResultMeta, type DemosaicMethod, type ModelSize } from '@/lib/types';
 import type { QueuedFile } from './types';
 import { effectiveMethod } from '@/app/photo-edit';
+import { lensEditEquals } from '@/lib/lens/edit';
 let revision = 0;
 /** Unique for every user edit throughout this window session. */
 export function nextRevision(): number { return ++revision; }
@@ -14,6 +15,7 @@ export function fromLibraryPhoto(photo: LibraryPhoto): QueuedFile {
     status: facts.status,
     error: facts.error,
     lensProfile: facts.lensProfile,
+    lensMatched: false,
     result: facts.resultMeta ? deserializeResultMeta(facts.resultMeta) : null,
     resultMethod: facts.resultMethod,
     progress: null,
@@ -88,7 +90,8 @@ export function mergeLibraryPhoto(live: QueuedFile, incoming: QueuedFile, defaul
   const flatEqual = (a: object, b: object) => Object.keys(a).length === Object.keys(b).length && Object.entries(a).every(([key, value]) => value === (b as Record<string, unknown>)[key]);
   const sameEdit = live.edit.lookPreset === incoming.edit.lookPreset && live.edit.demosaicMethod === incoming.edit.demosaicMethod
     && live.edit.model?.size === incoming.edit.model?.size && live.edit.model?.sha256 === incoming.edit.model?.sha256
-    && flatEqual(live.edit.preProcessOverrides, incoming.edit.preProcessOverrides) && flatEqual(live.edit.openDrtOverrides, incoming.edit.openDrtOverrides);
+    && flatEqual(live.edit.preProcessOverrides, incoming.edit.preProcessOverrides) && flatEqual(live.edit.openDrtOverrides, incoming.edit.openDrtOverrides)
+    && lensEditEquals(live.edit, incoming.edit);
   return { invalidate: false, file: {
     ...live,
     name: incoming.name, thumbnailUrl: incoming.thumbnailUrl,

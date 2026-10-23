@@ -1,6 +1,6 @@
 import { decodeRaw, initWasm } from './decode/raf-decoder';
 import type { PreparedCfa, RawMeta } from './types';
-import { channelClips, makeChannelMasks } from './preprocess/preprocessor';
+import { channelClips, makeChannelMasks, visibleRect } from './preprocess/preprocessor';
 import { models } from './inference';
 import { strategyFor, destroyDemosaicPool, type DemosaicInput } from './demosaic';
 import { buildColorMatrix } from './postprocess/postprocessor';
@@ -10,6 +10,7 @@ import { PATCH_SIZE } from './constants';
 import { getDevice, setSharedDevice } from '@/gpu/device';
 import type { DemosaicMethod, GpuImage, ModelSize, ProcessingResultMeta } from '@/lib/types';
 import { isMethodValidForCfa } from '@/lib/catalog';
+import { fujiFrameCentre } from '@/lib/lens/fuji-tables';
 import type { PipelineContext, ProcessOptions } from './context';
 
 export type { PipelineContext, ProcessOptions } from './context';
@@ -178,6 +179,14 @@ export async function processRaw(
         modelIdentity: resolved?.model,
         cfaType,
         modelNote: resolved?.note,
+        fujiCorrection: raw.fujiLens
+          ? {
+              distortion: raw.fujiLens.distortion,
+              ca: raw.fujiLens.ca,
+              vignetting: raw.fujiLens.vignetting,
+              centre: fujiFrameCentre(raw.fujiLens.frame, raw.width, raw.height, visibleRect(raw.width, raw.height, raw.crops)),
+            }
+          : undefined,
       },
     };
 

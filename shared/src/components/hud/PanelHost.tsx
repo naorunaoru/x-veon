@@ -6,10 +6,11 @@ import { WhiteBalancePanel } from './panels/WhiteBalancePanel';
 import { SettingsPanel } from './panels/SettingsPanel';
 import { RenderingPanel } from './panels/RenderingPanel';
 import { DetailPanel } from './panels/DetailPanel';
+import { LensPanel } from './panels/LensPanel';
 import type { PanelId } from '@/renderer/grading/sections';
 import './AdjustmentsPanel.css';
 
-const ADJUSTMENT_GROUPS = ['exposure', 'advanced', 'whiteBalance', 'detail'] as const;
+const ADJUSTMENT_GROUPS = ['exposure', 'advanced', 'whiteBalance', 'detail', 'lens'] as const;
 const isAdjustment = (id: PanelId | null) => ADJUSTMENT_GROUPS.some((group) => group === id);
 
 export function PanelHost({ settingsOnly = false }: { settingsOnly?: boolean }) {
@@ -130,6 +131,7 @@ export function PanelHost({ settingsOnly = false }: { settingsOnly?: boolean }) 
           <section data-adjustment="advanced" aria-label="Rendering"><RenderingPanel embedded /></section>
           <section data-adjustment="whiteBalance" aria-label="White balance"><WhiteBalancePanel embedded /></section>
           <section data-adjustment="detail" aria-label="Detail"><DetailPanel embedded /></section>
+          <section data-adjustment="lens" aria-label="Lens"><LensPanel embedded /></section>
         </div>
       </div>
     </div>

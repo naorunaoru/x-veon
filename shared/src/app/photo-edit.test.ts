@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest';
 import { defaultPhotoEdit, effectiveMethod, isDefaultPhotoEdit } from './photo-edit';
+import { DEFAULT_LENS_EDIT } from '@/lib/lens/edit';
 
 it('keeps an untouched edit empty and recognizes each kind of real edit', () => {
   const empty = defaultPhotoEdit();
@@ -10,6 +11,8 @@ it('keeps an untouched edit empty and recognizes each kind of real edit', () => 
   expect(isDefaultPhotoEdit({ ...empty, openDrtOverrides: { cwp: 0.4 } })).toBe(false);
   expect(isDefaultPhotoEdit({ ...empty, demosaicMethod: 'dht' })).toBe(false);
   expect(isDefaultPhotoEdit({ ...empty, model: { size: 'S', sha256: 'used' } })).toBe(false);
+  expect(isDefaultPhotoEdit({ ...empty, lens: { ...DEFAULT_LENS_EDIT, ca: false } })).toBe(false);
+  expect(isDefaultPhotoEdit({ ...empty, lens: { ...DEFAULT_LENS_EDIT } })).toBe(true);
 });
 
 it('chooses a CFA-compatible processing method without mutating the edit', () => {

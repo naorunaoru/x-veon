@@ -4,6 +4,7 @@ import { createFileStorage } from './idb-storage';
 import { fromRecord, toRecord, type PersistedFile } from './idb-storage';
 import { defaultEdit, fakePhoto } from '@/test/fake-host';
 import { factsOf, fromLibraryPhoto } from '@/app/store/photo';
+import { DEFAULT_LENS_EDIT } from '@/lib/lens/edit';
 const { putFile } = createFileStorage('abort-test');
 afterEach(() => vi.restoreAllMocks());
 it('rejects a save when its request succeeded but the transaction aborted', async () => {
@@ -60,4 +61,12 @@ it.each([null, 'ahd'] as const)('facts migration preserves legacy edit method %s
  await storage.putFile(record); await storage.mergeFacts(p.id, { ...p.facts, resultMethod: 'neural-net' });
  const restored = fromRecord((await storage.getAllFiles())[0], null);
  expect(restored.edit.demosaicMethod).toBe(method); expect(restored.facts.resultMethod).toBe('neural-net');
+});
+
+it('round-trips the lens block and reads an old record as absent', () => {
+  const lens = { ...DEFAULT_LENS_EDIT, ca: false, source: { lensfun: { file: 'misc.json', model: '23mmF1.4XM' } } };
+  const record = toRecord(fakePhoto(), { ...defaultEdit(), lens }, fakePhoto().facts, 1);
+  expect(fromRecord(record, null).edit.lens).toEqual(lens);
+  delete (record as Partial<PersistedFile>).lens;
+  expect(fromRecord(record, null).edit.lens).toBeUndefined();
 });

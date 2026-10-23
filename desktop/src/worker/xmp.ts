@@ -3,6 +3,8 @@ import type { Document, Element, Node } from '@xmldom/xmldom';
 import { defaultPhotoEdit } from '@/app/photo-edit';
 import type { PhotoEdit } from '@/host';
 import type { DemosaicMethod, LookPreset, ModelSize } from '@/lib/types';
+import { DEFAULT_LENS_EDIT, effectiveLensEdit } from '@/lib/lens/edit';
+import type { LensEdit, LensManual } from '@/lib/lens/edit';
 import { configFromPreset } from '@/renderer/grading/opendrt-params';
 
 export const XVEON_NS = 'https://naorunaoru.github.io/x-veon/ns/1.0/';
@@ -11,6 +13,13 @@ const XMLNS_NS = 'http://www.w3.org/2000/xmlns/';
 const NEW_FILE = `<x:xmpmeta xmlns:x="adobe:ns:meta/">\n <rdf:RDF xmlns:rdf="${RDF_NS}">\n  <rdf:Description rdf:about="" xmlns:xveon="${XVEON_NS}"/>\n </rdf:RDF>\n</x:xmpmeta>`;
 const PRE: Record<string, keyof PhotoEdit['preProcessOverrides']> = {
   Exposure: 'exposure', WbTemp: 'wb_temp', WbTint: 'wb_tint', Sharpen: 'sharpen_amount',
+};
+const LENS_FLAGS: Record<string, 'distortion' | 'ca' | 'vignetting'> = {
+  LensDistortion: 'distortion', LensCa: 'ca', LensVignetting: 'vignetting',
+};
+const LENS_MANUAL: Record<string, keyof LensManual> = {
+  LensManualDistortion: 'distortion', LensManualCaRed: 'caRed', LensManualCaBlue: 'caBlue',
+  LensManualVignetting: 'vignetting', LensManualMidpoint: 'midpoint',
 };
 const DRT_DEFAULT = configFromPreset('default');
 const DRT_KEYS = new Set(Object.keys(DRT_DEFAULT));
@@ -67,9 +76,33 @@ function booleanValue(name: string, raw: string): boolean {
   if (raw === 'False') return false;
   throw new Error(`${name}: invalid boolean`);
 }
+function lensName(name: string): boolean {
+  return name === 'LensSource' || name === 'LensFile' || name === 'LensModel'
+    || Object.hasOwn(LENS_FLAGS, name) || Object.hasOwn(LENS_MANUAL, name);
+}
 function knownName(name: string): boolean {
   return name === 'SchemaVersion' || name === 'Look' || name === 'Demosaic' || name === 'ModelSize' || name === 'ModelHash'
-    || Object.hasOwn(PRE, name) || (name.startsWith('Odrt_') && DRT_KEYS.has(name.slice(5)));
+    || lensName(name) || Object.hasOwn(PRE, name) || (name.startsWith('Odrt_') && DRT_KEYS.has(name.slice(5)));
+}
+function readLens(values: Map<string, string>): LensEdit {
+  const lens = effectiveLensEdit({});
+  const source = values.get('LensSource');
+  if (source === 'auto' || source === 'manual') lens.source = source;
+  else if (source === 'lensfun') {
+    const file = values.get('LensFile');
+    const model = values.get('LensModel');
+    if (!file || !model) throw new Error('LensSource: lensfun needs LensFile and LensModel');
+    lens.source = { lensfun: { file, model } };
+  } else if (source !== undefined) throw new Error('LensSource: invalid source');
+  for (const [name, key] of Object.entries(LENS_FLAGS)) {
+    const raw = values.get(name);
+    if (raw !== undefined) lens[key] = booleanValue(name, raw);
+  }
+  for (const [name, key] of Object.entries(LENS_MANUAL)) {
+    const raw = values.get(name);
+    if (raw !== undefined) lens.manual[key] = numberValue(name, raw);
+  }
+  return lens;
 }
 function readValues(values: Map<string, string>): { edit: PhotoEdit; schemaVersion: number } {
   const edit = defaultPhotoEdit();
@@ -104,6 +137,7 @@ function readValues(values: Map<string, string>): { edit: PhotoEdit; schemaVersi
     if (!hash) throw new Error('ModelHash: missing hash');
     edit.model = { size: size as ModelSize, sha256: hash };
   }
+  if ([...values.keys()].some(lensName)) edit.lens = readLens(values);
   return { edit, schemaVersion };
 }
 
@@ -144,6 +178,16 @@ function attributesFor(edit: PhotoEdit): Map<string, string> {
   if (edit.demosaicMethod === 'neural-net' && edit.model !== null) {
     result.set('ModelSize', edit.model.size);
     result.set('ModelHash', edit.model.sha256);
+  }
+  const lens = effectiveLensEdit(edit);
+  if (lens.source !== 'auto') result.set('LensSource', typeof lens.source === 'string' ? lens.source : 'lensfun');
+  if (typeof lens.source === 'object') {
+    result.set('LensFile', lens.source.lensfun.file);
+    result.set('LensModel', lens.source.lensfun.model);
+  }
+  for (const [name, key] of Object.entries(LENS_FLAGS)) if (!lens[key]) result.set(name, 'False');
+  for (const [name, key] of Object.entries(LENS_MANUAL)) {
+    if (lens.manual[key] !== DEFAULT_LENS_EDIT.manual[key]) result.set(name, writeNumber(name, lens.manual[key]));
   }
   return result;
 }

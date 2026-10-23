@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const { getDevice } = vi.hoisted(() => ({ getDevice: vi.fn() }));
 vi.mock('@/gpu/device', () => ({ getDevice }));
 import { createRenderer } from './index';
+import { LENS_TABLE_BYTES, LENS_TABLE_DOMAIN } from './lens-table';
+const tex = (): GPUTexture => ({ destroy: vi.fn(), createView: () => ({}) }) as unknown as GPUTexture;
 function fixture(failAt?: number) {
   vi.stubGlobal('GPUBufferUsage', { UNIFORM: 1, COPY_DST: 2, COPY_SRC: 4, STORAGE: 8 });
   vi.stubGlobal('GPUTextureUsage', { RENDER_ATTACHMENT: 1, TEXTURE_BINDING: 2, COPY_SRC: 4, COPY_DST: 8 });
@@ -12,23 +14,40 @@ function fixture(failAt?: number) {
     if (resources.length === failAt) throw new Error('allocation');
     const resource = { destroy: vi.fn(), createView: () => ({}) }; resources.push(resource); return resource;
   };
+  const buffers: { size: number; resource: (typeof resources)[number] }[] = [];
+  const createBuffer = ({ size }: GPUBufferDescriptor) => {
+    const resource = allocate(); buffers.push({ size, resource }); return resource;
+  };
   const copy = vi.fn();
   const device = {
     features: new Set<string>(),
     createShaderModule: () => ({}), createBindGroupLayout: () => ({}), createPipelineLayout: () => ({}),
     createRenderPipeline: vi.fn(() => ({})), createComputePipeline: () => ({}), createSampler: () => ({}),
-    createBindGroup: () => ({}), createBuffer: allocate, createTexture: allocate,
+    createBindGroup: vi.fn(() => ({})), createBuffer, createTexture: allocate,
     createCommandEncoder: () => ({ copyBufferToTexture: copy, finish: () => ({}) }),
-    queue: { submit: vi.fn() },
+    queue: { submit: vi.fn(), writeBuffer: vi.fn() },
   };
   getDevice.mockResolvedValue(device);
   const context = { configure: vi.fn() };
   const canvas = { getContext: () => context } as unknown as HTMLCanvasElement;
-  return { resources, canvas, copy, device, context };
+  return {
+    resources, canvas, copy, device, context,
+    get lensBuffer() {
+      const lens = buffers.find((b) => b.size === LENS_TABLE_BYTES);
+      if (!lens) throw new Error('no lens buffer');
+      return lens.resource;
+    },
+    /** The histogram's params uniform: 16 floats. */
+    get histogramParams() {
+      const params = buffers.find((b) => b.size === 64);
+      if (!params) throw new Error('no histogram params buffer');
+      return params.resource;
+    },
+  };
 }
 afterEach(() => vi.unstubAllGlobals());
 describe('renderer ownership', () => {
-  it.each([0, 1, 2, 3, 4, 5, 6])('cleans partial construction at resource %i', async failAt => {
+  it.each([0, 1, 2, 3, 4, 5, 6, 7])('cleans partial construction at resource %i', async failAt => {
     const f = fixture(failAt);
     await expect(createRenderer(f.canvas)).rejects.toThrow('allocation');
     expect(f.resources).toHaveLength(failAt);
@@ -36,8 +55,7 @@ describe('renderer ownership', () => {
   });
   it('samples the image texture it is given, without copying or ever destroying it', async () => {
     const f = fixture(); const renderer = await createRenderer(f.canvas);
-    const texture = (): GPUTexture => ({ destroy: vi.fn(), createView: () => ({}) }) as unknown as GPUTexture;
-    const first = texture(), second = texture();
+    const first = tex(), second = tex();
     renderer.setImage({ texture: first, width: 1, height: 1 });
     renderer.setImage({ texture: second, width: 2, height: 2 });
     renderer.dispose();
@@ -66,5 +84,29 @@ describe('renderer ownership', () => {
       [...((c[0] as GPURenderPipelineDescriptor).fragment?.targets ?? [])][0]?.format);
     expect(formats).toContain('rgba32float');
     expect(formats).not.toContain('rgba16float');
+  });
+  it('uploads a lens table into its own buffer without rebuilding bind groups', async () => {
+    const f = fixture(); const renderer = await createRenderer(f.canvas);
+    renderer.setImage({ texture: tex(), width: 1, height: 1 });
+    const bindGroups = f.device.createBindGroup.mock.calls.length;
+    renderer.setLens({ table: new Float32Array(4096), scale: 1, centre: [0.5, 0.5], halfDiagPx: 1, width: 1, height: 1 });
+    expect(f.device.queue.writeBuffer).toHaveBeenCalledWith(f.lensBuffer, 0, expect.any(Float32Array));
+    expect(f.device.createBindGroup.mock.calls.length).toBe(bindGroups);
+    renderer.setLens(null);
+    renderer.dispose();
+    expect(f.lensBuffer.destroy).toHaveBeenCalledTimes(1);
+  });
+  it('forwards the lens remap to the histogram params', async () => {
+    const f = fixture(); const renderer = await createRenderer(f.canvas);
+    const lastParams = () => {
+      const calls = f.device.queue.writeBuffer.mock.calls.filter((c: unknown[]) => c[0] === f.histogramParams);
+      return Array.from(calls[calls.length - 1][2] as Float32Array);
+    };
+    renderer.setLens({ table: new Float32Array(4096), scale: 1, centre: [30, 20], halfDiagPx: 50, width: 80, height: 60 });
+    const on = lastParams();
+    expect(on).toHaveLength(16);
+    expect(on.slice(7, 12)).toEqual([1, 30, 20, 50, LENS_TABLE_DOMAIN]);
+    renderer.setLens(null);
+    expect(lastParams()[7]).toBe(0);
   });
 });

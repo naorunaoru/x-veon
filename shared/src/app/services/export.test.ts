@@ -2,11 +2,13 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { fakeHost, fakePhoto } from '@/test/fake-host';
 import { fromLibraryPhoto } from '@/app/store/photo';
 import { useAppStore } from '@/app/store';
+import { DEFAULT_LENS_EDIT, type LensEdit } from '@/lib/lens/edit';
+import { XT3 } from '@/lib/lens/fuji-fixtures';
 import { setHost } from './host';
 import { enqueueExport, renderExport } from './export';
-const m = vi.hoisted(() => ({ readback: vi.fn(), dispose: vi.fn(), release: vi.fn(), setImage: vi.fn() }));
+const m = vi.hoisted(() => ({ readback: vi.fn(), dispose: vi.fn(), release: vi.fn(), setImage: vi.fn(), setLens: vi.fn() }));
 vi.mock('@/renderer', () => ({
-  createRenderer: vi.fn(async () => ({ readback: m.readback, setImage: m.setImage, dispose: m.dispose })),
+  createRenderer: vi.fn(async () => ({ readback: m.readback, setImage: m.setImage, setLens: m.setLens, dispose: m.dispose })),
 }));
 vi.mock('./processing', () => ({ acquireResult: () => ({ image: { gpu: {} }, release: m.release }) }));
 let host: ReturnType<typeof fakeHost>;
@@ -233,4 +235,23 @@ it('preserves the native receipt for golden exports', async () => {
 it('reports a cancelled golden export', async () => {
  vi.mocked(host.exporter.chooseDestination).mockResolvedValue(null);
  await expect(renderExport('a', 'avif')).rejects.toThrow('The export was cancelled.');
+});
+it("applies the photo's lens remap to the export renderer", async () => {
+  const withLens = (lens: LensEdit | undefined) => useAppStore.setState((state) => ({
+    files: state.files.map((file) => ({
+      ...file,
+      edit: { ...file.edit, lens },
+      result: {
+        exportData: { ...file.result!.exportData, width: 6384, height: 4182 },
+        metadata: { fujiCorrection: { ...XT3, centre: null } } as never,
+      },
+    })),
+  }));
+  withLens(undefined);
+  await enqueueExport('a', 'tiff').promise;
+  expect(m.setLens).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ table: expect.any(Float32Array), width: 6384, height: 4182 }));
+  expect(m.setImage.mock.invocationCallOrder[0]).toBeLessThan(m.setLens.mock.invocationCallOrder[0]);
+  withLens({ ...DEFAULT_LENS_EDIT, distortion: false, ca: false, vignetting: false });
+  await enqueueExport('a', 'tiff').promise;
+  expect(m.setLens).toHaveBeenLastCalledWith(null);
 });

@@ -1,6 +1,7 @@
 import HDR_HISTOGRAM_WGSL from './shaders/histogram-hdr.wgsl?raw';
 import HISTOGRAM_REDUCE_WGSL from './shaders/histogram-reduce.wgsl?raw';
 import HISTOGRAM_VIZ_WGSL from './shaders/histogram-viz.wgsl?raw';
+import { LENS_TABLE_DOMAIN, type LensRemap } from './lens-table';
 import { U_FLAGS, U_PREPROCESS } from './uniforms';
 
 export type HistogramMode = 'linear' | 'log' | 'display-linear' | 'display-log';
@@ -18,7 +19,7 @@ export class Histogram {
   private hdrHistBindGroupLayout!: GPUBindGroupLayout;
   private hdrHistComputeBindGroup: GPUBindGroup | null = null;
   private hdrHistParamsBuf!: GPUBuffer;
-  private hdrHistParamsData = new Float32Array(8);  // reused every frame
+  private hdrHistParamsData = new Float32Array(16);  // reused every frame; [7..11] hold the lens and persist across frames
   private _histogramMode: HistogramMode = 'linear';
   private _histogramChannel: HistogramChannel = 'rgb';
 
@@ -49,6 +50,7 @@ export class Histogram {
     pipelineLayout: GPUPipelineLayout,
     private readonly uniformBuffer: GPUBuffer,
     private readonly uniformData: Float32Array,
+    private readonly lensBuffer: GPUBuffer,  // the renderer's radial lens table; the renderer owns it
   ) {
     try {
       // ── Histogram resources ───────────────────────────────────────────
@@ -64,6 +66,7 @@ export class Histogram {
           { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: 'unfilterable-float' } },
           { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
           { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
+          { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
         ],
       });
 
@@ -74,7 +77,8 @@ export class Histogram {
       });
 
       this.hdrHistParamsBuf = device.createBuffer({
-        size: 32,  // 2 × vec4f: (exposure, wb_temp, wb_tint, mode), (range_lo, range_hi, stride, pad)
+        size: 64,  // 4 × vec4f: (exposure, wb_temp, wb_tint, mode), (range_lo, range_hi, stride, lens_enabled),
+                   // (centre_x, centre_y, half_diag, domain), pad
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
       this.resources.add(this.hdrHistParamsBuf);
@@ -105,6 +109,7 @@ export class Histogram {
           { binding: 0, resource: this.dispHistTex.createView() },
           { binding: 1, resource: { buffer: this.histogramBinsBuf } },
           { binding: 2, resource: { buffer: this.hdrHistParamsBuf } },
+          { binding: 3, resource: { buffer: this.lensBuffer } },
         ],
       });
 
@@ -216,8 +221,23 @@ export class Histogram {
         { binding: 0, resource: imageView },
         { binding: 1, resource: { buffer: this.histogramBinsBuf } },
         { binding: 2, resource: { buffer: this.hdrHistParamsBuf } },
+        { binding: 3, resource: { buffer: this.lensBuffer } },
       ],
     });
+  }
+  /** The scene pass applies the remap's vignetting gain (its geometry is ignored); null leaves the pixels as decoded. */
+  setLens(remap: LensRemap | null): void {
+    const p = this.hdrHistParamsData;
+    if (remap) {
+      p[7] = 1;
+      p[8] = remap.centre[0];
+      p[9] = remap.centre[1];
+      p[10] = remap.halfDiagPx;
+      p[11] = LENS_TABLE_DOMAIN;
+    } else {
+      p.fill(0, 7, 12);
+    }
+    this.device.queue.writeBuffer(this.hdrHistParamsBuf, 0, p);
   }
   encodeScenePass(encoder: GPUCommandEncoder, imgW: number, imgH: number): void {
     if (!this.hdrHistComputeBindGroup) return;
@@ -231,7 +251,7 @@ export class Histogram {
     p[3] = this.isLogMode ? 1.0 : 0.0;                   // mode
     p[4] = this.isLogMode ? -8.0 : 0.0;                  // range_lo
     p[5] = this.isLogMode ? 8.0 : 2.0;                   // range_hi
-    p[6] = 4; p[7] = 0;                         // stride, pad
+    p[6] = 4;                                   // stride
     this.device.queue.writeBuffer(this.hdrHistParamsBuf, 0, p);
 
     const computePass = encoder.beginComputePass();
@@ -322,8 +342,11 @@ export class Histogram {
     p[3] = this.isLogMode ? 1.0 : 0.0;            // mode
     p[4] = this.isLogMode ? -8.0 : 0.0;           // range_lo
     p[5] = this.isLogMode ? 8.0 : 2.0;            // range_hi
-    p[6] = 1; p[7] = 0;                  // stride=1 (texture is already small), pad
+    p[6] = 1;                            // stride=1 (texture is already small)
+    const lensEnabled = p[7];
+    p[7] = 0;                            // the display texture is already corrected
     this.device.queue.writeBuffer(this.hdrHistParamsBuf, 0, p);
+    p[7] = lensEnabled;
 
     const computePass = encoder.beginComputePass();
     computePass.setPipeline(this.hdrHistComputePipeline);

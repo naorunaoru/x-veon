@@ -8,6 +8,7 @@ import {
   computeTonescaleParams,
 } from '@/renderer/grading/opendrt-params';
 import { createRenderer, type Renderer } from '@/renderer';
+import { lensRemapForFile } from '@/app/lens/remap';
 import type { ExportFormat } from '@/lib/types';
 import type { EncodeJob, ExportResult, ExportDestination } from '@/host';
 import { acquireResult } from './processing';
@@ -166,6 +167,7 @@ export function enqueueExport(
           const renderer = await createRenderer(document.createElement('canvas'));
           try {
             renderer.setImage(lease.image.gpu);
+            renderer.setLens(lensRemapForFile(file, snapshot.lensPicks));
             return await renderPixels(
               file as QueuedFile & { result: NonNullable<QueuedFile['result']> },
               renderer,
