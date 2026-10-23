@@ -25,7 +25,8 @@ test('open a folder, process RAF and ARW, edit and rate, export an AVIF beside t
     if (!(await fs.stat(path.join(source, name))).isFile()) throw new Error(`Missing sample ${name}`);
   }
   const identity = appIdentity(smokeTag, 'untagged', true);
-  const work = await fs.mkdtemp(path.join(os.tmpdir(), 'xveon-smoke-'));
+  // Canonical (macOS /var -> /private/var): the app realpaths the opened folder, so revealed paths come back resolved.
+  const work = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'xveon-smoke-')));
   const photos = path.join(work, 'photos');
   const avifPath = path.join(photos, 'sony_a6400_21.avif');
   let app: Awaited<ReturnType<typeof electron.launch>> | undefined;
@@ -120,13 +121,13 @@ test('open a folder, process RAF and ARW, edit and rate, export an AVIF beside t
     await popover.getByRole('button', { name: 'Export', exact: true }).click();
     await expect(popover).toHaveCount(0);
     await expect(status).toContainText('1 done', { timeout: 120_000 });
+    // Reveal within the done state's 10 s; the checks follow.
+    await status.getByRole('button', { name: /Show in (Finder|Explorer)/ }).click();
+    await expect(page.getByLabel('Adjustments', { exact: true })).toBeVisible();
+    await expect.poll(() => app!.evaluate(() => (globalThis as { revealed?: string[] }).revealed)).toEqual([avifPath]);
     const written = await stat();
     provenance.firstExport = { mtimeMs: written.mtimeMs, size: written.size };
     expect(written.size).toBeGreaterThan(0);
-    await expect(page.getByLabel('Adjustments', { exact: true })).toBeVisible();
-    await status.getByRole('button', { name: /Show in (Finder|Explorer)/ }).click();
-    await expect(page.getByLabel('Adjustments', { exact: true })).toBeVisible();
-    expect(await app.evaluate(() => (globalThis as { revealed?: string[] }).revealed)).toEqual([avifPath]);
     // The reveal click put the done batch away; the second export runs with the persisted settings (AVIF, skip).
     await expect(status).toHaveCount(0);
     await exportButton.click();
@@ -149,6 +150,9 @@ test('open a folder, process RAF and ARW, edit and rate, export an AVIF beside t
     await expect.poll(async () => (await stat()).mtimeMs, { timeout: 120_000, message: 'replace rewrites the file' }).toBeGreaterThan(written.mtimeMs);
     const replaced = await stat();
     provenance.replacedExport = { mtimeMs: replaced.mtimeMs, size: replaced.size };
+    // The only output is the AVIF of the exported photo: no temp file, nothing for the RAF.
+    const outputs = (await fs.readdir(photos)).filter(name => !/\.(raf|arw|xmp)$/i.test(name));
+    expect(outputs).toEqual(['sony_a6400_21.avif']);
     const size = await app.evaluate(async ({ BrowserWindow }, url) => {
       const probe = new BrowserWindow({ show: false });
       try {
