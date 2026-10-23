@@ -5,6 +5,8 @@ import type { LibraryPhoto, PhotoEdit, PhotoFacts, Rating } from '@/host';
 import { decodeSidecar, encodeSidecar, unknownProperties, type SidecarProperties } from '@/app/sidecar';
 import { defaultPhotoEdit } from '@/app/photo-edit';
 import { transact, openDatabase, assertDatabaseActive } from '@/app/storage/database';
+import { configFromPreset, LOOK_PRESETS } from '@/renderer/grading/opendrt-params';
+import { DEMOSAIC_METHODS } from '@/lib/catalog';
 export interface PersistedFile {
   id: string;
   name: string;
@@ -118,13 +120,18 @@ function readSidecar(sidecar: SidecarProperties): Pick<LibraryPhoto, 'edit' | 'r
   }
 }
 
+const DRT_KEYS = new Set(Object.keys(configFromPreset('default')));
+
+/** Legacy values were never validated; drop what the sidecar would reject so the photo stays editable. */
 function legacyEdit(p: PersistedFile): PhotoEdit {
+  const method = 'editMethod' in p ? p.editMethod ?? null : p.resultMethod;
+  const overrides = Object.entries(p.openDrtOverrides ?? {}).filter(([key]) => DRT_KEYS.has(key));
   return {
     version: 1,
-    lookPreset: p.lookPreset ?? 'default',
-    openDrtOverrides: p.openDrtOverrides ?? {},
+    lookPreset: p.lookPreset && Object.hasOwn(LOOK_PRESETS, p.lookPreset) ? p.lookPreset : 'default',
+    openDrtOverrides: Object.fromEntries(overrides),
     preProcessOverrides: p.preProcessOverrides ?? {},
-    demosaicMethod: 'editMethod' in p ? p.editMethod ?? null : p.resultMethod,
+    demosaicMethod: DEMOSAIC_METHODS.some((info) => info.id === method) ? method : null,
     model: p.model ?? null,
     ...(p.lens ? { lens: p.lens } : {}),
   };

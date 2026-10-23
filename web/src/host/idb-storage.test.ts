@@ -68,6 +68,19 @@ it('reads a pre-editMethod record', () => {
   expect(photo.facts.resultMethod).toBe('markesteijn3');
 });
 
+it('drops unknown legacy override keys and looks', () => {
+  const record = legacyRecord({
+    openDrtOverrides: { bogus: 1, brl_rng: 2 },
+    lookPreset: 'retired' as never,
+    editMethod: 'nope' as never,
+  });
+  const photo = fromRecord(record, null);
+  expect(photo.edit.openDrtOverrides).toEqual({ brl_rng: 2 });
+  expect(photo.edit.lookPreset).toBe('default');
+  expect(photo.edit.demosaicMethod).toBeNull();
+  expect(() => toRecord(photo, photo.edit, 0, photo.facts, 1, record)).not.toThrow();
+});
+
 it('keeps unknown sidecar properties across a save', () => {
   const previous = { ...legacyRecord(), sidecar: { 'xveon:SchemaVersion': '1', 'xveon:Look': 'umbra', 'xveon:Future': 'x' } };
   const record = toRecord(fakePhoto(), defaultEdit(), 0, fakePhoto().facts, 1, previous);
