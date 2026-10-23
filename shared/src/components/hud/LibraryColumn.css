@@ -90,7 +90,7 @@
 .xv-column__failure .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .xv-column__failure .reason { flex: 1; min-width: 0; color: var(--xv-muted-foreground); overflow-wrap: anywhere; }
 
-.xv-cell__line { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--xv-primary); }
+.xv-cell__line { position: absolute; left: 0; bottom: 0; height: 2px; z-index: 1; background: var(--xv-primary); }
 .xv-cell__line[data-export="queued"] { width: 0; }
 .xv-cell__line[data-export="running"] { width: 50%; }
 .xv-cell__line[data-export="done"] { width: 100%; }
