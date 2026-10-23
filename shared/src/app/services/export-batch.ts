@@ -203,10 +203,27 @@ export function exportTargets(state: Pick<AppState, 'selectedIds' | 'currentId'>
   return state.currentId ? [state.currentId] : [];
 }
 
+export type ExportMark = 'queued' | 'running' | 'done' | 'failed';
+
 /** The latest job for the file. */
-export function exportMark(batch: ExportBatch | null, fileId: string): 'queued' | 'running' | 'done' | 'failed' | null {
-  const job = batch?.jobs.filter((other) => other.fileId === fileId).at(-1);
-  switch (job?.state) {
+export function exportMark(batch: ExportBatch | null, fileId: string): ExportMark | null {
+  return markOf(batch?.jobs.filter((other) => other.fileId === fileId).at(-1)?.state);
+}
+
+/** exportMark for every file in one pass: the latest job per file wins; files without a mark are absent. */
+export function exportMarks(batch: ExportBatch | null): Map<string, ExportMark> {
+  const latest = new Map<string, BatchJob['state']>();
+  for (const job of batch?.jobs ?? []) latest.set(job.fileId, job.state);
+  const marks = new Map<string, ExportMark>();
+  for (const [fileId, state] of latest) {
+    const mark = markOf(state);
+    if (mark) marks.set(fileId, mark);
+  }
+  return marks;
+}
+
+function markOf(state: BatchJob['state'] | undefined): ExportMark | null {
+  switch (state) {
     case 'queued': return 'queued';
     case 'processing': case 'rendering': case 'encoding': return 'running';
     case 'written': case 'skipped': return 'done';

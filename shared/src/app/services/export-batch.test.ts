@@ -5,7 +5,7 @@ import { useAppStore } from '@/app/store';
 import type { ExportResult } from '@/host';
 import { setHost } from './host';
 import {
-  batchSummary, cancelBatch, cancelQueuedExports, dismissBatch, exportMark, exportTargets, retryJob, startExport, useExportBatch,
+  batchSummary, cancelBatch, cancelQueuedExports, dismissBatch, exportMark, exportMarks, exportTargets, retryJob, startExport, useExportBatch,
   type BatchJob, type ExportBatch,
 } from './export-batch';
 const m = vi.hoisted(() => ({
@@ -276,6 +276,17 @@ it('skipped counts as done and marks the cell done; failed marks it failed', () 
     .toEqual(['done', null, 'queued', 'running', null, 'failed', 'running', 'running', null]);
   expect(exportMark(null, 'a')).toBeNull();
   expect(batchSummary(sample)).toEqual({ total: 8, completed: 4, done: 2, failed: 2 });
+});
+
+it('exportMarks maps each file to its latest job; a cancelled latest job is absent', () => {
+  const job = (fileId: string, state: BatchJob['state']): BatchJob => ({ id: `${fileId}-${state}`, fileId, name: `${fileId}.tif`, state, error: null });
+  const sample: ExportBatch = {
+    id: 'x', target: null, status: 'running', closed: false,
+    settings: { format: 'tiff', quality: 95, saveTo: { mode: 'beside' }, onExists: 'skip' },
+    jobs: [job('a', 'failed'), job('a', 'written'), job('b', 'written'), job('b', 'cancelled'), job('c', 'encoding'), job('d', 'cancelled')],
+  };
+  expect(exportMarks(sample)).toEqual(new Map([['a', 'done'], ['c', 'running']]));
+  expect(exportMarks(null).size).toBe(0);
 });
 
 it('exportTargets prefers the selection over the current photo', () => {

@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, PointerEvent } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '@/app/store';
 import { CELL_GAP, COLUMN_STRIDE, maxColumns, shownIds } from '@/app/store/selection';
 import { isDefaultPhotoEdit } from '@/app/photo-edit';
-import { dismissBatch, exportMark, useExportBatch } from '@/app/services/export-batch';
+import { dismissBatch, exportMarks, useExportBatch } from '@/app/services/export-batch';
 import { ExportFoot } from './ExportFoot';
 import { FilterMenu } from './FilterMenu';
 import './LibraryColumn.css';
@@ -24,6 +24,7 @@ export function LibraryColumn() {
   const setColumnWidth = useAppStore((s) => s.setColumnWidth);
   const toggleColumn = useAppStore((s) => s.toggleColumn);
   const batch = useExportBatch((s) => s.batch);
+  const marks = useMemo(() => exportMarks(batch), [batch]);
   // The width under the pointer while the edge is dragged; applied on release.
   const [preview, setPreview] = useState<number | null>(null);
   const dragRef = useRef<{ pointerId: number; columns: number } | null>(null);
@@ -98,7 +99,7 @@ export function LibraryColumn() {
       <div ref={cellsRef} className="xv-column__cells" role="listbox" aria-label="Photos" aria-multiselectable="true">
         {shown.map((f) => {
           const current = f.id === currentId;
-          const mark = exportMark(batch, f.id);
+          const mark = marks.get(f.id) ?? null;
           return (
             <button
               key={f.id}
