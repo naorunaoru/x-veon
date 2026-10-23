@@ -2,6 +2,7 @@ import { getHost } from '@/app/services/host';
 import { useEffect } from 'react';
 import { useAppStore } from '@/app/store';
 import { removeFile } from '@/app/services/library';
+import { exportTargets, startExport } from '@/app/services/export-batch';
 import type { Rating } from '@/host';
 
 /** Keys typed here belong to the field, dialog or menu, not the library. */
@@ -42,6 +43,10 @@ export function useLibraryShortcuts() {
       } else if ((event.key.toLowerCase() === 'a' || (!/^[a-z]$/i.test(event.key) && event.code === 'KeyA')) && command && !event.altKey && !event.shiftKey) {
         event.preventDefault();
         state.selectAllShown();
+      } else if ((event.key.toLowerCase() === 'e' || (!/^[a-z]$/i.test(event.key) && event.code === 'KeyE')) && command && !event.altKey && !event.shiftKey) {
+        event.preventDefault();
+        // Like the Export button: exporting before the pipeline is up would mark the photos as errors.
+        if (state.initialized) startExport(exportTargets(state));
       } else if (/^[0-5]$/.test(event.key) && plain) {
         event.preventDefault();
         if (state.currentId) state.setFileRating(state.currentId, Number(event.key) as Rating);

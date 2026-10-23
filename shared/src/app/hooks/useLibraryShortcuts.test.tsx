@@ -7,6 +7,10 @@ import { renderHook, fireEvent } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const remove = vi.hoisted(() => vi.fn());
 vi.mock('@/app/services/library', () => ({ removeFile: remove }));
+const startExport = vi.hoisted(() => vi.fn());
+vi.mock('@/app/services/export-batch', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/app/services/export-batch')>(), startExport,
+}));
 import { useLibraryShortcuts } from './useLibraryShortcuts';
 import { useAppStore } from '@/app/store';
 import { fromLibraryPhoto } from '@/app/store/photo';
@@ -79,6 +83,23 @@ describe('navigation keys', () => {
     const tab = fireEvent.keyDown(document.body, { key: 'Tab' });
     expect(useAppStore.getState().columnWidth).toBe(0);
     expect(tab).toBe(false);                                            // defaultPrevented
+  });
+  it('⌘E exports the selection or the current photo', () => {
+    startExport.mockClear();
+    useAppStore.setState({ currentId: 'a', selectedIds: ['b', 'a'], initialized: true });
+    renderHook(useLibraryShortcuts);
+    expect(fireEvent.keyDown(document.body, { key: 'e', metaKey: true })).toBe(false);   // defaultPrevented
+    useAppStore.setState({ selectedIds: [] });
+    fireEvent.keyDown(document.body, { key: 'E', ctrlKey: true });
+    fireEvent.keyDown(document.body, { key: 'у', code: 'KeyE', metaKey: true });
+    expect(startExport.mock.calls).toEqual([[['b', 'a']], [['a']], [['a']]]);
+    startExport.mockClear();
+    fireEvent.keyDown(document.body, { key: 'e' });
+    fireEvent.keyDown(document.body, { key: 'E', metaKey: true, shiftKey: true });
+    fireEvent.keyDown(document.body, { key: 'e', metaKey: true, altKey: true });
+    useAppStore.setState({ initialized: false });
+    fireEvent.keyDown(document.body, { key: 'e', metaKey: true });              // the pipeline is not up yet
+    expect(startExport).not.toHaveBeenCalled();
   });
   it('rating keys set, clear and reject the current photo', () => {
     const rate = vi.spyOn(useAppStore.getState(), 'setFileRating').mockImplementation(() => {});

@@ -5,9 +5,8 @@ import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '@/app/store';
 import { CELL_GAP, COLUMN_STRIDE, maxColumns, shownIds } from '@/app/store/selection';
 import { isDefaultPhotoEdit } from '@/app/photo-edit';
-import { useExport } from '@/app/hooks/useExport';
-import { ExportDialog } from '@/components/dialogs/ExportDialog';
-import { startExport } from '@/app/services/export-jobs';
+import { dismissBatch, exportMark, useExportBatch } from '@/app/services/export-batch';
+import { ExportFoot } from './ExportFoot';
 import { FilterMenu } from './FilterMenu';
 import './LibraryColumn.css';
 
@@ -17,7 +16,6 @@ export function LibraryColumn() {
     return s.files.filter((f) => ids.has(f.id));
   }));
   const hasFiles = useAppStore((s) => s.files.length > 0);
-  const currentFile = useAppStore((s) => s.files.find((f) => f.id === s.currentId));
   const currentId = useAppStore((s) => s.currentId);
   const selectedIds = useAppStore((s) => s.selectedIds);
   const columnWidth = useAppStore((s) => s.columnWidth);
@@ -25,8 +23,7 @@ export function LibraryColumn() {
   const toggleSelectAll = useAppStore((s) => s.toggleSelectAll);
   const setColumnWidth = useAppStore((s) => s.setColumnWidth);
   const toggleColumn = useAppStore((s) => s.toggleColumn);
-  const { exportAvailable, unavailableReason } = useExport();
-  const [exportOpen, setExportOpen] = useState(false);
+  const batch = useExportBatch((s) => s.batch);
   // The width under the pointer while the edge is dragged; applied on release.
   const [preview, setPreview] = useState<number | null>(null);
   const dragRef = useRef<{ pointerId: number; columns: number } | null>(null);
@@ -64,7 +61,6 @@ export function LibraryColumn() {
   const allShownSelected = shown.every((f) => selected.has(f.id));
   // Roving tabindex: the listbox is one tab stop, on the current cell (else the first).
   const tabStopId = shown.some((f) => f.id === currentId) ? currentId : shown[0]?.id;
-  const canExport = currentFile?.status === 'done' && exportAvailable;
 
   const onEdgeDown = (e: PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 || dragRef.current) return;
@@ -102,6 +98,7 @@ export function LibraryColumn() {
       <div ref={cellsRef} className="xv-column__cells" role="listbox" aria-label="Photos" aria-multiselectable="true">
         {shown.map((f) => {
           const current = f.id === currentId;
+          const mark = exportMark(batch, f.id);
           return (
             <button
               key={f.id}
@@ -121,11 +118,13 @@ export function LibraryColumn() {
               {!isDefaultPhotoEdit(f.edit) && <span className="xv-cell__edited" />}
               {f.rating > 0 && <span className="xv-cell__stars" aria-hidden>{'★'.repeat(f.rating)}</span>}
               {f.rating < 0 && <span className="xv-cell__reject" aria-hidden>✕</span>}
+              {mark && <span className="xv-cell__line" data-export={mark} aria-hidden />}
             </button>
           );
         })}
       </div>
-      <div className="xv-column__foot">
+      {/* Any click in the foot puts a done batch away. */}
+      <div className="xv-column__foot" onClick={() => { if (useExportBatch.getState().batch?.status === 'done') dismissBatch(); }}>
         <button
           type="button"
           className="xv-column__select"
@@ -134,15 +133,7 @@ export function LibraryColumn() {
         >
           {allShownSelected ? 'None' : 'All'}
         </button>
-        <button
-          type="button"
-          className="xv-column__export"
-          disabled={!canExport}
-          title={unavailableReason ?? undefined}
-          onClick={() => setExportOpen(true)}
-        >
-          Export
-        </button>
+        <ExportFoot />
       </div>
       <div
         className="xv-column__edge"
@@ -153,11 +144,6 @@ export function LibraryColumn() {
         onPointerMove={onEdgeMove}
         onPointerUp={onEdgeEnd}
         onPointerCancel={onEdgeEnd}
-      />
-      <ExportDialog
-        open={exportOpen}
-        onOpenChange={setExportOpen}
-        onExport={() => currentFile && startExport(currentFile.id)}
       />
     </aside>
   );

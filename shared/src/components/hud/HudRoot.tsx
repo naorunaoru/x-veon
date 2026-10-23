@@ -11,7 +11,6 @@ import { PanelHost } from './PanelHost';
 import { HistogramHud } from './HistogramHud';
 import { Minimap } from './Minimap';
 import { StartupError } from './StartupError';
-import { ExportStatus } from './ExportStatus';
 import { UpdateNotice } from './UpdateNotice';
 import './HudRoot.css';
 
@@ -32,7 +31,7 @@ export function HudRoot() {
     return !f || f.status !== 'done' || !f.result;
   });
 
-  // Keep Settings mounted across empty/error transitions so export status survives them.
+  // Keep Settings mounted across empty/error transitions.
   return (
     <div className="xv-hud-root">
       <LibraryColumn />
@@ -49,7 +48,6 @@ export function HudRoot() {
         </div>
         <div className="xv-hud-overlay xv-hud-settings">
           <UpdateNotice />
-          <ExportStatus />
           <ToolRail settingsOnly={chromeHidden} />
           <PanelHost settingsOnly={chromeHidden} />
         </div>
