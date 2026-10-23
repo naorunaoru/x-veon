@@ -10,7 +10,7 @@ import {
 import { createRenderer, type Renderer } from '@/renderer';
 import { lensRemapForFile } from '@/app/lens/remap';
 import type { ExportFormat } from '@/lib/types';
-import type { EncodeJob, ExportResult, ExportDestination } from '@/host';
+import type { EncodeJob, ExportResult, ExportTarget, OnExists } from '@/host';
 import { acquireResult } from './processing';
 import { processingKey } from '@/app/store/photo';
 import { getHost } from './host';
@@ -18,7 +18,14 @@ const HDR_PEAK_LUMINANCE = 1000;
 export type ExportState = 'queued' | 'rendering' | 'encoding' | 'done' | 'failed' | 'cancelled';
 export interface ExportObserver {
   state?(state: ExportState): void;
-  destination?(destination: ExportDestination): void;
+}
+export interface ExportOptions {
+  format: ExportFormat;
+  quality: number;
+  target: ExportTarget | null;
+  name: string;
+  onExists: OnExists;
+  observer?: ExportObserver;
 }
 export interface ExportJobHandle {
   readonly state: ExportState;
@@ -109,12 +116,8 @@ async function renderPixels(
     signal,
   };
 }
-export function enqueueExport(
-  fileId: string,
-  format = useAppStore.getState().exportFormat,
-  quality = useAppStore.getState().exportQuality,
-  observer?: ExportObserver,
-): ExportJobHandle {
+export function enqueueExport(fileId: string, options: ExportOptions): ExportJobHandle {
+  const { format, quality, target, name, onExists, observer } = options;
   const host = getHost();
   const snapshot = useAppStore.getState();
   const file = snapshot.files.find((f) => f.id === fileId);
@@ -147,17 +150,6 @@ export function enqueueExport(
       const availability = await host.exporter.status();
       if (!availability.available) throw new Error(availability.reason);
       controller.signal.throwIfAborted();
-      const destination = await host.exporter.chooseDestination(
-        file.id,
-        `${file.name}.${exportFormatInfo(format).ext}`,
-        format,
-      );
-      if (!destination) {
-        setState('cancelled');
-        return null;
-      }
-      controller.signal.throwIfAborted();
-      observer?.destination?.(destination);
       releaseSlot = await acquirePlaneSlot(controller.signal);
       const readback = rendering
         .then(async () => {
@@ -186,7 +178,7 @@ export function enqueueExport(
       const pixels = await readback;
       controller.signal.throwIfAborted();
       setState('encoding');
-      const result = await host.exporter.encode(pixels, destination);
+      const result = await host.exporter.encode(pixels, { target, name, onExists });
       controller.signal.throwIfAborted();
       setState('done');
       return result;
@@ -223,7 +215,12 @@ export async function renderExport(
   format = useAppStore.getState().exportFormat,
   quality = useAppStore.getState().exportQuality,
 ): Promise<ExportResult & { ext: string }> {
-  const result = await enqueueExport(fileId, format, quality).promise;
+  const state = useAppStore.getState();
+  const file = state.files.find((f) => f.id === fileId);
+  const { ext } = exportFormatInfo(format);
+  const target = await getHost().exporter.resolveTarget(state.exportSaveTo, [fileId]);
+  const name = `${file?.name ?? fileId}.${ext}`;
+  const result = await enqueueExport(fileId, { format, quality, target, name, onExists: 'replace' }).promise;
   if (result === null) throw new Error('The export was cancelled.');
-  return { ...result, ext: exportFormatInfo(format).ext };
+  return { ...result, ext };
 }

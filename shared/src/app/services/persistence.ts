@@ -6,6 +6,7 @@ import { getHost } from './host';
 import { getSetting, putSetting, pauseSettings, resumeSettings } from '@/app/storage/settings-storage';
 const SETTING_KEYS = [
   'demosaicMethod', 'modelSize', 'exportFormat', 'exportQuality', 'currentId', 'columnWidth',
+  'exportSaveTo', 'exportOnExists',
 ] as const;
 export interface UnsavedEdit {
   id: PhotoId;

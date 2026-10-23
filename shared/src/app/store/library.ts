@@ -1,4 +1,4 @@
-import type { FolderRef, Rating } from '@/host';
+import type { FolderRef, OnExists, Rating, SaveTo } from '@/host';
 import type { ModelIdentity, ModelSize } from '@/lib/types';
 import { editPhoto, nextRevision } from './photo';
 import { prune } from '@/app/selection';
@@ -13,6 +13,8 @@ export interface RestoredSettings {
   modelSize?: ModelSize;
   exportFormat?: ExportFormat;
   exportQuality?: number;
+  exportSaveTo?: SaveTo;
+  exportOnExists?: OnExists;
   currentId?: string | null;
   columnWidth?: number;
 }
@@ -131,6 +133,8 @@ export const createLibrarySlice: Slice<LibrarySlice> = (set, get) => ({
       modelSize: settings.modelSize ?? state.modelSize,
       exportFormat: settings.exportFormat ?? state.exportFormat,
       exportQuality: settings.exportQuality ?? state.exportQuality,
+      exportSaveTo: settings.exportSaveTo ?? state.exportSaveTo,
+      exportOnExists: settings.exportOnExists ?? state.exportOnExists,
       ...(settings.columnWidth === undefined ? {} : columnWidthPatch(settings.columnWidth, state)),
     });
   },

@@ -6,8 +6,8 @@ let encoding: Promise<unknown> = Promise.resolve();
 export function createExporter(deliver = triggerDownload): ExportHost {
   return {
     status: async () => ({ available: true }),
-    chooseDestination: async (_photoId, name) => ({ token: name }),
-    encode: (job, destination) => {
+    resolveTarget: async () => null,
+    encode: (job, out) => {
       const operation = encoding
         .catch(() => {})
         .then(async () => {
@@ -22,8 +22,8 @@ export function createExporter(deliver = triggerDownload): ExportHost {
             job.peakLuminance,
           );
           job.signal?.throwIfAborted();
-          deliver(blob, destination.token);
-          return { blob, bytes: blob.size, name: destination.token, encodeMs };
+          deliver(blob, out.name);
+          return { outcome: 'written' as const, blob, bytes: blob.size, name: out.name, encodeMs };
         });
       encoding = operation;
       return operation;

@@ -26,7 +26,12 @@ it('restores settings for an empty library and ignores a selection whose photo i
 it('keeps current settings that were never saved', () => {
   useAppStore.setState({ files: [], currentId: null, demosaicMethod: 'bilinear', exportFormat: 'tiff', exportQuality: 80 });
   useAppStore.getState().restoreFromDb([], {});
-  expect(useAppStore.getState()).toMatchObject({ demosaicMethod: 'bilinear', exportFormat: 'tiff', exportQuality: 80 });
+  expect(useAppStore.getState()).toMatchObject({ demosaicMethod: 'bilinear', exportFormat: 'tiff', exportQuality: 80, exportSaveTo: { mode: 'beside' }, exportOnExists: 'skip' });
+});
+it('restores the export saveTo and onExists settings', () => {
+  useAppStore.getState().restoreFromDb([], { exportSaveTo: { mode: 'folder', path: '/out' }, exportOnExists: 'replace' });
+  expect(useAppStore.getState()).toMatchObject({ exportSaveTo: { mode: 'folder', path: '/out' }, exportOnExists: 'replace' });
+  useAppStore.setState({ exportSaveTo: { mode: 'beside' }, exportOnExists: 'skip' });
 });
 it('setFileRating bumps the revision and marks the session', () => {
   const file = fromLibraryPhoto(fakePhoto());

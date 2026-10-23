@@ -32,11 +32,30 @@ beforeEach(() => {
   useAppStore.setState({ files: [photo], currentId: 'a', exportQuality: 95, exportFormat: 'tiff' });
 });
 
-it('adds a queued named job, then keeps the result name and destination', async () => {
-  vi.mocked(host.exporter.encode).mockResolvedValue({ name: 'chosen.tif' });
+it('adds a queued named job, resolves the target first, then keeps the result name and target', async () => {
+  vi.mocked(host.exporter.encode).mockResolvedValue({ outcome: 'written', name: 'chosen.tif' });
   const id = startExport('a');
   expect(useExportJobs.getState().jobs[0]).toMatchObject({ id, label: 'a.tif', state: 'queued' });
   await vi.waitFor(() => expect(useExportJobs.getState().jobs[0]).toMatchObject({ label: 'chosen.tif', state: 'done', destination: { token: 'test' } }));
+  expect(host.exporter.resolveTarget).toHaveBeenCalledWith({ mode: 'beside' }, ['a']);
+  expect(vi.mocked(host.exporter.resolveTarget).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(host.exporter.status).mock.invocationCallOrder[0]);
+  expect(host.exporter.encode).toHaveBeenCalledWith(expect.objectContaining({ format: 'tiff' }), { target: { token: 'test' }, name: 'a.tif', onExists: 'skip' });
+});
+it('fails the job when the target cannot be resolved', async () => {
+  vi.mocked(host.exporter.resolveTarget).mockRejectedValue(new Error('no folder'));
+  startExport('a');
+  await vi.waitFor(() => expect(useExportJobs.getState().jobs[0]).toMatchObject({ state: 'failed', error: 'no folder' }));
+  expect(host.exporter.status).not.toHaveBeenCalled();
+});
+it('never enqueues a job cancelled while its target resolves', async () => {
+  let resolve!: () => void;
+  vi.mocked(host.exporter.resolveTarget).mockImplementationOnce(() => new Promise((done) => { resolve = () => done({ token: 'test' }); }));
+  const id = startExport('a');
+  cancelExport(id);
+  resolve();
+  await new Promise((done) => setTimeout(done, 0));
+  expect(host.exporter.status).not.toHaveBeenCalled();
+  expect(useExportJobs.getState().jobs).toEqual([]);
 });
 it('keeps encode failures until dismissed', async () => {
   vi.mocked(host.exporter.encode).mockRejectedValue(new Error('encode broke'));
@@ -48,7 +67,7 @@ it('keeps encode failures until dismissed', async () => {
 it('aborts encoding and ignores late events after removing a cancelled job', async () => {
   let finish!: () => void;
   vi.mocked(host.exporter.encode).mockImplementation((job) => new Promise((resolve) => {
-    finish = () => resolve({ name: 'late.tif' });
+    finish = () => resolve({ outcome: 'written', name: 'late.tif' });
     expect(job.signal!.aborted).toBe(false);
   }));
   const id = startExport('a');
@@ -59,11 +78,6 @@ it('aborts encoding and ignores late events after removing a cancelled job', asy
   finish();
   await Promise.resolve(); await Promise.resolve();
   expect(useExportJobs.getState().jobs).toEqual([]);
-});
-it('removes a cancelled destination dialog silently', async () => {
-  vi.mocked(host.exporter.chooseDestination).mockResolvedValue(null);
-  startExport('a');
-  await vi.waitFor(() => expect(useExportJobs.getState().jobs).toEqual([]));
 });
 it('expires done jobs after ten seconds and keeps failed jobs', async () => {
   vi.useFakeTimers();
@@ -82,7 +96,7 @@ it('expires done jobs after ten seconds and keeps failed jobs', async () => {
 it('runs exports for different photos concurrently', async () => {
   useAppStore.setState((s) => ({ files: [...s.files, { ...s.files[0], id: 'b', name: 'b' }] }));
   let finish!: () => void;
-  vi.mocked(host.exporter.encode).mockImplementationOnce(() => new Promise((resolve) => { finish = () => resolve({}); }));
+  vi.mocked(host.exporter.encode).mockImplementationOnce(() => new Promise((resolve) => { finish = () => resolve({ outcome: 'written' }); }));
   startExport('a'); startExport('b');
   await vi.waitFor(() => expect(useExportJobs.getState().jobs.map((job) => job.state)).toEqual(['encoding', 'done']));
   finish();

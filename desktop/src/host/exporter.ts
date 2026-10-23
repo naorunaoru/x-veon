@@ -12,11 +12,11 @@ export function createExporter(bridge: DesktopBridge, client: WorkerClient, opts
       try { return (await client.request({ op: 'exportStatus' })).availability ?? { available: false, reason: 'The worker did not report export status.' }; }
       catch (error) { return { available: false, reason: error instanceof Error ? error.message : String(error) }; }
     },
-    async chooseDestination(photoId, _suggestedName, format) {
-      const choice = await bridge.chooseExportDestination(photoId, format);
-      return choice ? { token: choice.token } : null;
-    },
-    async encode(job, destination) {
+    // Interim: folder targets arrive with batch export.
+    async resolveTarget() { throw new Error('Folder export is not available yet'); },
+    async encode(job, out) {
+      if (!out.target) throw new Error('Export needs a folder');
+      const destination = out.target;
       const id = crypto.randomUUID(), generation = client.generation;
       const bound = { generation, signal: job.signal };
       let cancelled = false;
@@ -50,10 +50,10 @@ export function createExporter(bridge: DesktopBridge, client: WorkerClient, opts
         const { receipt } = await client.request({ op: 'exportCommit', job: id }, { ...bound, timeoutMs: LONG_MS });
         check();
         if (!receipt) throw new Error('The worker did not confirm the export.');
-        return { bytes: receipt.bytes, sha256: receipt.sha256, encodeMs: receipt.encodeMs, name: receipt.name };
+        return { outcome: 'written', bytes: receipt.bytes, sha256: receipt.sha256, encodeMs: receipt.encodeMs, name: receipt.name };
       } catch (error) { cancel(); check(); throw error; }
       finally { job.signal?.removeEventListener('abort', cancel); }
     },
-    reveal: { label: /^Win/i.test(platform) ? 'Show in Explorer' : 'Show in Finder', open: async d => bridge.revealExport(d.token) },
+    reveal: { label: /^Win/i.test(platform) ? 'Show in Explorer' : 'Show in Finder', open: async target => bridge.revealExport(target.token) },
   };
 }

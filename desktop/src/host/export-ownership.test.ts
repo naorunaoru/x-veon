@@ -6,10 +6,11 @@ import { fakeHost, fakePhoto } from '@/test/fake-host';
 import { fromLibraryPhoto } from '@/app/store/photo';
 import { useAppStore } from '@/app/store';
 import { setHost } from '@/app/services/host';
-import { enqueueExport } from '@/app/services/export';
+import { enqueueExport, type ExportOptions } from '@/app/services/export';
 import { createExporter } from './exporter';
 import type { DesktopBridge } from '../protocol/bridge';
 import type { WorkerClient } from './port';
+const options = (format: ExportOptions['format']): ExportOptions => ({ format, quality: 95, target: { token: 'destination' }, name: 'a.tif', onExists: 'replace' });
 const mocks = vi.hoisted(() => ({ readback: vi.fn() }));
 vi.mock('@/renderer', () => ({ createRenderer: async () => ({ readback: mocks.readback, setImage() {}, setLens() {}, dispose() {} }) }));
 vi.mock('@/app/services/processing', () => ({ acquireResult: () => ({ image: { gpu: {} }, release() {} }) }));
@@ -31,9 +32,9 @@ it.each(['begin-denied', 'cancelled'] as const)('releases both rendered planes a
   return {};
  } } as unknown as WorkerClient;
  const host = fakeHost();
- host.exporter = createExporter({ chooseExportDestination: async () => ({ token: 'destination' }) } as unknown as DesktopBridge, client, { platform: 'MacIntel', chunkBytes: 4 });
+ host.exporter = createExporter({} as DesktopBridge, client, { platform: 'MacIntel', chunkBytes: 4 });
  setHost(host);
- const job = enqueueExport('a', 'jpeg-hdr'); cancel = job.cancel;
+ const job = enqueueExport('a', options('jpeg-hdr')); cancel = job.cancel;
  if (ending === 'begin-denied') await expect(job.promise).rejects.toThrow('Begin denied'); else await expect(job.promise).resolves.toBeNull();
  expect(job.state).toBe(ending === 'begin-denied' ? 'failed' : 'cancelled'); expect(refs).toHaveLength(2);
  // Mock call/result history would itself own the readback promises. Remove it
@@ -41,10 +42,10 @@ it.each(['begin-denied', 'cancelled'] as const)('releases both rendered planes a
  mocks.readback.mockClear();
  for (let i = 0; i < 5; i++) { await new Promise(resolve => setTimeout(resolve, 0)); gc(); }
  expect(refs.map(ref => ref.deref())).toEqual([undefined, undefined]);
- setHost(fakeHost()); await expect(enqueueExport('a', 'tiff').promise).resolves.not.toBeNull();
+ setHost(fakeHost()); await expect(enqueueExport('a', options('tiff')).promise).resolves.not.toBeNull();
 });
 it('keeps a readback failure on its own job and allows the next render', async () => {
  setHost(fakeHost()); mocks.readback.mockRejectedValueOnce(new Error('GPU readback failed')).mockResolvedValue(new Float32Array(3));
- await expect(enqueueExport('a', 'tiff').promise).rejects.toThrow('GPU readback failed');
- await expect(enqueueExport('a', 'tiff').promise).resolves.not.toBeNull();
+ await expect(enqueueExport('a', options('tiff')).promise).rejects.toThrow('GPU readback failed');
+ await expect(enqueueExport('a', options('tiff')).promise).resolves.not.toBeNull();
 });

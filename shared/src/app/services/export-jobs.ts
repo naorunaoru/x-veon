@@ -1,8 +1,9 @@
 import { create } from 'zustand';
 import { useAppStore } from '@/app/store';
 import { exportFormatInfo } from '@/lib/catalog';
-import type { ExportDestination, ExportResult } from '@/host';
+import type { ExportResult, ExportTarget } from '@/host';
 import { enqueueExport, type ExportJobHandle, type ExportState } from './export';
+import { getHost } from './host';
 
 export interface ExportJobView {
   id: string;
@@ -11,7 +12,8 @@ export interface ExportJobView {
   state: ExportState;
   error: string | null;
   result: ExportResult | null;
-  destination: ExportDestination | null;
+  /** The resolved target, kept for Reveal. */
+  destination: ExportTarget | null;
 }
 export const useExportJobs = create<{ jobs: ExportJobView[] }>(() => ({ jobs: [] }));
 const handles = new Map<string, ExportJobHandle>();
@@ -33,18 +35,23 @@ export function startExport(fileId: string): string {
   const id = crypto.randomUUID();
   const snapshot = useAppStore.getState();
   const file = snapshot.files.find((photo) => photo.id === fileId);
-  const label = `${file?.name ?? fileId}.${exportFormatInfo(snapshot.exportFormat).ext}`;
+  const { exportFormat: format, exportQuality: quality, exportSaveTo, exportOnExists: onExists } = snapshot;
+  const label = `${file?.name ?? fileId}.${exportFormatInfo(format).ext}`;
+  const listed = () => useExportJobs.getState().jobs.some((job) => job.id === id);
   useExportJobs.setState((state) => ({ jobs: [...state.jobs, { id, fileId, label, state: 'queued', error: null, result: null, destination: null }] }));
-  const handle = enqueueExport(fileId, undefined, undefined, {
-    state: (state) => update(id, { state }),
-    destination: (destination) => update(id, { destination }),
-  });
-  handles.set(id, handle);
-  void handle.promise.then((result) => {
+  let handle: ExportJobHandle | undefined;
+  void getHost().exporter.resolveTarget(exportSaveTo, [fileId]).then((target) => {
+    // Cancelling while the target resolves removes the job; nothing is enqueued.
+    if (!listed()) return null;
+    update(id, { destination: target });
+    handle = enqueueExport(fileId, { format, quality, target, name: label, onExists, observer: { state: (state) => update(id, { state }) } });
+    handles.set(id, handle);
+    return handle.promise;
+  }).then((result) => {
     handles.delete(id);
-    if (handle.state === 'cancelled') { dismissExport(id); return; }
+    if (!handle || handle.state === 'cancelled') { dismissExport(id); return; }
     update(id, { state: 'done', result, ...(result?.name ? { label: result.name } : {}) });
-    if (useExportJobs.getState().jobs.some((job) => job.id === id)) {
+    if (listed()) {
       timers.set(id, setTimeout(() => dismissExport(id), 10_000));
     }
   }, (error: unknown) => {

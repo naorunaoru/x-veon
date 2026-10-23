@@ -82,6 +82,17 @@ it('persists columnWidth like the other settings', () => {
   useAppStore.getState().setColumnWidth(2);
   expect(putSetting).toHaveBeenCalledWith('columnWidth', 2);
 });
+it('persists exportSaveTo and exportOnExists', async () => {
+  useAppStore.getState().setExportSaveTo({ mode: 'folder', path: '/out' });
+  useAppStore.getState().setExportOnExists('replace');
+  expect(putSetting).toHaveBeenCalledWith('exportSaveTo', { mode: 'folder', path: '/out' });
+  expect(putSetting).toHaveBeenCalledWith('exportOnExists', 'replace');
+  vi.mocked(getSetting).mockImplementation(
+    async (key) => (({ exportSaveTo: { mode: 'folder', path: '/out' }, exportOnExists: 'replace' }) as Record<string, unknown>)[key] as never,
+  );
+  const restored = await restore();
+  expect(restored.settings).toMatchObject({ exportSaveTo: { mode: 'folder', path: '/out' }, exportOnExists: 'replace' });
+});
 it('does not write on hydration or selection, and restores model defaults', async () => {
   vi.mocked(host.library.load).mockResolvedValue({ photos: [fakePhoto('r')], complete: true });
   vi.mocked(getSetting).mockImplementation(

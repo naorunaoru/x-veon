@@ -44,8 +44,8 @@ export function fakeHost(library: Partial<LibraryHost> = {}): Host {
     },
     exporter: {
       status: vi.fn(async () => ({ available: true as const })),
-      chooseDestination: vi.fn(async (_photoId, _suggestedName, _format) => ({ token: 'test' })),
-      encode: vi.fn(async () => ({ blob: new Blob(['encoded']) })),
+      resolveTarget: vi.fn(async () => ({ token: 'test' })),
+      encode: vi.fn(async () => ({ outcome: 'written' as const, blob: new Blob(['encoded']) })),
     },
     display: { probe: vi.fn(async () => ({ supported: false, headroom: 1, accurate: true })) },
     build: { channel: 'dev', sha: 'test', date: '' },
