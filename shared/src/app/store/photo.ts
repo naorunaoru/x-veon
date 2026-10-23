@@ -81,6 +81,12 @@ export function processingKey(
     : method;
 }
 
+/** The photo has no current processing: never processed, restored without its pixels, or its method/model changed. */
+export function needsProcessing(file: QueuedFile, defaults: { demosaicMethod: DemosaicMethod; modelSize: ModelSize }): boolean {
+  return file.status === 'queued' || (file.status === 'done' && file.processedKey === null)
+    || (file.processedKey !== null && file.processedKey !== processingKey(file, defaults));
+}
+
 /** Preserve rendering and session history when a listing only refreshes disk/cache state. */
 export function mergeLibraryPhoto(live: QueuedFile, incoming: QueuedFile, defaults: { demosaicMethod: DemosaicMethod; modelSize: ModelSize }): { file: QueuedFile; invalidate: boolean } {
   const sameRaw = live.sourceVersion === incoming.sourceVersion && live.fileSize === incoming.fileSize && live.originalName === incoming.originalName;

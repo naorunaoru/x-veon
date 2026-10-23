@@ -7,7 +7,7 @@
  */
 import { useAppStore } from '@/app/store';
 import { processRaw, type PipelineContext, type ProcessedImage } from '@/pipeline';
-import { processingKey } from '@/app/store/photo';
+import { needsProcessing, processingKey } from '@/app/store/photo';
 import { effectiveMethod } from '@/app/photo-edit';
 import { getHost } from './host';
 import { matchLensFor } from './library';
@@ -114,7 +114,59 @@ export async function processFile(fileId: string): Promise<void> {
   } finally {
     inFlight = null;
     useAppStore.getState().setProcessingFileId(null);
+    pump();
   }
+}
+
+interface Waiter {
+  fileId: string;
+  resolve(): void;
+  reject(error: Error): void;
+}
+/** Exports waiting for a photo's processing, served first come first served. */
+const waiters: Waiter[] = [];
+
+/** A published, non-stale result. */
+export function hasResult(fileId: string): boolean {
+  const entry = results.get(fileId);
+  return !!entry && !entry.stale;
+}
+
+/**
+ * Resolves once fileId's run has settled (result published or status 'error'); rejects with
+ * 'no longer in the library' when the photo is gone. Waits for any run in flight and yields to
+ * the current photo whenever it needsProcessing (and the store is initialized).
+ */
+export function processForExport(fileId: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    waiters.push({ fileId, resolve, reject });
+    pump();
+  });
+}
+
+function settleWaiter(waiter: Waiter): void {
+  if (useAppStore.getState().files.some((f) => f.id === waiter.fileId)) waiter.resolve();
+  else waiter.reject(new Error('no longer in the library'));
+}
+
+/** Runs after every processFile settles and whenever a waiter is added. */
+function pump(): void {
+  const state = useAppStore.getState();
+  for (const waiter of [...waiters]) {
+    const file = state.files.find((f) => f.id === waiter.fileId);
+    if (file && !(hasResult(waiter.fileId) && !needsProcessing(file, state))) continue;
+    waiters.splice(waiters.indexOf(waiter), 1);
+    settleWaiter(waiter);
+  }
+  if (inFlight || waiters.length === 0) return;
+  // The auto-process effect runs the current photo; its settlement pumps again.
+  const current = state.files.find((f) => f.id === state.currentId);
+  if (current && state.initialized && current.status !== 'error' && needsProcessing(current, state)) return;
+  const waiter = waiters[0];
+  const run = processFile(waiter.fileId);
+  if (inFlight !== waiter.fileId) return; // another run won the race: wait for the next settlement
+  waiters.shift();
+  void run.then(() => settleWaiter(waiter));
 }
 
 function retire(entry: Entry): void {
