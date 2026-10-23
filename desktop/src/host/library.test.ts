@@ -48,7 +48,7 @@ async function accept(token: string, activation: string, f = folder) {
 beforeEach(() => {
   win = new EventTarget(); ports = []; listeners = new Set(); stop = () => {};
   vi.stubGlobal('window', win); vi.stubGlobal('location', { origin: 'app://bundle' }); vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(dynamic-range: high)' }));
-  bridge = { version: 2, chooseExportDestination: vi.fn(async () => null), revealExport: vi.fn(async () => {}), loadLast: vi.fn(async () => null), openFolder: vi.fn(async () => null), openDropped: vi.fn(async () => null), recentFolders: vi.fn(async () => [folder]), displayReadings: vi.fn(async () => null), checkForUpdate: vi.fn(async () => null),
+  bridge = { version: 2, resolveExportTarget: vi.fn(async () => null), revealExport: vi.fn(async () => {}), chooseExportFolder: vi.fn(async () => null), loadLast: vi.fn(async () => null), openFolder: vi.fn(async () => null), openDropped: vi.fn(async () => null), recentFolders: vi.fn(async () => [folder]), displayReadings: vi.fn(async () => null), checkForUpdate: vi.fn(async () => null),
     requestWorkerPort: vi.fn(async (requestId: string) => { const port = new FakePort(); ports.push(port); const e = new MessageEvent('message', { data: { type: 'xveon-port', version: 2, requestId }, origin: 'app://bundle' }); Object.defineProperty(e, 'source', { value: win }); Object.defineProperty(e, 'ports', { value: [port] }); win.dispatchEvent(e); }),
     updateUnsaved: vi.fn(), respondFlush: vi.fn(), onEvent: listener => { listeners.add(listener); return () => listeners.delete(listener); } };
   host = createDesktopHost(bridge);
@@ -62,20 +62,25 @@ it('sends facts without an edit and starts best-effort facts caching after an ed
     const port = ports[0];
     expect(port.sent).toEqual([{ v: 1, rid: expect.any(Number), op: 'saveFacts', id, facts: p.facts }]);
     port.hold = true;
-    const saving = host.library.save(id, p.edit, p.facts); await tick();
+    const saving = host.library.save(id, p.edit, 0, p.facts); await tick();
     port.confirm(port.sent[1]); await saving;
     expect(port.sent.map(r => r.op)).toEqual(['saveFacts', 'saveEdit', 'saveFacts']);
     port.error = 'ENOSPC: no space left on device';
     port.confirm(port.sent[2]);
     await vi.waitFor(() => expect(warn).toHaveBeenCalledExactlyOnceWith('Photo facts cache failed:', expect.objectContaining({ message: 'ENOSPC: no space left on device' })));
     port.hold = false;
-    await expect(host.library.save(id, p.edit, p.facts)).rejects.toThrow('ENOSPC: no space left on device');
+    await expect(host.library.save(id, p.edit, 0, p.facts)).rejects.toThrow('ENOSPC: no space left on device');
   } finally { warn.mockRestore(); }
+});
+it('save sends the rating in saveEdit', async () => {
+  expect(host.library).toBeDefined(); const p = photo();
+  await host.library.save(id, p.edit, 3, p.facts);
+  expect(ports[0].sent[0]).toEqual({ v: 1, rid: expect.any(Number), op: 'saveEdit', id, edit: p.edit, rating: 3 });
 });
 it('cannot overwrite a held newer edit with concurrently saved facts', async () => {
   expect(host.library).toBeDefined(); await host.library.saveFacts(id, photo().facts); ports[0].sent = []; ports[0].hold = true;
   const edit = { ...photo().edit, preProcessOverrides: { exposure: 2 } };
-  const saving = host.library.save(id, edit, photo().facts); await tick();
+  const saving = host.library.save(id, edit, 0, photo().facts); await tick();
   const facts = host.library.saveFacts(id, photo().facts); await tick();
   expect(ports[0].sent[1]).not.toHaveProperty('edit'); ports[0].confirm(ports[0].sent[1]); await facts;
   ports[0].hold = false; ports[0].confirm(ports[0].sent[0]); await saving;
@@ -263,7 +268,7 @@ it.each(['ordinary', 'second-save', 'cancel', 'empty-drop', 'missing-recent', 'f
   const opening = mode.startsWith('startup-') ? host.library.load() : host.library.openFolder!(); await tick();
   for (const frame of listingFrames({ token: 'open', activation: 'visit', purpose: 'open', folder, stamp: { worker: workerA, revision: 0, scan: 1 } }, [photo()])) emit({ kind: 'listing', frame });
   ports[0].hold = true;
-  const saving = host.library.save(id, { ...photo().edit, lookPreset: 'umbra' }, photo().facts); await tick();
+  const saving = host.library.save(id, { ...photo().edit, lookPreset: 'umbra' }, 0, photo().facts); await tick();
   ports[0].receive({ v: 1, rid: ports[0].sent[0].rid, ok: true, stamp: { worker: workerA, revision: 2 } }); await tick();
   ports[0].receive({ v: 1, rid: ports[0].sent[1].rid, ok: true, stamp: { worker: workerA, revision: 4 } }); await saving;
   ports[0].hold = false; finish({ token: 'open' }); await tick();
@@ -288,7 +293,7 @@ it.each(['held', 'rejected', 'invalid'])('confirms the edit independently of %s 
  await host.library.saveFacts(id, photo().facts); const port = ports[0]; port.hold = true;
  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
  let confirmed = false; const facts = mode === 'invalid' ? { ...photo().facts, cfaType: 'invalid' } as any : photo().facts;
- const saving = host.library.save(id, photo().edit, facts).then(() => { confirmed = true; });
+ const saving = host.library.save(id, photo().edit, 0, facts).then(() => { confirmed = true; });
  await tick(); port.confirm(port.sent.at(-1)!); await tick();
  expect(confirmed).toBe(true);
  if (mode === 'rejected') { port.error = 'facts cache full'; port.confirm(port.sent.at(-1)!); await tick(); expect(warn).toHaveBeenCalled(); }

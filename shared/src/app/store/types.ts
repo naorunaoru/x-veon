@@ -1,4 +1,4 @@
-import type { PhotoEdit, LibraryPhoto } from '@/host';
+import type { PhotoEdit, LibraryPhoto, Rating } from '@/host';
 import type { ModelIdentity } from '@/lib/types';
 import type { StateCreator } from 'zustand';
 import type { CfaType, DemosaicMethod, LookPreset, ProcessingResultMeta } from '@/lib/types';
@@ -26,6 +26,7 @@ export interface QueuedFile {
   fileSize: number;
   sourceVersion?: string;
   edit: PhotoEdit;
+  rating: Rating;
   editing: LibraryPhoto['editing'];
   editingNote: string | null;
   editRevision: number;

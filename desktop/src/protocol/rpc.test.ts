@@ -5,7 +5,7 @@ import { DEFAULT_LENS_EDIT } from '@/lib/lens/edit';
 const p = photo();
 const folder = { id: 'folder', name: 'Photos' };
 const examples = [
-  [isPortRequest, { v: 1, rid: 1, op: 'saveEdit', id: p.id, edit: p.edit }],
+  [isPortRequest, { v: 1, rid: 1, op: 'saveEdit', id: p.id, rating: 0, edit: p.edit }],
   [isPortRequest, { v: 1, rid: 2, op: 'saveFacts', id: p.id, facts: p.facts }],
   [isPortRequest, { v: 1, rid: 3, op: 'rescan' }],
   [isPortReply, { v: 1, rid: 1, ok: true }],
@@ -57,14 +57,28 @@ describe('versioned process protocol', () => {
     const { calibCropfactor, calibAspectRatio, ...stored } = p.facts.lensProfile!;
     expect(isPortRequest({ ...examples[1][1], facts: { ...p.facts, lensProfile: stored } })).toBe(true);
   });
+  it('saveEdit requires an integer rating in −1…5', () => {
+    const { rating: _, ...missing } = examples[0][1];
+    expect(isPortRequest({ ...examples[0][1], rating: 3 })).toBe(true);
+    expect(isPortRequest({ ...examples[0][1], rating: -1 })).toBe(true);
+    for (const rating of [6, -2, 2.5, '3', null]) expect(isPortRequest({ ...examples[0][1], rating })).toBe(false);
+    expect(isPortRequest(missing)).toBe(false);
+  });
+  it('listing photos require a rating', () => {
+    const { rating: _, ...unrated } = p;
+    expect(isListingFrame({ ...examples[18][1], photos: [{ ...p, rating: 5 }] })).toBe(true);
+    expect(isListingFrame({ ...examples[18][1], photos: [unrated] })).toBe(false);
+    expect(isListingFrame({ ...examples[18][1], photos: [{ ...p, rating: 7 }] })).toBe(false);
+    expect(isPortEvent({ ...examples[5][1], photos: [unrated] })).toBe(false);
+  });
   it('accepts an edit with a lens block and rejects a malformed one', () => {
     const lens = { ...DEFAULT_LENS_EDIT, source: { lensfun: { file: 'misc.json', model: 'X' } } };
-    expect(isPortRequest({ v: 1, rid: 1, op: 'saveEdit', id: p.id, edit: { ...p.edit, lens } })).toBe(true);
-    expect(isPortRequest({ v: 1, rid: 1, op: 'saveEdit', id: p.id, edit: { ...p.edit, lens: { ...lens, distortion: 'yes' } } })).toBe(false);
-    expect(isPortRequest({ v: 1, rid: 1, op: 'saveEdit', id: p.id, edit: { ...p.edit, lens: { ...lens, source: 'camera' } } })).toBe(false);
+    expect(isPortRequest({ v: 1, rid: 1, op: 'saveEdit', id: p.id, rating: 0, edit: { ...p.edit, lens } })).toBe(true);
+    expect(isPortRequest({ v: 1, rid: 1, op: 'saveEdit', id: p.id, rating: 0, edit: { ...p.edit, lens: { ...lens, distortion: 'yes' } } })).toBe(false);
+    expect(isPortRequest({ v: 1, rid: 1, op: 'saveEdit', id: p.id, rating: 0, edit: { ...p.edit, lens: { ...lens, source: 'camera' } } })).toBe(false);
     // The sidecar rejects an empty LensFile or LensModel, which would leave the photo view-only.
     for (const lensfun of [{ file: '', model: 'X' }, { file: 'misc.json', model: '' }]) {
-      expect(isPortRequest({ v: 1, rid: 1, op: 'saveEdit', id: p.id, edit: { ...p.edit, lens: { ...lens, source: { lensfun } } } })).toBe(false);
+      expect(isPortRequest({ v: 1, rid: 1, op: 'saveEdit', id: p.id, rating: 0, edit: { ...p.edit, lens: { ...lens, source: { lensfun } } } })).toBe(false);
     }
   });
   it('accepts the camera correction tables in a result and rejects malformed ones', () => {
@@ -110,27 +124,36 @@ it('bounds and validates state stamps, listing order and opaque source revisions
 });
 
 describe('export protocol', () => {
-  const begin = { v: 1, rid: 1, op: 'exportBegin', job: 'job-0001', destination: 'dest-001', format: 'avif', width: 2, height: 2, orientation: '', quality: 95, peakLuminance: 1000, planes: 1 };
+  const begin = { v: 1, rid: 1, op: 'exportBegin', job: 'job-0001', target: 'dest-001', name: 'a.avif', onExists: 'replace', format: 'avif', width: 2, height: 2, orientation: '', quality: 95, peakLuminance: 1000, planes: 1 };
   const chunk = { v: 1, rid: 2, op: 'exportChunk', job: 'job-0001', plane: 0, offset: 0, data: new ArrayBuffer(4) };
   it('accepts each format and all export operations', () => {
-    for (const format of ['avif', 'jpeg-hdr', 'tiff']) expect(isPortRequest({ ...begin, format, planes: format === 'jpeg-hdr' ? 2 : 1 })).toBe(true);
+    for (const [format, name] of [['avif', 'a.avif'], ['jpeg-hdr', 'a.jpg'], ['tiff', 'a.tif']]) expect(isPortRequest({ ...begin, format, name, planes: format === 'jpeg-hdr' ? 2 : 1 })).toBe(true);
     for (const op of ['exportStatus', 'exportCommit', 'exportCancel']) expect(isPortRequest({ v: 1, rid: 1, op, job: 'job-0001' })).toBe(true);
     expect(isPortRequest({ ...chunk, data: new ArrayBuffer(64_000_000) })).toBe(true);
   });
   it('rejects invalid begin fields', () => {
-    for (const patch of [{ width: 0 }, { width: 65_536 }, { width: 20_000, height: 20_000 }, { quality: 0 }, { quality: 101 }, { quality: 95.5 }, { peakLuminance: NaN }, { format: 'png' }, { format: 'jpeg-hdr', planes: 1 }, { planes: 2 }, { job: 'has spaces' }, { destination: 'short' }]) expect(isPortRequest({ ...begin, ...patch })).toBe(false);
+    for (const patch of [{ width: 0 }, { width: 65_536 }, { width: 20_000, height: 20_000 }, { quality: 0 }, { quality: 101 }, { quality: 95.5 }, { peakLuminance: NaN }, { format: 'png' }, { format: 'jpeg-hdr', planes: 1 }, { planes: 2 }, { job: 'has spaces' }, { target: 'short' }]) expect(isPortRequest({ ...begin, ...patch })).toBe(false);
   });
   it('rejects invalid chunks', () => {
     for (const patch of [{ data: new Float32Array(1) }, { data: new ArrayBuffer(64_000_004) }, { data: new ArrayBuffer(6) }, { data: new ArrayBuffer(0) }, { offset: -4 }, { offset: 2 }, { plane: 2 }]) expect(isPortRequest({ ...chunk, ...patch })).toBe(false);
   });
   it('validates receipts, availability and destination registration', () => {
-    const receipt = { name: 'test.avif', bytes: 3, sha256: 'a'.repeat(64), encodeMs: 2 };
+    const receipt = { outcome: 'written', name: 'test.avif', bytes: 3, sha256: 'a'.repeat(64), encodeMs: 2 };
     expect(isPortReply({ v: 1, rid: 1, ok: true, receipt })).toBe(true);
     for (const patch of [{ bytes: -1 }, { sha256: 'aaa' }, { encodeMs: NaN }]) expect(isPortReply({ v: 1, rid: 1, ok: true, receipt: { ...receipt, ...patch } })).toBe(false);
     for (const availability of [{ available: true }, { available: false, reason: 'no addon' }]) expect(isPortReply({ v: 1, rid: 1, ok: true, availability })).toBe(true);
     expect(isPortReply({ v: 1, rid: 1, ok: true, availability: { available: false } })).toBe(false);
     expect(isMainToWorker({ v: 1, kind: 'export-destination', token: 'dest-001', path: '/a.avif' })).toBe(true);
     expect(isMainToWorker({ v: 1, kind: 'export-destination', token: 'dest-001', path: '' })).toBe(false);
+  });
+  it('exportBegin requires a safe leaf name and onExists', () => {
+    expect(isPortRequest(begin)).toBe(true); expect(isPortRequest({ ...begin, onExists: 'skip' })).toBe(true);
+    for (const name of ['../x', 'a/b', 'a\\b', 'a\0b', '', 'x'.repeat(256), '.', '..', 7, '.zshrc', 'DSCF0001.RAF', '../x.avif', 'a/b.avif']) expect(isPortRequest({ ...begin, name })).toBe(false);
+    expect(isPortRequest({ ...begin, name: 'a.avif', format: 'avif' })).toBe(true); expect(isPortRequest({ ...begin, name: 'a.avif', format: 'tiff' })).toBe(false);
+    for (const onExists of ['overwrite', undefined]) expect(isPortRequest({ ...begin, onExists })).toBe(false);
+    const written = { outcome: 'written', name: 'a.avif', bytes: 3, sha256: 'a'.repeat(64), encodeMs: 2 };
+    for (const receipt of [written, { outcome: 'skipped', name: 'a.avif' }]) expect(isPortReply({ v: 1, rid: 1, ok: true, receipt })).toBe(true);
+    for (const receipt of [{ ...written, outcome: 'other' }, { outcome: 'skipped', name: '../a.avif' }, { outcome: 'skipped' }]) expect(isPortReply({ v: 1, rid: 1, ok: true, receipt })).toBe(false);
   });
 });
 it('validates destination acknowledgments and optional request IDs', () => {

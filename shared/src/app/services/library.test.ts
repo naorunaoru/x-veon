@@ -2,14 +2,15 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { useAppStore } from '@/app/store';
 import { fakeHost, fakePhoto } from '@/test/fake-host';
 import { setHost } from './host';
-import { importFiles, matchLensFor, removeFile, startLibraryWatching, switchFolder, openFolder } from './library';
+import { clearLibrary, importFiles, matchLensFor, removeFile, startLibraryWatching, switchFolder, openFolder } from './library';
 import { fromLibraryPhoto } from '@/app/store/photo';
 vi.mock('./processing', () => ({ discardResult: vi.fn() }));
+vi.mock('./export-batch', () => ({ cancelQueuedExports: vi.fn() }));
 vi.mock('./persistence', () => ({
   flushPersistence: vi.fn(async () => {}),
   unsavedEdits: vi.fn(() => []),
   retryUnsaved: vi.fn(),
-  restoreFromLedger: vi.fn((file, entry) => entry ? { ...file, edit: entry.edit, editRevision: entry.revision, modelNeedsResolution: entry.deferred, editing: 'session', editingNote: entry.error } : file),
+  restoreFromLedger: vi.fn((file, entry) => entry ? { ...file, edit: entry.edit, rating: entry.rating, editRevision: entry.revision, modelNeedsResolution: entry.deferred, editing: 'session', editingNote: entry.error } : file),
   cancelPhotoSave: vi.fn(async () => {}),
   pausePersistence: vi.fn(),
   resumePersistence: vi.fn(),
@@ -17,7 +18,8 @@ vi.mock('./persistence', () => ({
 vi.mock('@/app/lens/lensfun', () => ({ matchLens: vi.fn(async () => ({ lensModel: 'XF35' })) }));
 import { matchLens } from '@/app/lens/lensfun';
 import { discardResult } from './processing';
-import { cancelPhotoSave, flushPersistence } from './persistence';
+import { cancelPhotoSave, flushPersistence, pausePersistence } from './persistence';
+import { cancelQueuedExports } from './export-batch';
 let host: ReturnType<typeof fakeHost>;
 beforeEach(() => {
   vi.clearAllMocks();
@@ -154,6 +156,24 @@ it('flushes before opening, replaces photos and disposes old results; cancellati
   vi.mocked(host.library.openFolder).mockResolvedValue(null);
   await openFolder();
   expect(useAppStore.getState().files).toBe(files);
+});
+it('switchFolder cancels queued export jobs', async () => {
+  let finish!: (s: ReturnType<typeof snapshot>) => void;
+  const switching = switchFolder(() => new Promise(r => { finish = r; }));
+  await vi.waitFor(() => expect(flushPersistence).toHaveBeenCalled());
+  expect(cancelQueuedExports).not.toHaveBeenCalled();
+  finish(snapshot('B'));
+  await switching;
+  expect(cancelQueuedExports).toHaveBeenCalledOnce();
+  expect(useAppStore.getState().folder).toMatchObject({ id: 'B' });
+  await switchFolder(async () => null);
+  expect(cancelQueuedExports).toHaveBeenCalledOnce();
+});
+it('clearLibrary cancels queued export jobs', async () => {
+  host.library.clear = vi.fn(async () => {});
+  await clearLibrary();
+  expect(cancelQueuedExports).toHaveBeenCalledOnce();
+  expect(vi.mocked(cancelQueuedExports).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(pausePersistence).mock.invocationCallOrder[0]);
 });
 it('ignores a late A snapshot after B, including returning to A', async () => {
   let finish!: (s: ReturnType<typeof snapshot>) => void;

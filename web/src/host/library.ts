@@ -5,6 +5,7 @@ import type {
   LibrarySnapshot,
   PhotoEdit,
   PhotoFacts,
+  Rating,
 } from '@/host';
 import { RAW_EXTENSIONS } from '@/lib/catalog';
 import { extractRafThumbnail, extractRafQuickMetadata } from '@/pipeline/decode/raf-thumbnail';
@@ -104,7 +105,7 @@ export function createWebLibrary(options: {
           : undefined,
       ]);
       if (!live()) return;
-      const record = toRecord(updated, updated.edit, updated.facts, Date.now());
+      const record = toRecord(updated, updated.edit, updated.rating, updated.facts, Date.now());
       persisted.set(photo.id, record);
       try {
         await records.putFile(record);
@@ -134,6 +135,7 @@ export function createWebLibrary(options: {
         originalName: file.name,
         fileSize: file.size,
         thumbnailUrl: null,
+        rating: 0,
         editing: 'saved',
         editingNote: null,
         edit: {
@@ -168,7 +170,7 @@ export function createWebLibrary(options: {
       selectedIds: added.length ? [added[0].id] : [],
     };
   }
-  async function save(id: string, edit: PhotoEdit, facts: PhotoFacts): Promise<void> {
+  async function save(id: string, edit: PhotoEdit, rating: Rating, facts: PhotoFacts): Promise<void> {
     assertDatabaseActive(options.dbName);
     if (clearing || removed.has(id)) throw new Error('Photo is no longer in the library.');
     await imports.get(id);
@@ -178,13 +180,12 @@ export function createWebLibrary(options: {
     if (!photo) throw new Error('Photo is no longer in the library.');
     const old = persisted.get(id);
     const record = {
-      ...old,
-      ...toRecord(photo, edit, facts, old?.addedAt ?? Date.now()),
+      ...toRecord(photo, edit, rating, facts, old?.addedAt ?? Date.now(), old),
       cachedMethods: old?.cachedMethods ?? [],
     };
     await records.putFile(record);
     persisted.set(id, record);
-    photos.set(id, { ...photo, edit, facts });
+    photos.set(id, { ...photo, edit, rating, facts });
   }
   async function saveFacts(id: string, facts: PhotoFacts): Promise<void> {
     assertDatabaseActive(options.dbName);
@@ -245,7 +246,7 @@ export function createWebLibrary(options: {
       return bytes;
     },
     saveFacts: (id, facts) => track(saveFacts(id, facts)),
-    save: (id, edit, facts) => track(save(id, edit, facts)),
+    save: (id, edit, rating, facts) => track(save(id, edit, rating, facts)),
     remove: (id) => track(remove(id)),
     clear,
     onChange: (listener) => {

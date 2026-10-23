@@ -3,19 +3,17 @@ import { URL as NodeURL } from 'node:url';
 const hudCss = readFileSync(new NodeURL('./HudRoot.css', import.meta.url), 'utf8');
 const dropCss = readFileSync(new NodeURL('./DropSurface.css', import.meta.url), 'utf8');
 import { beforeEach, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { useAppStore } from '@/app/store';
 import { fromLibraryPhoto } from '@/app/store/photo';
 import { fakeHost, fakePhoto } from '@/test/fake-host';
 import { setHost } from '@/app/services/host';
 import { HudRoot } from './HudRoot';
-import { useExportJobs } from '@/app/services/export-jobs';
 vi.mock('@/components/OutputCanvas', () => ({ OutputCanvas: () => null }));
 vi.mock('@/app/hooks/useModelSizes', () => ({
   useModelSizes: () => ({ available: new Set(['S']), modelFor: vi.fn() }),
 }));
 beforeEach(() => {
-  useExportJobs.setState({ jobs: [] });
   const host = fakeHost();
   host.library.clear = vi.fn();
   setHost(host);
@@ -76,19 +74,4 @@ it('places only the recovery controls above the empty drop surface', () => {
   } finally {
     style.remove();
   }
-});
-
-it('keeps running export status mounted when a folder switch empties the library', () => {
-  const file = fromLibraryPhoto(fakePhoto());
-  file.status = 'error';
-  useAppStore.setState({ files: [file], currentId: file.id });
-  useExportJobs.setState({ jobs: [{ id: 'export', fileId: file.id, label: 'a.avif', state: 'encoding', error: null, result: null, destination: null }] });
-  render(<HudRoot />);
-  const status = screen.getByRole('status', { name: '' });
-  expect(screen.getByText('Encoding a.avif…')).toBeVisible();
-  expect(status.closest('.xv-hud-settings')).not.toBeNull();
-  act(() => useAppStore.setState({ files: [], currentId: null }));
-  expect(screen.getByText('Encoding a.avif…')).toBeVisible();
-  expect(screen.getByRole('button', { name: 'Cancel export of a.avif' })).toBeEnabled();
-  act(() => useExportJobs.setState({ jobs: [] }));
 });

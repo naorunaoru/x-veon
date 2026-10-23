@@ -81,6 +81,12 @@ export function processingKey(
     : method;
 }
 
+/** The photo has no current processing: never processed, restored without its pixels, or its method/model changed. */
+export function needsProcessing(file: QueuedFile, defaults: { demosaicMethod: DemosaicMethod; modelSize: ModelSize }): boolean {
+  return file.status === 'queued' || (file.status === 'done' && file.processedKey === null)
+    || (file.processedKey !== null && file.processedKey !== processingKey(file, defaults));
+}
+
 /** Preserve rendering and session history when a listing only refreshes disk/cache state. */
 export function mergeLibraryPhoto(live: QueuedFile, incoming: QueuedFile, defaults: { demosaicMethod: DemosaicMethod; modelSize: ModelSize }): { file: QueuedFile; invalidate: boolean } {
   const sameRaw = live.sourceVersion === incoming.sourceVersion && live.fileSize === incoming.fileSize && live.originalName === incoming.originalName;
@@ -91,13 +97,13 @@ export function mergeLibraryPhoto(live: QueuedFile, incoming: QueuedFile, defaul
   const sameEdit = live.edit.lookPreset === incoming.edit.lookPreset && live.edit.demosaicMethod === incoming.edit.demosaicMethod
     && live.edit.model?.size === incoming.edit.model?.size && live.edit.model?.sha256 === incoming.edit.model?.sha256
     && flatEqual(live.edit.preProcessOverrides, incoming.edit.preProcessOverrides) && flatEqual(live.edit.openDrtOverrides, incoming.edit.openDrtOverrides)
-    && lensEditEquals(live.edit, incoming.edit);
+    && lensEditEquals(live.edit, incoming.edit) && live.rating === incoming.rating;
   return { invalidate: false, file: {
     ...live,
     name: incoming.name, thumbnailUrl: incoming.thumbnailUrl,
     editing: incoming.editing, editingNote: incoming.editingNote,
     metadata: incoming.metadata ?? live.metadata, cfaType: next.cfaType,
     lensProfile: incoming.lensProfile ?? live.lensProfile,
-    ...(sameEdit ? {} : { edit: incoming.edit, editRevision: incoming.editRevision, modelNeedsResolution: incoming.modelNeedsResolution, lookHistory: undefined }),
+    ...(sameEdit ? {} : { edit: incoming.edit, rating: incoming.rating, editRevision: incoming.editRevision, modelNeedsResolution: incoming.modelNeedsResolution, lookHistory: undefined }),
   } };
 }

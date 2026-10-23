@@ -1,8 +1,15 @@
 import type { PhotoId } from './library';
 import type { ExportFormat } from '@/lib/types';
 /** Token issued and interpreted only by the host. */
-export interface ExportDestination {
+export interface ExportTarget {
   readonly token: string;
+}
+export type SaveTo = { mode: 'beside' } | { mode: 'folder'; path: string };
+export type OnExists = 'skip' | 'replace';
+export interface ExportOutput {
+  target: ExportTarget | null;
+  name: string;
+  onExists: OnExists;
 }
 export interface EncodeJob {
   format: ExportFormat;
@@ -16,6 +23,7 @@ export interface EncodeJob {
   signal?: AbortSignal;
 }
 export interface ExportResult {
+  outcome: 'written' | 'skipped';
   blob?: Blob;
   bytes?: number;
   sha256?: string;
@@ -24,11 +32,13 @@ export interface ExportResult {
 }
 export interface ExportReveal {
   label: string;
-  open(destination: ExportDestination): Promise<void>;
+  open(target: ExportTarget, name?: string): Promise<void>;
 }
 export interface ExportHost {
-  reveal?: ExportReveal;
   status(): Promise<{ available: true } | { available: false; reason: string }>;
-  chooseDestination(photoId: PhotoId, suggestedName: string, format: ExportFormat): Promise<ExportDestination | null>;
-  encode(job: EncodeJob, destination: ExportDestination): Promise<ExportResult>;
+  /** One target per batch; web returns null and downloads each output by name. */
+  resolveTarget(saveTo: SaveTo, photoIds: PhotoId[]): Promise<ExportTarget | null>;
+  encode(job: EncodeJob, out: ExportOutput): Promise<ExportResult>;
+  reveal?: ExportReveal;
+  chooseFolder?(): Promise<string | null>;
 }

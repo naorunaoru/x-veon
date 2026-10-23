@@ -1,11 +1,12 @@
 /** The session ledger owns unsaved edits; hosts confirm saves only once durable. */
 import { useAppStore, type QueuedFile, type RestoredSettings } from '@/app/store';
 import { factsOf, fromLibraryPhoto } from '@/app/store/photo';
-import type { FolderRef, PhotoEdit, PhotoFacts, PhotoId } from '@/host';
+import type { FolderRef, PhotoEdit, PhotoFacts, PhotoId, Rating } from '@/host';
 import { getHost } from './host';
 import { getSetting, putSetting, pauseSettings, resumeSettings } from '@/app/storage/settings-storage';
 const SETTING_KEYS = [
   'demosaicMethod', 'modelSize', 'exportFormat', 'exportQuality', 'currentId', 'columnWidth',
+  'exportSaveTo', 'exportOnExists',
 ] as const;
 export interface UnsavedEdit {
   id: PhotoId;
@@ -13,6 +14,7 @@ export interface UnsavedEdit {
   folder: FolderRef | null;
   revision: number;
   edit: PhotoEdit;
+  rating: Rating;
   facts: PhotoFacts;
   deferred: boolean;
   error: string | null;
@@ -36,6 +38,7 @@ export function restoreFromLedger(file: QueuedFile, entry = ledger.get(file.id))
   return entry ? {
     ...file,
     edit: entry.edit,
+    rating: entry.rating,
     editRevision: entry.revision,
     modelNeedsResolution: entry.deferred,
     editing: 'session',
@@ -116,7 +119,7 @@ export function startPersistence(): () => void {
     const work = (async () => {
       if (item) {
         try {
-          await getHost().library.save(id, item.edit, item.facts);
+          await getHost().library.save(id, item.edit, item.rating, item.facts);
           if (ledger.get(id)?.revision === item.revision) {
             ledger.delete(id);
             reconcileSave(id, item.revision, 'saved', null);
@@ -166,6 +169,7 @@ export function startPersistence(): () => void {
           folder: state.folder ?? null,
           revision: file.editRevision,
           edit: file.edit,
+          rating: file.rating,
           facts: photoFacts,
           deferred: file.modelNeedsResolution,
           error: current?.error ?? null,

@@ -102,7 +102,7 @@ export function createWorkerController(opts: {
         case 'exportCommit': reply(target, { v: 1, rid, ok: true, receipt: await getExports().commit(message.job) }); return;
         case 'exportCancel': getExports().cancel(message.job); break;
         case 'rescan': await replace(); break;
-        case 'saveEdit': await mutate(message.id, () => getLibrary().saveEdit(message.id, message.edit)); break;
+        case 'saveEdit': await mutate(message.id, () => getLibrary().saveEdit(message.id, message.edit, message.rating)); break;
         case 'saveFacts': await mutate(message.id, () => getLibrary().saveFacts(message.id, message.facts)); break;
       }
       const saved = message.op === 'saveEdit' || message.op === 'saveFacts';

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import { directoryIdentity, writeFileAtomic, type DirectoryIdentity } from './atomic-write';
 import type { NativeLoad } from './native';
@@ -12,7 +13,7 @@ type Job = {
 };
 export function createExportService(opts: { native: () => NativeLoad; now?: () => number; slots?: number }) {
   const now = opts.now ?? (() => performance.now());
-  const destinations = new Map<string, string>();
+  const targets = new Map<string, string>();
   const jobs = new Map<string, Job>();
   let stopping = false;
   const writes = new Set<Promise<void>>();
@@ -59,23 +60,25 @@ export function createExportService(opts: { native: () => NativeLoad; now?: () =
   }
   return {
     status(): ExportAvailability { if (stopping) return { available: false, reason: 'The background worker stopped.' }; const n = native(); return n.ok ? { available: true } : { available: false, reason: n.reason }; },
-    register(token: string, target: string) {
+    /** The folder of one batch; a token serves every job of it, and the 50 newest are kept. */
+    register(token: string, directory: string) {
       if (stopping) throw new Error('The background worker stopped.');
-      if (!path.isAbsolute(target)) { console.error('Ignored a relative export destination'); return; }
-      destinations.set(token, target);
+      if (!path.isAbsolute(directory)) { console.error('Ignored a relative export destination'); return; }
+      targets.set(token, directory);
+      if (targets.size > 50) targets.delete(targets.keys().next().value!);
     },
     async begin(message: ExportBegin) {
       if (stopping) throw new Error('The background worker stopped.');
       const n = native(); if (!n.ok) throw new Error(n.reason);
       if (jobs.has(message.job)) throw new Error('Duplicate export job');
-      const target = destinations.get(message.destination);
-      if (!target) throw new Error('Unknown or used export destination');
-      destinations.delete(message.destination);
-      const j: Job = { begin: message, target, planes: [], received: [], state: 'pending', abort: new AbortController() };
+      const dir = targets.get(message.target);
+      if (!dir) throw new Error('Unknown export target');
+      if (path.basename(message.name) !== message.name) throw new Error('Invalid export name');
+      const j: Job = { begin: message, target: path.join(dir, message.name), planes: [], received: [], state: 'pending', abort: new AbortController() };
       // Reserve the ID before directory lookup or slot acquisition can yield.
       jobs.set(message.job, j);
       try {
-        j.directory = await directoryIdentity(path.dirname(target));
+        j.directory = await directoryIdentity(dir);
         j.abort.signal.throwIfAborted();
         j.release = await acquire(j.abort.signal);
         j.abort.signal.throwIfAborted();
@@ -101,6 +104,11 @@ export function createExportService(opts: { native: () => NativeLoad; now?: () =
       j.state = 'queued';
       const run = chain.then(async () => {
         j.abort.signal.throwIfAborted();
+        const name = j.begin.name;
+        // Skip looks before encoding; the encoder never sees the planes and drop() frees them.
+        const exists = j.begin.onExists === 'skip' && await fs.lstat(j.target).then(() => true, (e: NodeJS.ErrnoException) => { if (e.code === 'ENOENT') return false; throw e; });
+        j.abort.signal.throwIfAborted();
+        if (exists) return { outcome: 'skipped' as const, name };
         const n = native(); if (!n.ok) throw new Error(n.reason);
         j.state = 'encoding';
         const { format, width, height, orientation, quality, peakLuminance } = j.begin;
@@ -122,14 +130,14 @@ export function createExportService(opts: { native: () => NativeLoad; now?: () =
           throw Object.assign(new Error(`Couldn't write ${path.basename(j.target)}: ${detail}`, { cause }), { code: error.code });
         }
         finally { writes.delete(write); }
-        return { name: path.basename(j.target), bytes: bytes.byteLength, sha256: createHash('sha256').update(bytes).digest('hex'), encodeMs };
+        return { outcome: 'written' as const, name, bytes: bytes.byteLength, sha256: createHash('sha256').update(bytes).digest('hex'), encodeMs };
       });
       chain = run.catch(() => {});
       try { return await run; } finally { drop(j); }
     },
     async shutdown() {
       stopping = true;
-      destinations.clear();
+      targets.clear();
       for (const id of [...jobs.keys()]) cancel(id);
       // Cancellation prevents encodes from starting any later write. Native code
       // may still borrow its planes, so only wait for existing atomic cleanup.

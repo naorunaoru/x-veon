@@ -1,39 +1,21 @@
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
 import type { Document, Element, Node } from '@xmldom/xmldom';
-import { defaultPhotoEdit } from '@/app/photo-edit';
-import type { PhotoEdit } from '@/host';
-import type { DemosaicMethod, LookPreset, ModelSize } from '@/lib/types';
-import { DEFAULT_LENS_EDIT, effectiveLensEdit } from '@/lib/lens/edit';
-import type { LensEdit, LensManual } from '@/lib/lens/edit';
-import { configFromPreset } from '@/renderer/grading/opendrt-params';
+import { decodeSidecar, encodeSidecar, isKnownProperty, unknownProperties, XMP_NS, XVEON_NS } from '@/app/sidecar';
+import type { SidecarProperties } from '@/app/sidecar';
+import type { PhotoEdit, Rating } from '@/host';
 
-export const XVEON_NS = 'https://naorunaoru.github.io/x-veon/ns/1.0/';
+export { XVEON_NS } from '@/app/sidecar';
 const RDF_NS = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#';
 const XMLNS_NS = 'http://www.w3.org/2000/xmlns/';
 const NEW_FILE = `<x:xmpmeta xmlns:x="adobe:ns:meta/">\n <rdf:RDF xmlns:rdf="${RDF_NS}">\n  <rdf:Description rdf:about="" xmlns:xveon="${XVEON_NS}"/>\n </rdf:RDF>\n</x:xmpmeta>`;
-const PRE: Record<string, keyof PhotoEdit['preProcessOverrides']> = {
-  Exposure: 'exposure', WbTemp: 'wb_temp', WbTint: 'wb_tint', Sharpen: 'sharpen_amount',
-};
-const LENS_FLAGS: Record<string, 'distortion' | 'ca' | 'vignetting'> = {
-  LensDistortion: 'distortion', LensCa: 'ca', LensVignetting: 'vignetting',
-};
-const LENS_MANUAL: Record<string, keyof LensManual> = {
-  LensManualDistortion: 'distortion', LensManualCaRed: 'caRed', LensManualCaBlue: 'caBlue',
-  LensManualVignetting: 'vignetting', LensManualMidpoint: 'midpoint',
-};
-const DRT_DEFAULT = configFromPreset('default');
-const DRT_KEYS = new Set(Object.keys(DRT_DEFAULT));
-const LOOKS = new Set<LookPreset>(['opendrt-v1-default', 'opendrt-v1-colorful', 'opendrt-v1-umbra', 'opendrt-v1-base', 'default', 'colorful', 'umbra', 'base', 'flat', 'low-contrast', 'medium-contrast', 'aces-2', 'marvelous']);
-const METHODS = new Set<DemosaicMethod>(['neural-net', 'bilinear', 'markesteijn3', 'markesteijn1', 'dht', 'ahd', 'ppg', 'mhc']);
-const SIZES = new Set<ModelSize>(['S', 'M', 'L']);
 
 export type SidecarState =
   | { kind: 'absent' }
-  | { kind: 'ok'; edit: PhotoEdit }
-  | { kind: 'newer'; edit: PhotoEdit; schemaVersion: number }
+  | { kind: 'ok'; edit: PhotoEdit; rating: Rating }
+  | { kind: 'newer'; edit: PhotoEdit; rating: Rating; schemaVersion: number }
   | { kind: 'unreadable'; reason: string };
 
-type Parsed = { doc: Document; rdf: Element; description: Element | null; values: Map<string, string> };
+type Parsed = { doc: Document; rdf: Element; description: Element | null; values: SidecarProperties };
 
 function parse(text: string): Parsed {
   const errors: string[] = [];
@@ -45,15 +27,15 @@ function parse(text: string): Parsed {
   const description = descriptions.find(hasXveonProperty)
     ?? descriptions.find((element) => element.getAttributeNS(RDF_NS, 'about') === '')
     ?? null;
-  const values = new Map<string, string>();
+  const values: SidecarProperties = {};
   if (description) {
     for (const child of Array.from(description.childNodes)) {
-      if (child.nodeType === 1 && child.namespaceURI === XVEON_NS) {
-        values.set(child.localName ?? '', child.textContent ?? '');
-      }
+      const name = child.nodeType === 1 ? propertyName(child) : null;
+      if (name) values[name] = child.textContent ?? '';
     }
     for (const attr of Array.from(description.attributes)) {
-      if (attr.namespaceURI === XVEON_NS) values.set(attr.localName ?? '', attr.value);
+      const name = propertyName(attr);
+      if (name) values[name] = attr.value;
     }
   }
   return { doc, rdf, description, values };
@@ -64,132 +46,31 @@ function hasXveonProperty(element: Element): boolean {
   return Array.from(element.childNodes).some((child) => child.nodeType === 1 && child.namespaceURI === XVEON_NS);
 }
 
-function numberValue(name: string, raw: string): number {
-  const trimmed = raw.trim();
-  if (!trimmed || !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(trimmed)) throw new Error(`${name}: invalid number`);
-  const value = Number(trimmed);
-  if (!Number.isFinite(value)) throw new Error(`${name}: non-finite number`);
-  return value;
-}
-function booleanValue(name: string, raw: string): boolean {
-  if (raw === 'True') return true;
-  if (raw === 'False') return false;
-  throw new Error(`${name}: invalid boolean`);
-}
-function lensName(name: string): boolean {
-  return name === 'LensSource' || name === 'LensFile' || name === 'LensModel'
-    || Object.hasOwn(LENS_FLAGS, name) || Object.hasOwn(LENS_MANUAL, name);
-}
-function knownName(name: string): boolean {
-  return name === 'SchemaVersion' || name === 'Look' || name === 'Demosaic' || name === 'ModelSize' || name === 'ModelHash'
-    || lensName(name) || Object.hasOwn(PRE, name) || (name.startsWith('Odrt_') && DRT_KEYS.has(name.slice(5)));
-}
-function readLens(values: Map<string, string>): LensEdit {
-  const lens = effectiveLensEdit({});
-  const source = values.get('LensSource');
-  if (source === 'auto' || source === 'manual') lens.source = source;
-  else if (source === 'lensfun') {
-    const file = values.get('LensFile');
-    const model = values.get('LensModel');
-    if (!file || !model) throw new Error('LensSource: lensfun needs LensFile and LensModel');
-    lens.source = { lensfun: { file, model } };
-  } else if (source !== undefined) throw new Error('LensSource: invalid source');
-  for (const [name, key] of Object.entries(LENS_FLAGS)) {
-    const raw = values.get(name);
-    if (raw !== undefined) lens[key] = booleanValue(name, raw);
-  }
-  for (const [name, key] of Object.entries(LENS_MANUAL)) {
-    const raw = values.get(name);
-    if (raw !== undefined) lens.manual[key] = numberValue(name, raw);
-  }
-  return lens;
-}
-function readValues(values: Map<string, string>): { edit: PhotoEdit; schemaVersion: number } {
-  const edit = defaultPhotoEdit();
-  const rawVersion = values.get('SchemaVersion');
-  const schemaVersion = rawVersion === undefined ? 1 : numberValue('SchemaVersion', rawVersion);
-  if (!Number.isInteger(schemaVersion) || schemaVersion < 1) throw new Error('SchemaVersion: invalid version');
-  const look = values.get('Look');
-  if (look !== undefined) {
-    if (!LOOKS.has(look as LookPreset)) throw new Error('Look: invalid preset');
-    edit.lookPreset = look as LookPreset;
-  }
-  const method = values.get('Demosaic');
-  if (method !== undefined) {
-    if (!METHODS.has(method as DemosaicMethod)) throw new Error('Demosaic: invalid method');
-    edit.demosaicMethod = method as DemosaicMethod;
-  }
-  for (const [name, key] of Object.entries(PRE)) {
-    const raw = values.get(name);
-    if (raw !== undefined) edit.preProcessOverrides[key] = numberValue(name, raw);
-  }
-  for (const [name, raw] of values) {
-    if (!name.startsWith('Odrt_')) continue;
-    const key = name.slice(5) as keyof PhotoEdit['openDrtOverrides'];
-    if (!DRT_KEYS.has(key)) continue;
-    const value = typeof DRT_DEFAULT[key] === 'boolean' ? booleanValue(name, raw) : numberValue(name, raw);
-    Object.assign(edit.openDrtOverrides, { [key]: value });
-  }
-  const size = values.get('ModelSize');
-  const hash = values.get('ModelHash');
-  if (size !== undefined || hash !== undefined) {
-    if (!size || !SIZES.has(size as ModelSize)) throw new Error('ModelSize: invalid size');
-    if (!hash) throw new Error('ModelHash: missing hash');
-    edit.model = { size: size as ModelSize, sha256: hash };
-  }
-  if ([...values.keys()].some(lensName)) edit.lens = readLens(values);
-  return { edit, schemaVersion };
+/** 'xveon:<local>' for our namespace, 'xmp:Rating' for the XMP rating, null for anything else. */
+function propertyName(node: Node): string | null {
+  if (node.namespaceURI === XVEON_NS) return `xveon:${node.localName ?? ''}`;
+  return node.namespaceURI === XMP_NS && node.localName === 'Rating' ? 'xmp:Rating' : null;
 }
 
 export function readSidecar(text: string | null): SidecarState {
   if (text === null) return { kind: 'absent' };
   try {
     const parsed = parse(text);
-    if (![...parsed.values.keys()].some(knownName)) return { kind: 'absent' };
-    const { edit, schemaVersion } = readValues(parsed.values);
-    return schemaVersion > 1 ? { kind: 'newer', edit, schemaVersion } : { kind: 'ok', edit };
+    if (!Object.keys(parsed.values).some(isKnownProperty)) return { kind: 'absent' };
+    const { edit, rating, schemaVersion } = decodeSidecar(parsed.values);
+    return schemaVersion > 1 ? { kind: 'newer', edit, rating, schemaVersion } : { kind: 'ok', edit, rating };
   } catch (error) {
     return { kind: 'unreadable', reason: error instanceof Error ? error.message : String(error) };
   }
 }
 
-function writeNumber(name: string, value: number): string {
-  if (!Number.isFinite(value)) throw new Error(`${name}: non-finite number`);
-  return String(value);
-}
-function attributesFor(edit: PhotoEdit): Map<string, string> {
-  const result = new Map<string, string>();
-  if (edit.lookPreset !== 'default') result.set('Look', edit.lookPreset);
-  if (edit.demosaicMethod !== null) result.set('Demosaic', edit.demosaicMethod);
-  for (const [name, key] of Object.entries(PRE)) {
-    if (Object.hasOwn(edit.preProcessOverrides, key)) {
-      const value = edit.preProcessOverrides[key];
-      if (value !== undefined) result.set(name, writeNumber(name, value));
-    }
+function boundPrefix(element: Element, namespace: string, preferred: string): string {
+  let prefix = preferred;
+  for (let suffix = 1; element.lookupNamespaceURI(prefix) !== null && element.lookupNamespaceURI(prefix) !== namespace; suffix++) {
+    prefix = `${preferred}${suffix}`;
   }
-  for (const [key, value] of Object.entries(edit.openDrtOverrides)) {
-    if (value === undefined) continue;
-    if (!DRT_KEYS.has(key)) throw new Error(`Odrt_${key}: unknown override`);
-    const name = `Odrt_${key}`;
-    if (typeof value === 'number') result.set(name, writeNumber(name, value));
-    else if (typeof value === 'boolean') result.set(name, value ? 'True' : 'False');
-    else throw new Error(`${name}: invalid value`);
-  }
-  if (edit.demosaicMethod === 'neural-net' && edit.model !== null) {
-    result.set('ModelSize', edit.model.size);
-    result.set('ModelHash', edit.model.sha256);
-  }
-  const lens = effectiveLensEdit(edit);
-  if (lens.source !== 'auto') result.set('LensSource', typeof lens.source === 'string' ? lens.source : 'lensfun');
-  if (typeof lens.source === 'object') {
-    result.set('LensFile', lens.source.lensfun.file);
-    result.set('LensModel', lens.source.lensfun.model);
-  }
-  for (const [name, key] of Object.entries(LENS_FLAGS)) if (!lens[key]) result.set(name, 'False');
-  for (const [name, key] of Object.entries(LENS_MANUAL)) {
-    if (lens.manual[key] !== DEFAULT_LENS_EDIT.manual[key]) result.set(name, writeNumber(name, lens.manual[key]));
-  }
-  return result;
+  if (element.lookupNamespaceURI(prefix) !== namespace) element.setAttributeNS(XMLNS_NS, `xmlns:${prefix}`, namespace);
+  return prefix;
 }
 
 function emptyEnvelope(parsed: Parsed): boolean {
@@ -200,7 +81,7 @@ function emptyEnvelope(parsed: Parsed): boolean {
   if (descriptions.length !== 1 || descriptions[0].getAttributeNS(RDF_NS, 'about') !== '') return false;
   const onlyWhitespace = (node: Node) => Array.from(node.childNodes).every((child) => child.nodeType === 3 && !(child.nodeValue ?? '').trim());
   if (!onlyWhitespace(descriptions[0])) return false;
-  if (Array.from(descriptions[0].attributes).some((a) => a.name !== 'rdf:about' && a.name !== 'xmlns:xveon')) return false;
+  if (Array.from(descriptions[0].attributes).some((a) => a.name !== 'rdf:about' && a.name !== 'xmlns:xveon' && a.name !== 'xmlns:xmp')) return false;
   if (Array.from(root.attributes).some((a) => a.name !== 'xmlns:x')) return false;
   if (Array.from(rdf.attributes).some((a) => a.name !== 'xmlns:rdf')) return false;
   return Array.from(root.childNodes).every((child) => child === rdf || (child.nodeType === 3 && !(child.nodeValue ?? '').trim()))
@@ -208,41 +89,32 @@ function emptyEnvelope(parsed: Parsed): boolean {
     && Array.from(doc.childNodes).every((child) => child === root || (child.nodeType === 3 && !(child.nodeValue ?? '').trim()));
 }
 
-export function mergeSidecar(existing: string | null, edit: PhotoEdit): string | null {
-  const attrs = attributesFor(edit);
-  if (existing === null && attrs.size === 0) return null;
+export function mergeSidecar(existing: string | null, edit: PhotoEdit, rating: Rating): string | null {
   const state = readSidecar(existing);
   if (state.kind === 'unreadable' || state.kind === 'newer') throw new Error(`Sidecar is ${state.kind}: ${state.kind === 'unreadable' ? state.reason : state.schemaVersion}`);
-  if (existing === null) {
-    const escaped = (value: string) => value.replaceAll('&', '&amp;').replaceAll('\"', '&quot;').replaceAll('<', '&lt;');
-    const properties = [`xveon:SchemaVersion=\"1\"`, ...Array.from(attrs, ([name, value]) => `xveon:${name}=\"${escaped(value)}\"`)];
-    return NEW_FILE.replace(`xmlns:xveon=\"${XVEON_NS}\"/>`, `xmlns:xveon=\"${XVEON_NS}\" ${properties.join(' ')}/>`);
-  }
-  const parsed = parse(existing);
+  const parsed = parse(existing ?? NEW_FILE);
+  const encoded = Object.entries(encodeSidecar({ edit, rating }, unknownProperties(parsed.values))).filter(([name]) => isKnownProperty(name));
   const description = parsed.description ?? parsed.doc.createElementNS(RDF_NS, 'rdf:Description');
   if (!parsed.description) {
     description.setAttributeNS(RDF_NS, 'rdf:about', '');
     parsed.rdf.appendChild(description);
   }
-  for (const attr of Array.from(description.attributes)) {
-    if (attr.namespaceURI === XVEON_NS && knownName(attr.localName ?? '')) description.removeAttributeNode(attr);
-  }
-  for (const child of Array.from(description.childNodes)) {
-    if (child.nodeType === 1 && child.namespaceURI === XVEON_NS && knownName(child.localName ?? '')) description.removeChild(child);
-  }
-  const hasUnknown = hasXveonProperty(description);
-  if (attrs.size > 0 || hasUnknown) {
-    let prefix = 'xveon';
-    for (let suffix = 1; description.lookupNamespaceURI(prefix) !== null && description.lookupNamespaceURI(prefix) !== XVEON_NS; suffix++) {
-      prefix = `xveon${suffix}`;
-    }
-    if (description.lookupNamespaceURI(prefix) !== XVEON_NS) description.setAttributeNS(XMLNS_NS, `xmlns:${prefix}`, XVEON_NS);
-    description.setAttributeNS(XVEON_NS, `${prefix}:SchemaVersion`, '1');
-    for (const [name, value] of attrs) description.setAttributeNS(XVEON_NS, `${prefix}:${name}`, value);
+  const known = (node: Node) => { const name = propertyName(node); return name !== null && isKnownProperty(name); };
+  for (const attr of Array.from(description.attributes)) if (known(attr)) description.removeAttributeNode(attr);
+  for (const child of Array.from(description.childNodes)) if (child.nodeType === 1 && known(child)) description.removeChild(child);
+  const xveon = encoded.filter(([name]) => name.startsWith('xveon:'));
+  if (xveon.length > 0) {
+    const prefix = boundPrefix(description, XVEON_NS, 'xveon');
+    for (const [name, value] of xveon) description.setAttributeNS(XVEON_NS, `${prefix}:${name.slice('xveon:'.length)}`, value);
   } else if (description.getAttributeNS(XMLNS_NS, 'xveon') === XVEON_NS) {
     description.removeAttributeNS(XMLNS_NS, 'xveon');
   }
+  const ratingValue = encoded.find(([name]) => name === 'xmp:Rating')?.[1];
+  if (ratingValue !== undefined) {
+    const prefix = description.lookupPrefix(XMP_NS) || boundPrefix(description, XMP_NS, 'xmp');
+    description.setAttributeNS(XMP_NS, `${prefix}:Rating`, ratingValue);
+  }
   if (emptyEnvelope(parsed)) return null;
   const result = new XMLSerializer().serializeToString(parsed.doc);
-  return existing.startsWith('\uFEFF') ? `\uFEFF${result}` : result;
+  return existing?.startsWith('\uFEFF') ? `\uFEFF${result}` : result;
 }

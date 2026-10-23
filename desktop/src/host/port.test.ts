@@ -42,7 +42,7 @@ it('returns receipt, availability and stamp and applies each request timeout ind
   await vi.advanceTimersByTimeAsync(100); await failed; expect(longSettled).toBe(false);
   const reply = { v: 1, rid: port.sent[1].rid, ok: true, availability: { available: true },
     stamp: { worker: '11111111-1111-4111-8111-111111111111', revision: 2 },
-    receipt: { bytes: 20, sha256: 'a'.repeat(64), encodeMs: 12, name: 'x.avif' } };
+    receipt: { outcome: 'written', bytes: 20, sha256: 'a'.repeat(64), encodeMs: 12, name: 'x.avif' } };
   port.dispatchEvent(new MessageEvent('message', { data: reply }));
   expect(await long).toEqual(reply); expect(acknowledged).toHaveBeenCalledWith(reply.stamp); expect(vi.getTimerCount()).toBe(0);
 });

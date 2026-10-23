@@ -5,7 +5,7 @@ afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); m.handlers.clear();
 it('exposes only the version-2 API and sends typed channel envelopes', async () => {
   vi.stubGlobal('window', { postMessage: m.post }); vi.stubGlobal('location', { origin: 'app://bundle' }); await import('./index');
   expect(m.exposed.version).toBe(2);
-  expect(Object.keys(m.exposed).sort()).toEqual(['chooseExportDestination', 'revealExport', 'version', 'loadLast', 'openFolder', 'openDropped', 'recentFolders', 'displayReadings', 'checkForUpdate', 'requestWorkerPort', 'updateUnsaved', 'respondFlush', 'onEvent'].sort());
+  expect(Object.keys(m.exposed).sort()).toEqual(['resolveExportTarget', 'revealExport', 'chooseExportFolder', 'version', 'loadLast', 'openFolder', 'openDropped', 'recentFolders', 'displayReadings', 'checkForUpdate', 'requestWorkerPort', 'updateUnsaved', 'respondFlush', 'onEvent'].sort());
   await m.exposed.loadLast(); await m.exposed.openFolder('f'); m.path.mockReturnValueOnce('/raw'); await m.exposed.openDropped([new File(['x'], 'x.RAF')]); m.invoke.mockResolvedValueOnce([] as any); await m.exposed.recentFolders(); await m.exposed.requestWorkerPort('00000000-0000-4000-8000-000000000001');
   expect(m.invoke.mock.calls).toEqual([['xveon-desktop', { version: 2, kind: 'loadLast' }], ['xveon-desktop', { version: 2, kind: 'openFolder', folderId: 'f' }], ['xveon-desktop', { version: 2, kind: 'openDropped', paths: ['/raw'] }], ['xveon-desktop', { version: 2, kind: 'recentFolders' }], ['xveon-desktop', { version: 2, kind: 'requestWorkerPort', requestId: '00000000-0000-4000-8000-000000000001' }]]);
   m.exposed.updateUnsaved([]); m.exposed.respondFlush(4, []); expect(m.send.mock.calls).toEqual([['xveon-unsaved', { version: 2, edits: [] }], ['xveon-flush', { version: 2, requestId: 4, unsaved: [] }]]);
@@ -64,11 +64,18 @@ it('rejects forged path strings and empty File paths before invoking main', asyn
  expect(m.exposed.pathsForFiles).toBeUndefined();
 });
 
-it('validates export destination responses and sends reveal requests', async () => {
- await import('./index'); const id = 'a'.repeat(22), token = '00000000-0000-4000-8000-000000000001';
- m.invoke.mockResolvedValueOnce(null); await expect(m.exposed.chooseExportDestination(id, 'avif')).resolves.toBeNull();
- m.invoke.mockResolvedValueOnce({ token: 'not-a-uuid', name: 'a.avif' } as any); await expect(m.exposed.chooseExportDestination(id, 'avif')).rejects.toThrow('Invalid bridge response');
- m.invoke.mockResolvedValueOnce({ token, name: 'a'.repeat(300) } as any); await expect(m.exposed.chooseExportDestination(id, 'avif')).rejects.toThrow('Invalid bridge response');
- m.invoke.mockResolvedValueOnce({ token, name: 'a.avif' } as any); await expect(m.exposed.chooseExportDestination(id, 'avif')).resolves.toEqual({ token, name: 'a.avif' });
+it('validates export target and folder responses and sends reveal requests', async () => {
+ await import('./index'); const id = 'a'.repeat(22), token = '00000000-0000-4000-8000-000000000001', saveTo = { mode: 'folder', path: '/out' };
+ m.invoke.mockResolvedValueOnce(null); await expect(m.exposed.resolveExportTarget(saveTo, [id])).resolves.toBeNull();
+ expect(m.invoke).toHaveBeenLastCalledWith('xveon-desktop', { version: 2, kind: 'resolveExportTarget', saveTo, photoIds: [id] });
+ m.invoke.mockResolvedValueOnce({ token: 'not-a-uuid' } as any); await expect(m.exposed.resolveExportTarget(saveTo, [id])).rejects.toThrow('Invalid bridge response');
+ m.invoke.mockResolvedValueOnce({ token } as any); await expect(m.exposed.resolveExportTarget({ mode: 'beside' }, [id])).resolves.toEqual({ token });
+ m.invoke.mockClear(); await expect(m.exposed.resolveExportTarget(saveTo, ['../raw'])).rejects.toThrow('Invalid bridge request'); expect(m.invoke).not.toHaveBeenCalled();
+ m.invoke.mockResolvedValueOnce(null); await expect(m.exposed.chooseExportFolder()).resolves.toBeNull();
+ m.invoke.mockResolvedValueOnce('/out' as any); await expect(m.exposed.chooseExportFolder()).resolves.toBe('/out');
+ m.invoke.mockResolvedValueOnce(7 as any); await expect(m.exposed.chooseExportFolder()).rejects.toThrow('Invalid bridge response');
+ expect(m.invoke).toHaveBeenLastCalledWith('xveon-desktop', { version: 2, kind: 'chooseExportFolder' });
+ m.invoke.mockResolvedValueOnce('ignored' as any); await expect(m.exposed.revealExport(token, 'a.avif')).resolves.toBeUndefined(); expect(m.invoke).toHaveBeenLastCalledWith('xveon-desktop', { version: 2, kind: 'revealExport', token, name: 'a.avif' });
  await m.exposed.revealExport(token); expect(m.invoke).toHaveBeenLastCalledWith('xveon-desktop', { version: 2, kind: 'revealExport', token });
+ m.invoke.mockClear(); await expect(m.exposed.revealExport(token, '../a.avif')).rejects.toThrow('Invalid bridge request'); expect(m.invoke).not.toHaveBeenCalled();
 });

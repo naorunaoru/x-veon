@@ -35,6 +35,8 @@ import {
   getResult,
   discardResult,
   isProcessing,
+  hasResult,
+  processForExport,
   RETAINED_RESULTS,
 } from './processing';
 
@@ -233,7 +235,7 @@ describe('processing service', () => {
         await processFile('a');
         await vi.advanceTimersByTimeAsync(301);
         expect(host.library.save).toHaveBeenCalledTimes(1);
-        expect(host.library.save).toHaveBeenCalledWith('a', expect.objectContaining({ model: { size: 'S', sha256: 'reopened' } }), expect.anything());
+        expect(host.library.save).toHaveBeenCalledWith('a', expect.objectContaining({ model: { size: 'S', sha256: 'reopened' } }), 0, expect.anything());
         expect(unsavedEdits()).toEqual([]);
       } finally {
         reject(new Error('test cleanup'));
@@ -327,7 +329,7 @@ describe('processing service', () => {
       await processFile('a');
       await vi.advanceTimersByTimeAsync(301);
       expect(host.library.save).toHaveBeenCalledTimes(1);
-      expect(host.library.save).toHaveBeenCalledWith('a', expect.objectContaining({ model: { size: 'S', sha256: 'used' } }), expect.anything());
+      expect(host.library.save).toHaveBeenCalledWith('a', expect.objectContaining({ model: { size: 'S', sha256: 'used' } }), 0, expect.anything());
     } finally {
       stop();
       vi.useRealTimers();
@@ -530,6 +532,102 @@ describe('processing service', () => {
     await processFile('a');
     expect(useAppStore.getState().files[0].edit.model?.sha256).toBe('actual');
   });
+  it('processForExport waits for the in-flight run, then processes', async () => {
+    useAppStore.setState({ files: [makeFile('a'), makeFile('b')], currentId: 'a', initialized: true });
+    let finish!: (image: ProcessedImage) => void;
+    processRaw.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; })).mockResolvedValueOnce(fakeImage());
+    const running = processFile('a');
+    await vi.waitFor(() => expect(processRaw).toHaveBeenCalledTimes(1));
+    const exported = processForExport('b');
+    await Promise.resolve();
+    expect(processRaw).toHaveBeenCalledTimes(1);
+    finish(fakeImage());
+    await running;
+    await exported;
+    expect(readRaw.mock.calls).toEqual([['a'], ['b']]);
+    expect(hasResult('b')).toBe(true);
+    expect(isProcessing()).toBe(false);
+  });
+
+  it('processForExport yields to a queued current photo', async () => {
+    useAppStore.setState({ files: [makeFile('b'), makeFile('c')], currentId: 'b', initialized: true });
+    processRaw.mockImplementation(async () => fakeImage());
+    const exported = processForExport('c');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(processRaw).not.toHaveBeenCalled();
+    await processFile('b'); // as the auto-process effect would
+    await exported;
+    expect(readRaw.mock.calls).toEqual([['b'], ['c']]);
+    expect(hasResult('c')).toBe(true);
+  });
+
+  it('processForExport of the current photo waits for its own run and adds none', async () => {
+    useAppStore.setState({ files: [makeFile('c')], currentId: 'c', initialized: true });
+    processRaw.mockImplementation(async () => fakeImage());
+    const exported = processForExport('c');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(processRaw).not.toHaveBeenCalled();
+    await processFile('c');
+    await exported;
+    expect(processRaw).toHaveBeenCalledTimes(1);
+    expect(hasResult('c')).toBe(true);
+  });
+
+  it('processForExport rejects when the photo leaves the library', async () => {
+    useAppStore.setState({ files: [makeFile('a'), makeFile('b')], currentId: 'a', initialized: true });
+    await expect(processForExport('gone')).rejects.toThrow('no longer in the library');
+    let finish!: (image: ProcessedImage) => void;
+    processRaw.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const running = processFile('a');
+    const exported = processForExport('b');
+    await vi.waitFor(() => expect(processRaw).toHaveBeenCalledTimes(1));
+    useAppStore.setState((state) => ({ files: state.files.filter((f) => f.id !== 'b') }));
+    finish(fakeImage());
+    await running;
+    await expect(exported).rejects.toThrow('no longer in the library');
+    expect(processRaw).toHaveBeenCalledTimes(1);
+  });
+
+  it('processForExport resolves on a failed run', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    useAppStore.setState({ files: [makeFile('a')], currentId: 'a', initialized: false });
+    processRaw.mockRejectedValueOnce(new Error('broken RAW'));
+    await processForExport('a');
+    expect(useAppStore.getState().files[0]).toMatchObject({ status: 'error', error: 'broken RAW' });
+    expect(hasResult('a')).toBe(false);
+    logged.mockRestore();
+  });
+
+  it('processForExport re-queues a waiter whose run was superseded', async () => {
+    useAppStore.setState({ files: [makeFile('b')], currentId: 'b', initialized: false, demosaicMethod: 'dht' });
+    const finishes: ((image: ProcessedImage) => void)[] = [];
+    processRaw.mockImplementation(() => new Promise((resolve) => { finishes.push(resolve); }));
+    let resolved = false;
+    const exported = processForExport('b').then(() => { resolved = true; });
+    await vi.waitFor(() => expect(processRaw).toHaveBeenCalledTimes(1));
+    useAppStore.setState({ demosaicMethod: 'markesteijn3' });
+    const superseded = fakeImage();
+    finishes[0](superseded); // decoded with the old method: processFile discards it and resets to queued
+    await vi.waitFor(() => expect(processRaw).toHaveBeenCalledTimes(2));
+    expect(superseded.disposed).toBe(1);
+    expect(resolved).toBe(false);
+    const fresh = fakeImage();
+    Object.defineProperty(fresh, 'method', { value: 'markesteijn3' });
+    finishes[1](fresh);
+    await exported;
+    expect(getResult('b')).toBe(fresh);
+    expect(hasResult('b')).toBe(true);
+  });
+
+  it('hasResult is true once a result is published and false after discardResult', async () => {
+    expect(hasResult('a')).toBe(false);
+    processRaw.mockResolvedValueOnce(fakeImage());
+    await processFile('a');
+    expect(hasResult('a')).toBe(true);
+    discardResult('a');
+    expect(hasResult('a')).toBe(false);
+  });
+
   it('discards a run superseded by a method change instead of overwriting the newer edit', async () => {
     let finish!: (image: ProcessedImage) => void;
     processRaw.mockImplementationOnce(

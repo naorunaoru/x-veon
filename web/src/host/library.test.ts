@@ -35,6 +35,17 @@ function setup() {
   const dbName = `library-test-${++serial}`;
   return { dbName, host: createWebLibrary({ dbName, opfsRoot: 'dev' }) };
 }
+/** A record in the shape written before the sidecar migration. */
+function legacyRecord(fields: Partial<PersistedFile> = {}): PersistedFile {
+  return {
+    id: 'old', name: 'old', originalName: 'old.raf', fileSize: 123,
+    cfaType: 'xtrans', camera: null, lensModel: null, focalLength: null, fNumber: null,
+    status: 'queued', error: null, resultMethod: null, resultMeta: null,
+    cachedMethods: [], lensProfile: null, addedAt: 1234,
+    lookPreset: 'default', openDrtOverrides: {}, preProcessOverrides: {}, editMethod: null, model: null,
+    ...fields,
+  };
+}
 function raw(name = 'a.raf') {
   const file = new File(['raw'], name);
   Object.defineProperty(file, 'arrayBuffer', { value: async () => new ArrayBuffer(4), configurable: true });
@@ -86,7 +97,9 @@ describe('web library', () => {
       expect(processRaw).toHaveBeenCalledWith(expect.any(ArrayBuffer), expect.objectContaining({ method: 'markesteijn3', resolveDefault: true }), expect.anything());
       await vi.waitFor(async () => {
         expect(save).toHaveBeenCalledTimes(1);
-        expect((await createFileStorage(dbName).getAllFiles())[0]).toMatchObject({ resultMethod: 'neural-net', editMethod: null, status: 'done' });
+        const record = (await createFileStorage(dbName).getAllFiles())[0];
+        expect(record).toMatchObject({ resultMethod: 'neural-net', status: 'done' });
+        expect(record.sidecar).toEqual({});
       });
     } finally {
       stop();
@@ -115,7 +128,7 @@ describe('web library', () => {
   it('reloads processing facts without turning an untouched photo into an edit', async () => {
     const { host, dbName } = setup();
     const { photos: [photo] } = await host.addFiles([raw()]);
-    await host.save(photo.id, photo.edit, { ...photo.facts, resultMethod: 'neural-net' });
+    await host.save(photo.id, photo.edit, 0, { ...photo.facts, resultMethod: 'neural-net' });
     const reloaded = createWebLibrary({ dbName, opfsRoot: 'dev' });
     const restored = (await reloaded.load()).photos[0];
     expect(restored.edit.demosaicMethod).toBeNull();
@@ -167,13 +180,40 @@ describe('web library', () => {
       fileSize: 123,
       edit: { model: null, demosaicMethod: 'dht', lookPreset: 'marvelous' },
     });
-    await host.save('old', { ...photos[0].edit, preProcessOverrides: { exposure: 2 } }, photos[0].facts);
-    expect((await records.getAllFiles())[0]).toMatchObject({
+    await host.save('old', { ...photos[0].edit, preProcessOverrides: { exposure: 2 } }, 0, photos[0].facts);
+    const saved = (await records.getAllFiles())[0];
+    expect(saved).toMatchObject({
       fileSize: 123,
       addedAt: 1234,
-      lookPreset: 'marvelous',
-      preProcessOverrides: { exposure: 2 },
+      sidecar: { 'xveon:Look': 'marvelous', 'xveon:Demosaic': 'dht', 'xveon:Exposure': '2', 'xveon:Odrt_cwp': '0.4' },
     });
+    expect(saved).not.toHaveProperty('lookPreset');
+    await closeDatabase(dbName);
+  });
+  it('rewrites a legacy record in the new shape on save', async () => {
+    const { host, dbName } = setup();
+    const records = createFileStorage(dbName);
+    await records.putFile(legacyRecord({ lookPreset: 'umbra', editMethod: 'dht' }));
+    const { photos: [photo] } = await host.load();
+    await host.save(photo.id, photo.edit, 3, photo.facts);
+    const saved = (await records.getAllFiles())[0];
+    expect(saved.sidecar).toMatchObject({ 'xveon:Look': 'umbra', 'xveon:Demosaic': 'dht', 'xmp:Rating': '3' });
+    for (const key of ['lookPreset', 'editMethod', 'openDrtOverrides', 'preProcessOverrides', 'model', 'lens'])
+      expect(Object.hasOwn(saved, key)).toBe(false);
+    const reloaded = (await createWebLibrary({ dbName, opfsRoot: 'dev' }).load()).photos[0];
+    expect(reloaded).toMatchObject({ rating: 3, edit: { lookPreset: 'umbra', demosaicMethod: 'dht' } });
+    await closeDatabase(dbName);
+  });
+  it('a facts save on a legacy record does not change its edit', async () => {
+    const { host, dbName } = setup();
+    const legacy = legacyRecord({ resultMethod: 'markesteijn3', status: 'done' });
+    delete legacy.editMethod;
+    await createFileStorage(dbName).putFile(legacy);
+    const { photos: [photo] } = await host.load();
+    await host.saveFacts(photo.id, { ...photo.facts, resultMethod: 'bilinear' });
+    const reloaded = (await createWebLibrary({ dbName, opfsRoot: 'dev' }).load()).photos[0];
+    expect(reloaded.edit.demosaicMethod).toBe('markesteijn3');
+    expect(reloaded.facts.resultMethod).toBe('bilinear');
     await closeDatabase(dbName);
   });
   it('keeps a newly imported photo while loading and cleaning orphans', async () => {
@@ -312,7 +352,7 @@ it('suspends imports and saves when another tab clears the database, then reload
     bytes.resolve(new ArrayBuffer(4));
   }
   await expect(host.addFiles([raw('late.raf')])).rejects.toThrow('Reload');
-  await expect(host.save(photos[0].id, photos[0].edit, photos[0].facts)).rejects.toThrow('Reload');
+  await expect(host.save(photos[0].id, photos[0].edit, 0, photos[0].facts)).rejects.toThrow('Reload');
   expect(storage.writeRaw).not.toHaveBeenCalled();
   expect((await indexedDB.databases()).some((db) => db.name === dbName)).toBe(false);
 });
@@ -327,7 +367,7 @@ it('reports an OPFS failure after database deletion and retries without restorin
   expect(reload).not.toHaveBeenCalled();
   expect((await indexedDB.databases()).some((db) => db.name === dbName)).toBe(false);
   await expect(
-    host.save(snapshot.photos[0].id, snapshot.photos[0].edit, snapshot.photos[0].facts),
+    host.save(snapshot.photos[0].id, snapshot.photos[0].edit, 0, snapshot.photos[0].facts),
   ).rejects.toThrow('no longer');
   await host.clear!();
   expect(reload).toHaveBeenCalledOnce();
@@ -337,15 +377,15 @@ it('reports an OPFS failure after database deletion and retries without restorin
 it('merges facts atomically without replacing an edit saved by another adapter', async () => {
   const { host, dbName } = setup();
   const { photos: [photo] } = await host.addFiles([raw()]);
-  await host.save(photo.id, defaultEdit(), photo.facts);
+  await host.save(photo.id, defaultEdit(), 0, photo.facts);
   const stale = createWebLibrary({ dbName, opfsRoot: 'dev' });
   await stale.load();
   const newer = { ...defaultEdit(), lookPreset: 'umbra' as const, demosaicMethod: 'dht' as const, preProcessOverrides: { exposure: 2 } };
-  const editing = host.save(photo.id, newer, photo.facts);
+  const editing = host.save(photo.id, newer, 0, photo.facts);
   const facts = { ...photo.facts, resultMethod: 'bilinear' as const, error: 'fact' };
   await Promise.all([editing, stale.saveFacts(photo.id, facts)]);
   const record = (await createFileStorage(dbName).getAllFiles())[0];
-  expect(record).toMatchObject({ lookPreset: 'umbra', editMethod: 'dht', preProcessOverrides: { exposure: 2 }, resultMethod: 'bilinear', error: 'fact' });
+  expect(record).toMatchObject({ sidecar: { 'xveon:Look': 'umbra', 'xveon:Demosaic': 'dht', 'xveon:Exposure': '2' }, resultMethod: 'bilinear', error: 'fact' });
   await closeDatabase(dbName);
 });
 
@@ -353,10 +393,10 @@ it('a lens reset survives a save and a reload instead of resurrecting the old le
   const { host, dbName } = setup();
   const { photos: [photo] } = await host.addFiles([raw()]);
   const lens = { ...DEFAULT_LENS_EDIT, ca: false, source: { lensfun: { file: 'misc.json', model: '23mmF1.4XM' } } };
-  await host.save(photo.id, { ...defaultEdit(), lens }, photo.facts);
+  await host.save(photo.id, { ...defaultEdit(), lens }, 0, photo.facts);
   expect((await createWebLibrary({ dbName, opfsRoot: 'dev' }).load()).photos[0].edit.lens).toEqual(lens);
   // resetFileLens leaves an own `lens: undefined` key on the edit.
-  await host.save(photo.id, { ...defaultEdit(), lens: undefined }, photo.facts);
+  await host.save(photo.id, { ...defaultEdit(), lens: undefined }, 0, photo.facts);
   const reloaded = (await createWebLibrary({ dbName, opfsRoot: 'dev' }).load()).photos[0];
   expect(reloaded.edit.lens).toBeUndefined();
   await closeDatabase(dbName);

@@ -1,6 +1,6 @@
 import type { ExportFormat } from '@/lib/types';
-import type { FolderRef, LibraryPhoto, PhotoEdit, PhotoFacts, PhotoId } from '@/host';
-import { DEMOSAIC_METHODS, MODEL_SIZES } from '@/lib/catalog';
+import type { FolderRef, LibraryPhoto, PhotoEdit, PhotoFacts, PhotoId, Rating } from '@/host';
+import { DEMOSAIC_METHODS, MODEL_SIZES, exportFormatInfo } from '@/lib/catalog';
 import { LOOK_PRESETS, DEFAULT_PREPROCESS, configFromPreset } from '@/renderer/grading/opendrt-params';
 import type { ListingFrame } from './listing';
 export type { ListingFrame } from './listing';
@@ -10,15 +10,15 @@ export interface ListingStamp extends StateStamp { scan: number }
 export const EXPORT_CHUNK_BYTES = 64_000_000;
 export const MAX_EXPORT_SIDE = 65_535;
 export const MAX_EXPORT_PIXELS = 200_000_000;
-export interface ExportReceipt { name: string; bytes: number; sha256: string; encodeMs: number }
+export type ExportReceipt = { outcome: 'written'; name: string; bytes: number; sha256: string; encodeMs: number } | { outcome: 'skipped'; name: string };
 export type ExportAvailability = { available: true } | { available: false; reason: string };
-export type ExportBegin = { v: 1; rid: number; op: 'exportBegin'; job: string; destination: string; format: ExportFormat;
+export type ExportBegin = { v: 1; rid: number; op: 'exportBegin'; job: string; target: string; name: string; onExists: 'skip' | 'replace'; format: ExportFormat;
   width: number; height: number; orientation: string; quality: number; peakLuminance: number; planes: 1 | 2 };
 export type PortRequest =
   | { v: 1; rid: number; op: 'exportStatus' } | ExportBegin
   | { v: 1; rid: number; op: 'exportChunk'; job: string; plane: 0 | 1; offset: number; data: ArrayBuffer }
   | { v: 1; rid: number; op: 'exportCommit' | 'exportCancel'; job: string }
-  | { v: 1; rid: number; op: 'saveEdit'; id: PhotoId; edit: PhotoEdit }
+  | { v: 1; rid: number; op: 'saveEdit'; id: PhotoId; edit: PhotoEdit; rating: Rating }
   | { v: 1; rid: number; op: 'saveFacts'; id: PhotoId; facts: PhotoFacts }
   | { v: 1; rid: number; op: 'rescan' };
 export type PortReply = { v: 1; rid: number; ok: true; stamp?: StateStamp; receipt?: ExportReceipt; availability?: ExportAvailability } | { v: 1; rid: number; ok: false; error: string };
@@ -49,9 +49,12 @@ const id = (x: unknown): x is string => string(x) && /^[A-Za-z0-9_-]{22}$/.test(
 const jobId = (x: unknown) => typeof x === 'string' && /^[A-Za-z0-9-]{8,64}$/.test(x);
 const side = (x: unknown) => Number.isInteger(x) && (x as number) >= 1 && (x as number) <= MAX_EXPORT_SIDE;
 const arrayBuffer = (x: unknown): x is ArrayBuffer => Object.prototype.toString.call(x) === '[object ArrayBuffer]';
-const receipt = (x: unknown) => record(x) && string(x.name) && count(x.bytes) && string(x.sha256) && /^[a-f0-9]{64}$/i.test(x.sha256) && number(x.encodeMs) && x.encodeMs >= 0;
+/** A file name inside the export folder: never a path, '.' or '..'. */
+export const isLeafName = (x: unknown): x is string => string(x) && x.length >= 1 && x.length <= 255 && !/[/\\\0]/.test(x) && x !== '.' && x !== '..';
+const receipt = (x: unknown) => record(x) && isLeafName(x.name) && (x.outcome === 'skipped' || (x.outcome === 'written' && count(x.bytes) && string(x.sha256) && /^[a-f0-9]{64}$/i.test(x.sha256) && number(x.encodeMs) && x.encodeMs >= 0));
 const availability = (x: unknown) => record(x) && (x.available === true || (x.available === false && string(x.reason)));
 const nullableString = (x: unknown) => x === null || string(x);
+const rating = (x: unknown): x is Rating => Number.isInteger(x) && (x as number) >= -1 && (x as number) <= 5;
 function array(x: unknown, check: (x: unknown) => boolean): x is unknown[] {
   if (!Array.isArray(x)) return false;
   for (let i = 0; i < x.length; i++) {
@@ -119,7 +122,7 @@ function facts(x: unknown): x is PhotoFacts {
 function photo(x: unknown): x is LibraryPhoto {
   return record(x) && id(x.id) && string(x.name) && string(x.originalName) && number(x.fileSize) && x.fileSize >= 0
     && (x.sourceVersion === undefined || (typeof x.sourceVersion === 'string' && /^[a-f0-9]{64}$/.test(x.sourceVersion)))
-    && nullableString(x.thumbnailUrl) && edit(x.edit) && facts(x.facts)
+    && nullableString(x.thumbnailUrl) && edit(x.edit) && facts(x.facts) && rating(x.rating)
     && oneOf(x.editing, ['saved', 'session', 'view-only']) && nullableString(x.editingNote);
 }
 const photos = (x: unknown) => array(x, photo) && x.length <= 250;
@@ -143,10 +146,11 @@ export function isListingFrame(x: unknown): x is ListingFrame { return envelope(
 export function isPortRequest(x: unknown): x is PortRequest {
   if (!envelope(x) || !Number.isSafeInteger(x.rid)) return false;
   switch (x.op) {
-    case 'saveEdit': return id(x.id) && edit(x.edit);
+    case 'saveEdit': return id(x.id) && edit(x.edit) && rating(x.rating);
     case 'saveFacts': return id(x.id) && facts(x.facts);
     case 'rescan': case 'exportStatus': return true;
-    case 'exportBegin': return jobId(x.job) && jobId(x.destination) && oneOf(x.format, ['avif', 'jpeg-hdr', 'tiff'])
+    case 'exportBegin': return jobId(x.job) && jobId(x.target) && oneOf(x.onExists, ['skip', 'replace']) && oneOf(x.format, ['avif', 'jpeg-hdr', 'tiff'])
+      && isLeafName(x.name) && x.name.endsWith(`.${exportFormatInfo(x.format as ExportFormat).ext}`)
       && side(x.width) && side(x.height) && (x.width as number) * (x.height as number) <= MAX_EXPORT_PIXELS
       && typeof x.orientation === 'string' && x.orientation.length <= 32
       && Number.isInteger(x.quality) && (x.quality as number) >= 1 && (x.quality as number) <= 100

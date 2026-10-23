@@ -5,6 +5,17 @@
   display: flex; flex-direction: column;
   background: var(--xv-card); border-right: 1px solid var(--xv-border);
 }
+.xv-column__top {
+  height: 22px; padding: 0 6px; border-bottom: 1px solid var(--xv-border);
+  display: flex; align-items: center;
+}
+.xv-column__filter {
+  display: inline-flex; align-items: center; gap: 4px; padding: 0;
+  background: transparent; color: var(--xv-foreground);
+  font-family: var(--xv-font-sans); font-size: 11px; cursor: pointer;
+}
+/* The folder menu's list, hung from the column below the top row. */
+.xv-column__top .xv-folder-menu__list { position: absolute; top: 22px; left: 6px; z-index: 2; }
 .xv-column__cells {
   flex: 1; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; padding: 6px;
   display: grid; grid-template-columns: repeat(var(--xv-columns), 112px); gap: 6px; align-content: start;
@@ -25,6 +36,12 @@
   position: absolute; top: 4px; right: 4px; width: 5px; height: 5px; border-radius: var(--xv-radius-full);
   background: var(--xv-foreground); box-shadow: var(--xv-text-shadow);
 }
+.xv-cell__stars,
+.xv-cell__reject {
+  position: absolute; left: 4px; bottom: 3px; font-size: 9px; line-height: 1;
+  color: var(--xv-foreground); text-shadow: var(--xv-text-shadow); pointer-events: none;
+}
+.xv-cell[data-rating="-1"] img { opacity: 0.3; }
 
 .xv-column__foot {
   height: 26px; padding: 4px 6px; border-top: 1px solid var(--xv-border);
@@ -38,8 +55,46 @@
   background: transparent; color: var(--xv-foreground);
 }
 .xv-column__select:hover { background: var(--xv-bg-raised); }
-.xv-column__export { margin-left: auto; background: var(--xv-primary); color: var(--xv-primary-foreground); }
-.xv-column__export:disabled { opacity: 0.5; cursor: default; }
+
+/* The split button: Export and its 18 px chevron share the primary background; outer corners rounded. */
+.xv-column__export-group { margin-left: auto; display: inline-flex; align-self: stretch; }
+.xv-column__export,
+.xv-column__export-more { background: var(--xv-primary); color: var(--xv-primary-foreground); }
+.xv-column__export { border-radius: var(--xv-radius-md) 0 0 var(--xv-radius-md); }
+.xv-column__export-more {
+  width: 18px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  border-left: 1px solid color-mix(in oklch, var(--xv-primary-foreground) 25%, transparent);
+  border-radius: 0 var(--xv-radius-md) var(--xv-radius-md) 0; cursor: pointer;
+}
+.xv-column__export:disabled,
+.xv-column__export-more:disabled { opacity: 0.5; cursor: default; }
+
+.xv-column__status { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 11px; white-space: nowrap; }
+.xv-column__status-btn {
+  display: inline-flex; align-items: center; padding: 0 4px; height: 18px;
+  font-family: var(--xv-font-sans); font-size: 11px; border-radius: var(--xv-radius-sm);
+  background: transparent; color: var(--xv-foreground); cursor: pointer;
+}
+.xv-column__status-btn:hover { background: var(--xv-bg-raised); }
+.xv-column__bar { position: relative; width: 48px; height: 3px; border-radius: 2px; background: var(--xv-muted); overflow: hidden; }
+.xv-column__bar::after {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+  width: calc(var(--xv-progress) * 100%); background: var(--xv-primary);
+}
+.xv-column__failures {
+  position: absolute; bottom: 30px; left: 6px; right: 6px; max-height: 50%; overflow: auto; z-index: 2;
+  padding: 6px; border-radius: var(--xv-radius-md); font-size: 11px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.xv-column__failure { display: flex; align-items: center; gap: 6px; }
+.xv-column__failure .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.xv-column__failure .reason { flex: 1; min-width: 0; color: var(--xv-muted-foreground); overflow-wrap: anywhere; }
+
+.xv-cell__line { position: absolute; left: 0; bottom: 0; height: 2px; z-index: 1; background: var(--xv-primary); }
+.xv-cell__line[data-export="queued"] { width: 0; }
+.xv-cell__line[data-export="running"] { width: 50%; }
+.xv-cell__line[data-export="done"] { width: 100%; }
+.xv-cell__line[data-export="failed"] { width: 100%; background: var(--xv-destructive); }
 
 /* Straddles the border; above the stage, which comes later in the flex row. */
 .xv-column__edge {

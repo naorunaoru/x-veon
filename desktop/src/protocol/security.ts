@@ -1,7 +1,6 @@
-import type { ExportFormat } from '@/lib/types';
-import type { DisplayReadings, NewerRelease } from '@/host';
+import type { DisplayReadings, NewerRelease, SaveTo } from '@/host';
 import { parseReleaseTag, type ReleaseTag } from '../release/tags';
-import { isListingFrame, isWorkerIdentity } from './rpc';
+import { isLeafName, isListingFrame, isWorkerIdentity } from './rpc';
 export function assetName(
   raw: string,
   method: string,
@@ -37,7 +36,7 @@ export function acceptsSender(url: string, mainFrame: boolean): boolean {
     return false;
   }
 }
-export type DesktopRequest = { version: 2; kind: 'chooseExportDestination'; photoId: string; format: ExportFormat } | { version: 2; kind: 'revealExport'; token: string } | { version: 2; kind: 'loadLast' | 'recentFolders' | 'displayReadings' | 'checkForUpdate' } | { version: 2; kind: 'requestWorkerPort'; requestId: string } | { version: 2; kind: 'openFolder'; folderId?: string } | { version: 2; kind: 'openDropped'; paths: string[] };
+export type DesktopRequest = { version: 2; kind: 'resolveExportTarget'; saveTo: SaveTo; photoIds: string[] } | { version: 2; kind: 'revealExport'; token: string; name?: string } | { version: 2; kind: 'chooseExportFolder' } | { version: 2; kind: 'loadLast' | 'recentFolders' | 'displayReadings' | 'checkForUpdate' } | { version: 2; kind: 'requestWorkerPort'; requestId: string } | { version: 2; kind: 'openFolder'; folderId?: string } | { version: 2; kind: 'openDropped'; paths: string[] };
 export const CONTENT_SECURITY_POLICY = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; img-src 'self' blob: data: xveon-photo:; style-src 'self' 'unsafe-inline'; connect-src 'self' xveon-photo:; object-src 'none'; base-uri 'none'; frame-src 'none'";
 function object(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === 'object' && !Array.isArray(value); }
 const RELEASE_PAGE = 'https://github.com/naorunaoru/x-veon/releases/tag/';
@@ -81,14 +80,20 @@ function unsaved(value: unknown): boolean {
 export function isDesktopRequest(value: unknown): value is DesktopRequest {
   if (!envelope(value)) return false;
   switch (value.kind) {
-    case 'loadLast': case 'recentFolders': case 'displayReadings': case 'checkForUpdate': return true;
-    case 'chooseExportDestination': return typeof value.photoId === 'string' && /^[A-Za-z0-9_-]{22}$/.test(value.photoId) && ['jpeg-hdr', 'avif', 'tiff'].includes(value.format as string);
-    case 'revealExport': return correlationId(value.token);
+    case 'loadLast': case 'recentFolders': case 'displayReadings': case 'checkForUpdate': case 'chooseExportFolder': return true;
+    case 'resolveExportTarget': return isExportTargetRequest(value.saveTo, value.photoIds);
+    case 'revealExport': return correlationId(value.token) && (value.name === undefined || isLeafName(value.name));
     case 'requestWorkerPort': return correlationId(value.requestId);
     case 'openFolder': return value.folderId === undefined || typeof value.folderId === 'string';
     case 'openDropped': return dense(value.paths, p => typeof p === 'string');
     default: return false;
   }
+}
+/** One batch's destination: 1..10_000 photo IDs, beside them or in a local (not UNC or network) folder whose path main re-checks. */
+export function isExportTargetRequest(saveTo: unknown, photoIds: unknown): boolean {
+  const folderPath = (p: unknown) => typeof p === 'string' && p.length > 0 && p.length <= 4096 && !p.includes('\0') && !/^[\\/]{2}/.test(p);
+  return object(saveTo) && (saveTo.mode === 'beside' || (saveTo.mode === 'folder' && folderPath(saveTo.path)))
+    && dense(photoIds, id => typeof id === 'string' && /^[A-Za-z0-9_-]{22}$/.test(id)) && (photoIds as unknown[]).length >= 1 && (photoIds as unknown[]).length <= 10_000;
 }
 export function isUnsavedUpdate(value: unknown): value is { version: 2; edits: import('@/host').UnsavedSummary[] } { return envelope(value) && unsaved(value.edits); }
 export function isFlushResponse(value: unknown): value is { version: 2; requestId: number; unsaved: import('@/host').UnsavedSummary[] } { return envelope(value) && Number.isSafeInteger(value.requestId) && (value.requestId as number) > 0 && unsaved(value.unsaved); }

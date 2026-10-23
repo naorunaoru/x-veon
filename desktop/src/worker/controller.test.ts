@@ -72,14 +72,14 @@ it('routes validated saves and rescans over the port while listings stay on pare
   const replies: any[] = []; b.on('message', ({ data }) => replies.push(data));
   b.postMessage(null); b.postMessage({ v: 2, rid: 2, op: 'rescan' });
   async function request(message: any) { const reply = new Promise<any>(resolve => { const listener = ({ data }: any) => { if (data.rid === message.rid) { b.off('message', listener); resolve(data); } }; b.on('message', listener); }); b.postMessage(message); return reply; }
-  expect(await request({ v: 1, rid: 2, op: 'saveEdit', id: photo.id, edit: { ...photo.edit, preProcessOverrides: { exposure: 1 } } })).toEqual({ v: 1, rid: 2, ok: true, stamp: { worker: expect.any(String), revision: 2 } });
+  expect(await request({ v: 1, rid: 2, op: 'saveEdit', id: photo.id, rating: 0, edit: { ...photo.edit, preProcessOverrides: { exposure: 1 } } })).toEqual({ v: 1, rid: 2, ok: true, stamp: { worker: expect.any(String), revision: 2 } });
   expect(await fs.readFile(path.join(folder, 'a.RAF.xmp'), 'utf8')).toContain('xveon:Exposure="1"');
   expect(await request({ v: 1, rid: 3, op: 'saveFacts', id: photo.id, facts: realisticFacts() })).toEqual({ v: 1, rid: 3, ok: true, stamp: { worker: expect.any(String), revision: 4 } });
   expect(await request({ v: 1, rid: 4, op: 'rescan' })).toEqual({ v: 1, rid: 4, ok: true });
   expect(sent.filter(m => m.kind === 'listing-begin').at(-1)).toMatchObject({ purpose: 'replace', activation: 't' });
   await c.handleMain({ v: 1, rid: 5, kind: 'thumbnail', id: photo.id });
   expect(replies.some(isPortEvent)).toBe(true); expect(replies.every(m => isPortReply(m) || isPortEvent(m))).toBe(true);
-  expect(await request({ v: 1, rid: 6, op: 'saveEdit', id: 'z'.repeat(22), edit: photo.edit })).toMatchObject({ ok: false, error: expect.stringMatching(/registered/) });
+  expect(await request({ v: 1, rid: 6, op: 'saveEdit', id: 'z'.repeat(22), rating: 0, edit: photo.edit })).toMatchObject({ ok: false, error: expect.stringMatching(/registered/) });
 });
 
 function heldListings() {
@@ -122,11 +122,11 @@ it('rereads a held pre-edit snapshot after the real ledger has acknowledged the 
   const h = heldListings(); await initHeld(h);
   const [a, b] = ports(); await h.controller.handleMain({ v: 1, kind: 'connect' }, [a]);
   const host = fakeHost(); let rid = 0;
-  host.library.save = async (id, edit) => {
+  host.library.save = async (id, edit, rating) => {
     const requestId = ++rid;
     await new Promise<void>((resolve, reject) => {
       const listener = ({ data }: any) => { if (data.rid !== requestId) return; b.off('message', listener); if (data.ok) resolve(); else reject(new Error(data.error)); };
-      b.on('message', listener); b.postMessage({ v: 1, rid: requestId, op: 'saveEdit', id, edit });
+      b.on('message', listener); b.postMessage({ v: 1, rid: requestId, op: 'saveEdit', id, edit, rating });
     });
   };
   setHost(host);
@@ -171,7 +171,7 @@ it.each(['thumbnail', 'saveEdit'] as const)('lists B promptly while unrelated A 
  await c.handleMain({ v: 1, kind: 'session', key: 'a2V5', cacheDir: '/cache' });
  await c.handleMain({ v: 1, kind: 'register', entries: [['a'.repeat(22), '/A/a.RAF']] });
  const [a, b] = ports(); await c.handleMain({ v: 1, kind: 'connect' }, [a]);
- const pending = operation === 'thumbnail' ? c.handleMain({ v: 1, rid: 1, kind: 'thumbnail', id: 'a'.repeat(22) }) : Promise.resolve(b.postMessage({ v: 1, rid: 1, op: 'saveEdit', id: 'a'.repeat(22), edit: defaultPhotoEdit() }));
+ const pending = operation === 'thumbnail' ? c.handleMain({ v: 1, rid: 1, kind: 'thumbnail', id: 'a'.repeat(22) }) : Promise.resolve(b.postMessage({ v: 1, rid: 1, op: 'saveEdit', id: 'a'.repeat(22), rating: 0, edit: defaultPhotoEdit() }));
  await tick(); expect(started).toHaveBeenCalledOnce();
  const listing = c.handleMain({ v: 1, rid: 2, kind: 'list', path: '/B', folderId: 'B', token: 'B', activation: 'B', purpose: 'open' });
  await tick();
@@ -207,20 +207,20 @@ it('acknowledges export destinations and routes export status/chunks/receipt wit
  dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'xveon-export-port-')));
  const service = createExportService({ native: () => ({ ok: true, encoder: { encode: async () => new Uint8Array([1, 2, 3]) } }) });
  const main: any[] = []; const c = createWorkerController({ postToMain: m => main.push(m), exports: service }); const [a, b] = ports(); await c.handleMain({ v: 1, kind: 'connect' }, [a]);
- await c.handleMain({ v: 1, rid: 50, kind: 'export-destination', token: 'dest-001', path: path.join(dir, 'export.avif') });
+ await c.handleMain({ v: 1, rid: 50, kind: 'export-destination', token: 'dest-001', path: dir });
  expect(main).toEqual([{ v: 1, rid: 50, kind: 'export-destination', token: 'dest-001' }]); expect(isWorkerToMain(main[0])).toBe(true);
  expect(await portRequest(b, { v: 1, rid: 1, op: 'exportStatus' })).toEqual({ v: 1, rid: 1, ok: true, availability: { available: true } });
- expect(await portRequest(b, { v: 1, rid: 2, op: 'exportBegin', job: 'job-0001', destination: 'dest-001', format: 'avif', width: 1, height: 1, planes: 1, orientation: '', quality: 95, peakLuminance: 1000 })).toEqual({ v: 1, rid: 2, ok: true });
+ expect(await portRequest(b, { v: 1, rid: 2, op: 'exportBegin', job: 'job-0001', target: 'dest-001', name: 'export.avif', onExists: 'replace', format: 'avif', width: 1, height: 1, planes: 1, orientation: '', quality: 95, peakLuminance: 1000 })).toEqual({ v: 1, rid: 2, ok: true });
  expect(await portRequest(b, { v: 1, rid: 3, op: 'exportChunk', job: 'job-0001', plane: 0, offset: 0, data: new ArrayBuffer(12) })).toEqual({ v: 1, rid: 3, ok: true });
- expect(await portRequest(b, { v: 1, rid: 4, op: 'exportCommit', job: 'job-0001' })).toMatchObject({ ok: true, receipt: { name: 'export.avif', bytes: 3 } });
+ expect(await portRequest(b, { v: 1, rid: 4, op: 'exportCommit', job: 'job-0001' })).toMatchObject({ ok: true, receipt: { outcome: 'written', name: 'export.avif', bytes: 3 } });
  expect(await fs.readFile(path.join(dir, 'export.avif'))).toEqual(Buffer.from([1, 2, 3]));
 });
 it('cancels old-port work on reconnect and ignores further requests from that port', async () => {
  dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'xveon-reconnect-')));
  let release!: () => void; const wait = new Promise<void>(r => { release = r; }); const encode = vi.fn(async () => { await wait; return new Uint8Array([1]); });
  const service = createExportService({ native: () => ({ ok: true, encoder: { encode } }) }); const c = createWorkerController({ postToMain: () => {}, exports: service });
- const [a, b] = ports(); await c.handleMain({ v: 1, kind: 'connect' }, [a]); await c.handleMain({ v: 1, kind: 'export-destination', token: 'dest-001', path: path.join(dir, 'old.avif') });
- await portRequest(b, { v: 1, rid: 1, op: 'exportBegin', job: 'job-0001', destination: 'dest-001', format: 'avif', width: 1, height: 1, planes: 1, orientation: '', quality: 95, peakLuminance: 1000 });
+ const [a, b] = ports(); await c.handleMain({ v: 1, kind: 'connect' }, [a]); await c.handleMain({ v: 1, kind: 'export-destination', token: 'dest-001', path: dir });
+ await portRequest(b, { v: 1, rid: 1, op: 'exportBegin', job: 'job-0001', target: 'dest-001', name: 'old.avif', onExists: 'replace', format: 'avif', width: 1, height: 1, planes: 1, orientation: '', quality: 95, peakLuminance: 1000 });
  await portRequest(b, { v: 1, rid: 2, op: 'exportChunk', job: 'job-0001', plane: 0, offset: 0, data: new ArrayBuffer(12) });
  const pending = portRequest(b, { v: 1, rid: 3, op: 'exportCommit', job: 'job-0001' }); await vi.waitFor(() => expect(encode).toHaveBeenCalledOnce());
  const [next] = ports(); await c.handleMain({ v: 1, kind: 'connect' }, [next]); expect(a.closed).toBe(true); release(); expect(await pending).toMatchObject({ ok: false, error: 'Export cancelled' });

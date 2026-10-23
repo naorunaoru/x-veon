@@ -252,7 +252,7 @@ it.each(['before-decode', 'during-model'] as const)('defers the first actual edi
     if (timing === 'before-decode') { decode(); await vi.waitFor(() => expect(activate).toBeDefined()); }
     activate(); await running; await flushPersistence();
     expect(host.library.save).toHaveBeenCalledTimes(1);
-    expect(host.library.save).toHaveBeenCalledWith('fresh', expect.objectContaining({ demosaicMethod: 'neural-net', model: { size: 'S', sha256: 'test' }, preProcessOverrides: { exposure: 1 } }), expect.anything());
+    expect(host.library.save).toHaveBeenCalledWith('fresh', expect.objectContaining({ demosaicMethod: 'neural-net', model: { size: 'S', sha256: 'test' }, preProcessOverrides: { exposure: 1 } }), 0, expect.anything());
     expect(useAppStore.getState().files[0].editRevision).toBe(revision); expect(unsavedEdits()).toEqual([]);
   } finally { decode(); if (activate) activate(); await running; stop(); await cancelPhotoSave('fresh'); }
 });

@@ -1,8 +1,12 @@
 import type { CfaType, DemosaicMethod, LookPreset, ModelIdentity, SerializableResultMeta } from '@/lib/types';
 import type { LensProfile } from '@/app/lens/lensfun';
 import type { LensEdit } from '@/lib/lens/edit';
-import type { LibraryPhoto, PhotoEdit, PhotoFacts } from '@/host';
+import type { LibraryPhoto, PhotoEdit, PhotoFacts, Rating } from '@/host';
+import { decodeSidecar, encodeSidecar, unknownProperties, type SidecarProperties } from '@/app/sidecar';
+import { defaultPhotoEdit } from '@/app/photo-edit';
 import { transact, openDatabase, assertDatabaseActive } from '@/app/storage/database';
+import { configFromPreset, LOOK_PRESETS } from '@/renderer/grading/opendrt-params';
+import { DEMOSAIC_METHODS } from '@/lib/catalog';
 export interface PersistedFile {
   id: string;
   name: string;
@@ -16,14 +20,16 @@ export interface PersistedFile {
   status: 'queued' | 'done' | 'error';
   error: string | null;
   resultMethod: DemosaicMethod | null;
-  editMethod?: DemosaicMethod | null;
   resultMeta: SerializableResultMeta | null;
   cachedMethods: DemosaicMethod[]; // deprecated — kept for schema compat
-  lookPreset: LookPreset;
   lensProfile: LensProfile | null;
-  openDrtOverrides: Record<string, number | boolean>;
-  preProcessOverrides: Record<string, number>;
   addedAt: number;
+  sidecar?: SidecarProperties;
+  /** Legacy shape, read only; absent once a record has been saved in the new shape. */
+  editMethod?: DemosaicMethod | null;
+  lookPreset?: LookPreset;
+  openDrtOverrides?: Record<string, number | boolean>;
+  preProcessOverrides?: Record<string, number>;
   model?: ModelIdentity | null;
   lens?: LensEdit;
 }
@@ -48,7 +54,9 @@ export function createFileStorage(dbName: string) {
         request.onsuccess = () => {
           if (!request.result) { missing = true; tx.abort(); return; }
           const stored = request.result as PersistedFile;
-          merged = { ...stored, editMethod: 'editMethod' in stored ? stored.editMethod : stored.resultMethod, ...recordFacts(facts) };
+          // A legacy record without editMethod reads its edit from resultMethod; pin it before the facts change.
+          const pinned = stored.sidecar || 'editMethod' in stored ? {} : { editMethod: stored.resultMethod };
+          merged = { ...stored, ...pinned, ...recordFacts(facts) };
           store.put(merged);
         };
       });
@@ -63,17 +71,7 @@ export function fromRecord(p: PersistedFile, thumbnailUrl: string | null): Libra
     originalName: p.originalName,
     fileSize: p.fileSize,
     thumbnailUrl,
-    editing: 'saved',
-    editingNote: null,
-    edit: {
-      version: 1,
-      lookPreset: p.lookPreset,
-      openDrtOverrides: p.openDrtOverrides,
-      preProcessOverrides: p.preProcessOverrides ?? {},
-      demosaicMethod: 'editMethod' in p ? p.editMethod ?? null : p.resultMethod,
-      model: p.model ?? null,
-      ...(p.lens ? { lens: p.lens } : {}),
-    },
+    ...(p.sidecar ? readSidecar(p.sidecar) : { rating: 0, editing: 'saved', editingNote: null, edit: legacyEdit(p) }),
     facts: {
       cfaType: p.cfaType,
       metadata: p.camera
@@ -95,8 +93,10 @@ export function fromRecord(p: PersistedFile, thumbnailUrl: string | null): Libra
 export function toRecord(
   photo: LibraryPhoto,
   edit: PhotoEdit,
+  rating: Rating,
   facts: PhotoFacts,
   addedAt: number,
+  previous?: PersistedFile,
 ): PersistedFile {
   return {
     id: photo.id,
@@ -104,15 +104,36 @@ export function toRecord(
     originalName: photo.originalName,
     fileSize: photo.fileSize,
     ...recordFacts(facts),
-    editMethod: edit.demosaicMethod,
     cachedMethods: [],
-    lookPreset: edit.lookPreset,
-    openDrtOverrides: edit.openDrtOverrides,
-    preProcessOverrides: edit.preProcessOverrides,
-    model: edit.model,
-    // An own `undefined` (after a reset) must override a lens block kept on the old record.
-    lens: edit.lens,
     addedAt,
+    sidecar: encodeSidecar({ edit, rating }, unknownProperties(previous?.sidecar ?? {})),
+  };
+}
+
+function readSidecar(sidecar: SidecarProperties): Pick<LibraryPhoto, 'edit' | 'rating' | 'editing' | 'editingNote'> {
+  try {
+    const { edit, rating } = decodeSidecar(sidecar);
+    return { edit, rating, editing: 'saved', editingNote: null };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { edit: defaultPhotoEdit(), rating: 0, editing: 'view-only', editingNote: 'Sidecar is unreadable: ' + message };
+  }
+}
+
+const DRT_KEYS = new Set(Object.keys(configFromPreset('default')));
+
+/** Legacy values were never validated; drop what the sidecar would reject so the photo stays editable. */
+function legacyEdit(p: PersistedFile): PhotoEdit {
+  const method = 'editMethod' in p ? p.editMethod ?? null : p.resultMethod;
+  const overrides = Object.entries(p.openDrtOverrides ?? {}).filter(([key]) => DRT_KEYS.has(key));
+  return {
+    version: 1,
+    lookPreset: p.lookPreset && Object.hasOwn(LOOK_PRESETS, p.lookPreset) ? p.lookPreset : 'default',
+    openDrtOverrides: Object.fromEntries(overrides),
+    preProcessOverrides: p.preProcessOverrides ?? {},
+    demosaicMethod: DEMOSAIC_METHODS.some((info) => info.id === method) ? method : null,
+    model: p.model ?? null,
+    ...(p.lens ? { lens: p.lens } : {}),
   };
 }
 

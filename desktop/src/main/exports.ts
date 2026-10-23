@@ -1,42 +1,50 @@
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { exportFormatInfo } from '@/lib/catalog';
-import type { ExportFormat } from '@/lib/types';
-import type { PhotoId } from '@/host';
+import type { PhotoId, SaveTo } from '@/host';
+import { isExportTargetRequest } from '../protocol/security';
+import { isLeafName } from '../protocol/rpc';
 
-export function createExportDestinations(deps: {
-  showSaveDialog(options: Electron.SaveDialogOptions): Promise<Electron.SaveDialogReturnValue>;
+export function createExportTargets(deps: {
   rawPath(photoId: PhotoId): string | undefined;
-  register(token: string, target: string): Promise<void>;
-  reveal(target: string): void;
-  fallbackDir(): string;
+  register(token: string, directory: string): Promise<void>;
+  showItem(file: string): void;
+  chooseFolder(): Promise<string | null>;
+  stat(path: string): Promise<{ isDirectory(): boolean }>;
   fixedDir?: string;
 }) {
   const issued = new Map<string, string>();
+  async function directory(saveTo: SaveTo, photoIds: PhotoId[]): Promise<string> {
+    if (deps.fixedDir) return deps.fixedDir;
+    if (saveTo.mode === 'beside') {
+      const dirs = photoIds.map(id => { const raw = deps.rawPath(id); if (!raw) throw new Error('Unknown photo'); return path.dirname(raw); });
+      if (dirs.some(dir => dir !== dirs[0])) throw new Error('Photos must be in one folder to export beside them');
+      return dirs[0];
+    }
+    const dir = saveTo.path;
+    try {
+      if (!path.isAbsolute(dir)) throw new Error('not an absolute path');
+      if (!(await deps.stat(dir)).isDirectory()) throw new Error('not a folder');
+    } catch (error) { throw new Error(`Couldn't export to ${dir}: ${error instanceof Error ? error.message : String(error)}`, { cause: error }); }
+    return dir;
+  }
   return {
-    async choose(photoId: PhotoId, format: ExportFormat): Promise<{ token: string; name: string } | null> {
-      // Also protect direct callers: fixture destinations must always be single leaves.
-      if (!/^[A-Za-z0-9_-]{22}$/.test(photoId) || !['jpeg-hdr', 'avif', 'tiff'].includes(format)) throw new Error('Invalid export destination');
-      const info = exportFormatInfo(format);
-      const raw = deps.rawPath(photoId);
-      const suggested = `${raw ? path.parse(raw).name : 'export'}.${info.ext}`;
-      let target: string;
-      if (deps.fixedDir) target = path.join(deps.fixedDir, `${photoId}-${format}.${info.ext}`);
-      else {
-        const result = await deps.showSaveDialog({
-          defaultPath: path.join(raw ? path.dirname(raw) : deps.fallbackDir(), suggested),
-          filters: [{ name: info.label, extensions: [info.ext] }],
-          properties: ['createDirectory', 'showOverwriteConfirmation'],
-        });
-        if (result.canceled || !result.filePath) return null;
-        target = result.filePath;
-      }
+    async resolve(saveTo: SaveTo, photoIds: PhotoId[]): Promise<{ token: string } | null> {
+      // Also protect direct callers: the bridge validated the same shape.
+      if (!isExportTargetRequest(saveTo, photoIds)) throw new Error('Invalid export target');
+      const dir = await directory(saveTo, photoIds);
       const token = randomUUID();
-      await deps.register(token, target);
-      issued.set(token, target);
+      await deps.register(token, dir);
+      issued.set(token, dir);
       if (issued.size > 50) issued.delete(issued.keys().next().value!);
-      return { token, name: path.basename(target) };
+      return { token };
     },
-    reveal(token: string) { const target = issued.get(token); if (target) deps.reveal(target); },
+    reveal(token: string, name?: string) {
+      const dir = issued.get(token);
+      if (!dir) return;
+      // Without a name the folder itself is shown, never opened.
+      if (name === undefined) deps.showItem(dir);
+      else if (isLeafName(name)) deps.showItem(path.join(dir, name));
+    },
+    chooseFolder: () => deps.chooseFolder(),
   };
 }

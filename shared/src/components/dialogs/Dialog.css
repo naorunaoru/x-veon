@@ -89,33 +89,3 @@
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
-
-.xv-format-list { display: flex; flex-direction: column; gap: 4px; }
-.xv-format {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  border: 1px solid var(--xv-border);
-  border-radius: var(--xv-radius-md);
-  color: var(--xv-muted-foreground);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.xv-format:hover { color: var(--xv-foreground); border-color: var(--xv-muted-foreground); }
-.xv-format.is-selected {
-  border-color: var(--xv-primary);
-  background: color-mix(in oklab, var(--xv-primary) 12%, transparent);
-  color: var(--xv-foreground);
-}
-
-.xv-format input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-}

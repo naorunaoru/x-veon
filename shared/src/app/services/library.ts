@@ -4,6 +4,7 @@ import { fromLibraryPhoto, mergeLibraryPhoto } from '@/app/store/photo';
 import { prune } from '@/app/selection';
 import { matchLens } from '@/app/lens/lensfun';
 import { discardResult } from './processing';
+import { cancelQueuedExports } from './export-batch';
 import { getHost } from './host';
 import {
   cancelPhotoSave, pausePersistence, resumePersistence, flushPersistence, restoreFromLedger, retryUnsaved,
@@ -35,6 +36,7 @@ export async function switchFolder(load: () => Promise<LibrarySnapshot | null>):
     return;
   }
   accepted = order; ++folderGeneration;
+  cancelQueuedExports();
   const state = useAppStore.getState();
   const files = snapshot.photos.map(photo => restoreFromLedger(fromLibraryPhoto(photo)));
   for (const file of state.files) discardResult(file.id);
@@ -151,6 +153,7 @@ export async function clearLibrary(): Promise<void> {
   clearing = true;
   ++folderGeneration; accepted = ++issued;
   try {
+    cancelQueuedExports();
     await pausePersistence();
     for (const file of useAppStore.getState().files) discardResult(file.id);
     await clear();

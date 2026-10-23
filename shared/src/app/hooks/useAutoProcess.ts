@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useAppStore } from '@/app/store';
 import { useProcessing } from './useProcessing';
-import { processingKey } from '@/app/store/photo';
+import { needsProcessing, processingKey } from '@/app/store/photo';
 import type { FileStatus } from '@/app/store';
 import { isMethodValidForCfa } from '@/lib/catalog';
 import { effectiveMethod } from '@/app/photo-edit';
@@ -24,7 +24,6 @@ export function useAutoProcess(): void {
       state.setFileDemosaicMethod(file.id, 'neural-net');
       return;
     }
-    if (file.status === 'queued' || (file.status === 'done' && file.processedKey === null) || (file.processedKey !== null && file.processedKey !== key))
-      void processFile(file.id);
+    if (needsProcessing(file, state)) void processFile(file.id);
   }, [file?.id, file?.status, file?.processedKey, key, state.initialized, isProcessing, processFile]);
 }
