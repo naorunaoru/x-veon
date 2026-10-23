@@ -89,9 +89,9 @@ export function isDesktopRequest(value: unknown): value is DesktopRequest {
     default: return false;
   }
 }
-/** One batch's destination: 1..250 photo IDs, beside them or in a folder whose path main re-checks. */
+/** One batch's destination: 1..250 photo IDs, beside them or in a local (not UNC or network) folder whose path main re-checks. */
 export function isExportTargetRequest(saveTo: unknown, photoIds: unknown): boolean {
-  const folderPath = (p: unknown) => typeof p === 'string' && p.length > 0 && p.length <= 4096 && !p.includes('\0');
+  const folderPath = (p: unknown) => typeof p === 'string' && p.length > 0 && p.length <= 4096 && !p.includes('\0') && !p.startsWith('\\\\') && !p.startsWith('//');
   return object(saveTo) && (saveTo.mode === 'beside' || (saveTo.mode === 'folder' && folderPath(saveTo.path)))
     && dense(photoIds, id => typeof id === 'string' && /^[A-Za-z0-9_-]{22}$/.test(id)) && (photoIds as unknown[]).length >= 1 && (photoIds as unknown[]).length <= 250;
 }

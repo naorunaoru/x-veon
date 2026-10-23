@@ -5,7 +5,7 @@ const a = 'a'.repeat(22), b = 'b'.repeat(22), c = 'c'.repeat(22);
 const raws: Record<string, string> = { [a]: '/photos/DSCF0001.RAF', [b]: '/photos/DSCF0002.RAF', [c]: '/other/DSCF0003.RAF' };
 const folder = { isDirectory: () => true }, file = { isDirectory: () => false };
 function harness(fixedDir?: string) {
-  const deps = { rawPath: vi.fn((id: string) => raws[id]), register: vi.fn(async (_token: string, _dir: string) => {}), showItem: vi.fn(), openDirectory: vi.fn(async (_dir: string) => {}),
+  const deps = { rawPath: vi.fn((id: string) => raws[id]), register: vi.fn(async (_token: string, _dir: string) => {}), showItem: vi.fn(),
     chooseFolder: vi.fn(async () => '/chosen'), stat: vi.fn(async (_path: string) => folder), fixedDir };
   return { deps, targets: createExportTargets(deps) };
 }
@@ -17,7 +17,7 @@ it('beside resolves the first RAW\'s folder and registers one token', async () =
   await expect(h.targets.resolve({ mode: 'beside' }, ['d'.repeat(22)])).rejects.toThrow('Unknown photo');
   h.deps.register.mockRejectedValueOnce(new Error('worker stopped'));
   await expect(h.targets.resolve({ mode: 'beside' }, [a])).rejects.toThrow('worker stopped');
-  h.targets.reveal(h.deps.register.mock.calls[1][0]); expect(h.deps.openDirectory).not.toHaveBeenCalled();
+  h.targets.reveal(h.deps.register.mock.calls[1][0]); expect(h.deps.showItem).not.toHaveBeenCalled();
   expect(await h.targets.chooseFolder()).toBe('/chosen');
 });
 it('beside rejects photos from two folders', async () => {
@@ -40,19 +40,23 @@ it('fixedDir overrides saveTo', async () => {
   const beside = await h.targets.resolve({ mode: 'beside' }, ['d'.repeat(22)]); const chosen = await h.targets.resolve({ mode: 'folder', path: '/out' }, [a]);
   expect(h.deps.register.mock.calls).toEqual([[beside!.token, '/fixed'], [chosen!.token, '/fixed']]); expect(h.deps.rawPath).not.toHaveBeenCalled(); expect(h.deps.stat).not.toHaveBeenCalled();
 });
-it('reveal shows the file when named and opens the folder otherwise', async () => {
+it('reveal shows the file when named and the folder itself otherwise', async () => {
   const h = harness(); const { token } = (await h.targets.resolve({ mode: 'beside' }, [a]))!;
-  h.targets.reveal(token, 'DSCF0001.avif'); expect(h.deps.showItem).toHaveBeenCalledWith(path.join('/photos', 'DSCF0001.avif'));
-  h.targets.reveal(token); expect(h.deps.openDirectory).toHaveBeenCalledWith('/photos');
+  h.targets.reveal(token, 'DSCF0001.avif'); h.targets.reveal(token);
   h.targets.reveal('00000000-0000-4000-8000-000000000001', 'x.avif'); h.targets.reveal(token, '../escape.avif');
-  expect(h.deps.showItem).toHaveBeenCalledOnce(); expect(h.deps.openDirectory).toHaveBeenCalledOnce();
+  expect(h.deps.showItem.mock.calls).toEqual([[path.join('/photos', 'DSCF0001.avif')], ['/photos']]);
 });
 it('keeps at most 50 tokens', async () => {
   const h = harness(); const tokens: string[] = [];
   for (let i = 0; i < 51; i++) tokens.push((await h.targets.resolve({ mode: 'beside' }, [a]))!.token);
   expect(new Set(tokens).size).toBe(51);
-  h.targets.reveal(tokens[0]); expect(h.deps.openDirectory).not.toHaveBeenCalled();
-  h.targets.reveal(tokens[1]); h.targets.reveal(tokens[50]); expect(h.deps.openDirectory).toHaveBeenCalledTimes(2);
+  h.targets.reveal(tokens[0]); expect(h.deps.showItem).not.toHaveBeenCalled();
+  h.targets.reveal(tokens[1]); h.targets.reveal(tokens[50]); expect(h.deps.showItem).toHaveBeenCalledTimes(2);
+});
+it('rejects a UNC folder as an invalid target without calling stat', async () => {
+  const h = harness();
+  for (const unc of ['\\\\host\\share', '//host/share']) await expect(h.targets.resolve({ mode: 'folder', path: unc }, [a])).rejects.toThrow('Invalid export target');
+  expect(h.deps.stat).not.toHaveBeenCalled(); expect(h.deps.register).not.toHaveBeenCalled();
 });
 it('rejects malformed ids and shapes', async () => {
   const h = harness('/fixed');

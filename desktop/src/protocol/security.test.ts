@@ -90,6 +90,8 @@ it('validates export target, reveal and folder requests', () => {
  expect(isDesktopRequest(resolve)).toBe(true);
  expect(isDesktopRequest({ ...resolve, saveTo: { mode: 'folder', path: '/Users/me/Exports' } })).toBe(true);
  expect(isDesktopRequest({ ...resolve, photoIds: Array(250).fill(id) })).toBe(true);
+ expect(isDesktopRequest({ ...resolve, saveTo: { mode: 'folder', path: '/Users/x/out' } })).toBe(true);
+ for (const unc of ['\\\\host\\share', '//host/share']) expect(isDesktopRequest({ ...resolve, saveTo: { mode: 'folder', path: unc } })).toBe(false);
  for (const patch of [{ photoIds: [] }, { photoIds: Array(251).fill(id) }, { photoIds: ['../raw'] }, { photoIds: [id, , id] }, { saveTo: { mode: 'folder', path: '' } }, { saveTo: { mode: 'folder', path: 'a\0b' } }, { saveTo: { mode: 'folder', path: 'x'.repeat(4097) } }, { saveTo: { mode: 'folder' } }, { saveTo: { mode: 'desktop' } }, { saveTo: null }])
   expect(isDesktopRequest({ ...resolve, ...patch })).toBe(false);
  expect(isDesktopRequest({ version: 2, kind: 'revealExport', token })).toBe(true);

@@ -1,6 +1,6 @@
 import type { ExportFormat } from '@/lib/types';
 import type { FolderRef, LibraryPhoto, PhotoEdit, PhotoFacts, PhotoId, Rating } from '@/host';
-import { DEMOSAIC_METHODS, MODEL_SIZES } from '@/lib/catalog';
+import { DEMOSAIC_METHODS, MODEL_SIZES, exportFormatInfo } from '@/lib/catalog';
 import { LOOK_PRESETS, DEFAULT_PREPROCESS, configFromPreset } from '@/renderer/grading/opendrt-params';
 import type { ListingFrame } from './listing';
 export type { ListingFrame } from './listing';
@@ -149,7 +149,8 @@ export function isPortRequest(x: unknown): x is PortRequest {
     case 'saveEdit': return id(x.id) && edit(x.edit) && rating(x.rating);
     case 'saveFacts': return id(x.id) && facts(x.facts);
     case 'rescan': case 'exportStatus': return true;
-    case 'exportBegin': return jobId(x.job) && jobId(x.target) && isLeafName(x.name) && oneOf(x.onExists, ['skip', 'replace']) && oneOf(x.format, ['avif', 'jpeg-hdr', 'tiff'])
+    case 'exportBegin': return jobId(x.job) && jobId(x.target) && oneOf(x.onExists, ['skip', 'replace']) && oneOf(x.format, ['avif', 'jpeg-hdr', 'tiff'])
+      && isLeafName(x.name) && x.name.endsWith(`.${exportFormatInfo(x.format as ExportFormat).ext}`)
       && side(x.width) && side(x.height) && (x.width as number) * (x.height as number) <= MAX_EXPORT_PIXELS
       && typeof x.orientation === 'string' && x.orientation.length <= 32
       && Number.isInteger(x.quality) && (x.quality as number) >= 1 && (x.quality as number) <= 100

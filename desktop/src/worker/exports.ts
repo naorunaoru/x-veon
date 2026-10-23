@@ -73,6 +73,7 @@ export function createExportService(opts: { native: () => NativeLoad; now?: () =
       if (jobs.has(message.job)) throw new Error('Duplicate export job');
       const dir = targets.get(message.target);
       if (!dir) throw new Error('Unknown export target');
+      if (path.basename(message.name) !== message.name) throw new Error('Invalid export name');
       const j: Job = { begin: message, target: path.join(dir, message.name), planes: [], received: [], state: 'pending', abort: new AbortController() };
       // Reserve the ID before directory lookup or slot acquisition can yield.
       jobs.set(message.job, j);

@@ -127,7 +127,7 @@ describe('export protocol', () => {
   const begin = { v: 1, rid: 1, op: 'exportBegin', job: 'job-0001', target: 'dest-001', name: 'a.avif', onExists: 'replace', format: 'avif', width: 2, height: 2, orientation: '', quality: 95, peakLuminance: 1000, planes: 1 };
   const chunk = { v: 1, rid: 2, op: 'exportChunk', job: 'job-0001', plane: 0, offset: 0, data: new ArrayBuffer(4) };
   it('accepts each format and all export operations', () => {
-    for (const format of ['avif', 'jpeg-hdr', 'tiff']) expect(isPortRequest({ ...begin, format, planes: format === 'jpeg-hdr' ? 2 : 1 })).toBe(true);
+    for (const [format, name] of [['avif', 'a.avif'], ['jpeg-hdr', 'a.jpg'], ['tiff', 'a.tif']]) expect(isPortRequest({ ...begin, format, name, planes: format === 'jpeg-hdr' ? 2 : 1 })).toBe(true);
     for (const op of ['exportStatus', 'exportCommit', 'exportCancel']) expect(isPortRequest({ v: 1, rid: 1, op, job: 'job-0001' })).toBe(true);
     expect(isPortRequest({ ...chunk, data: new ArrayBuffer(64_000_000) })).toBe(true);
   });
@@ -148,7 +148,8 @@ describe('export protocol', () => {
   });
   it('exportBegin requires a safe leaf name and onExists', () => {
     expect(isPortRequest(begin)).toBe(true); expect(isPortRequest({ ...begin, onExists: 'skip' })).toBe(true);
-    for (const name of ['../x', 'a/b', 'a\\b', 'a\0b', '', 'x'.repeat(256), '.', '..', 7]) expect(isPortRequest({ ...begin, name })).toBe(false);
+    for (const name of ['../x', 'a/b', 'a\\b', 'a\0b', '', 'x'.repeat(256), '.', '..', 7, '.zshrc', 'DSCF0001.RAF', '../x.avif', 'a/b.avif']) expect(isPortRequest({ ...begin, name })).toBe(false);
+    expect(isPortRequest({ ...begin, name: 'a.avif', format: 'avif' })).toBe(true); expect(isPortRequest({ ...begin, name: 'a.avif', format: 'tiff' })).toBe(false);
     for (const onExists of ['overwrite', undefined]) expect(isPortRequest({ ...begin, onExists })).toBe(false);
     const written = { outcome: 'written', name: 'a.avif', bytes: 3, sha256: 'a'.repeat(64), encodeMs: 2 };
     for (const receipt of [written, { outcome: 'skipped', name: 'a.avif' }]) expect(isPortReply({ v: 1, rid: 1, ok: true, receipt })).toBe(true);

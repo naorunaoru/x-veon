@@ -39,6 +39,12 @@ it('a target token serves several jobs, keeps the 50 newest tokens, and rejects 
  await h.begin('job-0004'); h.service.register('dir-2000', dir);
  await expect(h.service.begin(message('job-0005'))).rejects.toThrow('Unknown export target'); await h.service.begin(message('job-0006', { target: 'dir-1000' })); h.service.cancelAll();
 });
+it('rejects a name that is not a leaf without touching any file', async () => {
+ const h = setup(); const parent = path.dirname(dir), before = await fs.readdir(parent);
+ await expect(h.service.begin(message('job-0001', { name: '../x.avif' }))).rejects.toThrow('Invalid export name');
+ expect(await fs.readdir(dir)).toEqual([]); expect(await fs.readdir(parent)).toEqual(before);
+ expect(() => h.service.chunk('job-0001', 0, 0, new ArrayBuffer(12))).toThrow('Unknown export job'); await h.begin('job-0001'); h.service.cancelAll();
+});
 it('skips an existing file before encoding and reports skipped', async () => {
  const h = setup(); await fs.writeFile(path.join(dir, 'job-0001.avif'), 'original'); await h.ready('job-0001', undefined, 'skip');
  expect(await h.service.commit('job-0001')).toEqual({ outcome: 'skipped', name: 'job-0001.avif' });

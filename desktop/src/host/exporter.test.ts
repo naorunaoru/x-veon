@@ -5,7 +5,7 @@ import type { PortRequest } from '../protocol/rpc';
 import { createWorkerClient } from './port';
 import { createExporter } from './exporter';
 const receipt = { outcome: 'written', bytes: 123, sha256: 'a'.repeat(64), encodeMs: 12, name: 'x.avif' };
-const out: ExportOutput = { target: { token: 'destination' }, name: 'x.avif', onExists: 'replace' };
+const out: ExportOutput = { target: { token: 'destination' }, name: 'x.jpg', onExists: 'replace' };
 const tick = async () => { for (let i = 0; i < 200; i++) await Promise.resolve(); };
 function setup(holdDelivery = false) {
  const win = new EventTarget(); vi.stubGlobal('window', win); vi.stubGlobal('location', { origin: 'app://bundle' });
@@ -40,12 +40,12 @@ it('resolves a target, encodes with name and onExists, reveals a named file', as
 });
 it('chunks both planes exactly and releases each after its final acknowledgment', async () => {
  const { exporter, ports } = setup(); const j = job(); ports[0].hook = r => { if (r.op === 'exportChunk' && r.plane === 1) expect(j.data.length).toBe(0); if (r.op === 'exportCommit') expect(j.hdrData).toBeNull(); };
- expect(await exporter.encode(j, out)).toEqual(receipt); const sent = ports[0].sent; expect(sent[0]).toMatchObject({ op: 'exportBegin', target: 'destination', name: 'x.avif', onExists: 'replace', planes: 2, quality: 80 }); expect(sent.at(-1)).toMatchObject({ op: 'exportCommit' });
+ expect(await exporter.encode(j, out)).toEqual(receipt); const sent = ports[0].sent; expect(sent[0]).toMatchObject({ op: 'exportBegin', target: 'destination', name: 'x.jpg', onExists: 'replace', planes: 2, quality: 80 }); expect(sent.at(-1)).toMatchObject({ op: 'exportCommit' });
  for (const plane of [0, 1]) { const chunks = sent.filter(r => r.op === 'exportChunk' && r.plane === plane); expect(chunks.map(r => r.op === 'exportChunk' && [r.offset, r.data.byteLength])).toEqual(Array.from({ length: 12 }, (_, i) => [i * 1024, i === 11 ? 736 : 1024])); for (const r of chunks) if (r.op === 'exportChunk') expect(r.data).toBeInstanceOf(ArrayBuffer); }
  expect(j.data.length).toBe(0); expect(j.hdrData).toBeNull();
 });
 it('sends only the bytes of a subarray without detaching it', async () => {
- const { exporter, ports } = setup(); const source = new Float32Array([9, 1, 2, 3, 9]); const j = { ...job(), format: 'avif' as const, data: source.subarray(1, 4), hdrData: null, width: 1 }; await exporter.encode(j, out); const r = ports[0].sent.find(r => r.op === 'exportChunk')!; if (r.op === 'exportChunk') expect([...new Float32Array(r.data)]).toEqual([1, 2, 3]); expect(source.byteLength).toBe(20);
+ const { exporter, ports } = setup(); const source = new Float32Array([9, 1, 2, 3, 9]); const j = { ...job(), format: 'avif' as const, data: source.subarray(1, 4), hdrData: null, width: 1 }; await exporter.encode(j, { ...out, name: 'x.avif' }); const r = ports[0].sent.find(r => r.op === 'exportChunk')!; if (r.op === 'exportChunk') expect([...new Float32Array(r.data)]).toEqual([1, 2, 3]); expect(source.byteLength).toBe(20);
 });
 it.each(['exportBegin', 'exportChunk', 'exportCommit'])('aborts while %s is pending', async op => {
  const { exporter, ports, client } = setup(); const abort = new AbortController(); ports[0].hold = op; const pending = exporter.encode({ ...job(), signal: abort.signal }, out); const failed = expect(pending).rejects.toMatchObject({ name: 'AbortError' }); await tick(); expect(ports[0].sent.at(-1)?.op).toBe(op); abort.abort(); await failed; await tick(); expect(ports[0].sent.filter(r => r.op === 'exportCancel')).toHaveLength(1); const count = ports[0].sent.length; ports[0].receive(ports[0].sent.find(r => r.op === op)!); await tick(); expect(ports[0].sent).toHaveLength(count); client.stop('cleanup');

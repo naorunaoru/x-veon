@@ -7,7 +7,7 @@ import { isLeafName } from '../protocol/rpc';
 export function createExportTargets(deps: {
   rawPath(photoId: PhotoId): string | undefined;
   register(token: string, directory: string): Promise<void>;
-  showItem(file: string): void; openDirectory(directory: string): Promise<void>;
+  showItem(file: string): void;
   chooseFolder(): Promise<string | null>;
   stat(path: string): Promise<{ isDirectory(): boolean }>;
   fixedDir?: string;
@@ -41,7 +41,8 @@ export function createExportTargets(deps: {
     reveal(token: string, name?: string) {
       const dir = issued.get(token);
       if (!dir) return;
-      if (name === undefined) void deps.openDirectory(dir).catch(() => {});
+      // Without a name the folder itself is shown, never opened.
+      if (name === undefined) deps.showItem(dir);
       else if (isLeafName(name)) deps.showItem(path.join(dir, name));
     },
     chooseFolder: () => deps.chooseFolder(),

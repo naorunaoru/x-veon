@@ -138,7 +138,6 @@ if (ownsInstance) void app.whenReady().then(async () => {
     rawPath: id => supervisor.registry.get(id),
     register: (token, dir) => supervisor.request({ kind: 'export-destination', token, path: dir }).then(() => {}),
     showItem: file => shell.showItemInFolder(file),
-    openDirectory: dir => shell.openPath(dir).then(() => {}),
     chooseFolder,
     stat,
   });
