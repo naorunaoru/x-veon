@@ -166,7 +166,18 @@ function pump(): void {
   const run = processFile(waiter.fileId);
   if (inFlight !== waiter.fileId) return; // another run won the race: wait for the next settlement
   waiters.shift();
-  void run.then(() => settleWaiter(waiter));
+  const settle = () => {
+    const now = useAppStore.getState();
+    const file = now.files.find((f) => f.id === waiter.fileId);
+    // A run superseded mid-flight (key changed) published nothing and reset the photo to queued: run it again.
+    if (file && file.status !== 'error' && !hasResult(waiter.fileId) && needsProcessing(file, now)) {
+      waiters.unshift(waiter);
+      pump();
+      return;
+    }
+    settleWaiter(waiter);
+  };
+  void run.then(settle, settle);
 }
 
 function retire(entry: Entry): void {

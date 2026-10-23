@@ -598,6 +598,27 @@ describe('processing service', () => {
     logged.mockRestore();
   });
 
+  it('processForExport re-queues a waiter whose run was superseded', async () => {
+    useAppStore.setState({ files: [makeFile('b')], currentId: 'b', initialized: false, demosaicMethod: 'dht' });
+    const finishes: ((image: ProcessedImage) => void)[] = [];
+    processRaw.mockImplementation(() => new Promise((resolve) => { finishes.push(resolve); }));
+    let resolved = false;
+    const exported = processForExport('b').then(() => { resolved = true; });
+    await vi.waitFor(() => expect(processRaw).toHaveBeenCalledTimes(1));
+    useAppStore.setState({ demosaicMethod: 'markesteijn3' });
+    const superseded = fakeImage();
+    finishes[0](superseded); // decoded with the old method: processFile discards it and resets to queued
+    await vi.waitFor(() => expect(processRaw).toHaveBeenCalledTimes(2));
+    expect(superseded.disposed).toBe(1);
+    expect(resolved).toBe(false);
+    const fresh = fakeImage();
+    Object.defineProperty(fresh, 'method', { value: 'markesteijn3' });
+    finishes[1](fresh);
+    await exported;
+    expect(getResult('b')).toBe(fresh);
+    expect(hasResult('b')).toBe(true);
+  });
+
   it('hasResult is true once a result is published and false after discardResult', async () => {
     expect(hasResult('a')).toBe(false);
     processRaw.mockResolvedValueOnce(fakeImage());
