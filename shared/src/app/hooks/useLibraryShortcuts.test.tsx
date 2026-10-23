@@ -80,8 +80,28 @@ describe('navigation keys', () => {
     expect(useAppStore.getState().columnWidth).toBe(0);
     expect(tab).toBe(false);                                            // defaultPrevented
   });
+  it('rating keys set, clear and reject the current photo', () => {
+    const rate = vi.spyOn(useAppStore.getState(), 'setFileRating').mockImplementation(() => {});
+    renderHook(useLibraryShortcuts);
+    for (const key of ['1', '2', '3', '4', '5', '0']) {
+      expect(fireEvent.keyDown(document.body, { key })).toBe(false);     // defaultPrevented
+    }
+    fireEvent.keyDown(document.body, { key: 'x' });
+    fireEvent.keyDown(document.body, { key: 'X' });
+    fireEvent.keyDown(document.body, { key: 'ч', code: 'KeyX' });
+    expect(rate.mock.calls).toEqual([
+      ['b', 1], ['b', 2], ['b', 3], ['b', 4], ['b', 5], ['b', 0], ['b', -1], ['b', -1], ['b', -1],
+    ]);
+    rate.mockClear();
+    fireEvent.keyDown(document.body, { key: '3', metaKey: true });
+    fireEvent.keyDown(document.body, { key: '3', shiftKey: true });
+    fireEvent.keyDown(document.body, { key: 'x', metaKey: true });
+    fireEvent.keyDown(document.body, { key: 'X', shiftKey: true });
+    expect(rate).not.toHaveBeenCalled();
+  });
   it('protects editing, dialogs and menus', () => {
     const move = vi.spyOn(useAppStore.getState(), 'moveCurrent').mockImplementation(() => {});
+    const rate = vi.spyOn(useAppStore.getState(), 'setFileRating').mockImplementation(() => {});
     renderHook(useLibraryShortcuts);
     const menu = document.createElement('div');
     menu.setAttribute('role', 'menu');
@@ -96,8 +116,10 @@ describe('navigation keys', () => {
     const input = document.createElement('input');
     document.body.append(input);
     fireEvent.keyDown(input, { key: 'ArrowLeft' });
+    fireEvent.keyDown(input, { key: '3' });
     input.remove();
     expect(move).not.toHaveBeenCalled();
+    expect(rate).not.toHaveBeenCalled();
     expect(tab).toBe(true);                                             // Tab in a dialog keeps its default
     expect(useAppStore.getState().columnWidth).toBe(3);
   });

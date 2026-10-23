@@ -25,6 +25,12 @@
   position: absolute; top: 4px; right: 4px; width: 5px; height: 5px; border-radius: var(--xv-radius-full);
   background: var(--xv-foreground); box-shadow: var(--xv-text-shadow);
 }
+.xv-cell__stars,
+.xv-cell__reject {
+  position: absolute; left: 4px; bottom: 3px; font-size: 9px; line-height: 1;
+  color: var(--xv-foreground); text-shadow: var(--xv-text-shadow); pointer-events: none;
+}
+.xv-cell[data-rating="-1"] img { opacity: 0.3; }
 
 .xv-column__foot {
   height: 26px; padding: 4px 6px; border-top: 1px solid var(--xv-border);

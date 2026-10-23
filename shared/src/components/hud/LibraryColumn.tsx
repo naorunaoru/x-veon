@@ -110,12 +110,15 @@ export function LibraryColumn() {
               data-testid="column-cell"
               aria-selected={selected.has(f.id)}
               data-current={current || undefined}
-              aria-label={f.originalName}
+              data-rating={f.rating}
+              aria-label={f.rating > 0 ? `${f.originalName}, rated ${f.rating}` : f.rating < 0 ? `${f.originalName}, rejected` : f.originalName}
               tabIndex={f.id === tabStopId ? 0 : -1}
               onClick={(e) => clickCell(f.id, { meta: e.metaKey || e.ctrlKey, shift: e.shiftKey })}
             >
               {f.thumbnailUrl && <img src={f.thumbnailUrl} alt="" draggable={false} />}
               {!isDefaultPhotoEdit(f.edit) && <span className="xv-cell__edited" />}
+              {f.rating > 0 && <span className="xv-cell__stars" aria-hidden>{'★'.repeat(f.rating)}</span>}
+              {f.rating < 0 && <span className="xv-cell__reject" aria-hidden>✕</span>}
             </button>
           );
         })}

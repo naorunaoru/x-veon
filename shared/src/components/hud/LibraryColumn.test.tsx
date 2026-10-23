@@ -33,6 +33,22 @@ it('renders one option per photo with current and selected state', () => {
   expect(cells[2].querySelector('.xv-cell__edited')).toBeNull();
   expect(screen.getByTestId('library-column').style.getPropertyValue('--xv-columns')).toBe('1');
 });
+it('marks rated and rejected cells', () => {
+  useAppStore.setState({ files: [{ ...files[0], rating: 3 }, { ...files[1], rating: -1 }, { ...files[2], rating: 0 }] });
+  render(<LibraryColumn />);
+  const [rated, rejected, unrated] = screen.getAllByTestId('column-cell');
+  expect(rated.querySelector('.xv-cell__stars')).toHaveTextContent('★★★');
+  expect(rated).toHaveAttribute('data-rating', '3');
+  expect(rated).toHaveAccessibleName('a.raf, rated 3');
+  expect(rated.querySelector('.xv-cell__reject')).toBeNull();
+  expect(rejected.querySelector('.xv-cell__reject')).not.toBeNull();
+  expect(rejected.querySelector('.xv-cell__stars')).toBeNull();
+  expect(rejected).toHaveAttribute('data-rating', '-1');
+  expect(rejected).toHaveAccessibleName('b.raf, rejected');
+  expect(unrated.querySelector('.xv-cell__stars, .xv-cell__reject')).toBeNull();
+  expect(unrated).toHaveAttribute('data-rating', '0');
+  expect(unrated).toHaveAccessibleName('c.raf');
+});
 it('dispatches clicks with modifiers', () => {
   const clickCell = vi.spyOn(useAppStore.getState(), 'clickCell').mockImplementation(() => {});
   render(<LibraryColumn />);

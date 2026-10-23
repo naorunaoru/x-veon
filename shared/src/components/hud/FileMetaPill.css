@@ -3,9 +3,9 @@
   padding: 5px 10px; border-radius: var(--xv-radius-chrome);
   font-family: var(--xv-font-mono); font-size: 10px;
   color: rgba(255, 255, 255, 0.78); pointer-events: auto;
-  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  max-width: 100%; min-width: 0;
 }
-.xv-filemeta__name { color: #fff; }
+.xv-filemeta__name { color: #fff; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .xv-filemeta__sep { color: var(--xv-fg-dim); }
-.xv-filemeta__part { white-space: nowrap; }
-.xv-filemeta__note { display: inline-flex; color: var(--xv-accent-hdr); margin-left: 2px; }
+.xv-filemeta__part { white-space: nowrap; flex-shrink: 0; }
+.xv-filemeta__note { display: inline-flex; flex-shrink: 0; color: var(--xv-accent-hdr); margin-left: 2px; }

@@ -2,6 +2,7 @@ import { getHost } from '@/app/services/host';
 import { useEffect } from 'react';
 import { useAppStore } from '@/app/store';
 import { removeFile } from '@/app/services/library';
+import type { Rating } from '@/host';
 
 /** Keys typed here belong to the field, dialog or menu, not the library. */
 const OWNS_KEYS = 'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="slider"], [role="textbox"], [role="dialog"], [role="alertdialog"], [role="menu"]';
@@ -41,6 +42,12 @@ export function useLibraryShortcuts() {
       } else if ((event.key.toLowerCase() === 'a' || (!/^[a-z]$/i.test(event.key) && event.code === 'KeyA')) && command && !event.altKey && !event.shiftKey) {
         event.preventDefault();
         state.selectAllShown();
+      } else if (/^[0-5]$/.test(event.key) && plain) {
+        event.preventDefault();
+        if (state.currentId) state.setFileRating(state.currentId, Number(event.key) as Rating);
+      } else if ((event.key.toLowerCase() === 'x' || (!/^[a-z]$/i.test(event.key) && event.code === 'KeyX')) && plain) {
+        event.preventDefault();
+        if (state.currentId) state.setFileRating(state.currentId, -1);
       } else if (event.key === 'Escape' && plain) {
         event.preventDefault();
         state.clearSelection();
