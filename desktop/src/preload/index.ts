@@ -15,6 +15,10 @@ async function invoke(request: DesktopRequest) {
   if (!isDesktopRequest(request)) throw new Error('Invalid bridge request');
   const response: unknown = await ipcRenderer.invoke('xveon-desktop', request);
   if (request.kind === 'requestWorkerPort' || request.kind === 'revealExport') return;
+  if (request.kind === 'chooseExportFolder') {
+    if (response !== null && (typeof response !== 'string' || response.length === 0 || response.length > 4096)) throw new Error('Invalid bridge response');
+    return response;
+  }
   if (request.kind === 'displayReadings') {
     const readings = response === null ? null : displayReadingsFrom(response);
     if (response !== null && readings === null) throw new Error('Invalid bridge response');
@@ -29,7 +33,7 @@ async function invoke(request: DesktopRequest) {
   const dense = (value: unknown, check: (item: unknown) => boolean): boolean => Array.isArray(value)
     && Array.from({ length: value.length }, (_, i) => Object.hasOwn(value, i) && check(value[i])).every(Boolean);
   let valid = false;
-  if (request.kind === 'chooseExportDestination') valid = response === null || (object(response) && typeof response.token === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(response.token) && typeof response.name === 'string' && response.name.length > 0 && response.name.length <= 255);
+  if (request.kind === 'resolveExportTarget') valid = response === null || (object(response) && typeof response.token === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(response.token));
   else if (request.kind === 'recentFolders') valid = dense(response, item => object(item) && typeof item.id === 'string' && typeof item.name === 'string');
   else valid = response === null || (object(response) && typeof response.token === 'string'
     && (request.kind !== 'openDropped' || dense(response.selected, id => typeof id === 'string' && /^[A-Za-z0-9_-]{22}$/.test(id))));
@@ -38,8 +42,9 @@ async function invoke(request: DesktopRequest) {
 }
 const bridge: DesktopBridge = {
   version: 2,
-  chooseExportDestination: (photoId, format) => invoke({ version: 2, kind: 'chooseExportDestination', photoId, format }) as ReturnType<DesktopBridge['chooseExportDestination']>,
-  revealExport: async token => { await invoke({ version: 2, kind: 'revealExport', token }); },
+  resolveExportTarget: (saveTo, photoIds) => invoke({ version: 2, kind: 'resolveExportTarget', saveTo, photoIds }) as ReturnType<DesktopBridge['resolveExportTarget']>,
+  revealExport: async (token, name) => { await invoke({ version: 2, kind: 'revealExport', token, ...(name === undefined ? {} : { name }) }); },
+  chooseExportFolder: () => invoke({ version: 2, kind: 'chooseExportFolder' }) as ReturnType<DesktopBridge['chooseExportFolder']>,
   loadLast: () => invoke({ version: 2, kind: 'loadLast' }) as ReturnType<DesktopBridge['loadLast']>,
   openFolder: folderId => invoke({ version: 2, kind: 'openFolder', folderId }) as ReturnType<DesktopBridge['openFolder']>,
   async openDropped(files) {

@@ -10,9 +10,9 @@ export interface ListingStamp extends StateStamp { scan: number }
 export const EXPORT_CHUNK_BYTES = 64_000_000;
 export const MAX_EXPORT_SIDE = 65_535;
 export const MAX_EXPORT_PIXELS = 200_000_000;
-export interface ExportReceipt { name: string; bytes: number; sha256: string; encodeMs: number }
+export type ExportReceipt = { outcome: 'written'; name: string; bytes: number; sha256: string; encodeMs: number } | { outcome: 'skipped'; name: string };
 export type ExportAvailability = { available: true } | { available: false; reason: string };
-export type ExportBegin = { v: 1; rid: number; op: 'exportBegin'; job: string; destination: string; format: ExportFormat;
+export type ExportBegin = { v: 1; rid: number; op: 'exportBegin'; job: string; target: string; name: string; onExists: 'skip' | 'replace'; format: ExportFormat;
   width: number; height: number; orientation: string; quality: number; peakLuminance: number; planes: 1 | 2 };
 export type PortRequest =
   | { v: 1; rid: number; op: 'exportStatus' } | ExportBegin
@@ -49,7 +49,9 @@ const id = (x: unknown): x is string => string(x) && /^[A-Za-z0-9_-]{22}$/.test(
 const jobId = (x: unknown) => typeof x === 'string' && /^[A-Za-z0-9-]{8,64}$/.test(x);
 const side = (x: unknown) => Number.isInteger(x) && (x as number) >= 1 && (x as number) <= MAX_EXPORT_SIDE;
 const arrayBuffer = (x: unknown): x is ArrayBuffer => Object.prototype.toString.call(x) === '[object ArrayBuffer]';
-const receipt = (x: unknown) => record(x) && string(x.name) && count(x.bytes) && string(x.sha256) && /^[a-f0-9]{64}$/i.test(x.sha256) && number(x.encodeMs) && x.encodeMs >= 0;
+/** A file name inside the export folder: never a path, '.' or '..'. */
+export const isLeafName = (x: unknown): x is string => string(x) && x.length >= 1 && x.length <= 255 && !/[/\\\0]/.test(x) && x !== '.' && x !== '..';
+const receipt = (x: unknown) => record(x) && isLeafName(x.name) && (x.outcome === 'skipped' || (x.outcome === 'written' && count(x.bytes) && string(x.sha256) && /^[a-f0-9]{64}$/i.test(x.sha256) && number(x.encodeMs) && x.encodeMs >= 0));
 const availability = (x: unknown) => record(x) && (x.available === true || (x.available === false && string(x.reason)));
 const nullableString = (x: unknown) => x === null || string(x);
 const rating = (x: unknown): x is Rating => Number.isInteger(x) && (x as number) >= -1 && (x as number) <= 5;
@@ -147,7 +149,7 @@ export function isPortRequest(x: unknown): x is PortRequest {
     case 'saveEdit': return id(x.id) && edit(x.edit) && rating(x.rating);
     case 'saveFacts': return id(x.id) && facts(x.facts);
     case 'rescan': case 'exportStatus': return true;
-    case 'exportBegin': return jobId(x.job) && jobId(x.destination) && oneOf(x.format, ['avif', 'jpeg-hdr', 'tiff'])
+    case 'exportBegin': return jobId(x.job) && jobId(x.target) && isLeafName(x.name) && oneOf(x.onExists, ['skip', 'replace']) && oneOf(x.format, ['avif', 'jpeg-hdr', 'tiff'])
       && side(x.width) && side(x.height) && (x.width as number) * (x.height as number) <= MAX_EXPORT_PIXELS
       && typeof x.orientation === 'string' && x.orientation.length <= 32
       && Number.isInteger(x.quality) && (x.quality as number) >= 1 && (x.quality as number) <= 100

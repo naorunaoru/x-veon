@@ -4,7 +4,7 @@ import type { EncodeJob, ExportOutput } from '@/host';
 import type { PortRequest } from '../protocol/rpc';
 import { createWorkerClient } from './port';
 import { createExporter } from './exporter';
-const receipt = { bytes: 123, sha256: 'a'.repeat(64), encodeMs: 12, name: 'x.avif' };
+const receipt = { outcome: 'written', bytes: 123, sha256: 'a'.repeat(64), encodeMs: 12, name: 'x.avif' };
 const out: ExportOutput = { target: { token: 'destination' }, name: 'x.avif', onExists: 'replace' };
 const tick = async () => { for (let i = 0; i < 200; i++) await Promise.resolve(); };
 function setup(holdDelivery = false) {
@@ -12,11 +12,11 @@ function setup(holdDelivery = false) {
  const ports: FakePort[] = [];
  const deliveries: (() => void)[] = [];
  class FakePort extends EventTarget {
-  sent: PortRequest[] = []; hold: string | undefined; hook?: (r: PortRequest) => void;
-  start() {} close() {} receive(r: PortRequest) { this.dispatchEvent(new MessageEvent('message', { data: { v: 1, rid: r.rid, ok: true, ...(r.op === 'exportCommit' ? { receipt } : {}), ...(r.op === 'exportStatus' ? { availability: { available: true } } : {}) } })); }
+  sent: PortRequest[] = []; hold: string | undefined; hook?: (r: PortRequest) => void; reply: object = receipt;
+  start() {} close() {} receive(r: PortRequest) { this.dispatchEvent(new MessageEvent('message', { data: { v: 1, rid: r.rid, ok: true, ...(r.op === 'exportCommit' ? { receipt: this.reply } : {}), ...(r.op === 'exportStatus' ? { availability: { available: true } } : {}) } })); }
   postMessage(r: PortRequest, transfer?: unknown) { expect(transfer).toBeUndefined(); this.sent.push(r); this.hook?.(r); if (this.hold !== r.op) queueMicrotask(() => this.receive(r)); }
  }
- const bridge = { revealExport: vi.fn(async () => {}), requestWorkerPort: vi.fn(async requestId => { const port = new FakePort(); ports.push(port); const e = new MessageEvent('message', { data: { type: 'xveon-port', version: 2, requestId }, origin: 'app://bundle' }); Object.defineProperties(e, { source: { value: win }, ports: { value: [port] } }); if (holdDelivery) deliveries.push(() => win.dispatchEvent(e)); else win.dispatchEvent(e); }) } as unknown as DesktopBridge;
+ const bridge = { revealExport: vi.fn(async () => {}), resolveExportTarget: vi.fn(async () => ({ token: '00000000-0000-4000-8000-000000000001' })), chooseExportFolder: vi.fn(async () => '/out'), requestWorkerPort: vi.fn(async requestId => { const port = new FakePort(); ports.push(port); const e = new MessageEvent('message', { data: { type: 'xveon-port', version: 2, requestId }, origin: 'app://bundle' }); Object.defineProperties(e, { source: { value: win }, ports: { value: [port] } }); if (holdDelivery) deliveries.push(() => win.dispatchEvent(e)); else win.dispatchEvent(e); }) } as unknown as DesktopBridge;
  const client = createWorkerClient(bridge, () => {});
  return { bridge, client, ports, deliveries, exporter: createExporter(bridge, client, { chunkBytes: 1024, platform: 'MacIntel' }) };
 }
@@ -24,17 +24,23 @@ const job = (): EncodeJob => ({ format: 'jpeg-hdr', data: new Float32Array(3000)
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 it('returns availability and reveal capabilities over one connection', async () => {
  const { bridge, client, exporter } = setup(); expect(await exporter.status()).toEqual({ available: true });
- expect(exporter.reveal!.label).toBe('Show in Finder'); await exporter.reveal!.open({ token: 'destination' }); expect(bridge.revealExport).toHaveBeenCalledWith('destination'); expect(createExporter(bridge, client, { platform: 'Win32' }).reveal!.label).toBe('Show in Explorer'); expect(bridge.requestWorkerPort).toHaveBeenCalledTimes(1);
+ expect(exporter.reveal!.label).toBe('Show in Finder'); await exporter.reveal!.open({ token: 'destination' }); expect(bridge.revealExport).toHaveBeenCalledWith('destination', undefined); expect(createExporter(bridge, client, { platform: 'Win32' }).reveal!.label).toBe('Show in Explorer'); expect(bridge.requestWorkerPort).toHaveBeenCalledTimes(1);
  client.stop('Worker stopped'); expect(await exporter.status()).toEqual({ available: false, reason: 'Worker stopped' });
 });
-it('has no folder targets yet and refuses an output without a target', async () => {
- const { exporter, ports } = setup();
- await expect(exporter.resolveTarget({ mode: 'beside' }, ['a'.repeat(22)])).rejects.toThrow('Folder export is not available yet');
- await expect(exporter.encode(job(), { ...out, target: null })).rejects.toThrow('Export needs a folder'); expect(ports.flatMap(p => p.sent)).toEqual([]);
+it('resolves a target, encodes with name and onExists, reveals a named file', async () => {
+ const { bridge, exporter, ports } = setup(); const token = '00000000-0000-4000-8000-000000000001', ids = ['a'.repeat(22)];
+ const target = await exporter.resolveTarget({ mode: 'folder', path: '/out' }, ids); expect(target).toEqual({ token }); expect(bridge.resolveExportTarget).toHaveBeenCalledWith({ mode: 'folder', path: '/out' }, ids);
+ vi.mocked(bridge.resolveExportTarget).mockResolvedValueOnce(null); expect(await exporter.resolveTarget({ mode: 'beside' }, ids)).toBeNull();
+ ports[0].reply = { outcome: 'skipped', name: 'x.avif' };
+ expect(await exporter.encode({ ...job(), format: 'avif', hdrData: null }, { target: target!, name: 'x.avif', onExists: 'skip' })).toEqual({ outcome: 'skipped', name: 'x.avif' });
+ expect(ports[0].sent[0]).toMatchObject({ op: 'exportBegin', target: token, name: 'x.avif', onExists: 'skip' });
+ await exporter.reveal!.open(target!, 'x.avif'); expect(bridge.revealExport).toHaveBeenCalledWith(token, 'x.avif');
+ expect(await exporter.chooseFolder!()).toBe('/out');
+ const before = ports[0].sent.length; await expect(exporter.encode(job(), { ...out, target: null })).rejects.toThrow('Export needs a folder'); expect(ports[0].sent).toHaveLength(before);
 });
 it('chunks both planes exactly and releases each after its final acknowledgment', async () => {
  const { exporter, ports } = setup(); const j = job(); ports[0].hook = r => { if (r.op === 'exportChunk' && r.plane === 1) expect(j.data.length).toBe(0); if (r.op === 'exportCommit') expect(j.hdrData).toBeNull(); };
- expect(await exporter.encode(j, out)).toEqual({ outcome: 'written', ...receipt }); const sent = ports[0].sent; expect(sent[0]).toMatchObject({ op: 'exportBegin', destination: 'destination', planes: 2, quality: 80 }); expect(sent.at(-1)).toMatchObject({ op: 'exportCommit' });
+ expect(await exporter.encode(j, out)).toEqual(receipt); const sent = ports[0].sent; expect(sent[0]).toMatchObject({ op: 'exportBegin', target: 'destination', name: 'x.avif', onExists: 'replace', planes: 2, quality: 80 }); expect(sent.at(-1)).toMatchObject({ op: 'exportCommit' });
  for (const plane of [0, 1]) { const chunks = sent.filter(r => r.op === 'exportChunk' && r.plane === plane); expect(chunks.map(r => r.op === 'exportChunk' && [r.offset, r.data.byteLength])).toEqual(Array.from({ length: 12 }, (_, i) => [i * 1024, i === 11 ? 736 : 1024])); for (const r of chunks) if (r.op === 'exportChunk') expect(r.data).toBeInstanceOf(ArrayBuffer); }
  expect(j.data.length).toBe(0); expect(j.hdrData).toBeNull();
 });

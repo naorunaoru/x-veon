@@ -16,7 +16,7 @@ vi.mock('./folders', async importOriginal => {
 });
 vi.mock('./worker', () => ({ createWorkerSupervisor: (opts: any) => { state.workerEvent = opts.onEvent; return ({ restart: state.restart, roots: [], registry: new Map(), onMessage() {}, stop: state.stop, request: vi.fn(), connect: vi.fn() }); } }));
 vi.mock('./golden-report', () => ({ watchGoldenReport: state.report }));
-vi.mock('./exports', async importOriginal => { const actual = await importOriginal<typeof import('./exports')>(); return { createExportDestinations: (deps: Parameters<typeof actual.createExportDestinations>[0]) => { state.destinations(deps); return actual.createExportDestinations(deps); } }; });
+vi.mock('./exports', async importOriginal => { const actual = await importOriginal<typeof import('./exports')>(); return { createExportTargets: (deps: Parameters<typeof actual.createExportTargets>[0]) => { state.destinations(deps); return actual.createExportTargets(deps); } }; });
 vi.mock('./display', () => ({ loadDisplayReader: () => { state.displayLoad(); return { read: state.displayRead }; } }));
 const originalArgs = [...process.argv];
 afterEach(async () => { const { dialog, powerMonitor } = await import('electron'); state.app?.removeAllListeners(); state.win?.removeAllListeners(); state.win?.webContents.removeAllListeners(); powerMonitor.removeAllListeners(); state.quit.mockReset(); vi.mocked(dialog.showMessageBox).mockReset().mockResolvedValue({ response: 1, checkboxChecked: false }); process.argv = [...originalArgs]; vi.useRealTimers(); vi.unstubAllGlobals(); vi.clearAllMocks(); state.handles.clear(); state.listeners.clear(); });

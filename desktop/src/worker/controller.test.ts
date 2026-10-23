@@ -207,20 +207,20 @@ it('acknowledges export destinations and routes export status/chunks/receipt wit
  dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'xveon-export-port-')));
  const service = createExportService({ native: () => ({ ok: true, encoder: { encode: async () => new Uint8Array([1, 2, 3]) } }) });
  const main: any[] = []; const c = createWorkerController({ postToMain: m => main.push(m), exports: service }); const [a, b] = ports(); await c.handleMain({ v: 1, kind: 'connect' }, [a]);
- await c.handleMain({ v: 1, rid: 50, kind: 'export-destination', token: 'dest-001', path: path.join(dir, 'export.avif') });
+ await c.handleMain({ v: 1, rid: 50, kind: 'export-destination', token: 'dest-001', path: dir });
  expect(main).toEqual([{ v: 1, rid: 50, kind: 'export-destination', token: 'dest-001' }]); expect(isWorkerToMain(main[0])).toBe(true);
  expect(await portRequest(b, { v: 1, rid: 1, op: 'exportStatus' })).toEqual({ v: 1, rid: 1, ok: true, availability: { available: true } });
- expect(await portRequest(b, { v: 1, rid: 2, op: 'exportBegin', job: 'job-0001', destination: 'dest-001', format: 'avif', width: 1, height: 1, planes: 1, orientation: '', quality: 95, peakLuminance: 1000 })).toEqual({ v: 1, rid: 2, ok: true });
+ expect(await portRequest(b, { v: 1, rid: 2, op: 'exportBegin', job: 'job-0001', target: 'dest-001', name: 'export.avif', onExists: 'replace', format: 'avif', width: 1, height: 1, planes: 1, orientation: '', quality: 95, peakLuminance: 1000 })).toEqual({ v: 1, rid: 2, ok: true });
  expect(await portRequest(b, { v: 1, rid: 3, op: 'exportChunk', job: 'job-0001', plane: 0, offset: 0, data: new ArrayBuffer(12) })).toEqual({ v: 1, rid: 3, ok: true });
- expect(await portRequest(b, { v: 1, rid: 4, op: 'exportCommit', job: 'job-0001' })).toMatchObject({ ok: true, receipt: { name: 'export.avif', bytes: 3 } });
+ expect(await portRequest(b, { v: 1, rid: 4, op: 'exportCommit', job: 'job-0001' })).toMatchObject({ ok: true, receipt: { outcome: 'written', name: 'export.avif', bytes: 3 } });
  expect(await fs.readFile(path.join(dir, 'export.avif'))).toEqual(Buffer.from([1, 2, 3]));
 });
 it('cancels old-port work on reconnect and ignores further requests from that port', async () => {
  dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'xveon-reconnect-')));
  let release!: () => void; const wait = new Promise<void>(r => { release = r; }); const encode = vi.fn(async () => { await wait; return new Uint8Array([1]); });
  const service = createExportService({ native: () => ({ ok: true, encoder: { encode } }) }); const c = createWorkerController({ postToMain: () => {}, exports: service });
- const [a, b] = ports(); await c.handleMain({ v: 1, kind: 'connect' }, [a]); await c.handleMain({ v: 1, kind: 'export-destination', token: 'dest-001', path: path.join(dir, 'old.avif') });
- await portRequest(b, { v: 1, rid: 1, op: 'exportBegin', job: 'job-0001', destination: 'dest-001', format: 'avif', width: 1, height: 1, planes: 1, orientation: '', quality: 95, peakLuminance: 1000 });
+ const [a, b] = ports(); await c.handleMain({ v: 1, kind: 'connect' }, [a]); await c.handleMain({ v: 1, kind: 'export-destination', token: 'dest-001', path: dir });
+ await portRequest(b, { v: 1, rid: 1, op: 'exportBegin', job: 'job-0001', target: 'dest-001', name: 'old.avif', onExists: 'replace', format: 'avif', width: 1, height: 1, planes: 1, orientation: '', quality: 95, peakLuminance: 1000 });
  await portRequest(b, { v: 1, rid: 2, op: 'exportChunk', job: 'job-0001', plane: 0, offset: 0, data: new ArrayBuffer(12) });
  const pending = portRequest(b, { v: 1, rid: 3, op: 'exportCommit', job: 'job-0001' }); await vi.waitFor(() => expect(encode).toHaveBeenCalledOnce());
  const [next] = ports(); await c.handleMain({ v: 1, kind: 'connect' }, [next]); expect(a.closed).toBe(true); release(); expect(await pending).toMatchObject({ ok: false, error: 'Export cancelled' });

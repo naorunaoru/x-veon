@@ -6,21 +6,24 @@ import { beforeEach, afterEach, it, expect, vi } from 'vitest';
 import { requireFileSymlinks, directoryLinkType } from '../test/symlinks';
 import { createExportService } from './exports';
 import type { ExportBegin } from '../protocol/rpc';
+import type { OnExists } from '@/host';
 import type { NativeEncoder } from './native';
 const deferred = () => { let resolve!: () => void; const promise = new Promise<void>(r => { resolve = r; }); return { promise, resolve }; };
-const message = (job = 'job-0001', destination = job): ExportBegin => ({ v: 1, rid: 1, op: 'exportBegin', job, destination, format: 'avif', width: 1, height: 1, orientation: '', quality: 95, peakLuminance: 1000, planes: 1 });
+const TARGET = 'dir-0001';
+const message = (job = 'job-0001', patch: Partial<ExportBegin> = {}): ExportBegin => ({ v: 1, rid: 1, op: 'exportBegin', job, target: TARGET, name: job + '.avif', onExists: 'replace', format: 'avif', width: 1, height: 1, orientation: '', quality: 95, peakLuminance: 1000, planes: 1, ...patch });
 let dir: string;
 beforeEach(async () => { dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'xveon-export-'))); });
 afterEach(async () => { vi.restoreAllMocks(); await fs.rm(dir, { recursive: true, force: true }); });
 function setup(encode: NativeEncoder['encode'] = async (d, _h, i) => new Uint8Array([i.width, i.height, d.length % 256]), slots = 2) {
  const encoder = { encode: vi.fn(encode) }; const service = createExportService({ native: () => ({ ok: true, encoder }), slots });
- async function begin(id: string, name = id + '.avif') { service.register(id, path.join(dir, name)); await service.begin(message(id)); }
- async function ready(id: string, name?: string) { await begin(id, name); service.chunk(id, 0, 0, new Float32Array([1, 2, 3]).buffer); }
+ service.register(TARGET, dir);
+ async function begin(id: string, name = id + '.avif', onExists: OnExists = 'replace') { await service.begin(message(id, { name, onExists })); }
+ async function ready(id: string, name?: string, onExists?: OnExists) { await begin(id, name, onExists); service.chunk(id, 0, 0, new Float32Array([1, 2, 3]).buffer); }
  return { service, encoder, begin, ready };
 }
 it.each(['test.avif', 'Тест – 写真.avif'])('writes the registered %s and returns its bytes and hash', async name => {
  const h = setup(); await h.ready('job-0001', name); const receipt = await h.service.commit('job-0001'); const data = await fs.readFile(path.join(dir, name));
- expect(data).toEqual(Buffer.from([1, 1, 3])); expect(receipt).toEqual({ name, bytes: 3, sha256: createHash('sha256').update(data).digest('hex'), encodeMs: expect.any(Number) }); expect(receipt.encodeMs).toBeGreaterThanOrEqual(0);
+ expect(data).toEqual(Buffer.from([1, 1, 3])); expect(receipt).toEqual({ outcome: 'written', name, bytes: 3, sha256: createHash('sha256').update(data).digest('hex'), encodeMs: expect.any(Number) }); expect(receipt.outcome === 'written' && receipt.encodeMs).toBeGreaterThanOrEqual(0);
 });
 it('encodes commits serially in commit order', async () => {
  const gate = deferred(); let active = 0, max = 0; const order: number[] = [];
@@ -28,8 +31,20 @@ it('encodes commits serially in commit order', async () => {
  await h.begin('job-0001'); await h.begin('job-0002'); h.service.chunk('job-0001', 0, 0, new Float32Array([1, 0, 0]).buffer); h.service.chunk('job-0002', 0, 0, new Float32Array([2, 0, 0]).buffer);
  const second = h.service.commit('job-0002'), first = h.service.commit('job-0001'); await vi.waitFor(() => expect(order).toEqual([2])); gate.resolve(); await Promise.all([first, second]); expect(order).toEqual([2, 1]); expect(max).toBe(1);
 });
-it('consumes each token once and rejects unregistered tokens', async () => {
- const h = setup(); await h.begin('job-0001'); await expect(h.service.begin(message('job-0002', 'job-0001'))).rejects.toThrow('Unknown or used export destination'); await expect(h.service.begin(message('job-0003'))).rejects.toThrow('Unknown or used export destination'); h.service.cancelAll();
+it('a target token serves several jobs, keeps the 50 newest tokens, and rejects unregistered ones', async () => {
+ const h = setup(); await h.ready('job-0001'); await h.ready('job-0002'); await Promise.all([h.service.commit('job-0001'), h.service.commit('job-0002')]);
+ expect((await fs.readdir(dir)).sort()).toEqual(['job-0001.avif', 'job-0002.avif']);
+ await expect(h.service.begin(message('job-0003', { target: 'dir-0002' }))).rejects.toThrow('Unknown export target');
+ for (let i = 0; i < 49; i++) h.service.register(`dir-1${String(i).padStart(3, '0')}`, dir);
+ await h.begin('job-0004'); h.service.register('dir-2000', dir);
+ await expect(h.service.begin(message('job-0005'))).rejects.toThrow('Unknown export target'); await h.service.begin(message('job-0006', { target: 'dir-1000' })); h.service.cancelAll();
+});
+it('skips an existing file before encoding and reports skipped', async () => {
+ const h = setup(); await fs.writeFile(path.join(dir, 'job-0001.avif'), 'original'); await h.ready('job-0001', undefined, 'skip');
+ expect(await h.service.commit('job-0001')).toEqual({ outcome: 'skipped', name: 'job-0001.avif' });
+ expect(h.encoder.encode).not.toHaveBeenCalled(); expect(await fs.readdir(dir)).toEqual(['job-0001.avif']); expect(await fs.readFile(path.join(dir, 'job-0001.avif'), 'utf8')).toBe('original');
+ expect(() => h.service.chunk('job-0001', 0, 0, new ArrayBuffer(12))).toThrow('Unknown export job');
+ await h.ready('job-0002', undefined, 'skip'); expect(await h.service.commit('job-0002')).toMatchObject({ outcome: 'written', name: 'job-0002.avif' });
 });
 it('rejects out-of-order, overflow, invalid planes, incomplete and duplicate commits', async () => {
  const gate = deferred(); const h = setup(async () => { await gate.promise; return new Uint8Array([1]); }); await h.begin('job-0001');
@@ -72,7 +87,7 @@ it('rejects a symlink replacement of the folder', async context => {
  requireFileSymlinks(context); const h = setup(); await h.ready('job-0001'); const moved = dir + '-moved'; await fs.rename(dir, moved); await fs.symlink(moved, dir, directoryLinkType);
  try { await expect(h.service.commit('job-0001')).rejects.toThrow('The folder changed while saving'); expect(await fs.readdir(moved)).toEqual([]); } finally { await fs.unlink(dir); await fs.rename(moved, dir); }
 });
-it('atomically replaces an existing file without leaving a temp', async () => { const h = setup(); await h.ready('job-0001'); await fs.writeFile(path.join(dir, 'job-0001.avif'), 'old'); await h.service.commit('job-0001'); expect(await fs.readdir(dir)).toEqual(['job-0001.avif']); expect(await fs.readFile(path.join(dir, 'job-0001.avif'))).toEqual(Buffer.from([1, 1, 3])); });
+it('replace overwrites an existing file atomically without leaving a temp', async () => { const h = setup(); await h.ready('job-0001', undefined, 'replace'); await fs.writeFile(path.join(dir, 'job-0001.avif'), 'old'); expect(await h.service.commit('job-0001')).toMatchObject({ outcome: 'written', name: 'job-0001.avif' }); expect(await fs.readdir(dir)).toEqual(['job-0001.avif']); expect(await fs.readFile(path.join(dir, 'job-0001.avif'))).toEqual(Buffer.from([1, 1, 3])); });
 it('cancels during the write, preserving the destination and cleaning its temp', async () => {
  const h = setup(); await h.ready('job-0001'); const target = path.join(dir, 'job-0001.avif'); await fs.writeFile(target, 'original'); const write = fs.writeFile.bind(fs);
  vi.spyOn(fs, 'writeFile').mockImplementationOnce(async (...args) => { await write(...args); h.service.cancel('job-0001'); });
@@ -97,8 +112,8 @@ it('reports write failures using the destination name and preserving the origina
  const error = await h.service.commit('job-0001').catch(e => e); expect(error.code).toBe('ENOSPC'); expect(error.cause).toBe(original!); expect(error.message).toContain("Couldn't write job-0001.avif: ENOSPC"); expect(error.message).not.toContain('.tmp');
 });
 it('collects both HDR planes in ordered chunks before encoding', async () => {
- const h = setup(); h.service.register('dest-001', path.join(dir, 'hdr.jpg'));
- await h.service.begin({ ...message('job-0001', 'dest-001'), format: 'jpeg-hdr', planes: 2 });
+ const h = setup();
+ await h.service.begin(message('job-0001', { name: 'hdr.jpg', format: 'jpeg-hdr', planes: 2 }));
  h.service.chunk('job-0001', 0, 0, new Float32Array([1]).buffer); h.service.chunk('job-0001', 0, 4, new Float32Array([2, 3]).buffer);
  await expect(h.service.commit('job-0001')).rejects.toThrow('Incomplete export data');
  h.service.chunk('job-0001', 1, 0, new Float32Array([4, 5, 6]).buffer); await h.service.commit('job-0001');
@@ -110,7 +125,7 @@ it('shutdown cancels pending begins and rejects any new destination or begin', a
  const pending = h.begin('job-0002'); const outcome = expect(pending).rejects.toThrow('Export cancelled');
  await h.service.shutdown(); await outcome;
  expect(h.service.status()).toEqual({ available: false, reason: 'The background worker stopped.' });
- expect(() => h.service.register('job-0003', path.join(dir, 'new.avif'))).toThrow('stopped');
+ expect(() => h.service.register('dir-0003', dir)).toThrow('stopped');
  await expect(h.service.begin(message('job-0003'))).rejects.toThrow('stopped');
  await expect(h.service.commit('job-0001')).rejects.toThrow('Unknown export job');
  expect(h.encoder.encode).not.toHaveBeenCalled(); expect(await fs.readdir(dir)).toEqual([]);

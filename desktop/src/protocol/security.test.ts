@@ -84,11 +84,18 @@ it('validates worker identities on native restart events', () => {
   for (const worker of [null, 1, 'invalid', 'a'.repeat(100)]) expect(isBridgeEvent({ version: 2, kind: 'worker-restarted', worker })).toBe(false);
 });
 
-it('validates export identities, formats and UUID tokens', () => {
- const choose = { version: 2, kind: 'chooseExportDestination', photoId: 'a'.repeat(22), format: 'avif' };
- expect(isDesktopRequest(choose)).toBe(true);
- expect(isDesktopRequest({ ...choose, photoId: '../raw' })).toBe(false);
- expect(isDesktopRequest({ ...choose, format: 'bmp' })).toBe(false);
- expect(isDesktopRequest({ version: 2, kind: 'revealExport', token: '00000000-0000-4000-8000-000000000001' })).toBe(true);
+it('validates export target, reveal and folder requests', () => {
+ const id = 'a'.repeat(22), token = '00000000-0000-4000-8000-000000000001';
+ const resolve = { version: 2, kind: 'resolveExportTarget', saveTo: { mode: 'beside' }, photoIds: [id] };
+ expect(isDesktopRequest(resolve)).toBe(true);
+ expect(isDesktopRequest({ ...resolve, saveTo: { mode: 'folder', path: '/Users/me/Exports' } })).toBe(true);
+ expect(isDesktopRequest({ ...resolve, photoIds: Array(250).fill(id) })).toBe(true);
+ for (const patch of [{ photoIds: [] }, { photoIds: Array(251).fill(id) }, { photoIds: ['../raw'] }, { photoIds: [id, , id] }, { saveTo: { mode: 'folder', path: '' } }, { saveTo: { mode: 'folder', path: 'a\0b' } }, { saveTo: { mode: 'folder', path: 'x'.repeat(4097) } }, { saveTo: { mode: 'folder' } }, { saveTo: { mode: 'desktop' } }, { saveTo: null }])
+  expect(isDesktopRequest({ ...resolve, ...patch })).toBe(false);
+ expect(isDesktopRequest({ version: 2, kind: 'revealExport', token })).toBe(true);
+ expect(isDesktopRequest({ version: 2, kind: 'revealExport', token, name: 'a.avif' })).toBe(true);
+ for (const name of ['../a.avif', 'a/b', '', '..', 'x'.repeat(256)]) expect(isDesktopRequest({ version: 2, kind: 'revealExport', token, name })).toBe(false);
  expect(isDesktopRequest({ version: 2, kind: 'revealExport', token: 'bad' })).toBe(false);
+ expect(isDesktopRequest({ version: 2, kind: 'chooseExportFolder' })).toBe(true);
+ expect(isDesktopRequest({ version: 2, kind: 'chooseExportDestination', photoId: id, format: 'avif' })).toBe(false);
 });

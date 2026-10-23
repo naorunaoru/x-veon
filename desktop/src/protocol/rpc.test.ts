@@ -124,7 +124,7 @@ it('bounds and validates state stamps, listing order and opaque source revisions
 });
 
 describe('export protocol', () => {
-  const begin = { v: 1, rid: 1, op: 'exportBegin', job: 'job-0001', destination: 'dest-001', format: 'avif', width: 2, height: 2, orientation: '', quality: 95, peakLuminance: 1000, planes: 1 };
+  const begin = { v: 1, rid: 1, op: 'exportBegin', job: 'job-0001', target: 'dest-001', name: 'a.avif', onExists: 'replace', format: 'avif', width: 2, height: 2, orientation: '', quality: 95, peakLuminance: 1000, planes: 1 };
   const chunk = { v: 1, rid: 2, op: 'exportChunk', job: 'job-0001', plane: 0, offset: 0, data: new ArrayBuffer(4) };
   it('accepts each format and all export operations', () => {
     for (const format of ['avif', 'jpeg-hdr', 'tiff']) expect(isPortRequest({ ...begin, format, planes: format === 'jpeg-hdr' ? 2 : 1 })).toBe(true);
@@ -132,19 +132,27 @@ describe('export protocol', () => {
     expect(isPortRequest({ ...chunk, data: new ArrayBuffer(64_000_000) })).toBe(true);
   });
   it('rejects invalid begin fields', () => {
-    for (const patch of [{ width: 0 }, { width: 65_536 }, { width: 20_000, height: 20_000 }, { quality: 0 }, { quality: 101 }, { quality: 95.5 }, { peakLuminance: NaN }, { format: 'png' }, { format: 'jpeg-hdr', planes: 1 }, { planes: 2 }, { job: 'has spaces' }, { destination: 'short' }]) expect(isPortRequest({ ...begin, ...patch })).toBe(false);
+    for (const patch of [{ width: 0 }, { width: 65_536 }, { width: 20_000, height: 20_000 }, { quality: 0 }, { quality: 101 }, { quality: 95.5 }, { peakLuminance: NaN }, { format: 'png' }, { format: 'jpeg-hdr', planes: 1 }, { planes: 2 }, { job: 'has spaces' }, { target: 'short' }]) expect(isPortRequest({ ...begin, ...patch })).toBe(false);
   });
   it('rejects invalid chunks', () => {
     for (const patch of [{ data: new Float32Array(1) }, { data: new ArrayBuffer(64_000_004) }, { data: new ArrayBuffer(6) }, { data: new ArrayBuffer(0) }, { offset: -4 }, { offset: 2 }, { plane: 2 }]) expect(isPortRequest({ ...chunk, ...patch })).toBe(false);
   });
   it('validates receipts, availability and destination registration', () => {
-    const receipt = { name: 'test.avif', bytes: 3, sha256: 'a'.repeat(64), encodeMs: 2 };
+    const receipt = { outcome: 'written', name: 'test.avif', bytes: 3, sha256: 'a'.repeat(64), encodeMs: 2 };
     expect(isPortReply({ v: 1, rid: 1, ok: true, receipt })).toBe(true);
     for (const patch of [{ bytes: -1 }, { sha256: 'aaa' }, { encodeMs: NaN }]) expect(isPortReply({ v: 1, rid: 1, ok: true, receipt: { ...receipt, ...patch } })).toBe(false);
     for (const availability of [{ available: true }, { available: false, reason: 'no addon' }]) expect(isPortReply({ v: 1, rid: 1, ok: true, availability })).toBe(true);
     expect(isPortReply({ v: 1, rid: 1, ok: true, availability: { available: false } })).toBe(false);
     expect(isMainToWorker({ v: 1, kind: 'export-destination', token: 'dest-001', path: '/a.avif' })).toBe(true);
     expect(isMainToWorker({ v: 1, kind: 'export-destination', token: 'dest-001', path: '' })).toBe(false);
+  });
+  it('exportBegin requires a safe leaf name and onExists', () => {
+    expect(isPortRequest(begin)).toBe(true); expect(isPortRequest({ ...begin, onExists: 'skip' })).toBe(true);
+    for (const name of ['../x', 'a/b', 'a\\b', 'a\0b', '', 'x'.repeat(256), '.', '..', 7]) expect(isPortRequest({ ...begin, name })).toBe(false);
+    for (const onExists of ['overwrite', undefined]) expect(isPortRequest({ ...begin, onExists })).toBe(false);
+    const written = { outcome: 'written', name: 'a.avif', bytes: 3, sha256: 'a'.repeat(64), encodeMs: 2 };
+    for (const receipt of [written, { outcome: 'skipped', name: 'a.avif' }]) expect(isPortReply({ v: 1, rid: 1, ok: true, receipt })).toBe(true);
+    for (const receipt of [{ ...written, outcome: 'other' }, { outcome: 'skipped', name: '../a.avif' }, { outcome: 'skipped' }]) expect(isPortReply({ v: 1, rid: 1, ok: true, receipt })).toBe(false);
   });
 });
 it('validates destination acknowledgments and optional request IDs', () => {

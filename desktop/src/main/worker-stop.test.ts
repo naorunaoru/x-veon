@@ -19,8 +19,8 @@ function harness(encode: NativeEncoder['encode'] = async () => new Uint8Array([1
  const fork = vi.fn(() => child), onEvent = vi.fn();
  const supervisor = createWorkerSupervisor({ fork, sessionKey: Buffer.from('key'), cacheDir: dir, onEvent, stopTimeoutMs });
  async function ready(job: string) {
-  await supervisor.request({ kind: 'export-destination', token: job, path: path.join(dir, job + '.avif') });
-  const message: ExportBegin = { v: 1, rid: 1, op: 'exportBegin', job, destination: job, format: 'avif', width: 1, height: 1, orientation: '', quality: 95, peakLuminance: 1000, planes: 1 };
+  await supervisor.request({ kind: 'export-destination', token: job, path: dir });
+  const message: ExportBegin = { v: 1, rid: 1, op: 'exportBegin', job, target: job, name: job + '.avif', onExists: 'replace', format: 'avif', width: 1, height: 1, orientation: '', quality: 95, peakLuminance: 1000, planes: 1 };
   await exports.begin(message); exports.chunk(job, 0, 0, new Float32Array([1, 2, 3]).buffer);
  }
  return { exports, child, supervisor, ready, fork, onEvent };

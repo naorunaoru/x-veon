@@ -20,12 +20,12 @@ import { registerPhotoProtocol } from './photo-protocol';
 import { buildMenuTemplate } from './menu';
 import { createMainWindow } from './window';
 import { createCloseGuard, unsavedQuitMessage } from './close-guard';
-import { createExportDestinations } from './exports';
+import { createExportTargets } from './exports';
 import { loadDisplayReader } from './display';
 import { registerDesktopIpc } from './desktop-ipc';
 import { checkForUpdate, releasesApi } from './updates';
 import type { BridgeEvent } from '../protocol/bridge';
-import { readdir, mkdir } from 'node:fs/promises';
+import { readdir, mkdir, stat } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { acceptsSender, assetName, isBridgeEvent, CONTENT_SECURITY_POLICY } from '../protocol/security';
 app.setName(BUILD.channel === 'stable' ? 'X-veon' : `X-veon ${channelLabel(BUILD.channel)}`);
@@ -129,17 +129,18 @@ if (ownsInstance) void app.whenReady().then(async () => {
     },
   });
   const refreshMenu = () => Menu.setApplicationMenu(Menu.buildFromTemplate(buildMenuTemplate(store.recent(), send, process.platform)));
-  const folders = createFolderRequests({ store, worker: supervisor, send: frame => send({ kind: 'listing', frame }), accepted: refreshMenu,
-    chooseFolder: async () => { const result = await dialog.showOpenDialog(win, { properties: ['openDirectory'] }); return result.canceled ? null : result.filePaths[0] ?? null; },
+  const chooseFolder = async () => { const result = await dialog.showOpenDialog(win, { properties: ['openDirectory'] }); return result.canceled ? null : result.filePaths[0] ?? null; };
+  const folders = createFolderRequests({ store, worker: supervisor, send: frame => send({ kind: 'listing', frame }), accepted: refreshMenu, chooseFolder,
     error: (folder, message) => { void dialog.showMessageBox(win, { type: 'error', message: `Could not open ${folder || 'folder'}`, detail: message }).catch(() => {}); },
   });
-  const exports = createExportDestinations({
+  const exports = createExportTargets({
     fixedDir,
-    showSaveDialog: options => dialog.showSaveDialog(win, options),
     rawPath: id => supervisor.registry.get(id),
-    register: async (token, target) => { await supervisor.request({ kind: 'export-destination', token, path: target }); },
-    reveal: target => shell.showItemInFolder(target),
-    fallbackDir: () => app.getPath('pictures'),
+    register: (token, dir) => supervisor.request({ kind: 'export-destination', token, path: dir }).then(() => {}),
+    showItem: file => shell.showItemInFolder(file),
+    openDirectory: dir => shell.openPath(dir).then(() => {}),
+    chooseFolder,
+    stat,
   });
   const ipc = registerDesktopIpc({ ipc: ipcMain, trusted, folders, exports, display: { readings: () => win.isDestroyed() ? null : displayReader.read(win.getNativeWindowHandle()) }, updates: { check: () => update }, recent: store.recent, connect: supervisor.connect, send });
   registerPhotoProtocol({ protocol, registry: supervisor.registry, roots: supervisor.roots, cacheDir,
