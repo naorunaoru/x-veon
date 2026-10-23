@@ -4,6 +4,7 @@ import type { QuickMetadata } from '@/pipeline/decode/raf-thumbnail';
 import type { LensProfile } from '@/app/lens/lensfun';
 import type { LensEdit } from '@/lib/lens/edit';
 export type PhotoId = string;
+export type Rating = -1 | 0 | 1 | 2 | 3 | 4 | 5;
 export interface PhotoEdit {
   version: 1;
   lookPreset: LookPreset;
