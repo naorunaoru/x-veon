@@ -39,7 +39,7 @@ export function useLens(): {
   setManual(key: keyof LensManual, value: number): void;
   reset(): void;
 } {
-  const file = useAppStore((s) => s.files.find((f) => f.id === s.selectedFileId));
+  const file = useAppStore((s) => s.files.find((f) => f.id === s.currentId));
   const picks = useAppStore((s) => s.lensPicks);
   const setFileLens = useAppStore((s) => s.setFileLens);
   const resetFileLens = useAppStore((s) => s.resetFileLens);

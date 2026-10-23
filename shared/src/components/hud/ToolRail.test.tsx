@@ -28,7 +28,7 @@ function fileWith(over: Partial<QueuedFile>): QueuedFile {
 }
 
 describe('ToolRail', () => {
-  beforeEach(() => useAppStore.setState({ openPanel: null, files: [fileWith({})], selectedFileId: 'a' }));
+  beforeEach(() => useAppStore.setState({ openPanel: null, files: [fileWith({})], currentId: 'a' }));
 
   it('renders the rail buttons', () => {
     render(<ToolRail />);
@@ -53,7 +53,7 @@ describe('ToolRail', () => {
   it('shows a modified dot on a section with overrides', () => {
     useAppStore.setState({
       files: [fileWith({ edit: { ...defaultEdit(), preProcessOverrides: { exposure: 0.5 } } })],
-      selectedFileId: 'a',
+      currentId: 'a',
     });
     const { container } = render(<ToolRail />);
     expect(container.querySelector('.xv-rail-btn__dot')).not.toBeNull();
@@ -62,7 +62,7 @@ describe('ToolRail', () => {
   it('marks Lens, and only Lens, when the photo\'s lens block is not the default', () => {
     useAppStore.setState({
       files: [fileWith({ edit: { ...defaultEdit(), lens: { ...DEFAULT_LENS_EDIT, ca: false } } })],
-      selectedFileId: 'a',
+      currentId: 'a',
     });
     render(<ToolRail />);
     expect(screen.getByRole('button', { name: 'Lens' }).querySelector('.xv-rail-btn__dot')).not.toBeNull();
@@ -72,7 +72,7 @@ describe('ToolRail', () => {
   it('leaves Lens unmarked at the defaults and with no photo', () => {
     const { rerender } = render(<ToolRail />);
     expect(document.querySelector('.xv-rail-btn__dot')).toBeNull();
-    useAppStore.setState({ files: [], selectedFileId: null });
+    useAppStore.setState({ files: [], currentId: null });
     rerender(<ToolRail />);
     expect(document.querySelector('.xv-rail-btn__dot')).toBeNull();
   });

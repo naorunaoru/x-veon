@@ -1,0 +1,58 @@
+/* Sized by its cells (6 + N × 118 px) plus any scrollbar gutter; content-box keeps the border outside that. */
+.xv-column {
+  position: relative; flex-shrink: 0; box-sizing: content-box;
+  width: max-content;
+  display: flex; flex-direction: column;
+  background: var(--xv-card); border-right: 1px solid var(--xv-border);
+}
+.xv-column__cells {
+  flex: 1; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; padding: 6px;
+  display: grid; grid-template-columns: repeat(var(--xv-columns), 112px); gap: 6px; align-content: start;
+}
+
+.xv-cell {
+  position: relative; width: 112px; height: 75px; padding: 0;
+  border-radius: var(--xv-radius-sm); overflow: hidden; background: var(--xv-muted); cursor: pointer;
+}
+.xv-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.xv-cell[data-current] { outline: 1.5px solid var(--xv-primary); outline-offset: 1px; }
+.xv-cell[aria-selected="true"]::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit;
+  background: color-mix(in oklch, var(--xv-primary) 22%, transparent);
+  border: 1px solid var(--xv-primary);
+}
+.xv-cell__edited {
+  position: absolute; top: 4px; right: 4px; width: 5px; height: 5px; border-radius: var(--xv-radius-full);
+  background: var(--xv-foreground); box-shadow: var(--xv-text-shadow);
+}
+
+.xv-column__foot {
+  height: 26px; padding: 4px 6px; border-top: 1px solid var(--xv-border);
+  display: flex; gap: 4px; align-items: center;
+}
+.xv-column__select,
+.xv-column__export {
+  display: inline-flex; align-items: center; align-self: stretch; padding: 0 8px; white-space: nowrap;
+  font-family: var(--xv-font-sans); font-size: 12px; font-weight: 500;
+  border-radius: var(--xv-radius-md); cursor: pointer;
+  background: transparent; color: var(--xv-foreground);
+}
+.xv-column__select:hover { background: var(--xv-bg-raised); }
+.xv-column__export { margin-left: auto; background: var(--xv-primary); color: var(--xv-primary-foreground); }
+.xv-column__export:disabled { opacity: 0.5; cursor: default; }
+
+/* Straddles the border; above the stage, which comes later in the flex row. */
+.xv-column__edge {
+  position: absolute; right: -3px; top: 0; bottom: 0; width: 6px; z-index: 1;
+  cursor: col-resize; touch-action: none;
+}
+.xv-column[data-dragging] .xv-column__edge { background: var(--xv-primary); }
+
+.xv-column__tab {
+  width: 12px; height: 48px; align-self: center; flex-shrink: 0; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--xv-card); border: 1px solid var(--xv-border); border-left: 0;
+  border-radius: 0 var(--xv-radius-sm) var(--xv-radius-sm) 0;
+  color: var(--xv-muted-foreground); cursor: pointer;
+}
+.xv-column__tab:hover { color: var(--xv-foreground); }

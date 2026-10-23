@@ -1,7 +1,8 @@
 .xv-hud-root {
-  position: relative; width: 100vw; height: 100vh; overflow: hidden;
+  position: relative; display: flex; width: 100vw; height: 100vh; overflow: hidden;
   background: var(--xv-background); color: var(--xv-foreground); font-family: var(--xv-font-sans);
 }
+.xv-hud-stage { position: relative; flex: 1; min-width: 0; height: 100%; overflow: hidden; }
 .xv-hud-overlay { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
 .xv-hud-overlay--folder-only:has(.xv-folder-menu) { z-index: 2; }
 .xv-hud-settings { z-index: 3; }
@@ -16,7 +17,6 @@
    separate overlay so recovery controls stay reachable. */
 .xv-hud-overlay .xv-topbar,
 .xv-hud-overlay .xv-minimap,
-.xv-hud-overlay .xv-actionhud,
 .xv-hud-overlay .xv-histhud,
 .xv-hud-overlay .xv-toolrail,
 .xv-hud-overlay .xv-panel {
@@ -26,7 +26,6 @@
    element out of view before the opacity transition is perceptible. */
 .xv-hud-overlay[data-chrome-hidden="true"] .xv-topbar   { transform: translateY(-14px); opacity: 0; pointer-events: none; }
 .xv-hud-overlay[data-chrome-hidden="true"] .xv-minimap  { transform: translateY(14px); opacity: 0; pointer-events: none; }
-.xv-hud-overlay[data-chrome-hidden="true"] .xv-actionhud { transform: translateY(14px); opacity: 0; pointer-events: none; }
 .xv-hud-overlay[data-chrome-hidden="true"] .xv-histhud   { transform: translateY(14px); opacity: 0; pointer-events: none; }
 .xv-hud-overlay[data-chrome-hidden="true"]:has(.xv-folder-menu) .xv-topbar {
   transform: none; opacity: 1; pointer-events: auto;
@@ -35,7 +34,6 @@
 @media (prefers-reduced-motion: reduce) {
   .xv-hud-overlay .xv-topbar,
   .xv-hud-overlay .xv-minimap,
-  .xv-hud-overlay .xv-actionhud,
   .xv-hud-overlay .xv-histhud,
   .xv-hud-overlay .xv-toolrail,
   .xv-hud-overlay .xv-panel {
@@ -43,7 +41,6 @@
   }
   .xv-hud-overlay[data-chrome-hidden="true"] .xv-topbar,
   .xv-hud-overlay[data-chrome-hidden="true"] .xv-minimap,
-  .xv-hud-overlay[data-chrome-hidden="true"] .xv-actionhud,
   .xv-hud-overlay[data-chrome-hidden="true"] .xv-histhud {
     transform: none;
   }

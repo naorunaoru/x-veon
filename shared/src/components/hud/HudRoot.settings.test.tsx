@@ -3,7 +3,7 @@ import { URL as NodeURL } from 'node:url';
 const hudCss = readFileSync(new NodeURL('./HudRoot.css', import.meta.url), 'utf8');
 const dropCss = readFileSync(new NodeURL('./DropSurface.css', import.meta.url), 'utf8');
 import { beforeEach, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { useAppStore } from '@/app/store';
 import { fromLibraryPhoto } from '@/app/store/photo';
 import { fakeHost, fakePhoto } from '@/test/fake-host';
@@ -21,33 +21,26 @@ beforeEach(() => {
   setHost(host);
   useAppStore.setState({
     files: [],
-    selectedFileId: null,
+    currentId: null,
     initialized: true,
     initError: null,
     openPanel: null,
   });
 });
 it.each(['empty', 'decode-error', 'startup-error'] as const)(
-  'keeps Settings and Clear reachable in %s state',
+  'keeps Settings reachable in %s state',
   (state) => {
     if (state === 'decode-error') {
       const file = fromLibraryPhoto(fakePhoto());
       file.status = 'error';
       file.error = 'bad RAW';
-      useAppStore.setState({ files: [file], selectedFileId: file.id });
+      useAppStore.setState({ files: [file], currentId: file.id });
     }
     if (state === 'startup-error') useAppStore.setState({ initialized: false, initError: 'No GPU' });
     render(<HudRoot />);
     const settings = screen.getByRole('button', { name: 'Settings' });
     expect(settings.closest('[data-chrome-hidden="true"], [inert]')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Exposure' })).toBeNull();
-    fireEvent.click(settings);
-    const clear = screen.getByRole('button', { name: 'Clear library' });
-    expect(clear.closest('[data-chrome-hidden="true"], [inert]')).toBeNull();
-    fireEvent.click(clear);
-    expect(
-      screen.getByText('Removes every photo, edit and setting this build has stored in this browser.'),
-    ).toBeVisible();
   },
 );
 it('keeps the Clear error and retry controls mounted when a partial failure empties the library', async () => {
@@ -56,10 +49,10 @@ it('keeps the Clear error and retry controls mounted when a partial failure empt
   setHost(host);
   const file = fromLibraryPhoto(fakePhoto());
   file.status = 'error';
-  useAppStore.setState({ files: [file], selectedFileId: file.id });
+  useAppStore.setState({ files: [file], currentId: file.id });
   render(<HudRoot />);
-  fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Clear library' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Library' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Clear library' }));
   fireEvent.click(screen.getByRole('button', { name: 'Remove photos, edits and settings' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('OPFS denied');
   fireEvent.click(screen.getByRole('button', { name: 'Remove photos, edits and settings' }));
@@ -75,29 +68,26 @@ it('places only the recovery controls above the empty drop surface', () => {
     const settings = screen.getByRole('button', { name: 'Settings' });
     const overlay = settings.closest('.xv-hud-overlay')!;
     const drop = container.querySelector('.xv-drop')!;
-    const photoOverlay = container.querySelector('.xv-topbar')!.closest('.xv-hud-overlay')!;
-    expect(Number(getComputedStyle(photoOverlay).zIndex)).toBeLessThan(Number(getComputedStyle(drop).zIndex));
+    const library = screen.getByRole('button', { name: 'Library' });
+    const photoOverlay = library.closest('.xv-hud-overlay')!;
+    expect(Number(getComputedStyle(photoOverlay).zIndex)).toBeGreaterThan(Number(getComputedStyle(drop).zIndex));
+    expect(within(photoOverlay as HTMLElement).getAllByRole('button')).toEqual([library]);
     expect(Number(getComputedStyle(overlay).zIndex)).toBeGreaterThan(Number(getComputedStyle(drop).zIndex));
   } finally {
     style.remove();
   }
 });
 
-it.each([false, true])('shows the empty web status pill while initialized=%s', initialized => {
- useAppStore.setState({ initialized, backend: initialized ? 'webgpu' : null }); render(<HudRoot />);
- expect(screen.getByText(initialized ? 'webgpu' : /Loading models and WASM/)).toBeVisible();
-});
-
 it('keeps running export status mounted when a folder switch empties the library', () => {
   const file = fromLibraryPhoto(fakePhoto());
   file.status = 'error';
-  useAppStore.setState({ files: [file], selectedFileId: file.id });
+  useAppStore.setState({ files: [file], currentId: file.id });
   useExportJobs.setState({ jobs: [{ id: 'export', fileId: file.id, label: 'a.avif', state: 'encoding', error: null, result: null, destination: null }] });
   render(<HudRoot />);
   const status = screen.getByRole('status', { name: '' });
   expect(screen.getByText('Encoding a.avif…')).toBeVisible();
   expect(status.closest('.xv-hud-settings')).not.toBeNull();
-  act(() => useAppStore.setState({ files: [], selectedFileId: null }));
+  act(() => useAppStore.setState({ files: [], currentId: null }));
   expect(screen.getByText('Encoding a.avif…')).toBeVisible();
   expect(screen.getByRole('button', { name: 'Cancel export of a.avif' })).toBeEnabled();
   act(() => useExportJobs.setState({ jobs: [] }));

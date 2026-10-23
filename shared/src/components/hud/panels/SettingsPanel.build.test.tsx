@@ -31,7 +31,7 @@ vi.mock('@/lib/channel', async (importOriginal) => ({
 describe('SettingsPanel build row (beta build)', () => {
   beforeEach(() => {
     delete BUILD.version;
-    useAppStore.setState({ openPanel: 'settings', files: [], selectedFileId: null });
+    useAppStore.setState({ openPanel: 'settings', files: [], currentId: null });
   });
 
   it('shows the channel, sha and date', () => {

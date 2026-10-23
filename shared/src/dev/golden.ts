@@ -157,7 +157,7 @@ async function cycle(
     // The baselines predate lens correction: render the photo as decoded.
     getStore().setFileLens(entry.id, { distortion: false, ca: false, vignetting: false });
     const id = entry.id;
-    getStore().selectFile(id);
+    getStore().setCurrent(id);
     const neuralKey = methodKey(sample.file, 'neural-net', size);
 
     try {
@@ -251,7 +251,7 @@ async function cycle(
       }
     } finally {
       await cleanup(id);
-      getStore().selectFile(null);
+      getStore().setCurrent(null);
       getStore().setDemosaicMethod('neural-net');
     }
   } finally {
@@ -297,7 +297,7 @@ export async function runGolden(cleanup: (id: string) => Promise<void> = removeF
   try {
     await waitForState((state) => state.initialized, 'app initialised');
     useAppStore.getState().setExportQuality(95);
-    useAppStore.getState().selectFile(null);
+    useAppStore.getState().setCurrent(null);
 
     if (requested === 'bench') {
       const report = await runBench();

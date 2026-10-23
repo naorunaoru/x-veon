@@ -112,7 +112,7 @@ describe('processing service', () => {
     setPipeline(ctx);
     useAppStore.setState({
       files: [makeFile('a')],
-      selectedFileId: 'a',
+      currentId: 'a',
       demosaicMethod: 'dht',
       modelSize: 'S',
       processingFileId: null,
@@ -139,7 +139,7 @@ describe('processing service', () => {
       expect(useAppStore.getState().files[0].edit).toEqual(defaultEdit());
       await act(async () => { if (outcome === 'failure') fail(new Error('old decode failed')); else finish(oldImage); });
       await waitFor(() => expect(useAppStore.getState().files[0].status).toBe('done'));
-      expect(useAppStore.getState()).toMatchObject({ folder: { id: 'B' }, selectedFileId: nextId, processingFileId: null });
+      expect(useAppStore.getState()).toMatchObject({ folder: { id: 'B' }, currentId: nextId, processingFileId: null });
       expect(getResult(nextId)).toBe(nextImage);
       expect(useAppStore.getState().files[0].edit).toEqual(defaultEdit());
       expect(oldImage.disposed).toBe(outcome === 'failure' ? 0 : 1);
@@ -453,7 +453,7 @@ describe('processing service', () => {
   });
   it('keeps RETAINED_RESULTS results besides the selected one, least recently used evicted', async () => {
     expect(RETAINED_RESULTS).toBe(1);
-    useAppStore.setState({ files: [makeFile('a'), makeFile('b'), makeFile('c')], selectedFileId: 'c' });
+    useAppStore.setState({ files: [makeFile('a'), makeFile('b'), makeFile('c')], currentId: 'c' });
     const a = fakeImage(),
       b = fakeImage(),
       c = fakeImage();
@@ -471,7 +471,7 @@ describe('processing service', () => {
     expect(b.disposed).toBe(0);
   });
   it('never evicts or disposes a result on screen, and disposes a replaced one when released', async () => {
-    useAppStore.setState({ files: [makeFile('a'), makeFile('b'), makeFile('c')], selectedFileId: 'a' });
+    useAppStore.setState({ files: [makeFile('a'), makeFile('b'), makeFile('c')], currentId: 'a' });
     const a1 = fakeImage(),
       a2 = fakeImage(),
       b = fakeImage(),
@@ -483,7 +483,7 @@ describe('processing service', () => {
       .mockResolvedValueOnce(a2);
     await processFile('a');
     const shown = acquireResult('a')!;
-    useAppStore.setState({ selectedFileId: 'z' });
+    useAppStore.setState({ currentId: 'z' });
     await processFile('b');
     await processFile('c');
     expect(a1.disposed).toBe(0);

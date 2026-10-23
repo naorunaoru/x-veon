@@ -87,7 +87,7 @@ it('folds the newest pre-token replacement into the opening snapshot and preserv
     frames('open', 'visit'); frames('watch1', 'visit', 'replace', [{ ...photo(), name: 'old.RAF' }]); frames('watch2', 'visit', 'replace', [{ ...photo(), name: 'latest.RAF' }]); return { token: 'open', selected: [id] };
   });
   setHost(host); await switchFolder(() => host.library.addFiles([new File(['raw'], 'photo.RAF')]));
-  expect(useAppStore.getState().files[0].name).toBe('latest.RAF'); expect(useAppStore.getState().selectedFileId).toBe(id); expect(changed).not.toHaveBeenCalled();
+  expect(useAppStore.getState().files[0].name).toBe('latest.RAF'); expect(useAppStore.getState().currentId).toBe(id); expect(changed).not.toHaveBeenCalled();
 });
 it('waits for complete frames after the token and rejects a superseded request snapshot', async () => {
   expect(host.library).toBeDefined(); vi.mocked(bridge.openFolder).mockResolvedValueOnce({ token: 'old' }).mockResolvedValueOnce({ token: 'new' });

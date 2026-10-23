@@ -14,7 +14,7 @@ export function shouldAutoProcess(
 }
 export function useAutoProcess(): void {
   const state = useAppStore();
-  const file = state.files.find((f) => f.id === state.selectedFileId);
+  const file = state.files.find((f) => f.id === state.currentId);
   const { processFile, isProcessing } = useProcessing();
   const key = file ? processingKey(file, state) : null;
   useEffect(() => {

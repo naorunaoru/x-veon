@@ -1,6 +1,8 @@
 import type { FolderRef } from '@/host';
 import type { ModelIdentity, ModelSize } from '@/lib/types';
 import { editPhoto } from './photo';
+import { prune } from '@/app/selection';
+import { columnWidthPatch } from './selection';
 import type { DemosaicMethod, ExportFormat, ProcessingResultMeta } from '@/lib/types';
 import type { QuickMetadata } from '@/pipeline/decode/raf-thumbnail';
 import type { LensProfile } from '@/app/lens/lensfun';
@@ -11,7 +13,8 @@ export interface RestoredSettings {
   modelSize?: ModelSize;
   exportFormat?: ExportFormat;
   exportQuality?: number;
-  selectedFileId?: string | null;
+  currentId?: string | null;
+  columnWidth?: number;
 }
 
 export interface LibrarySlice {
@@ -20,12 +23,12 @@ export interface LibrarySlice {
   files: QueuedFile[];
   setFileDemosaicMethod: (id: string, method: DemosaicMethod) => void;
   setFileModel: (id: string, model: ModelIdentity) => void;
-  selectedFileId: string | null;
+  currentId: string | null;
   processingFileId: string | null;
   /** Append prepared entries and select the first of them. */
   addFiles: (entries: QueuedFile[]) => void;
   removeFile: (id: string) => void;
-  selectFile: (id: string | null) => void;
+  setCurrent: (id: string | null) => void;
   updateFileStatus: (id: string, status: FileStatus, error?: string) => void;
   updateFileProgress: (id: string, current: number, total: number) => void;
   setFileResult: (id: string, result: ProcessingResultMeta, method: DemosaicMethod) => void;
@@ -41,28 +44,32 @@ export const createLibrarySlice: Slice<LibrarySlice> = (set, get) => ({
   files: [],
   setFileDemosaicMethod: (id, method) => set(state => ({ files: state.files.map(f => f.id === id ? editPhoto(f, { demosaicMethod: method }, state) : f) })),
   setFileModel: (id, model) => set(state => ({ files: state.files.map(f => f.id === id ? editPhoto(f, { model, demosaicMethod: 'neural-net' }, state) : f) })),
-  selectedFileId: null,
+  currentId: null,
   processingFileId: null,
 
   addFiles: (entries) => {
     if (entries.length === 0) return;
-    set({ files: [...get().files, ...entries], selectedFileId: entries[0].id });
+    set({ files: [...get().files, ...entries], currentId: entries[0].id });
   },
 
   removeFile: (id) =>
     set((state) => {
       const removedIndex = state.files.findIndex((f) => f.id === id);
       const files = state.files.filter((f) => f.id !== id);
-      const selectedFileId =
-        state.selectedFileId === id
+      const currentId =
+        state.currentId === id
           ? files.length > 0
             ? files[Math.min(removedIndex, files.length - 1)].id
             : null
-          : state.selectedFileId;
-      return { files, selectedFileId };
+          : state.currentId;
+      const selection = prune(
+        { currentId, selectedIds: state.selectedIds, anchorId: state.selectionAnchor },
+        new Set(files.map((f) => f.id)),
+      );
+      return { files, currentId, selectedIds: selection.selectedIds, selectionAnchor: selection.anchorId };
     }),
 
-  selectFile: (id) => set({ selectedFileId: id }),
+  setCurrent: (id) => set({ currentId: id }),
 
   updateFileStatus: (id, status, error) =>
     set((state) => ({
@@ -105,21 +112,22 @@ export const createLibrarySlice: Slice<LibrarySlice> = (set, get) => ({
     // Files imported while startup was running are already in the store: keep them after the
     // restored library, and keep their selection.
     const state = get();
-    const { files: live, selectedFileId: liveSelection } = state;
+    const { files: live, currentId: liveSelection } = state;
     const restoredIds = new Set(restored.map((f) => f.id));
     const files = [...restored, ...live.filter((f) => !restoredIds.has(f.id))];
     const has = (id: string | null | undefined): id is string => !!id && files.some((f) => f.id === id);
-    const selectedFileId = has(liveSelection) ? liveSelection
-      : has(settings.selectedFileId) ? settings.selectedFileId
+    const currentId = has(liveSelection) ? liveSelection
+      : has(settings.currentId) ? settings.currentId
       : files.length > 0 ? files[0].id : null;
     set({
       files,
-      selectedFileId,
+      currentId,
       hydrationVersion: state.hydrationVersion + 1,
       demosaicMethod: settings.demosaicMethod ?? state.demosaicMethod,
       modelSize: settings.modelSize ?? state.modelSize,
       exportFormat: settings.exportFormat ?? state.exportFormat,
       exportQuality: settings.exportQuality ?? state.exportQuality,
+      ...(settings.columnWidth === undefined ? {} : columnWidthPatch(settings.columnWidth, state)),
     });
   },
 });

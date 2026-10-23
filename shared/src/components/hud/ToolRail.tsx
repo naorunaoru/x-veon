@@ -22,7 +22,7 @@ const RAIL: RailItem[] = [
 export function ToolRail({ settingsOnly = false }: { settingsOnly?: boolean }) {
   const openPanel = useAppStore((s) => s.openPanel);
   const setOpenPanel = useAppStore((s) => s.setOpenPanel);
-  const file = useAppStore((s) => s.files.find((f) => f.id === s.selectedFileId));
+  const file = useAppStore((s) => s.files.find((f) => f.id === s.currentId));
   const displayHdr = useAppStore((s) => s.displayHdr);
   const headroom = useAppStore((s) => s.displayHdrHeadroom);
   const drt = file?.edit.openDrtOverrides ?? {};

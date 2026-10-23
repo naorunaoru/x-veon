@@ -36,7 +36,7 @@ describe('RenderingPanel', () => {
     useAppStore.setState({
       openPanel: 'advanced',
       files: [makeFile()],
-      selectedFileId: 'a',
+      currentId: 'a',
       displayHdr: false,
     }),
   );
@@ -230,7 +230,7 @@ describe('RenderingPanel', () => {
   });
 
   it('disables look selection when no photo is selected', () => {
-    useAppStore.setState({ selectedFileId: null });
+    useAppStore.setState({ currentId: null });
     render(<RenderingPanel />);
     expect(screen.getByRole('combobox', { name: 'Look' })).toBeDisabled();
     expect(screen.queryByRole('button', { name: 'Undo look change' })).not.toBeInTheDocument();

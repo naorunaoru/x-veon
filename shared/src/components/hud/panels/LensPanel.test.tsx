@@ -50,7 +50,7 @@ async function open() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  useAppStore.setState({ files: [xt3()], selectedFileId: 'a', lensPicks: {} });
+  useAppStore.setState({ files: [xt3()], currentId: 'a', lensPicks: {} });
 });
 
 describe('LensPanel', () => {
@@ -187,7 +187,7 @@ describe('LensPanel', () => {
   });
 
   it('renders without a selected photo', async () => {
-    useAppStore.setState({ files: [], selectedFileId: null });
+    useAppStore.setState({ files: [], currentId: null });
     await open();
     expect(screen.getByText('Waiting for decode')).toBeInTheDocument();
     expect(screen.getByRole('combobox')).toBeDisabled();

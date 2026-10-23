@@ -19,7 +19,7 @@ const recent = [
 ];
 
 beforeEach(() => {
-  useAppStore.setState({ folder: null, files: [], selectedFileId: null, initialized: true, initError: null });
+  useAppStore.setState({ folder: null, files: [], currentId: null, initialized: true, initError: null });
 });
 
 it('keeps the folder menu above the empty drop surface', () => {
@@ -43,7 +43,7 @@ it('keeps folder switching reachable while the selected RAW has an error', () =>
   setHost(fakeHost({ openFolder: vi.fn(async () => null) }));
   const file = fromLibraryPhoto(fakePhoto());
   file.status = 'error';
-  useAppStore.setState({ files: [file], selectedFileId: file.id });
+  useAppStore.setState({ files: [file], currentId: file.id });
   const style = document.createElement('style');
   style.textContent = hudCss;
   document.head.append(style);

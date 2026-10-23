@@ -80,7 +80,7 @@ describe('Minimap', () => {
   beforeEach(() =>
     useAppStore.setState({
       files: [fileWithResult()],
-      selectedFileId: 'a',
+      currentId: 'a',
       viewScale: 1,
       viewFitScale: 0.04,
       viewPan: { x: -400, y: -300 },
@@ -103,7 +103,7 @@ describe('Minimap', () => {
   });
 
   it('renders nothing without a result', () => {
-    useAppStore.setState({ files: [], selectedFileId: null });
+    useAppStore.setState({ files: [], currentId: null });
     const { container } = render(<Minimap />);
     expect(container.firstChild).toBeNull();
   });

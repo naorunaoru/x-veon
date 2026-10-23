@@ -103,10 +103,10 @@ it('keeps photos imported while startup was running', async () => {
   );
   const run = initApp({ cancelled: false });
   useAppStore.getState().addFiles([dropped]);
-  finish({ files: [stored], settings: { selectedFileId: 'stored' }, complete: true });
+  finish({ files: [stored], settings: { currentId: 'stored' }, complete: true });
   await run;
   expect(useAppStore.getState().files.map((f) => f.id)).toEqual(['stored', 'dropped']);
-  expect(useAppStore.getState().selectedFileId).toBe('dropped');
+  expect(useAppStore.getState().currentId).toBe('dropped');
 });
 
 it('does not request storage persistence', async () => {
@@ -157,8 +157,8 @@ it('does not merge a late initial folder restore into a newer folder switch', as
   m.restore.mockImplementation(() => new Promise(r => { finish = r; }));
   const run = initApp({ cancelled: false });
   m.folderSwitchVersion.mockReturnValue(1);
-  useAppStore.setState({ files: [{ id: 'B' } as QueuedFile], selectedFileId: 'B', folder: { id: 'B', name: 'B' } });
+  useAppStore.setState({ files: [{ id: 'B' } as QueuedFile], currentId: 'B', folder: { id: 'B', name: 'B' } });
   finish({ files: [{ id: 'A' } as QueuedFile], settings: {}, complete: true, folder: { id: 'A', name: 'A' } });
   await run;
-  expect(useAppStore.getState()).toMatchObject({ files: [{ id: 'B' }], folder: { id: 'B' }, selectedFileId: 'B' });
+  expect(useAppStore.getState()).toMatchObject({ files: [{ id: 'B' }], folder: { id: 'B' }, currentId: 'B' });
 });

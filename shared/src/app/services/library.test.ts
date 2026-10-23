@@ -23,7 +23,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   host = fakeHost();
   setHost(host);
-  useAppStore.setState({ files: [], selectedFileId: null, folder: null });
+  useAppStore.setState({ files: [], currentId: null, folder: null });
 });
 afterEach(() => vi.restoreAllMocks());
 it('adds host snapshots, selects the first added photo and matches its lens', async () => {
@@ -31,7 +31,7 @@ it('adds host snapshots, selects the first added photo and matches its lens', as
   photo.facts.metadata = { camera: 'Fuji', lensModel: 'XF35', focalLength: 35, fNumber: 2 };
   vi.mocked(host.library.addFiles).mockResolvedValue({ photos: [photo], selectedIds: ['a'], complete: true });
   await importFiles([new File(['x'], 'a.raf')]);
-  expect(useAppStore.getState().selectedFileId).toBe('a');
+  expect(useAppStore.getState().currentId).toBe('a');
   await vi.waitFor(() =>
     expect(useAppStore.getState().files[0].lensProfile).toMatchObject({ lensModel: 'XF35' }),
   );
@@ -104,7 +104,7 @@ it('re-matches a stored profile that predates the calibration fields', async () 
   expect(fileOf('old').lensProfile).toEqual({ lensModel: 'XF35' });
 });
 it('removes only when the host supports it, draining saves before host deletion', async () => {
-  useAppStore.setState({ files: [fromLibraryPhoto(fakePhoto())], selectedFileId: 'a' });
+  useAppStore.setState({ files: [fromLibraryPhoto(fakePhoto())], currentId: 'a' });
   await removeFile('a');
   expect(useAppStore.getState().files).toHaveLength(1);
   host.library.remove = vi.fn(async () => {});
@@ -141,12 +141,14 @@ it('applies thumbnail facts without replacing a local edit and releases its subs
 
 const snapshot = (id: string) => ({ photos: [fakePhoto(id)], folder: { id, name: id }, complete: true });
 it('flushes before opening, replaces photos and disposes old results; cancellation keeps state', async () => {
-  useAppStore.setState({ files: [fromLibraryPhoto(fakePhoto('old'))] });
+  // 'A' is in the new folder too: a switch clears the selection outright, it does not prune it.
+  useAppStore.setState({ files: [fromLibraryPhoto(fakePhoto('old'))], selectedIds: ['A'], selectionAnchor: 'A' });
   host.library.openFolder = vi.fn(async () => snapshot('A'));
   await openFolder({ id: 'A', name: 'A' });
   expect(vi.mocked(flushPersistence).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(host.library.openFolder).mock.invocationCallOrder[0]);
   expect(host.library.openFolder).toHaveBeenCalledWith({ id: 'A', name: 'A' });
-  expect(useAppStore.getState()).toMatchObject({ folder: { id: 'A' }, selectedFileId: 'A', files: [{ id: 'A' }] });
+  expect(useAppStore.getState()).toMatchObject({ folder: { id: 'A' }, currentId: 'A', files: [{ id: 'A' }] });
+  expect(useAppStore.getState()).toMatchObject({ selectedIds: [], selectionAnchor: null });
   expect(discardResult).toHaveBeenCalledWith('old');
   const files = useAppStore.getState().files;
   vi.mocked(host.library.openFolder).mockResolvedValue(null);
@@ -161,7 +163,7 @@ it('ignores a late A snapshot after B, including returning to A', async () => {
   await switchFolder(async () => ({ ...snapshot('A'), selectedIds: ['second'], photos: [fakePhoto('second')] }));
   finish(snapshot('A'));
   await first;
-  expect(useAppStore.getState().selectedFileId).toBe('second');
+  expect(useAppStore.getState().currentId).toBe('second');
 });
 it('dispatches host loads in request order even when an earlier flush is held', async () => {
   let finish!: () => void;
@@ -182,7 +184,7 @@ it('replaces on a folder-host drop and appends on a web drop', async () => {
   vi.mocked(host.library.addFiles).mockResolvedValue({ ...snapshot('A'), photos: [fakePhoto('a'), fakePhoto('b')], selectedIds: ['b'] });
   await importFiles([]);
   expect(useAppStore.getState().files.map(f => f.id)).toEqual(['a', 'b']);
-  expect(useAppStore.getState().selectedFileId).toBe('b');
+  expect(useAppStore.getState().currentId).toBe('b');
   delete host.library.openFolder;
   vi.mocked(host.library.addFiles).mockResolvedValue(snapshot('web'));
   await importFiles([]);
@@ -196,6 +198,18 @@ it('ignores facts and replacement snapshots from an earlier folder', () => {
   publish({ kind: 'replace', snapshot: snapshot('B') });
   publish({ kind: 'facts', snapshot: { ...snapshot('B'), photos: [{ ...fakePhoto('a'), thumbnailUrl: 'stale' }] } });
   expect(useAppStore.getState().files).toMatchObject([{ id: 'a', thumbnailUrl: null }]);
+  stop();
+});
+it('keeps the selection across a same-folder replace, dropping photos that left', () => {
+  let publish!: Parameters<NonNullable<typeof host.library.onChange>>[0];
+  host.library.onChange = listener => { publish = listener; return () => {}; };
+  useAppStore.setState({
+    files: ['a', 'b', 'c'].map(id => fromLibraryPhoto(fakePhoto(id))), folder: { id: 'A', name: 'A' },
+    currentId: 'a', selectedIds: ['a', 'c'], selectionAnchor: 'c',
+  });
+  const stop = startLibraryWatching();
+  publish({ kind: 'replace', snapshot: { ...snapshot('A'), photos: [fakePhoto('a'), fakePhoto('b')] } });
+  expect(useAppStore.getState()).toMatchObject({ currentId: 'a', selectedIds: ['a'], selectionAnchor: null });
   stop();
 });
 

@@ -48,7 +48,7 @@ it('drains an import, settings write and in-flight save while cancelling the deb
     files: snapshot.photos.map((p) =>
       fromLibraryPhoto({ ...p, edit: { ...p.edit, demosaicMethod: 'bilinear' } }),
     ),
-    selectedFileId: snapshot.photos[0].id,
+    currentId: snapshot.photos[0].id,
     exportQuality: 95,
   });
   const stop = startPersistence();

@@ -44,12 +44,11 @@ export function ZoomPill() {
         min={0} max={1} step={0.001}
         value={[zoomToSlider(scale, min, max)]}
         onValueChange={([t]) => controls?.zoomTo(sliderToZoom(t, min, max))}
-        aria-label="Zoom"
       >
         <SliderPrimitive.Track className="xv-slider__track">
           <SliderPrimitive.Range className="xv-slider__range" />
         </SliderPrimitive.Track>
-        <SliderPrimitive.Thumb className="xv-slider__thumb" onDoubleClick={() => controls?.zoomTo(1)} />
+        <SliderPrimitive.Thumb className="xv-slider__thumb" aria-label="Zoom" onDoubleClick={() => controls?.zoomTo(1)} />
       </SliderPrimitive.Root>
       <span className="xv-zoompill__divider" />
       <span className="xv-zoompill__readout" data-testid="zoom-readout">{readout}</span>

@@ -3,8 +3,7 @@ import { importFiles } from '@/app/services/library';
 import { useAppStore } from '@/app/store';
 import { PhotoStage } from './PhotoStage';
 import { TopBar } from './TopBar';
-import { Filmstrip } from './Filmstrip';
-import { ActionHud } from './ActionHud';
+import { LibraryColumn } from './LibraryColumn';
 import { DropSurface } from './DropSurface';
 import { useFileDrag } from './useFileDrag';
 import { ToolRail } from './ToolRail';
@@ -27,42 +26,43 @@ export function HudRoot() {
   const dragging = useFileDrag(importFiles);
   // Hide photo controls until the selected photo is
   // actually displayable — i.e. while loading, on a decode error, or with no
-  // result yet. Settings stays reachable for recovery and Clear library.
+  // result yet. Settings and the source pill stay reachable for recovery.
   const chromeHidden = useAppStore((s) => {
-    const f = s.files.find((x) => x.id === s.selectedFileId);
+    const f = s.files.find((x) => x.id === s.currentId);
     return !f || f.status !== 'done' || !f.result;
   });
 
-  // Keep Settings mounted across empty/error transitions so Clear failures retain their notice.
+  // Keep Settings mounted across empty/error transitions so export status survives them.
   return (
     <div className="xv-hud-root">
-      {hasFiles && <PhotoStage />}
-      <div className={`xv-hud-overlay${chromeHidden ? ' xv-hud-overlay--folder-only' : ''}`} data-chrome-hidden={(hasFiles && chromeHidden) || undefined}>
-        <TopBar folderOnly={hasFiles && chromeHidden} />
-        {hasFiles && (
-          <>
-            <Filmstrip />
-            <ActionHud />
+      <LibraryColumn />
+      <div className="xv-hud-stage" data-testid="hud-stage">
+        {hasFiles && <PhotoStage />}
+        <div className={`xv-hud-overlay${chromeHidden ? ' xv-hud-overlay--folder-only' : ''}`} data-chrome-hidden={(hasFiles && chromeHidden) || undefined}>
+          <TopBar folderOnly={chromeHidden} />
+          {hasFiles && (
             <div className="xv-bottom-left-hud">
               <Minimap />
               <HistogramHud />
             </div>
-          </>
+          )}
+        </div>
+        <div className="xv-hud-overlay xv-hud-settings">
+          <UpdateNotice />
+          <ExportStatus />
+          <ToolRail settingsOnly={chromeHidden} />
+          <PanelHost settingsOnly={chromeHidden} />
+        </div>
+        {hasFiles ? (
+          dragging && <DropSurface overlay active fileCount={fileCount} />
+        ) : initError ? (
+          <StartupError message={initError} />
+        ) : initialized ? (
+          <DropSurface active={dragging} />
+        ) : (
+          <DropSurface loading />
         )}
       </div>
-      <div className="xv-hud-overlay xv-hud-settings">
-        <UpdateNotice />
-        <ExportStatus />
-        <ToolRail settingsOnly={chromeHidden} />
-        <PanelHost settingsOnly={chromeHidden} />
-      </div>
-      {hasFiles ? (
-        dragging && <DropSurface overlay active fileCount={fileCount} />
-      ) : initError ? (
-        <StartupError message={initError} />
-      ) : (
-        initialized && <DropSurface active={dragging} />
-      )}
     </div>
   );
 }

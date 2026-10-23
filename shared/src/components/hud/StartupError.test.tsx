@@ -9,7 +9,7 @@ vi.mock('@/components/OutputCanvas', () => ({ OutputCanvas: () => null }));
 
 describe('startup failure', () => {
   beforeEach(() => {
-    useAppStore.setState({ files: [], selectedFileId: null, initialized: false, initError: null });
+    useAppStore.setState({ files: [], currentId: null, initialized: false, initError: null });
   });
 
   it('shows the error instead of a drop zone that can never process anything', () => {
@@ -31,7 +31,7 @@ describe('startup failure', () => {
     useAppStore.setState({
       initError: "Couldn't download the model list (HTTP 404).",
       files: [file],
-      selectedFileId: 'a',
+      currentId: 'a',
     });
     const { container } = render(<HudRoot />);
     expect(screen.getByRole('alert')).toHaveTextContent('HTTP 404');

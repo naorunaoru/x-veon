@@ -28,7 +28,7 @@ beforeEach(() => {
   setHost(host);
   useAppStore.setState({
     files: [photo()],
-    selectedFileId: 'a',
+    currentId: 'a',
     folder: { id: 'A', name: 'A' },
     exportQuality: 95,
     modelSize: 'S',
@@ -61,6 +61,10 @@ it('debounces edits, omits transient updates and keeps settings separate', async
   s.setExportQuality(80);
   expect(putSetting).toHaveBeenCalledWith('exportQuality', 80);
 });
+it('persists columnWidth like the other settings', () => {
+  useAppStore.getState().setColumnWidth(2);
+  expect(putSetting).toHaveBeenCalledWith('columnWidth', 2);
+});
 it('does not write on hydration or selection, and restores model defaults', async () => {
   vi.mocked(host.library.load).mockResolvedValue({ photos: [fakePhoto('r')], complete: true });
   vi.mocked(getSetting).mockImplementation(
@@ -68,7 +72,7 @@ it('does not write on hydration or selection, and restores model defaults', asyn
   );
   const restored = await restore();
   useAppStore.getState().restoreFromDb(restored.files, restored.settings);
-  useAppStore.getState().selectFile('r');
+  useAppStore.getState().setCurrent('r');
   await flush();
   expect(host.library.save).not.toHaveBeenCalled();
   expect(restored.settings.modelSize).toBe('M');

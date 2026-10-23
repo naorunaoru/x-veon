@@ -34,7 +34,7 @@ it('keeps all adjustments together, scrolls on repeated navigation, and tracks m
   body.scrollTop = 430; fireEvent.scroll(body);
   expect(screen.getByRole('button', { name: 'White balance' })).toHaveAttribute('aria-pressed', 'true');
   expect(body.scrollTop).toBe(430);
-  act(() => useAppStore.setState({ selectedFileId: 'other' }));
+  act(() => useAppStore.setState({ currentId: 'other' }));
   expect(body.scrollTop).toBe(430);
   fireEvent.click(screen.getByRole('button', { name: 'Exposure' }));
   expect(body.scrollTop).toBe(0);
@@ -151,7 +151,7 @@ it('animates toolbar navigation only when the panel was already open', () => {
   fireEvent.click(screen.getByRole('button', { name: 'Detail' }));
   expect(scrollTo).toHaveBeenLastCalledWith({ top: 600, behavior: 'smooth' });
   fireEvent.scroll(body);
-  act(() => useAppStore.setState({ selectedFileId: 'another' }));
+  act(() => useAppStore.setState({ currentId: 'another' }));
   expect(scrollTo).toHaveBeenCalledTimes(1);
   fireEvent.click(screen.getByRole('button', { name: 'Exposure' }));
   expect(scrollTo).toHaveBeenLastCalledWith({ top: 0, behavior: 'smooth' });

@@ -17,7 +17,7 @@ const _baseWbBuf = new Float32Array(3);
 
 /** Per-file grading context for the floating panels. Reads the selected file. */
 export function useGrading() {
-  const file = useAppStore((s) => s.files.find((f) => f.id === s.selectedFileId));
+  const file = useAppStore((s) => s.files.find((f) => f.id === s.currentId));
   const setFileLookPreset = useAppStore((s) => s.setFileLookPreset);
   const undoFileLook = useAppStore((s) => s.undoFileLook);
   const setFileOpenDrtOverride = useAppStore((s) => s.setFileOpenDrtOverride);
