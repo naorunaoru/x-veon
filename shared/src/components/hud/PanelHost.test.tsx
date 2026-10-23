@@ -4,6 +4,7 @@ vi.mock('./panels/ExposurePanel', () => ({ ExposurePanel: () => <input aria-labe
 vi.mock('./panels/RenderingPanel', () => ({ RenderingPanel: () => <input aria-label="Contrast value" /> }));
 vi.mock('./panels/WhiteBalancePanel', () => ({ WhiteBalancePanel: () => <span>White balance controls</span> }));
 vi.mock('./panels/DetailPanel', () => ({ DetailPanel: () => <span>Detail controls</span> }));
+vi.mock('./panels/LensPanel', () => ({ LensPanel: () => <span>Lens controls</span> }));
 vi.mock('./panels/SettingsPanel', () => ({ SettingsPanel: () => <span>Settings controls</span> }));
 import { PanelHost } from './PanelHost';
 import { ToolRail } from './ToolRail';
@@ -27,6 +28,7 @@ it('keeps all adjustments together, scrolls on repeated navigation, and tracks m
   expect(body.scrollTop).toBe(200);
   expect(screen.getByLabelText('Exposure value')).toBeVisible();
   expect(screen.getByLabelText('Contrast value')).toBeVisible();
+  expect(screen.getByText('Lens controls')).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: 'Rendering' }));
   expect(screen.getByLabelText('Contrast value')).toBeVisible();
   body.scrollTop = 430; fireEvent.scroll(body);
@@ -42,30 +44,30 @@ it('keeps all adjustments together, scrolls on repeated navigation, and tracks m
   expect(screen.queryByRole('button', { name: 'Scopes' })).toBeNull();
 });
 
-it('allows centering Detail without painting the transparent scroll tail', () => {
+it('allows centering the last group (Lens) without painting the transparent scroll tail', () => {
   const { container } = render(<><PanelHost /><ToolRail /></>);
   const panel = container.querySelector('.xv-adjustments') as HTMLElement;
   const body = container.querySelector('.xv-adjustments__body') as HTMLElement;
   const content = container.querySelector('.xv-adjustments__content') as HTMLElement;
-  const detail = container.querySelector('[data-adjustment="detail"]') as HTMLElement;
+  const lens = container.querySelector('[data-adjustment="lens"]') as HTMLElement;
   const viewport = vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(1000);
   Object.defineProperties(body, { clientHeight: { value: 900 }, offsetTop: { value: 58 }, scrollHeight: { get: () => 1400 + parseFloat(body.style.getPropertyValue('--scroll-tail') || '0') } });
   body.getBoundingClientRect = () => ({ top: 70 }) as DOMRect;
   Object.defineProperty(content, 'offsetHeight', { value: 1400 });
-  Object.defineProperties(detail, { offsetTop: { value: 1240 }, offsetHeight: { value: 160 } });
+  Object.defineProperties(lens, { offsetTop: { value: 1240 }, offsetHeight: { value: 160 } });
   let scroll = 0;
   Object.defineProperty(body, 'scrollTop', {
     get: () => scroll,
     set: (value: number) => { scroll = Math.max(0, Math.min(value, body.scrollHeight - body.clientHeight)); },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Detail' }));
-  // Detail spans y=420..580, centered in the 1000px viewport.
+  fireEvent.click(screen.getByRole('button', { name: 'Lens' }));
+  // Lens spans y=420..580, centered in the 1000px viewport.
   expect(body.scrollTop).toBe(890);
-  expect(70 + detail.offsetTop - body.scrollTop + detail.offsetHeight / 2).toBe(500);
+  expect(70 + lens.offsetTop - body.scrollTop + lens.offsetHeight / 2).toBe(500);
   expect(body.style.getPropertyValue('--visible-content-height')).toBe('510px');
   expect(panel.style.getPropertyValue('--surface-height')).toBe('569px');
   fireEvent.scroll(body);
-  expect(screen.getByRole('button', { name: 'Detail' })).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByRole('button', { name: 'Lens' })).toHaveAttribute('aria-pressed', 'true');
   body.scrollTop = 0;
   fireEvent.scroll(body);
   expect(body.style.getPropertyValue('--visible-content-height')).toBe('900px');
@@ -116,10 +118,10 @@ it('centers short groups including Exposure, and top-aligns groups taller than t
   const viewport = vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(1000);
   const head = () => parseFloat(body.style.getPropertyValue('--scroll-head') || '0');
   const tail = () => parseFloat(body.style.getPropertyValue('--scroll-tail') || '0');
-  Object.defineProperties(body, { clientHeight: { value: 900 }, offsetTop: { value: 58 }, scrollHeight: { get: () => head() + 1600 + tail() } });
+  Object.defineProperties(body, { clientHeight: { value: 900 }, offsetTop: { value: 58 }, scrollHeight: { get: () => head() + 1760 + tail() } });
   body.getBoundingClientRect = () => ({ top: 70 }) as DOMRect;
-  Object.defineProperties(content, { offsetHeight: { value: 1600 }, offsetTop: { get: head } });
-  const offsets = [0, 100, 1200, 1440], heights = [100, 1100, 240, 160];
+  Object.defineProperties(content, { offsetHeight: { value: 1760 }, offsetTop: { get: head } });
+  const offsets = [0, 100, 1200, 1440, 1600], heights = [100, 1100, 240, 160, 160];
   groups.forEach((group, i) => Object.defineProperties(group, { offsetTop: { get: () => head() + offsets[i] }, offsetHeight: { value: heights[i] } }));
   let scroll = 0;
   Object.defineProperty(body, 'scrollTop', {

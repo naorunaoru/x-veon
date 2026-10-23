@@ -18,6 +18,7 @@ const meta = {
 } as ProcessingResultMeta;
 const renderer = {
   setImage: vi.fn(),
+  setLens: vi.fn(),
   setGrade: vi.fn(),
   requestRender: vi.fn(),
   setViewport: vi.fn(),

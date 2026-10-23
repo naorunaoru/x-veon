@@ -72,10 +72,19 @@ function overrides(x: unknown, shape: object): boolean {
   return record(x) && Object.entries(x).every(([key, value]) => Object.hasOwn(shape, key)
     && (typeof (shape as RecordValue)[key] === 'boolean' ? typeof value === 'boolean' : number(value)));
 }
+// The sidecar rejects an empty LensFile or LensModel, so an empty name here would leave the photo view-only.
+const lensfunSource = (x: unknown) => record(x) && record(x.lensfun) && string(x.lensfun.file) && x.lensfun.file !== ''
+  && string(x.lensfun.model) && x.lensfun.model !== '';
+function lensEdit(x: unknown): boolean {
+  return record(x) && (oneOf(x.source, ['auto', 'manual']) || lensfunSource(x.source))
+    && fields(x, ['distortion', 'ca', 'vignetting'], v => typeof v === 'boolean')
+    && record(x.manual) && fields(x.manual, ['distortion', 'caRed', 'caBlue', 'vignetting', 'midpoint'], number);
+}
 function edit(x: unknown): x is PhotoEdit {
   return record(x) && x.version === 1 && string(x.lookPreset) && Object.hasOwn(LOOK_PRESETS, x.lookPreset)
     && overrides(x.openDrtOverrides, defaults) && overrides(x.preProcessOverrides, DEFAULT_PREPROCESS)
-    && (x.demosaicMethod === null || method(x.demosaicMethod)) && (x.model === null || model(x.model));
+    && (x.demosaicMethod === null || method(x.demosaicMethod)) && (x.model === null || model(x.model))
+    && optional(x, 'lens', lensEdit);
 }
 function result(x: unknown): boolean {
   if (!record(x) || !record(x.exportData) || !record(x.metadata)) return false;
@@ -86,13 +95,17 @@ function result(x: unknown): boolean {
     && fields(m, ['make', 'model', 'backend', 'lensModel'], string)
     && fields(m, ['width', 'height', 'tileCount', 'inferenceTime', 'exposureBias', 'focalLength', 'fNumber', 'colorTemp', 'tint'], number)
     && optional(m, 'modelSize', v => oneOf(v, MODEL_SIZES)) && optional(m, 'modelIdentity', model)
-    && optional(m, 'cfaType', cfa) && optional(m, 'modelNote', nullableString);
+    && optional(m, 'cfaType', cfa) && optional(m, 'modelNote', nullableString)
+    && optional(m, 'fujiCorrection', v => record(v) && array(v.distortion, number) && array(v.ca, number) && array(v.vignetting, number)
+      && (v.centre === null || (array(v.centre, number) && v.centre.length === 2)));
 }
 function coefficients(x: unknown, required: string[], optionalNames: string[]): boolean {
   return record(x) && string(x.model) && fields(x, required, number) && optionalNames.every(k => optional(x, k, number));
 }
 function lens(x: unknown): boolean {
+  // The calibration fields are optional: facts persisted before they existed lack them (the app matches those again).
   return record(x) && string(x.lensModel) && string(x.mount) && number(x.cropfactor)
+    && optional(x, 'calibCropfactor', number) && optional(x, 'calibAspectRatio', number)
     && array(x.distortion, v => coefficients(v, ['focal'], ['k1', 'k2', 'a', 'b', 'c']))
     && array(x.tca, v => coefficients(v, ['focal'], ['vr', 'vb', 'br', 'cr', 'bb', 'cb', 'kr', 'kb']))
     && array(x.vignetting, v => coefficients(v, ['focal', 'aperture', 'distance', 'k1', 'k2', 'k3'], []));

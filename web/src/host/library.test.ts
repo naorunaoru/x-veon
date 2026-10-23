@@ -29,6 +29,7 @@ import { startPersistence } from '@/app/services/persistence';
 import { useAutoProcess } from '@/app/hooks/useAutoProcess';
 import type { DemosaicMethod } from '@/lib/types';
 import { isMethodValidForCfa } from '@/lib/catalog';
+import { DEFAULT_LENS_EDIT } from '@/lib/lens/edit';
 let serial = 0;
 function setup() {
   const dbName = `library-test-${++serial}`;
@@ -345,6 +346,19 @@ it('merges facts atomically without replacing an edit saved by another adapter',
   await Promise.all([editing, stale.saveFacts(photo.id, facts)]);
   const record = (await createFileStorage(dbName).getAllFiles())[0];
   expect(record).toMatchObject({ lookPreset: 'umbra', editMethod: 'dht', preProcessOverrides: { exposure: 2 }, resultMethod: 'bilinear', error: 'fact' });
+  await closeDatabase(dbName);
+});
+
+it('a lens reset survives a save and a reload instead of resurrecting the old lens block', async () => {
+  const { host, dbName } = setup();
+  const { photos: [photo] } = await host.addFiles([raw()]);
+  const lens = { ...DEFAULT_LENS_EDIT, ca: false, source: { lensfun: { file: 'misc.json', model: '23mmF1.4XM' } } };
+  await host.save(photo.id, { ...defaultEdit(), lens }, photo.facts);
+  expect((await createWebLibrary({ dbName, opfsRoot: 'dev' }).load()).photos[0].edit.lens).toEqual(lens);
+  // resetFileLens leaves an own `lens: undefined` key on the edit.
+  await host.save(photo.id, { ...defaultEdit(), lens: undefined }, photo.facts);
+  const reloaded = (await createWebLibrary({ dbName, opfsRoot: 'dev' }).load()).photos[0];
+  expect(reloaded.edit.lens).toBeUndefined();
   await closeDatabase(dbName);
 });
 

@@ -38,13 +38,8 @@ const ctx = {
 const options = { method: 'neural-net' as const, modelSize: 'S' as const };
 let input: GPUBuffer;
 let output: GPUTexture;
-beforeEach(() => {
-  vi.resetAllMocks();
-  m.strategyFor.mockReturnValue({ run: m.run });
-  vi.spyOn(console, 'log').mockImplementation(() => {});
-  m.models.activate.mockResolvedValue({ model: { size: 'S', sha256: 'test' }, note: null });
-  input = { destroy: vi.fn() } as unknown as GPUBuffer;
-  output = { destroy: vi.fn() } as unknown as GPUTexture;
+/** Makes the mocked decoder return a 6×6 RGGB readout, with `extra` merged into its raw fields. */
+function fixture(extra: Partial<RawImage> = {}) {
   const { data, ...raw } = {
     data: new Uint16Array(36).fill(100),
     width: 6,
@@ -61,12 +56,22 @@ beforeEach(() => {
     drGain: 1,
     make: 'Test',
     model: 'Camera',
+    ...extra,
   };
   m.decodeRaw.mockResolvedValue({
     raw,
     prepared: prepareCfa({ data, ...raw } as unknown as RawImage),
     prepareError: null,
   });
+}
+beforeEach(() => {
+  vi.resetAllMocks();
+  m.strategyFor.mockReturnValue({ run: m.run });
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+  m.models.activate.mockResolvedValue({ model: { size: 'S', sha256: 'test' }, note: null });
+  input = { destroy: vi.fn() } as unknown as GPUBuffer;
+  output = { destroy: vi.fn() } as unknown as GPUTexture;
+  fixture();
   m.run.mockResolvedValue({ rgb: { buffer: input, stride: 6, offsetX: 0, offsetY: 0 }, tileCount: 1 });
   m.gpuPostprocess.mockImplementation(async () => {
     input.destroy();
@@ -145,6 +150,29 @@ describe('processRaw ownership', () => {
       /^Unsupported CFA: 9 chars, width 3$/,
     );
     expect(m.run).not.toHaveBeenCalled();
+  });
+});
+describe('processRaw camera lens tables', () => {
+  it('carries the camera lens tables into the result metadata', async () => {
+    fixture({ fujiLens: { distortion: [1, 2], ca: [3], vignetting: [4], frame: [] } });
+    const image = await processRaw(new ArrayBuffer(0), options, ctx);
+    expect(image.meta.metadata.fujiCorrection).toEqual({ distortion: [1, 2], ca: [3], vignetting: [4], centre: null });
+    image.dispose();
+  });
+  it('resolves the camera frame centre in the visible texture', async () => {
+    fixture({
+      width: 6, height: 4, data: new Uint16Array(24).fill(100),
+      fujiLens: { distortion: [1, 2], ca: [3], vignetting: [4], frame: [4, 6, 1, 1, 2, 4] },
+    });
+    const image = await processRaw(new ArrayBuffer(0), options, ctx);
+    expect(image.meta.metadata.fujiCorrection).toEqual({ distortion: [1, 2], ca: [3], vignetting: [4], centre: [3, 2] });
+    image.dispose();
+  });
+  it('omits fujiCorrection for a raw without tables', async () => {
+    fixture({ fujiLens: null });
+    const image = await processRaw(new ArrayBuffer(0), options, ctx);
+    expect(image.meta.metadata.fujiCorrection).toBeUndefined();
+    image.dispose();
   });
 });
 it('initializes the engines and shares their device', async () => {

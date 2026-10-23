@@ -2,6 +2,7 @@ import type { CfaType, DemosaicMethod, LookPreset, ModelIdentity, SerializableRe
 import type { OpenDrtConfig, PreProcessConfig } from '@/renderer/grading/opendrt-params';
 import type { QuickMetadata } from '@/pipeline/decode/raf-thumbnail';
 import type { LensProfile } from '@/app/lens/lensfun';
+import type { LensEdit } from '@/lib/lens/edit';
 export type PhotoId = string;
 export interface PhotoEdit {
   version: 1;
@@ -10,6 +11,8 @@ export interface PhotoEdit {
   preProcessOverrides: Partial<PreProcessConfig>;
   demosaicMethod: DemosaicMethod | null;
   model: ModelIdentity | null;
+  /** Absent means the lens defaults; see effectiveLensEdit. */
+  lens?: LensEdit;
 }
 export interface PhotoFacts {
   cfaType: CfaType | null;

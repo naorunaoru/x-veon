@@ -112,6 +112,7 @@ interface Lens {
   aliases: string[];
   mounts: string[];
   cropfactor: number;
+  aspectRatio?: number;
   type?: string;
   distortion: Distortion[];
   tca: TCA[];
@@ -215,9 +216,18 @@ function convertVignetting(raw: Record<string, unknown>): Vignetting {
   };
 }
 
+/** Sensor aspect ratio of the calibration ("4:3" → 4/3, "1.5" → 1.5); undefined when absent or unreadable. */
+function parseAspectRatio(field: unknown): number | undefined {
+  if (field == null) return undefined;
+  const [a, b] = extractText(field).split(":");
+  const ratio = b === undefined ? parseFloat_(a) : parseFloat_(a) / parseFloat_(b);
+  return Number.isFinite(ratio) && ratio > 0 ? ratio : undefined;
+}
+
 function convertLens(raw: Record<string, unknown>): Lens {
   const { primary, aliases } = extractModel(raw["model"]);
   const cal = (raw["calibration"] ?? {}) as Record<string, unknown>;
+  const aspectRatio = parseAspectRatio(raw["aspect-ratio"]);
 
   const mountRaw = raw["mount"];
   const mounts: string[] = Array.isArray(mountRaw)
@@ -232,6 +242,7 @@ function convertLens(raw: Record<string, unknown>): Lens {
     aliases,
     mounts,
     cropfactor: parseFloat_(raw["cropfactor"] ?? 1),
+    ...(aspectRatio !== undefined ? { aspectRatio } : {}),
     ...(raw["type"] ? { type: String(raw["type"]) } : {}),
     distortion: ((cal["distortion"] as unknown[]) ?? []).map((d) =>
       convertDistortion(d as Record<string, unknown>),

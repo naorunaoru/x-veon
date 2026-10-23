@@ -5,7 +5,8 @@ import { SRGB_TO_P3D65, P3D65_TO_REC709, IDENTITY_3X3 } from './color-matrices';
 import WGSL_SRC from './shaders/opendrt.wgsl?raw';
 import { Histogram, type HistogramMode, type HistogramChannel } from './histogram';
 import { ExportTarget, readTextureRgba } from './readback';
-import { U_FLAGS, U_TEXEL, U_SRGB_P3_C0, U_P3_DSP_C0, UNIFORM_BYTES, UNIFORM_FLOATS, setMat3, applyOpenDrtUniforms } from './uniforms';
+import { LENS_TABLE_BYTES, type LensRemap } from './lens-table';
+import { U_FLAGS, U_TEXEL, U_SRGB_P3_C0, U_P3_DSP_C0, UNIFORM_BYTES, UNIFORM_FLOATS, setMat3, applyOpenDrtUniforms, applyLensUniforms } from './uniforms';
 import { applyViewport, type DisplayViewport } from './viewport';
 import { getDevice } from '@/gpu/device';
 
@@ -25,6 +26,8 @@ export interface Renderer {
   /** Samples the image's texture directly; the caller keeps ownership and keeps it alive. */
   setImage(image: GpuImage): void;
   setGrade(cfg: GradingConfig, ts: TonescaleParams): void;
+  /** The lens remap the display and the export apply to the image; null shows the image as decoded. */
+  setLens(remap: LensRemap | null): void;
   setViewport(viewport: DisplayViewport): void;
   /** Coalesce display and histogram invalidations into one animation frame. */
   requestRender(): void;
@@ -46,6 +49,7 @@ export class HdrRenderer implements Renderer {
   private canvasFormat: GPUTextureFormat;
   private uniformBuffer: GPUBuffer;
   private uniformData: Float32Array;
+  private lensBuffer: GPUBuffer;
   private imageTex: GPUTexture | null = null;
   private bindGroup: GPUBindGroup | null = null;
   private frame: number | null = null;
@@ -74,6 +78,7 @@ export class HdrRenderer implements Renderer {
     headroom: number,
     shaderModule: GPUShaderModule,
     pipelineLayout: GPUPipelineLayout,
+    lensBuffer: GPUBuffer,
   ) {
     this.device = device;
     this.context = context;
@@ -86,9 +91,10 @@ export class HdrRenderer implements Renderer {
     this.canvasFormat = displayFormat(isHdr);
     this.uniformBuffer = uniformBuffer;
     this.uniformData = uniformData;
+    this.lensBuffer = lensBuffer;
     this._isHdrDisplay = isHdr;
     this._hdrHeadroom = headroom;
-    this.histogram = new Histogram(device, shaderModule, pipelineLayout, uniformBuffer, uniformData);
+    this.histogram = new Histogram(device, shaderModule, pipelineLayout, uniformBuffer, uniformData, lensBuffer);
     this.exportTarget = new ExportTarget(device, EXPORT_FORMAT);
   }
   static async create(
@@ -115,6 +121,7 @@ export class HdrRenderer implements Renderer {
         { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
         { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'unfilterable-float' } },
         { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'non-filtering' } },
+        { binding: 5, visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
       ],
     });
 
@@ -154,11 +161,17 @@ export class HdrRenderer implements Renderer {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
+    let lensBuffer: GPUBuffer | undefined;
     try {
+      // The radial lens table: setLens rewrites it in place, so the bind groups never change with it.
+      lensBuffer = device.createBuffer({
+        size: LENS_TABLE_BYTES,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      });
       const renderer = new HdrRenderer(
         canvas, device, context, displayPipeline, exportPipeline, bindGroupLayout,
         sampler, uniformBuffer, uniformData, wantHdr, headroom,
-        shaderModule, pipelineLayout,
+        shaderModule, pipelineLayout, lensBuffer,
       );
       // Set constant uniforms: matrices + flags
       setMat3(uniformData, U_SRGB_P3_C0, SRGB_TO_P3D65);
@@ -168,6 +181,7 @@ export class HdrRenderer implements Renderer {
       return renderer;
     } catch (error) {
       uniformBuffer.destroy();
+      lensBuffer?.destroy();
       throw error;
     }
   }
@@ -205,6 +219,7 @@ export class HdrRenderer implements Renderer {
         { binding: 0, resource: { buffer: this.uniformBuffer } },
         { binding: 1, resource: this.imageTex!.createView() },
         { binding: 2, resource: this.sampler },
+        { binding: 5, resource: { buffer: this.lensBuffer } },
       ],
     });
 
@@ -215,6 +230,12 @@ export class HdrRenderer implements Renderer {
     this.displayTs = ts;
     this.displayCfg = cfg;
     applyOpenDrtUniforms(this.uniformData, ts, cfg, this._isHdrDisplay ? 'p3' : 'rec709');
+  }
+
+  setLens(remap: LensRemap | null): void {
+    if (remap) this.device.queue.writeBuffer(this.lensBuffer, 0, remap.table as Float32Array<ArrayBuffer>);
+    applyLensUniforms(this.uniformData, remap);
+    this.histogram.setLens(remap);
   }
 
   setViewport(viewport: DisplayViewport): void {
@@ -311,6 +332,7 @@ export class HdrRenderer implements Renderer {
     this.frame = null;
     // The image texture belongs to the processed result, not to the renderer.
     this.uniformBuffer.destroy();
+    this.lensBuffer.destroy();
     this.histogram.dispose();
     this.exportTarget.dispose();
     // The canvas context is shared across strict-mode renderer instances.

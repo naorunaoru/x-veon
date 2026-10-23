@@ -11,7 +11,7 @@ import { createExporter } from './exporter';
 import type { DesktopBridge } from '../protocol/bridge';
 import type { WorkerClient } from './port';
 const mocks = vi.hoisted(() => ({ readback: vi.fn() }));
-vi.mock('@/renderer', () => ({ createRenderer: async () => ({ readback: mocks.readback, setImage() {}, dispose() {} }) }));
+vi.mock('@/renderer', () => ({ createRenderer: async () => ({ readback: mocks.readback, setImage() {}, setLens() {}, dispose() {} }) }));
 vi.mock('@/app/services/processing', () => ({ acquireResult: () => ({ image: { gpu: {} }, release() {} }) }));
 setFlagsFromString('--expose-gc');
 const gc = runInNewContext('gc') as () => void;

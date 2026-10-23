@@ -154,6 +154,8 @@ async function cycle(
     await importFiles([file]);
     const entry = getStore().files.find((candidate) => !previousIds.has(candidate.id));
     if (!entry) throw new Error('addFiles did not create an entry');
+    // The baselines predate lens correction: render the photo as decoded.
+    getStore().setFileLens(entry.id, { distortion: false, ca: false, vignetting: false });
     const id = entry.id;
     getStore().selectFile(id);
     const neuralKey = methodKey(sample.file, 'neural-net', size);

@@ -3,6 +3,9 @@ import { useAppStore } from '@/app/store';
 import { useViewportSize } from '@/app/hooks/useViewportSize';
 import { usePanZoom } from '@/app/hooks/usePanZoom';
 import { acquireResult } from '@/app/services/processing';
+import { ensureLensPick } from '@/app/services/lens-picks';
+import { lensRemapForFile } from '@/app/lens/remap';
+import { effectiveLensEdit } from '@/lib/lens/edit';
 import { createRenderer, isWebGpuSupported, type Renderer } from '@/renderer';
 import { configFromPreset, configWithOverrides, computeTonescaleParams } from '@/renderer/grading/opendrt-params';
 import type { OpenDrtConfig, PreProcessConfig } from '@/renderer/grading/opendrt-params';
@@ -27,6 +30,9 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
   const lookPreset = useAppStore((s) => s.files.find((f) => f.id === fileId)?.edit.lookPreset ?? 'default');
   const openDrtOverrides = useAppStore((s) => s.files.find((f) => f.id === fileId)?.edit.openDrtOverrides ?? EMPTY_OVERRIDES);
   const preProcessOverrides = useAppStore((s) => s.files.find((f) => f.id === fileId)?.edit.preProcessOverrides ?? EMPTY_PREPROCESS);
+  const lensEdit = useAppStore((s) => s.files.find((f) => f.id === fileId)?.edit.lens);
+  const lensProfile = useAppStore((s) => s.files.find((f) => f.id === fileId)?.lensProfile);
+  const lensPicks = useAppStore((s) => s.lensPicks);
 
   const displayHdr = useAppStore((s) => s.displayHdr);
   const displayHdrHeadroom = useAppStore((s) => s.displayHdrHeadroom);
@@ -83,6 +89,8 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
       leaseRef.current?.release();
       leaseRef.current = lease;
 
+      // After the handoff: a throw here must not release a texture the renderer still binds.
+      applyFileLens(renderer, fileId);
       renderer.setViewport(viewportRef.current);
       syncDisplay(renderer);
       applyFileGrade(renderer, fileId);
@@ -123,6 +131,14 @@ export const OutputCanvas = memo(function OutputCanvas({ fileId, result }: Outpu
     renderer.requestRender();
   }, [lookPreset, openDrtOverrides, preProcessOverrides]);
 
+  // The lens correction follows the photo's lens edit, its matched profile and the hand-picked lenses as they load.
+  useEffect(() => {
+    const renderer = rendererRef.current;
+    if (!renderer) return;
+    applyFileLens(renderer, fileId);
+    renderer.requestRender();
+  }, [lensEdit, lensProfile, lensPicks, result, fileId]);
+
   return (
     <div
       ref={containerRef}
@@ -162,6 +178,16 @@ function applyFileGrade(renderer: Renderer, fileId: string): void {
     renderer, file?.edit.lookPreset ?? 'default', file?.edit.openDrtOverrides ?? {}, file?.edit.preProcessOverrides ?? {},
     renderer.display.hdr ? renderer.display.headroom : undefined,
   );
+}
+
+/** The photo's lens remap; a hand-picked lens that is not loaded yet is requested, and arrives through the picks. */
+function applyFileLens(renderer: Renderer, fileId: string): void {
+  const { files, lensPicks } = useAppStore.getState();
+  const file = files.find((f) => f.id === fileId);
+  if (!file) return;
+  const { source } = effectiveLensEdit(file.edit);
+  if (typeof source === 'object') ensureLensPick(fileId, source.lensfun);
+  renderer.setLens(lensRemapForFile(file, lensPicks));
 }
 
 function applyOpenDrt(

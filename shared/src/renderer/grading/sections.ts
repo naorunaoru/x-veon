@@ -5,7 +5,7 @@ import { isModified } from './param-model';
  *  the Rendering panel ('advanced'); crop is reserved for a later phase. */
 export type PanelId =
   | 'scopes' | 'exposure' | 'whiteBalance'
-  | 'advanced' | 'detail' | 'settings' | 'crop';
+  | 'advanced' | 'detail' | 'lens' | 'settings' | 'crop';
 
 export interface SectionKeys {
   drt: (keyof OpenDrtConfig)[];

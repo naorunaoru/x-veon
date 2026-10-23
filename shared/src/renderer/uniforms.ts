@@ -1,5 +1,6 @@
 import { sanitizeOpenDrtConfig, type GradingConfig, type TonescaleParams } from './grading/opendrt-params';
 import { IDENTITY_3X3, P3D65_TO_REC709, P3D65_TO_REC2020, computeCwpAdaptMatrix } from './color-matrices';
+import { LENS_TABLE_DOMAIN, type LensRemap } from './lens-table';
 
 // Float offsets into the uniform buffer shadow array.
 export const U_TS           = 0;   // vec4: ts_s, ts_s1, ts_m2, ts_dsc
@@ -23,8 +24,10 @@ export const U_ODRT_HS_CMY  = 84;  // vec4: hs_c, hs_m, hs_y, cwp_rng
 export const U_CWP_C0       = 88;  // 3 × vec4: cwp adaptation matrix columns (offsets 88, 92, 96)
 export const U_VIEW_X       = 100; // source UV → clip X; w = display filtering
 export const U_VIEW_Y       = 104; // source UV → clip Y
-export const UNIFORM_FLOATS  = 108;
-export const UNIFORM_BYTES   = UNIFORM_FLOATS * 4; // 432
+export const U_LENS_FRAME   = 108; // vec4: width, height, halfDiagPx, scale
+export const U_LENS_CENTRE  = 112; // vec4: centre.x − width/2, centre.y − height/2, enabled, LENS_TABLE_DOMAIN
+export const UNIFORM_FLOATS  = 116;
+export const UNIFORM_BYTES   = UNIFORM_FLOATS * 4; // 464
 
 export function setMat3(d: Float32Array, offset: number, m: Float32Array): void {
   // Column 0: [r0c0, r1c0, r2c0, 0]
@@ -33,6 +36,20 @@ export function setMat3(d: Float32Array, offset: number, m: Float32Array): void 
   d[offset + 4] = m[1]; d[offset + 5] = m[4]; d[offset + 6] = m[7]; d[offset + 7] = 0;
   // Column 2: [r0c2, r1c2, r2c2, 0]
   d[offset + 8] = m[2]; d[offset + 9] = m[5]; d[offset + 10] = m[8]; d[offset + 11] = 0;
+}
+
+/** The remap's frame and the enabled flag; null clears them, and the shader then samples the image as before. */
+export function applyLensUniforms(d: Float32Array, remap: LensRemap | null): void {
+  if (!remap) { d.fill(0, U_LENS_FRAME, U_LENS_CENTRE + 4); return; }
+  const { width, height, halfDiagPx, scale, centre } = remap;
+  d[U_LENS_FRAME]      = width;
+  d[U_LENS_FRAME + 1]  = height;
+  d[U_LENS_FRAME + 2]  = halfDiagPx;
+  d[U_LENS_FRAME + 3]  = scale;
+  d[U_LENS_CENTRE]     = centre[0] - width / 2;
+  d[U_LENS_CENTRE + 1] = centre[1] - height / 2;
+  d[U_LENS_CENTRE + 2] = 1;
+  d[U_LENS_CENTRE + 3] = LENS_TABLE_DOMAIN;
 }
 
 export function applyOpenDrtUniforms(d: Float32Array, ts: TonescaleParams, cfg: GradingConfig, outputGamut: 'rec709' | 'p3' | 'rec2020'): void {

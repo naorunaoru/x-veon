@@ -1,6 +1,7 @@
 import type { PhotoEdit } from '@/host';
 import type { CfaType, DemosaicMethod } from '@/lib/types';
 import { isMethodValidForCfa } from '@/lib/catalog';
+import { isLensEditModified } from '@/lib/lens/edit';
 
 export function defaultPhotoEdit(): PhotoEdit {
   return { version: 1, lookPreset: 'default', openDrtOverrides: {}, preProcessOverrides: {}, demosaicMethod: null, model: null };
@@ -8,7 +9,8 @@ export function defaultPhotoEdit(): PhotoEdit {
 
 export function isDefaultPhotoEdit(edit: PhotoEdit): boolean {
   return edit.lookPreset === 'default' && edit.demosaicMethod === null && edit.model === null
-    && Object.keys(edit.openDrtOverrides).length === 0 && Object.keys(edit.preProcessOverrides).length === 0;
+    && Object.keys(edit.openDrtOverrides).length === 0 && Object.keys(edit.preProcessOverrides).length === 0
+    && !isLensEditModified(edit);
 }
 
 /** Resolve the method used for processing without changing the edit. */

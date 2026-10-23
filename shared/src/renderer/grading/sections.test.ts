@@ -23,6 +23,9 @@ describe('isSectionModified', () => {
   it('sections without a key map (settings) are never modified here', () => {
     expect(isSectionModified('settings', {}, { exposure: 1 })).toBe(false);
   });
+  it('lens has no override keys: its modification lives in the photo\'s lens block', () => {
+    expect(isSectionModified('lens', { tn_con: 1 }, { exposure: 1 })).toBe(false);
+  });
   it('exposes the key map for reset', () => {
     expect(SECTION_KEYS.exposure?.pre).toContain('exposure');
     expect(SECTION_KEYS.advanced?.drt).toEqual(expect.arrayContaining(['brl_r', 'brl_g', 'brl_b']));

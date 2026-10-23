@@ -4,9 +4,9 @@ import { fromLibraryPhoto } from '@/app/store/photo';
 import { useAppStore } from '@/app/store';
 import { setHost } from './host';
 import { startExport, cancelExport, dismissExport, useExportJobs } from './export-jobs';
-const m = vi.hoisted(() => ({ readback: vi.fn(), dispose: vi.fn(), release: vi.fn(), setImage: vi.fn() }));
+const m = vi.hoisted(() => ({ readback: vi.fn(), dispose: vi.fn(), release: vi.fn(), setImage: vi.fn(), setLens: vi.fn() }));
 vi.mock('@/renderer', () => ({
-  createRenderer: vi.fn(async () => ({ readback: m.readback, setImage: m.setImage, dispose: m.dispose })),
+  createRenderer: vi.fn(async () => ({ readback: m.readback, setImage: m.setImage, setLens: m.setLens, dispose: m.dispose })),
 }));
 vi.mock('./processing', () => ({ acquireResult: () => ({ image: { gpu: {} }, release: m.release }) }));
 let host: ReturnType<typeof fakeHost>;
