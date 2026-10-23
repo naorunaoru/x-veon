@@ -180,8 +180,7 @@ export function createWebLibrary(options: {
     if (!photo) throw new Error('Photo is no longer in the library.');
     const old = persisted.get(id);
     const record = {
-      ...old,
-      ...toRecord(photo, edit, rating, facts, old?.addedAt ?? Date.now()),
+      ...toRecord(photo, edit, rating, facts, old?.addedAt ?? Date.now(), old),
       cachedMethods: old?.cachedMethods ?? [],
     };
     await records.putFile(record);
