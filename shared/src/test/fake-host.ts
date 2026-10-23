@@ -18,6 +18,7 @@ export function fakePhoto(id = 'a'): LibraryPhoto {
     fileSize: 42,
     thumbnailUrl: null,
     edit: defaultEdit(),
+    rating: 0,
     editing: 'saved',
     editingNote: null,
     facts: {

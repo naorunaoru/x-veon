@@ -34,6 +34,7 @@ export interface LibraryPhoto {
   thumbnailUrl: string | null;
   edit: PhotoEdit;
   facts: PhotoFacts;
+  rating: Rating;
   editing: 'saved' | 'session' | 'view-only';
   editingNote: string | null;
 }
@@ -58,7 +59,7 @@ export interface UnsavedSummary {
 export interface LibraryHost {
   load(): Promise<LibrarySnapshot>;
   readRaw(id: PhotoId): Promise<ArrayBuffer>;
-  save(id: PhotoId, edit: PhotoEdit, facts: PhotoFacts): Promise<void>;
+  save(id: PhotoId, edit: PhotoEdit, rating: Rating, facts: PhotoFacts): Promise<void>;
   /** Facts only; never changes the persisted edit. */
   saveFacts(id: PhotoId, facts: PhotoFacts): Promise<void>;
   addFiles(files: File[]): Promise<LibrarySnapshot | null>;

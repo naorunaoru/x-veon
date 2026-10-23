@@ -5,7 +5,7 @@ import { DEFAULT_LENS_EDIT } from '@/lib/lens/edit';
 const p = photo();
 const folder = { id: 'folder', name: 'Photos' };
 const examples = [
-  [isPortRequest, { v: 1, rid: 1, op: 'saveEdit', id: p.id, edit: p.edit }],
+  [isPortRequest, { v: 1, rid: 1, op: 'saveEdit', id: p.id, rating: 0, edit: p.edit }],
   [isPortRequest, { v: 1, rid: 2, op: 'saveFacts', id: p.id, facts: p.facts }],
   [isPortRequest, { v: 1, rid: 3, op: 'rescan' }],
   [isPortReply, { v: 1, rid: 1, ok: true }],
@@ -57,14 +57,28 @@ describe('versioned process protocol', () => {
     const { calibCropfactor, calibAspectRatio, ...stored } = p.facts.lensProfile!;
     expect(isPortRequest({ ...examples[1][1], facts: { ...p.facts, lensProfile: stored } })).toBe(true);
   });
+  it('saveEdit requires an integer rating in −1…5', () => {
+    const { rating: _, ...missing } = examples[0][1];
+    expect(isPortRequest({ ...examples[0][1], rating: 3 })).toBe(true);
+    expect(isPortRequest({ ...examples[0][1], rating: -1 })).toBe(true);
+    for (const rating of [6, -2, 2.5, '3', null]) expect(isPortRequest({ ...examples[0][1], rating })).toBe(false);
+    expect(isPortRequest(missing)).toBe(false);
+  });
+  it('listing photos require a rating', () => {
+    const { rating: _, ...unrated } = p;
+    expect(isListingFrame({ ...examples[18][1], photos: [{ ...p, rating: 5 }] })).toBe(true);
+    expect(isListingFrame({ ...examples[18][1], photos: [unrated] })).toBe(false);
+    expect(isListingFrame({ ...examples[18][1], photos: [{ ...p, rating: 7 }] })).toBe(false);
+    expect(isPortEvent({ ...examples[5][1], photos: [unrated] })).toBe(false);
+  });
   it('accepts an edit with a lens block and rejects a malformed one', () => {
     const lens = { ...DEFAULT_LENS_EDIT, source: { lensfun: { file: 'misc.json', model: 'X' } } };
-    expect(isPortRequest({ v: 1, rid: 1, op: 'saveEdit', id: p.id, edit: { ...p.edit, lens } })).toBe(true);
-    expect(isPortRequest({ v: 1, rid: 1, op: 'saveEdit', id: p.id, edit: { ...p.edit, lens: { ...lens, distortion: 'yes' } } })).toBe(false);
-    expect(isPortRequest({ v: 1, rid: 1, op: 'saveEdit', id: p.id, edit: { ...p.edit, lens: { ...lens, source: 'camera' } } })).toBe(false);
+    expect(isPortRequest({ v: 1, rid: 1, op: 'saveEdit', id: p.id, rating: 0, edit: { ...p.edit, lens } })).toBe(true);
+    expect(isPortRequest({ v: 1, rid: 1, op: 'saveEdit', id: p.id, rating: 0, edit: { ...p.edit, lens: { ...lens, distortion: 'yes' } } })).toBe(false);
+    expect(isPortRequest({ v: 1, rid: 1, op: 'saveEdit', id: p.id, rating: 0, edit: { ...p.edit, lens: { ...lens, source: 'camera' } } })).toBe(false);
     // The sidecar rejects an empty LensFile or LensModel, which would leave the photo view-only.
     for (const lensfun of [{ file: '', model: 'X' }, { file: 'misc.json', model: '' }]) {
-      expect(isPortRequest({ v: 1, rid: 1, op: 'saveEdit', id: p.id, edit: { ...p.edit, lens: { ...lens, source: { lensfun } } } })).toBe(false);
+      expect(isPortRequest({ v: 1, rid: 1, op: 'saveEdit', id: p.id, rating: 0, edit: { ...p.edit, lens: { ...lens, source: { lensfun } } } })).toBe(false);
     }
   });
   it('accepts the camera correction tables in a result and rejects malformed ones', () => {

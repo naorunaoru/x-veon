@@ -1,6 +1,6 @@
-import type { FolderRef } from '@/host';
+import type { FolderRef, Rating } from '@/host';
 import type { ModelIdentity, ModelSize } from '@/lib/types';
-import { editPhoto } from './photo';
+import { editPhoto, nextRevision } from './photo';
 import { prune } from '@/app/selection';
 import { columnWidthPatch } from './selection';
 import type { DemosaicMethod, ExportFormat, ProcessingResultMeta } from '@/lib/types';
@@ -23,6 +23,7 @@ export interface LibrarySlice {
   files: QueuedFile[];
   setFileDemosaicMethod: (id: string, method: DemosaicMethod) => void;
   setFileModel: (id: string, model: ModelIdentity) => void;
+  setFileRating: (id: string, rating: Rating) => void;
   currentId: string | null;
   processingFileId: string | null;
   /** Append prepared entries and select the first of them. */
@@ -44,6 +45,9 @@ export const createLibrarySlice: Slice<LibrarySlice> = (set, get) => ({
   files: [],
   setFileDemosaicMethod: (id, method) => set(state => ({ files: state.files.map(f => f.id === id ? editPhoto(f, { demosaicMethod: method }, state) : f) })),
   setFileModel: (id, model) => set(state => ({ files: state.files.map(f => f.id === id ? editPhoto(f, { model, demosaicMethod: 'neural-net' }, state) : f) })),
+  // A rating is saved with the edit but never touches it, so it resolves no demosaic method.
+  setFileRating: (id, rating) => set(state => ({ files: state.files.map(f => f.id !== id || f.rating === rating ? f
+    : f.editing === 'view-only' ? { ...f, rating } : { ...f, rating, editRevision: nextRevision(), editing: 'session' }) })),
   currentId: null,
   processingFileId: null,
 

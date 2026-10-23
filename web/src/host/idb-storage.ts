@@ -1,7 +1,7 @@
 import type { CfaType, DemosaicMethod, LookPreset, ModelIdentity, SerializableResultMeta } from '@/lib/types';
 import type { LensProfile } from '@/app/lens/lensfun';
 import type { LensEdit } from '@/lib/lens/edit';
-import type { LibraryPhoto, PhotoEdit, PhotoFacts } from '@/host';
+import type { LibraryPhoto, PhotoEdit, PhotoFacts, Rating } from '@/host';
 import { transact, openDatabase, assertDatabaseActive } from '@/app/storage/database';
 export interface PersistedFile {
   id: string;
@@ -63,6 +63,7 @@ export function fromRecord(p: PersistedFile, thumbnailUrl: string | null): Libra
     originalName: p.originalName,
     fileSize: p.fileSize,
     thumbnailUrl,
+    rating: 0,
     editing: 'saved',
     editingNote: null,
     edit: {
@@ -95,6 +96,7 @@ export function fromRecord(p: PersistedFile, thumbnailUrl: string | null): Libra
 export function toRecord(
   photo: LibraryPhoto,
   edit: PhotoEdit,
+  _rating: Rating, // not yet a record field; the record migration persists it
   facts: PhotoFacts,
   addedAt: number,
 ): PersistedFile {

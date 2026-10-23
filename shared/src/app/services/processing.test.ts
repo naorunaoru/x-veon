@@ -233,7 +233,7 @@ describe('processing service', () => {
         await processFile('a');
         await vi.advanceTimersByTimeAsync(301);
         expect(host.library.save).toHaveBeenCalledTimes(1);
-        expect(host.library.save).toHaveBeenCalledWith('a', expect.objectContaining({ model: { size: 'S', sha256: 'reopened' } }), expect.anything());
+        expect(host.library.save).toHaveBeenCalledWith('a', expect.objectContaining({ model: { size: 'S', sha256: 'reopened' } }), 0, expect.anything());
         expect(unsavedEdits()).toEqual([]);
       } finally {
         reject(new Error('test cleanup'));
@@ -327,7 +327,7 @@ describe('processing service', () => {
       await processFile('a');
       await vi.advanceTimersByTimeAsync(301);
       expect(host.library.save).toHaveBeenCalledTimes(1);
-      expect(host.library.save).toHaveBeenCalledWith('a', expect.objectContaining({ model: { size: 'S', sha256: 'used' } }), expect.anything());
+      expect(host.library.save).toHaveBeenCalledWith('a', expect.objectContaining({ model: { size: 'S', sha256: 'used' } }), 0, expect.anything());
     } finally {
       stop();
       vi.useRealTimers();

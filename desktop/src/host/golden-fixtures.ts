@@ -26,6 +26,7 @@ export function createGoldenHost(bridge: DesktopBridge) {
           originalName: file.name,
           fileSize: file.size,
           thumbnailUrl: null,
+          rating: 0,
           editing: 'session',
           editingNote: 'Golden: edits are kept only for this session.',
           edit: {
@@ -66,10 +67,10 @@ export function createGoldenHost(bridge: DesktopBridge) {
       if (!p) throw Error('Unknown fixture');
       photos.set(id, { ...p, facts });
     },
-    async save(id, edit, facts) {
+    async save(id, edit, rating, facts) {
       const p = photos.get(id);
       if (!p) throw Error('Unknown fixture');
-      photos.set(id, { ...p, edit, facts });
+      photos.set(id, { ...p, edit, rating, facts });
     },
   };
   return {

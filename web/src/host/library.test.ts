@@ -115,7 +115,7 @@ describe('web library', () => {
   it('reloads processing facts without turning an untouched photo into an edit', async () => {
     const { host, dbName } = setup();
     const { photos: [photo] } = await host.addFiles([raw()]);
-    await host.save(photo.id, photo.edit, { ...photo.facts, resultMethod: 'neural-net' });
+    await host.save(photo.id, photo.edit, 0, { ...photo.facts, resultMethod: 'neural-net' });
     const reloaded = createWebLibrary({ dbName, opfsRoot: 'dev' });
     const restored = (await reloaded.load()).photos[0];
     expect(restored.edit.demosaicMethod).toBeNull();
@@ -167,7 +167,7 @@ describe('web library', () => {
       fileSize: 123,
       edit: { model: null, demosaicMethod: 'dht', lookPreset: 'marvelous' },
     });
-    await host.save('old', { ...photos[0].edit, preProcessOverrides: { exposure: 2 } }, photos[0].facts);
+    await host.save('old', { ...photos[0].edit, preProcessOverrides: { exposure: 2 } }, 0, photos[0].facts);
     expect((await records.getAllFiles())[0]).toMatchObject({
       fileSize: 123,
       addedAt: 1234,
@@ -312,7 +312,7 @@ it('suspends imports and saves when another tab clears the database, then reload
     bytes.resolve(new ArrayBuffer(4));
   }
   await expect(host.addFiles([raw('late.raf')])).rejects.toThrow('Reload');
-  await expect(host.save(photos[0].id, photos[0].edit, photos[0].facts)).rejects.toThrow('Reload');
+  await expect(host.save(photos[0].id, photos[0].edit, 0, photos[0].facts)).rejects.toThrow('Reload');
   expect(storage.writeRaw).not.toHaveBeenCalled();
   expect((await indexedDB.databases()).some((db) => db.name === dbName)).toBe(false);
 });
@@ -327,7 +327,7 @@ it('reports an OPFS failure after database deletion and retries without restorin
   expect(reload).not.toHaveBeenCalled();
   expect((await indexedDB.databases()).some((db) => db.name === dbName)).toBe(false);
   await expect(
-    host.save(snapshot.photos[0].id, snapshot.photos[0].edit, snapshot.photos[0].facts),
+    host.save(snapshot.photos[0].id, snapshot.photos[0].edit, 0, snapshot.photos[0].facts),
   ).rejects.toThrow('no longer');
   await host.clear!();
   expect(reload).toHaveBeenCalledOnce();
@@ -337,11 +337,11 @@ it('reports an OPFS failure after database deletion and retries without restorin
 it('merges facts atomically without replacing an edit saved by another adapter', async () => {
   const { host, dbName } = setup();
   const { photos: [photo] } = await host.addFiles([raw()]);
-  await host.save(photo.id, defaultEdit(), photo.facts);
+  await host.save(photo.id, defaultEdit(), 0, photo.facts);
   const stale = createWebLibrary({ dbName, opfsRoot: 'dev' });
   await stale.load();
   const newer = { ...defaultEdit(), lookPreset: 'umbra' as const, demosaicMethod: 'dht' as const, preProcessOverrides: { exposure: 2 } };
-  const editing = host.save(photo.id, newer, photo.facts);
+  const editing = host.save(photo.id, newer, 0, photo.facts);
   const facts = { ...photo.facts, resultMethod: 'bilinear' as const, error: 'fact' };
   await Promise.all([editing, stale.saveFacts(photo.id, facts)]);
   const record = (await createFileStorage(dbName).getAllFiles())[0];
@@ -353,10 +353,10 @@ it('a lens reset survives a save and a reload instead of resurrecting the old le
   const { host, dbName } = setup();
   const { photos: [photo] } = await host.addFiles([raw()]);
   const lens = { ...DEFAULT_LENS_EDIT, ca: false, source: { lensfun: { file: 'misc.json', model: '23mmF1.4XM' } } };
-  await host.save(photo.id, { ...defaultEdit(), lens }, photo.facts);
+  await host.save(photo.id, { ...defaultEdit(), lens }, 0, photo.facts);
   expect((await createWebLibrary({ dbName, opfsRoot: 'dev' }).load()).photos[0].edit.lens).toEqual(lens);
   // resetFileLens leaves an own `lens: undefined` key on the edit.
-  await host.save(photo.id, { ...defaultEdit(), lens: undefined }, photo.facts);
+  await host.save(photo.id, { ...defaultEdit(), lens: undefined }, 0, photo.facts);
   const reloaded = (await createWebLibrary({ dbName, opfsRoot: 'dev' }).load()).photos[0];
   expect(reloaded.edit.lens).toBeUndefined();
   await closeDatabase(dbName);

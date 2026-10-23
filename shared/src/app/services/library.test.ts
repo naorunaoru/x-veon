@@ -9,7 +9,7 @@ vi.mock('./persistence', () => ({
   flushPersistence: vi.fn(async () => {}),
   unsavedEdits: vi.fn(() => []),
   retryUnsaved: vi.fn(),
-  restoreFromLedger: vi.fn((file, entry) => entry ? { ...file, edit: entry.edit, editRevision: entry.revision, modelNeedsResolution: entry.deferred, editing: 'session', editingNote: entry.error } : file),
+  restoreFromLedger: vi.fn((file, entry) => entry ? { ...file, edit: entry.edit, rating: entry.rating, editRevision: entry.revision, modelNeedsResolution: entry.deferred, editing: 'session', editingNote: entry.error } : file),
   cancelPhotoSave: vi.fn(async () => {}),
   pausePersistence: vi.fn(),
   resumePersistence: vi.fn(),

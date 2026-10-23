@@ -21,7 +21,7 @@ beforeEach(async () => {
 afterEach(async () => { vi.restoreAllMocks(); await fs.chmod(folder, 0o755).catch(() => {}); await fs.chmod(raw + '.xmp', 0o644).catch(() => {}); await fs.rm(dir, { recursive: true, force: true }); });
 it('lists defaults, protocol URLs and queued facts without RAW content reads', async () => {
  const read = vi.spyOn(fs, 'readFile'); const open = vi.spyOn(fs, 'open'); const photo = (await collect())[0].photos[0];
- expect(photo).toMatchObject({ id: id(), name: 'a', originalName: 'a.RAF', fileSize: 3, thumbnailUrl: `xveon-photo://thumb/${id()}`, edit: defaultPhotoEdit(), editing: 'saved', editingNote: null, facts: { status: 'queued' } });
+ expect(photo).toMatchObject({ id: id(), name: 'a', originalName: 'a.RAF', fileSize: 3, thumbnailUrl: `xveon-photo://thumb/${id()}`, edit: defaultPhotoEdit(), rating: 0, editing: 'saved', editingNote: null, facts: { status: 'queued' } });
  expect(open).not.toHaveBeenCalled(); expect(read.mock.calls.every(args => String(args[0]).endsWith('.xmp') || String(args[0]).startsWith(path.join(dir, 'cache')))).toBe(true);
 });
 it('yields 2,000 RAWs in eight naturally ordered batches of at most 250', async () => {
@@ -33,37 +33,45 @@ it('yields 2,000 RAWs in eight naturally ordered batches of at most 250', async 
 it('uses stable IDs with a shared key and rejects mismatched restart registrations', async () => {
  const other = createWorkerLibrary({ sessionKey, cacheDir: path.join(dir, 'cache2') }); expect((await collect(other))[0].photos[0].id).toBe(id());
  const different = createWorkerLibrary({ sessionKey: Buffer.from('other'), cacheDir: path.join(dir, 'cache3') }); expect((await collect(different))[0].photos[0].id).not.toBe(id());
- expect(() => lib.register([['wrong', raw]])).toThrow(/id|identity/i); await expect(lib.saveEdit('unregistered', edit)).rejects.toThrow(/registered/i);
+ expect(() => lib.register([['wrong', raw]])).toThrow(/id|identity/i); await expect(lib.saveEdit('unregistered', edit, 0)).rejects.toThrow(/registered/i);
 });
 it('writes the full RAW name plus xmp and preserves other namespace content', async () => {
  await fs.writeFile(raw + '.xmp', '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/" dc:title="kept"/></rdf:RDF></x:xmpmeta>');
- await lib.saveEdit(id(), edit); const text = await fs.readFile(raw + '.xmp', 'utf8'); expect(text).toContain('dc:title="kept"'); expect(readSidecar(text)).toEqual({ kind: 'ok', edit, rating: 0 }); expect((await collect())[0].photos[0].edit).toEqual(edit);
+ await lib.saveEdit(id(), edit, 4); const text = await fs.readFile(raw + '.xmp', 'utf8'); expect(text).toContain('dc:title="kept"'); expect(text).toContain('xmp:Rating="4"'); expect(readSidecar(text)).toEqual({ kind: 'ok', edit, rating: 4 }); expect((await collect())[0].photos[0]).toMatchObject({ edit, rating: 4 });
+});
+it('lists the rating read from the sidecar', async () => {
+ await fs.writeFile(raw + '.xmp', '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmp:Rating="-1"/></rdf:RDF></x:xmpmeta>');
+ expect((await collect())[0].photos[0]).toMatchObject({ edit: defaultPhotoEdit(), rating: -1, editing: 'saved' });
+ await fs.writeFile(raw + '.xmp', `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmlns:xveon="${XVEON_NS}" xveon:SchemaVersion="2" xmp:Rating="5"/></rdf:RDF></x:xmpmeta>`);
+ expect((await collect())[0].photos[0]).toMatchObject({ rating: 5, editing: 'view-only' });
+ await fs.writeFile(raw + '.xmp', '<broken');
+ expect((await collect())[0].photos[0]).toMatchObject({ rating: 0, editing: 'view-only' });
 });
 it('creates nothing for default edits and deletes an only-ours sidecar on reset', async () => {
- await lib.saveEdit(id(), defaultPhotoEdit()); expect(await fs.readdir(folder)).toEqual(['a.RAF']); await lib.saveEdit(id(), edit); expect(await fs.readdir(folder)).toEqual(['a.RAF', 'a.RAF.xmp']); await lib.saveEdit(id(), defaultPhotoEdit()); expect(await fs.readdir(folder)).toEqual(['a.RAF']);
+ await lib.saveEdit(id(), defaultPhotoEdit(), 0); expect(await fs.readdir(folder)).toEqual(['a.RAF']); await lib.saveEdit(id(), edit, 0); expect(await fs.readdir(folder)).toEqual(['a.RAF', 'a.RAF.xmp']); await lib.saveEdit(id(), defaultPhotoEdit(), 0); expect(await fs.readdir(folder)).toEqual(['a.RAF']);
 });
-it('rejects a RAW deleted after registration', async () => { await fs.unlink(raw); await expect(lib.saveEdit(id(), edit)).rejects.toThrow('The photo is no longer in its folder'); expect(await fs.readdir(folder)).toEqual([]); });
+it('rejects a RAW deleted after registration', async () => { await fs.unlink(raw); await expect(lib.saveEdit(id(), edit, 0)).rejects.toThrow('The photo is no longer in its folder'); expect(await fs.readdir(folder)).toEqual([]); });
 it('rejects a parent replaced by an outside symlink without writing outside', async () => {
  const outside = path.join(dir, 'outside'); await fs.mkdir(outside); await fs.writeFile(path.join(outside, 'a.RAF'), 'outside'); await fs.rename(folder, folder + '-old'); await fs.symlink(outside, folder, directoryLinkType);
- await expect(lib.saveEdit(id(), edit)).rejects.toThrow(/outside|opened/i); expect(await fs.readdir(outside)).toEqual(['a.RAF']);
+ await expect(lib.saveEdit(id(), edit, 0)).rejects.toThrow(/outside|opened/i); expect(await fs.readdir(outside)).toEqual(['a.RAF']);
 });
 it('rejects a sidecar that became a symlink, retaining its target bytes', async context => { requireFileSymlinks(context);
- const target = path.join(dir, 'target'); await fs.writeFile(target, 'unchanged'); await fs.symlink(target, raw + '.xmp'); await expect(lib.saveEdit(id(), edit)).rejects.toThrow(/sidecar.*symlink/i); expect(await fs.readFile(target, 'utf8')).toBe('unchanged');
+ const target = path.join(dir, 'target'); await fs.writeFile(target, 'unchanged'); await fs.symlink(target, raw + '.xmp'); await expect(lib.saveEdit(id(), edit, 0)).rejects.toThrow(/sidecar.*symlink/i); expect(await fs.readFile(target, 'utf8')).toBe('unchanged');
 });
 it('refuses malformed and newer-schema sidecars and lists them as view-only', async () => {
  for (const text of ['<broken', `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:xveon="${XVEON_NS}" xveon:SchemaVersion="2" xveon:Exposure="2"/></rdf:RDF></x:xmpmeta>`]) {
- await fs.writeFile(raw + '.xmp', text); const photo = (await collect())[0].photos[0]; expect(photo.editing).toBe('view-only'); expect(photo.editingNote).toBeTruthy(); await expect(lib.saveEdit(id(), edit)).rejects.toThrow(/sidecar/i); expect(await fs.readFile(raw + '.xmp', 'utf8')).toBe(text);
+ await fs.writeFile(raw + '.xmp', text); const photo = (await collect())[0].photos[0]; expect(photo.editing).toBe('view-only'); expect(photo.editingNote).toBeTruthy(); await expect(lib.saveEdit(id(), edit, 0)).rejects.toThrow(/sidecar/i); expect(await fs.readFile(raw + '.xmp', 'utf8')).toBe(text);
  }
 });
 it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('reports POSIX read-only folders as session and rejects with the OS message', async () => {
  await fs.chmod(folder, 0o555); const photo = (await collect())[0].photos[0]; expect(photo.editing).toBe('session'); expect(photo.editingNote).toMatch(/This folder can't be written:.*EACCES/);
- const failure = await lib.saveEdit(id(), edit).catch(error => error);
+ const failure = await lib.saveEdit(id(), edit, 0).catch(error => error);
  expect(failure.message).toContain(`Could not save edits for a.RAF in ${folder}`); expect(failure.message).toMatch(/EACCES/);
  expect(failure.message).not.toMatch(/\.xveon\.[a-f0-9-]{36}\.tmp/); expect(failure.cause.message).toMatch(/\.xveon\.[a-f0-9-]{36}\.tmp/);
  expect(await fs.readdir(folder)).toEqual(['a.RAF']);
 });
 it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('refuses unreadable sidecars without changing bytes', async () => {
- await fs.writeFile(raw + '.xmp', 'unchanged'); await fs.chmod(raw + '.xmp', 0o000); expect((await collect())[0].photos[0].editing).toBe('view-only'); await expect(lib.saveEdit(id(), edit)).rejects.toThrow(/EACCES/); await fs.chmod(raw + '.xmp', 0o644); expect(await fs.readFile(raw + '.xmp', 'utf8')).toBe('unchanged');
+ await fs.writeFile(raw + '.xmp', 'unchanged'); await fs.chmod(raw + '.xmp', 0o000); expect((await collect())[0].photos[0].editing).toBe('view-only'); await expect(lib.saveEdit(id(), edit, 0)).rejects.toThrow(/EACCES/); await fs.chmod(raw + '.xmp', 0o644); expect(await fs.readFile(raw + '.xmp', 'utf8')).toBe('unchanged');
 });
 it('saves facts only in cache and handles deletion between listings', async () => {
  await lib.saveFacts(id(), facts); expect((await collect())[0].photos[0].facts).toEqual(facts); expect(await fs.readdir(folder)).toEqual(['a.RAF']); await fs.rm(path.join(dir, 'cache'), { recursive: true }); expect((await collect())[0].photos[0].facts.status).toBe('queued');
@@ -73,8 +81,8 @@ it('resolves lazy thumbnails through the registry and returns cached facts', asy
  const result = await lib.thumbnail(id()); expect(result.path).not.toBeNull(); expect(result.facts?.metadata?.camera).toBe('Fujifilm X-T5'); expect(await fs.readFile(result.path!)).toEqual(Buffer.from([255, 216, 255, 217]));
 });
 it('propagates failed rename and ENOSPC without losing the original sidecar', async () => {
- await lib.saveEdit(id(), edit); const original = await fs.readFile(raw + '.xmp', 'utf8');
- vi.spyOn(fs, 'rename').mockRejectedValueOnce(Object.assign(new Error('ENOSPC: no space left'), { code: 'ENOSPC' })); await expect(lib.saveEdit(id(), { ...edit, preProcessOverrides: { exposure: 2 } })).rejects.toThrow('ENOSPC: no space left'); expect(await fs.readFile(raw + '.xmp', 'utf8')).toBe(original); expect(await fs.readdir(folder)).toEqual(['a.RAF', 'a.RAF.xmp']);
+ await lib.saveEdit(id(), edit, 0); const original = await fs.readFile(raw + '.xmp', 'utf8');
+ vi.spyOn(fs, 'rename').mockRejectedValueOnce(Object.assign(new Error('ENOSPC: no space left'), { code: 'ENOSPC' })); await expect(lib.saveEdit(id(), { ...edit, preProcessOverrides: { exposure: 2 } }, 0)).rejects.toThrow('ENOSPC: no space left'); expect(await fs.readFile(raw + '.xmp', 'utf8')).toBe(original); expect(await fs.readdir(folder)).toEqual(['a.RAF', 'a.RAF.xmp']);
 });
 
 it('retains extracted metadata after incomplete facts saves, including a fresh library instance', async () => {
@@ -100,7 +108,7 @@ it('retains extracted metadata after incomplete facts saves, including a fresh l
 });
 
 it.each(['write', 'reset'] as const)('rejects a persistent parent swap after validation during %s', async operation => {
-  await lib.saveEdit(id(), edit);
+  await lib.saveEdit(id(), edit, 0);
   const outside = path.join(dir, 'outside');
   await fs.mkdir(outside);
   await fs.writeFile(path.join(outside, 'a.RAF'), 'outside raw');
@@ -114,7 +122,7 @@ it.each(['write', 'reset'] as const)('rejects a persistent parent swap after val
     }
     return realpath(target);
   });
-  await expect(lib.saveEdit(id(), operation === 'reset' ? defaultPhotoEdit() : { ...edit, preProcessOverrides: { exposure: 2 } })).rejects.toThrow(/directory|folder/i);
+  await expect(lib.saveEdit(id(), operation === 'reset' ? defaultPhotoEdit() : { ...edit, preProcessOverrides: { exposure: 2 } }, 0)).rejects.toThrow(/directory|folder/i);
   expect(await fs.readFile(path.join(outside, 'a.RAF.xmp'), 'utf8')).toBe('outside sidecar');
   expect(await fs.readdir(outside)).toEqual(['a.RAF', 'a.RAF.xmp']);
 });
@@ -127,7 +135,7 @@ it('rejects a parent swap between a locked rename and its retry', async () => {
     await fs.rename(folder, folder + '-old'); await fs.symlink(outside, folder, directoryLinkType);
     throw Object.assign(new Error('busy'), { code: 'EBUSY' });
   });
-  await expect(lib.saveEdit(id(), edit)).rejects.toThrow(/directory|folder/i);
+  await expect(lib.saveEdit(id(), edit, 0)).rejects.toThrow(/directory|folder/i);
   expect(warn).toHaveBeenCalledExactlyOnceWith('Could not safely clean sidecar temp:', expect.stringMatching(/\.xveon\.[a-f0-9-]{36}\.tmp$/), expect.objectContaining({ message: 'The folder changed while saving' }));
   expect(await fs.readFile(path.join(outside, 'a.RAF.xmp'), 'utf8')).toBe('outside sidecar');
 });
@@ -144,7 +152,7 @@ it('changes the opaque RAW revision for same-size content changed at the same re
 it('identifies the RAW and folder on a save failure while retaining the OS error as its cause', async () => {
  const diagnostic = Object.assign(new Error(`EACCES: permission denied, open '${folder}/.xveon.00000000-0000-4000-8000-000000000001.tmp'`), { code: 'EACCES', syscall: 'open', path: `${folder}/.xveon.00000000-0000-4000-8000-000000000001.tmp` });
  vi.spyOn(fs, 'open').mockRejectedValueOnce(diagnostic);
- const failure = await lib.saveEdit(id(), edit).catch(error => error);
+ const failure = await lib.saveEdit(id(), edit, 0).catch(error => error);
  expect(failure.message).toContain(`Could not save edits for a.RAF in ${folder}`);
  expect(failure.message).toContain('EACCES: permission denied');
  expect(failure.message).toContain(raw + '.xmp');

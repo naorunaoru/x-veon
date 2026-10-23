@@ -30,7 +30,7 @@ it('rejects a save when its request succeeded but the transaction aborted', asyn
 });
 
 it('restores legacy resultMethod as both the edit and processing fact', () => {
-  const record = toRecord(fakePhoto(), defaultEdit(), fakePhoto().facts, 1);
+  const record = toRecord(fakePhoto(), defaultEdit(), 0, fakePhoto().facts, 1);
   delete (record as Partial<PersistedFile>).editMethod;
   record.resultMethod = 'markesteijn3';
   const photo = fromRecord(record, null);
@@ -43,7 +43,7 @@ it('stores and restores the edit method separately from the result method', asyn
   const photo = fakePhoto();
   const edit = { ...defaultEdit(), demosaicMethod: 'markesteijn3' as const };
   const facts = { ...photo.facts, resultMethod: 'neural-net' as const };
-  await storage.putFile(toRecord(photo, edit, facts, 2));
+  await storage.putFile(toRecord(photo, edit, 0, facts, 2));
   const record = (await storage.getAllFiles())[0];
   expect(record.editMethod).toBe('markesteijn3');
   expect(record.resultMethod).toBe('neural-net');
@@ -57,7 +57,7 @@ it('stores and restores the edit method separately from the result method', asyn
 
 it.each([null, 'ahd'] as const)('facts migration preserves legacy edit method %s', async method => {
  const storage = createFileStorage('legacy-facts-' + method); const p = fakePhoto();
- const record = toRecord(p, defaultEdit(), { ...p.facts, resultMethod: method }, 1); delete record.editMethod;
+ const record = toRecord(p, defaultEdit(), 0, { ...p.facts, resultMethod: method }, 1); delete record.editMethod;
  await storage.putFile(record); await storage.mergeFacts(p.id, { ...p.facts, resultMethod: 'neural-net' });
  const restored = fromRecord((await storage.getAllFiles())[0], null);
  expect(restored.edit.demosaicMethod).toBe(method); expect(restored.facts.resultMethod).toBe('neural-net');
@@ -65,7 +65,7 @@ it.each([null, 'ahd'] as const)('facts migration preserves legacy edit method %s
 
 it('round-trips the lens block and reads an old record as absent', () => {
   const lens = { ...DEFAULT_LENS_EDIT, ca: false, source: { lensfun: { file: 'misc.json', model: '23mmF1.4XM' } } };
-  const record = toRecord(fakePhoto(), { ...defaultEdit(), lens }, fakePhoto().facts, 1);
+  const record = toRecord(fakePhoto(), { ...defaultEdit(), lens }, 0, fakePhoto().facts, 1);
   expect(fromRecord(record, null).edit.lens).toEqual(lens);
   delete (record as Partial<PersistedFile>).lens;
   expect(fromRecord(record, null).edit.lens).toBeUndefined();

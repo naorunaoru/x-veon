@@ -127,7 +127,7 @@ export function createLibraryWithClient(bridge: DesktopBridge) {
     addFiles: files => request(() => bridge.openDropped(files)),
     recentFolders: () => bridge.recentFolders(),
     async readRaw(id) { return (await fetch(photoUrl('raw', id))).arrayBuffer(); },
-    async save(id, edit, facts) { await client.request({ op: 'saveEdit', id, edit }); void client.request({ op: 'saveFacts', id, facts }).catch(error => console.warn('Photo facts cache failed:', error)); },
+    async save(id, edit, rating, facts) { await client.request({ op: 'saveEdit', id, edit, rating }); void client.request({ op: 'saveFacts', id, facts }).catch(error => console.warn('Photo facts cache failed:', error)); },
     async saveFacts(id, facts) { await client.request({ op: 'saveFacts', id, facts }); },
     reportUnsaved(edits) { inventory = edits; bridge.updateUnsaved(edits); },
     onFlushRequest(handler) { flush = handler; return () => { if (flush === handler) flush = undefined; }; },

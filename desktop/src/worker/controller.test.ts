@@ -72,14 +72,14 @@ it('routes validated saves and rescans over the port while listings stay on pare
   const replies: any[] = []; b.on('message', ({ data }) => replies.push(data));
   b.postMessage(null); b.postMessage({ v: 2, rid: 2, op: 'rescan' });
   async function request(message: any) { const reply = new Promise<any>(resolve => { const listener = ({ data }: any) => { if (data.rid === message.rid) { b.off('message', listener); resolve(data); } }; b.on('message', listener); }); b.postMessage(message); return reply; }
-  expect(await request({ v: 1, rid: 2, op: 'saveEdit', id: photo.id, edit: { ...photo.edit, preProcessOverrides: { exposure: 1 } } })).toEqual({ v: 1, rid: 2, ok: true, stamp: { worker: expect.any(String), revision: 2 } });
+  expect(await request({ v: 1, rid: 2, op: 'saveEdit', id: photo.id, rating: 0, edit: { ...photo.edit, preProcessOverrides: { exposure: 1 } } })).toEqual({ v: 1, rid: 2, ok: true, stamp: { worker: expect.any(String), revision: 2 } });
   expect(await fs.readFile(path.join(folder, 'a.RAF.xmp'), 'utf8')).toContain('xveon:Exposure="1"');
   expect(await request({ v: 1, rid: 3, op: 'saveFacts', id: photo.id, facts: realisticFacts() })).toEqual({ v: 1, rid: 3, ok: true, stamp: { worker: expect.any(String), revision: 4 } });
   expect(await request({ v: 1, rid: 4, op: 'rescan' })).toEqual({ v: 1, rid: 4, ok: true });
   expect(sent.filter(m => m.kind === 'listing-begin').at(-1)).toMatchObject({ purpose: 'replace', activation: 't' });
   await c.handleMain({ v: 1, rid: 5, kind: 'thumbnail', id: photo.id });
   expect(replies.some(isPortEvent)).toBe(true); expect(replies.every(m => isPortReply(m) || isPortEvent(m))).toBe(true);
-  expect(await request({ v: 1, rid: 6, op: 'saveEdit', id: 'z'.repeat(22), edit: photo.edit })).toMatchObject({ ok: false, error: expect.stringMatching(/registered/) });
+  expect(await request({ v: 1, rid: 6, op: 'saveEdit', id: 'z'.repeat(22), rating: 0, edit: photo.edit })).toMatchObject({ ok: false, error: expect.stringMatching(/registered/) });
 });
 
 function heldListings() {
@@ -122,11 +122,11 @@ it('rereads a held pre-edit snapshot after the real ledger has acknowledged the 
   const h = heldListings(); await initHeld(h);
   const [a, b] = ports(); await h.controller.handleMain({ v: 1, kind: 'connect' }, [a]);
   const host = fakeHost(); let rid = 0;
-  host.library.save = async (id, edit) => {
+  host.library.save = async (id, edit, rating) => {
     const requestId = ++rid;
     await new Promise<void>((resolve, reject) => {
       const listener = ({ data }: any) => { if (data.rid !== requestId) return; b.off('message', listener); if (data.ok) resolve(); else reject(new Error(data.error)); };
-      b.on('message', listener); b.postMessage({ v: 1, rid: requestId, op: 'saveEdit', id, edit });
+      b.on('message', listener); b.postMessage({ v: 1, rid: requestId, op: 'saveEdit', id, edit, rating });
     });
   };
   setHost(host);
@@ -171,7 +171,7 @@ it.each(['thumbnail', 'saveEdit'] as const)('lists B promptly while unrelated A 
  await c.handleMain({ v: 1, kind: 'session', key: 'a2V5', cacheDir: '/cache' });
  await c.handleMain({ v: 1, kind: 'register', entries: [['a'.repeat(22), '/A/a.RAF']] });
  const [a, b] = ports(); await c.handleMain({ v: 1, kind: 'connect' }, [a]);
- const pending = operation === 'thumbnail' ? c.handleMain({ v: 1, rid: 1, kind: 'thumbnail', id: 'a'.repeat(22) }) : Promise.resolve(b.postMessage({ v: 1, rid: 1, op: 'saveEdit', id: 'a'.repeat(22), edit: defaultPhotoEdit() }));
+ const pending = operation === 'thumbnail' ? c.handleMain({ v: 1, rid: 1, kind: 'thumbnail', id: 'a'.repeat(22) }) : Promise.resolve(b.postMessage({ v: 1, rid: 1, op: 'saveEdit', id: 'a'.repeat(22), rating: 0, edit: defaultPhotoEdit() }));
  await tick(); expect(started).toHaveBeenCalledOnce();
  const listing = c.handleMain({ v: 1, rid: 2, kind: 'list', path: '/B', folderId: 'B', token: 'B', activation: 'B', purpose: 'open' });
  await tick();

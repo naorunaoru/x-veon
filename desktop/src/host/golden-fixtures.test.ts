@@ -19,6 +19,7 @@ it('keeps fixtures and edits in memory without exposing delete or clear', async 
   await host.save(
     p.id,
     { ...p.edit, preProcessOverrides: { exposure: 1 } },
+    0,
     p.facts,
   );
   expect((await host.load()).photos[0].edit.preProcessOverrides.exposure).toBe(

@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import { constants } from 'node:fs';
 import path from 'node:path';
-import type { LibraryPhoto, PhotoEdit, PhotoFacts, PhotoId } from '@/host';
+import type { LibraryPhoto, PhotoEdit, PhotoFacts, PhotoId, Rating } from '@/host';
 import { defaultPhotoEdit } from '@/app/photo-edit';
 import { photoId } from './ids';
 import { listFolder } from './folder';
@@ -16,7 +16,7 @@ export interface WorkerLibrary {
  list(folderPath: string, folderId: string): AsyncIterable<{ photos: LibraryPhoto[]; registry: [PhotoId, string][] }>;
  register(entries: [PhotoId, string][]): void;
  setRoots(realRoots: string[]): void;
- saveEdit(id: PhotoId, edit: PhotoEdit): Promise<void>;
+ saveEdit(id: PhotoId, edit: PhotoEdit, rating: Rating): Promise<void>;
  saveFacts(id: PhotoId, facts: PhotoFacts): Promise<void>;
  thumbnail(id: PhotoId): Promise<{ path: string | null; facts: PhotoFacts | null; sourceVersion?: string }>;
 }
@@ -59,18 +59,19 @@ export function createWorkerLibrary(opts: { sessionKey: Buffer; cacheDir: string
         for (const entry of entries.slice(offset, offset + 250)) {
           const id = photoId(sessionKey, entry.path);
           let edit = defaultPhotoEdit();
+          let rating: Rating = 0;
           let editing: LibraryPhoto['editing'] = folderNote ? 'session' : 'saved';
           let editingNote = folderNote;
           try {
             const state = readSidecar(await sidecarText(entry.path + '.xmp'));
-            if (state.kind === 'ok' || state.kind === 'newer') edit = state.edit;
+            if (state.kind === 'ok' || state.kind === 'newer') { edit = state.edit; rating = state.rating; }
             if (state.kind === 'unreadable' || state.kind === 'newer') {
               editing = 'view-only';
               editingNote = state.kind === 'unreadable' ? `Sidecar is unreadable: ${state.reason}` : `Sidecar uses newer schema ${state.schemaVersion}`;
             }
           } catch (error) { editing = 'view-only'; editingNote = `Sidecar is unreadable: ${message(error)}`; }
           const facts = await cache.getFacts(cache.key(entry)) ?? queuedFacts();
-          photos.push({ id, name: entry.name.replace(/\.[^.]+$/, ''), originalName: entry.name, fileSize: entry.size, sourceVersion: cache.key(entry), thumbnailUrl: `xveon-photo://thumb/${id}`, edit, facts, editing, editingNote });
+          photos.push({ id, name: entry.name.replace(/\.[^.]+$/, ''), originalName: entry.name, fileSize: entry.size, sourceVersion: cache.key(entry), thumbnailUrl: `xveon-photo://thumb/${id}`, edit, facts, rating, editing, editingNote });
           registry.set(id, entry.path);
           batchRegistry.push([id, entry.path]);
         }
@@ -84,12 +85,12 @@ export function createWorkerLibrary(opts: { sessionKey: Buffer; cacheDir: string
       for (const [id, file] of entries) registry.set(id, path.resolve(file));
     },
     setRoots: roots.set,
-    async saveEdit(id, edit) {
+    async saveEdit(id, edit, rating) {
       const raw = registered(id);
       try {
         const checked = await roots.checkWrite(raw);
         const existing = await sidecarText(checked.sidecarPath);
-        const merged = mergeSidecar(existing, edit, 0);
+        const merged = mergeSidecar(existing, edit, rating);
         if (merged === existing) return;
         const current = await roots.checkWrite(raw);
         if (current.sidecarPath !== checked.sidecarPath || current.dev !== checked.dev || current.ino !== checked.ino) throw new Error('The photo is no longer in its folder');

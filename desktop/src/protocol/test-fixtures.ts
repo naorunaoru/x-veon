@@ -12,5 +12,5 @@ export function realisticFacts(): PhotoFacts {
   };
 }
 export function photo(index = 0): LibraryPhoto {
-  return { id: String(index).padStart(22, '0'), name: `DSCF${index}`, originalName: `DSCF${index}.RAF`, fileSize: 84234912, thumbnailUrl: `xveon-photo://thumb/${String(index).padStart(22, '0')}`, edit: defaultPhotoEdit(), facts: realisticFacts(), editing: 'saved', editingNote: null };
+  return { id: String(index).padStart(22, '0'), name: `DSCF${index}`, originalName: `DSCF${index}.RAF`, fileSize: 84234912, thumbnailUrl: `xveon-photo://thumb/${String(index).padStart(22, '0')}`, edit: defaultPhotoEdit(), facts: realisticFacts(), rating: 0, editing: 'saved', editingNote: null };
 }

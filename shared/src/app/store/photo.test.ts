@@ -81,3 +81,11 @@ it('treats a changed lens block as a different edit when merging a listing', () 
   expect(merged.invalidate).toBe(false);
   expect(merged.file.edit.lens?.vignetting).toBe(false);
 });
+
+it('a rescan that changes only the rating adopts it without invalidating', () => {
+  const live = { ...fromLibraryPhoto(fakePhoto()), editRevision: 3 };
+  const incoming = fromLibraryPhoto({ ...fakePhoto(), rating: 4 });
+  const merged = mergeLibraryPhoto(live, incoming, { demosaicMethod: 'neural-net', modelSize: 'S' });
+  expect(merged.invalidate).toBe(false);
+  expect(merged.file).toMatchObject({ rating: 4, editRevision: incoming.editRevision });
+});

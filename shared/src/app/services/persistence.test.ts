@@ -10,10 +10,10 @@ vi.mock('@/app/storage/settings-storage', () => ({
 import { getSetting, putSetting } from '@/app/storage/settings-storage';
 import { useAppStore } from '@/app/store';
 import { fakeHost, fakePhoto } from '@/test/fake-host';
-import { fromLibraryPhoto } from '@/app/store/photo';
+import { factsOf, fromLibraryPhoto } from '@/app/store/photo';
 import { switchFolder, startLibraryWatching } from './library';
 import { setHost } from './host';
-import { startPersistence, restore, cancelPhotoSave, unsavedEdits, onUnsavedChange, flushPersistence, retryUnsaved, isPhotoDirty, pausePersistence, resumePersistence } from './persistence';
+import { startPersistence, restore, cancelPhotoSave, unsavedEdits, onUnsavedChange, flushPersistence, retryUnsaved, isPhotoDirty, pausePersistence, resumePersistence, restoreFromLedger } from './persistence';
 let host: ReturnType<typeof fakeHost>;
 let stop: () => void;
 function photo() {
@@ -56,10 +56,27 @@ it('debounces edits, omits transient updates and keeps settings separate', async
   expect(host.library.save).toHaveBeenCalledWith(
     'a',
     expect.objectContaining({ lookPreset: 'colorful', preProcessOverrides: { exposure: 1 } }),
+    0,
     expect.anything(),
   );
   s.setExportQuality(80);
   expect(putSetting).toHaveBeenCalledWith('exportQuality', 80);
+});
+it('saves the rating with the edit and restores it from the ledger', async () => {
+  let finish!: () => void;
+  vi.mocked(host.library.save).mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+  const { edit } = useAppStore.getState().files[0];
+  useAppStore.getState().setFileRating('a', 2);
+  const facts = factsOf(useAppStore.getState().files[0]);
+  await flush();
+  expect(host.library.save).toHaveBeenCalledWith('a', edit, 2, facts);
+  const reopened = fakePhoto();
+  reopened.edit.demosaicMethod = 'dht';
+  expect(reopened.rating).toBe(0);
+  expect(restoreFromLedger(fromLibraryPhoto(reopened))).toMatchObject({ rating: 2, edit, editing: 'session' });
+  finish();
+  await flush();
+  expect(useAppStore.getState().files[0]).toMatchObject({ rating: 2, editing: 'saved' });
 });
 it('persists columnWidth like the other settings', () => {
   useAppStore.getState().setColumnWidth(2);
@@ -176,7 +193,7 @@ it('reports deferred edits without sending them, and completes the same revision
   expect(unsavedEdits()[0]).toMatchObject({ deferred: false, revision });
   await flush();
   expect(host.library.save).toHaveBeenCalledTimes(1);
-  expect(host.library.save).toHaveBeenCalledWith('a', expect.objectContaining({ model: { size: 'S', sha256: 'resolved' } }), expect.anything());
+  expect(host.library.save).toHaveBeenCalledWith('a', expect.objectContaining({ model: { size: 'S', sha256: 'resolved' } }), 0, expect.anything());
   expect(inventories).toEqual(expect.arrayContaining([[expect.objectContaining({ deferred: true, revision })], []]));
   unsubscribe();
 });
@@ -255,7 +272,7 @@ it('restores deferred edits across a reopen with the same revision and resolves 
   useAppStore.setState(state => ({ files: state.files.map(f => ({ ...f, modelNeedsResolution: false, edit: { ...f.edit, model: { size: 'S', sha256: 'resolved' } } })) }));
   await flush();
   expect(host.library.save).toHaveBeenCalledTimes(1);
-  expect(host.library.save).toHaveBeenCalledWith('a', expect.objectContaining({ model: { size: 'S', sha256: 'resolved' } }), expect.anything());
+  expect(host.library.save).toHaveBeenCalledWith('a', expect.objectContaining({ model: { size: 'S', sha256: 'resolved' } }), 0, expect.anything());
   useAppStore.getState().setFileLookPreset('a', 'colorful');
   expect(useAppStore.getState().files[0].editRevision).toBeGreaterThan(revision);
   const next = useAppStore.getState().files[0].editRevision;
@@ -424,7 +441,7 @@ it.each(['edit', 'facts', 'remount'])('a concurrent flush includes another photo
   if (kind === 'remount') { stop(); stop = startPersistence(); }
   const second = flushPersistence(); release(); await Promise.all([first, second]);
   if (kind === 'facts') expect(host.library.saveFacts).toHaveBeenCalledWith('b', expect.objectContaining({ error: 'new fact' }));
-  else expect(host.library.save).toHaveBeenCalledWith('b', expect.objectContaining({ preProcessOverrides: { exposure: 2 } }), expect.anything());
+  else expect(host.library.save).toHaveBeenCalledWith('b', expect.objectContaining({ preProcessOverrides: { exposure: 2 } }), 0, expect.anything());
   expect(unsavedEdits()).toEqual([]);
 });
 
