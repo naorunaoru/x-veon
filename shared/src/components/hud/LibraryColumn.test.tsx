@@ -3,6 +3,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { useAppStore } from '@/app/store';
 import { fromLibraryPhoto } from '@/app/store/photo';
+import { filterCounts } from '@/app/rating';
 import { fakePhoto } from '@/test/fake-host';
 import { getHost } from '@/app/services/host';
 vi.mock('@/app/services/export-jobs', () => ({ startExport: vi.fn() }));
@@ -10,7 +11,7 @@ vi.mock('@/app/services/export-jobs', () => ({ startExport: vi.fn() }));
 import { startExport } from '@/app/services/export-jobs';
 import { LibraryColumn } from './LibraryColumn';
 const files = ['a', 'b', 'c'].map(id => ({ ...fromLibraryPhoto(fakePhoto(id)), status: 'done' as const, thumbnailUrl: `blob:${id}` }));
-beforeEach(() => useAppStore.setState({ files, currentId: 'a', selectedIds: ['a'], selectionAnchor: 'a', columnWidth: 1, lastColumnWidth: 1, initialized: true }));
+beforeEach(() => useAppStore.setState({ files, filter: 'all', currentId: 'a', selectedIds: ['a'], selectionAnchor: 'a', columnWidth: 1, lastColumnWidth: 1, initialized: true }));
 
 it('renders nothing without photos', () => {
   useAppStore.setState({ files: [], currentId: null });
@@ -149,4 +150,31 @@ it('scrolls the current cell into view when the column opens', () => {
   scroll.mockClear();
   act(() => useAppStore.getState().setColumnWidth(1));
   expect(scroll).toHaveBeenCalledWith({ block: 'nearest' });
+});
+it('the filter dropdown lists the five filters with counts and applies one', () => {
+  useAppStore.setState({ files: [{ ...files[0], rating: 1 }, { ...files[1], rating: 0 }, { ...files[2], rating: 2 }] });
+  render(<LibraryColumn />);
+  const trigger = screen.getByRole('button', { name: 'Filter photos' });
+  expect(trigger).toHaveTextContent('All · 3');
+  fireEvent.click(trigger);
+  const items = within(screen.getByRole('menu')).getAllByRole('menuitemradio');
+  expect(items.map((item) => item.textContent)).toEqual(['All · 3', '★1+ · 2', '★2+ · 1', '★3+ · 0', 'Rejected · 0']);
+  expect(items.map((item) => item.getAttribute('aria-checked'))).toEqual(['true', 'false', 'false', 'false', 'false']);
+  // Counts come from every file, not the selection (only 'a' is selected).
+  expect(filterCounts(useAppStore.getState().files.map((f) => f.rating))).toMatchObject({ all: 3, star1: 2, star2: 1 });
+  fireEvent.click(screen.getByRole('menuitemradio', { name: '★2+ · 1' }));
+  expect(useAppStore.getState().filter).toBe('star2');
+  expect(screen.queryByRole('menu')).toBeNull();
+  expect(screen.getAllByTestId('column-cell')).toHaveLength(1);
+  expect(trigger).toHaveTextContent('★2+ · 1');
+});
+it('Escape closes the filter menu and returns focus to the trigger', () => {
+  render(<LibraryColumn />);
+  const trigger = screen.getByRole('button', { name: 'Filter photos' });
+  fireEvent.click(trigger);
+  const first = screen.getByRole('menuitemradio', { name: 'All · 3' });
+  expect(document.activeElement).toBe(first);
+  fireEvent.keyDown(first, { key: 'Escape' });
+  expect(screen.queryByRole('menu')).toBeNull();
+  expect(document.activeElement).toBe(trigger);
 });

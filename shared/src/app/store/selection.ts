@@ -1,5 +1,7 @@
 import * as reducer from '@/app/selection';
 import type { SelectionOrder, SelectionState } from '@/app/selection';
+import { matchesFilter } from '@/app/rating';
+import type { RatingFilter } from '@/app/rating';
 import type { AppState, Slice } from './types';
 
 export const CELL_WIDTH = 112, CELL_GAP = 6, COLUMN_STRIDE = 118, STAGE_MIN_WIDTH = 480;
@@ -11,6 +13,10 @@ export interface SelectionSlice {
   columnWidth: number;
   /** The last non-zero width, for reopening; session only. */
   lastColumnWidth: number;
+  /** Which ratings the column shows; session only. */
+  filter: RatingFilter;
+  /** Prunes the selection and anchor to the shown photos; a hidden current moves to the first shown one. */
+  setFilter: (filter: RatingFilter) => void;
   clickCell: (id: string, mods: { meta: boolean; shift: boolean }) => void;
   moveCurrent: (delta: number, extend: boolean) => void;
   /** ⌘A: selects, never clears. */
@@ -24,9 +30,9 @@ export interface SelectionSlice {
   toggleColumn: () => void;
 }
 
-/** The ids the column lists, in folder order. Milestone 1 has no filter, so every file. */
-export function shownIds(state: AppState): string[] {
-  return state.files.map((f) => f.id);
+/** The ids the column lists: the files whose rating matches the filter, in folder order. */
+export function shownIds(state: Pick<AppState, 'files' | 'filter'>): string[] {
+  return state.files.filter((f) => matchesFilter(f.rating, state.filter)).map((f) => f.id);
 }
 
 /** How many columns fit beside a stage of at least STAGE_MIN_WIDTH. */
@@ -58,6 +64,17 @@ export const createSelectionSlice: Slice<SelectionSlice> = (set, get) => {
     selectionAnchor: null,
     columnWidth: 1,
     lastColumnWidth: 1,
+    filter: 'all',
+    setFilter: (filter) => {
+      const { files, currentId, selectedIds, selectionAnchor } = get();
+      const list = shownIds({ files, filter });
+      const shown = new Set(list);
+      const pruned = reducer.prune({ currentId, selectedIds, anchorId: selectionAnchor }, shown);
+      set({
+        filter, selectedIds: pruned.selectedIds, selectionAnchor: pruned.anchorId,
+        currentId: currentId !== null && shown.has(currentId) ? currentId : list[0] ?? null,
+      });
+    },
     clickCell: (id, mods) => apply((s, o) => reducer.clickSelect(s, o, id, mods)),
     moveCurrent: (delta, extend) => apply((s, o) => reducer.moveCurrent(s, o, delta, extend)),
     selectAllShown: () => apply(reducer.selectAllShown),

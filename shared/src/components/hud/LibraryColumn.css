@@ -5,6 +5,17 @@
   display: flex; flex-direction: column;
   background: var(--xv-card); border-right: 1px solid var(--xv-border);
 }
+.xv-column__top {
+  height: 22px; padding: 0 6px; border-bottom: 1px solid var(--xv-border);
+  display: flex; align-items: center;
+}
+.xv-column__filter {
+  display: inline-flex; align-items: center; gap: 4px; padding: 0;
+  background: transparent; color: var(--xv-foreground);
+  font-family: var(--xv-font-sans); font-size: 11px; cursor: pointer;
+}
+/* The folder menu's list, hung from the column below the top row. */
+.xv-column__top .xv-folder-menu__list { position: absolute; top: 22px; left: 6px; z-index: 2; }
 .xv-column__cells {
   flex: 1; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; padding: 6px;
   display: grid; grid-template-columns: repeat(var(--xv-columns), 112px); gap: 6px; align-content: start;

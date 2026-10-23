@@ -8,6 +8,7 @@ import { isDefaultPhotoEdit } from '@/app/photo-edit';
 import { useExport } from '@/app/hooks/useExport';
 import { ExportDialog } from '@/components/dialogs/ExportDialog';
 import { startExport } from '@/app/services/export-jobs';
+import { FilterMenu } from './FilterMenu';
 import './LibraryColumn.css';
 
 export function LibraryColumn() {
@@ -97,6 +98,7 @@ export function LibraryColumn() {
       data-testid="library-column"
       data-dragging={preview !== null || undefined}
     >
+      <FilterMenu />
       <div ref={cellsRef} className="xv-column__cells" role="listbox" aria-label="Photos" aria-multiselectable="true">
         {shown.map((f) => {
           const current = f.id === currentId;
