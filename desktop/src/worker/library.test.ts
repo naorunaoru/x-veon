@@ -37,7 +37,7 @@ it('uses stable IDs with a shared key and rejects mismatched restart registratio
 });
 it('writes the full RAW name plus xmp and preserves other namespace content', async () => {
  await fs.writeFile(raw + '.xmp', '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/" dc:title="kept"/></rdf:RDF></x:xmpmeta>');
- await lib.saveEdit(id(), edit); const text = await fs.readFile(raw + '.xmp', 'utf8'); expect(text).toContain('dc:title="kept"'); expect(readSidecar(text)).toEqual({ kind: 'ok', edit }); expect((await collect())[0].photos[0].edit).toEqual(edit);
+ await lib.saveEdit(id(), edit); const text = await fs.readFile(raw + '.xmp', 'utf8'); expect(text).toContain('dc:title="kept"'); expect(readSidecar(text)).toEqual({ kind: 'ok', edit, rating: 0 }); expect((await collect())[0].photos[0].edit).toEqual(edit);
 });
 it('creates nothing for default edits and deletes an only-ours sidecar on reset', async () => {
  await lib.saveEdit(id(), defaultPhotoEdit()); expect(await fs.readdir(folder)).toEqual(['a.RAF']); await lib.saveEdit(id(), edit); expect(await fs.readdir(folder)).toEqual(['a.RAF', 'a.RAF.xmp']); await lib.saveEdit(id(), defaultPhotoEdit()); expect(await fs.readdir(folder)).toEqual(['a.RAF']);

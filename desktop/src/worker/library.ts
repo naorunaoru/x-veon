@@ -89,7 +89,7 @@ export function createWorkerLibrary(opts: { sessionKey: Buffer; cacheDir: string
       try {
         const checked = await roots.checkWrite(raw);
         const existing = await sidecarText(checked.sidecarPath);
-        const merged = mergeSidecar(existing, edit);
+        const merged = mergeSidecar(existing, edit, 0);
         if (merged === existing) return;
         const current = await roots.checkWrite(raw);
         if (current.sidecarPath !== checked.sidecarPath || current.dev !== checked.dev || current.ino !== checked.ino) throw new Error('The photo is no longer in its folder');
