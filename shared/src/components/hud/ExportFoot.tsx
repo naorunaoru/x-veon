@@ -13,17 +13,18 @@ import { usePopover } from './usePopover';
 /** The foot's right side: the Export split button, or the batch's status while one is shown. */
 export function ExportFoot() {
   const batch = useExportBatch((s) => s.batch);
-  if (!batch) return <ExportButton />;
+  // Hoisted: ExportButton remounts after every batch, and a fresh useExport reads unavailable until the worker answers.
+  const { exportAvailable, unavailableReason } = useExport();
+  if (!batch) return <ExportButton exportAvailable={exportAvailable} unavailableReason={unavailableReason} />;
   if (batch.status === 'resolving' || batch.status === 'running') return <RunningStatus batch={batch} />;
   if (batch.status === 'done') return <DoneStatus batch={batch} />;
   return <FailedStatus batch={batch} />;
 }
 
-function ExportButton() {
+function ExportButton({ exportAvailable, unavailableReason }: { exportAvailable: boolean; unavailableReason: string | null }) {
   const selectedCount = useAppStore((s) => s.selectedIds.length);
   const hasTarget = useAppStore((s) => exportTargets(s).length > 0);
   const initialized = useAppStore((s) => s.initialized);
-  const { exportAvailable, unavailableReason } = useExport();
   const { open, close, triggerProps, popoverProps } = usePopover();
   const disabled = !exportAvailable || !initialized || !hasTarget;
   return (
