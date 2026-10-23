@@ -123,8 +123,9 @@ export function LibraryColumn() {
           );
         })}
       </div>
-      {/* Any click in the foot puts a done batch away. */}
-      <div className="xv-column__foot" onClick={() => { if (useExportBatch.getState().batch?.status === 'done') dismissBatch(); }}>
+      {/* Any click in the foot puts a done batch away; decided from the batch as rendered, so the
+          click on Cancel that settles a batch to done doesn't also dismiss it. */}
+      <div className="xv-column__foot" onClick={() => { if (batch?.status === 'done') dismissBatch(); }}>
         <button
           type="button"
           className="xv-column__select"

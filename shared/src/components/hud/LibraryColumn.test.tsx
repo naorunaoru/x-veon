@@ -209,6 +209,25 @@ it('any click in the foot dismisses a done batch', () => {
   fireEvent.click(screen.getByRole('status'));
   expect(dismissBatch).toHaveBeenCalledTimes(2);                  // only a done batch
 });
+it('Cancel that settles a batch to done shows the result; the next click in the foot dismisses it', async () => {
+  // The real store functions, not the mocks.
+  const actual = await vi.importActual<typeof import('@/app/services/export-batch')>('@/app/services/export-batch');
+  vi.mocked(cancelBatch).mockImplementationOnce(actual.cancelBatch);
+  vi.mocked(dismissBatch).mockImplementationOnce(actual.dismissBatch);
+  useExportBatch.setState({ batch: batch('running', [['a', 'written'], ['b', 'queued']]) });
+  render(<LibraryColumn />);
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel export' }));
+  expect(useExportBatch.getState().batch?.status).toBe('done');
+  expect(screen.getByRole('status')).toHaveTextContent('1 done');
+  const line = () => screen.getAllByTestId('column-cell')[0].querySelector('.xv-cell__line');
+  expect(line()).toHaveAttribute('data-export', 'done');
+  expect(dismissBatch).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('status'));
+  expect(dismissBatch).toHaveBeenCalledTimes(1);
+  expect(useExportBatch.getState().batch).toBeNull();
+  expect(screen.getByRole('button', { name: 'Export' })).toBeInTheDocument();
+  expect(line()).toBeNull();
+});
 it('cells carry export lines', () => {
   useExportBatch.setState({ batch: batch('running', [['a', 'written'], ['b', 'rendering'], ['b', 'failed', 'x']]) });
   render(<LibraryColumn />);
