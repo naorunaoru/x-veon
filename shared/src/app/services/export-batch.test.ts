@@ -165,6 +165,31 @@ it('cancelQueuedExports leaves the running job alone', async () => {
   expect(encodedNames()).toEqual(['a.tif']);
 });
 
+it('a closed batch takes no appends: startExport after cancelQueuedExports starts a new batch', async () => {
+  const gate = deferred<ExportResult>();
+  vi.mocked(host.exporter.encode).mockImplementationOnce(() => gate.promise);
+  m.hasResult.mockImplementation((id: string) => id !== 'b');
+  m.processForExport.mockImplementation(() => new Promise(() => {}));
+  startExport(['a', 'b']);
+  await vi.waitFor(() => expect(states()).toEqual(['a:encoding', 'b:processing']));
+  const old = batch().id;
+  cancelQueuedExports();
+  expect(batch()).toMatchObject({ id: old, status: 'running', closed: true });
+  startExport(['c']);
+  expect(batch().id).not.toBe(old);
+  expect(batch()).toMatchObject({ status: 'resolving', closed: false });
+  expect(states()).toEqual(['c:queued']);
+  await vi.waitFor(() => expect(batch().status).toBe('done'));
+  expect(host.exporter.resolveTarget).toHaveBeenCalledTimes(2);
+  expect(vi.mocked(host.exporter.resolveTarget).mock.calls[1]).toEqual([{ mode: 'beside' }, ['c']]);
+  const settled = batch();
+  gate.resolve({ outcome: 'written' });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(useExportBatch.getState().batch).toBe(settled);
+  expect(states()).toEqual(['c:written']);
+  expect(encodedNames()).toEqual(['a.tif', 'c.tif']);
+});
+
 it('cancelBatch cancels the running job and drops the rest; an all-cancelled batch dismisses', async () => {
   const gate = deferred<ExportResult>();
   vi.mocked(host.exporter.encode).mockImplementation(() => gate.promise);
@@ -242,7 +267,7 @@ it('retryJob re-queues one photo with the current settings', async () => {
 it('skipped counts as done and marks the cell done; failed marks it failed', () => {
   const job = (fileId: string, state: BatchJob['state']): BatchJob => ({ id: `${fileId}-${state}`, fileId, name: `${fileId}.tif`, state, error: null });
   const sample: ExportBatch = {
-    id: 'x', target: null, status: 'running',
+    id: 'x', target: null, status: 'running', closed: false,
     settings: { format: 'tiff', quality: 95, saveTo: { mode: 'beside' }, onExists: 'skip' },
     jobs: [job('a', 'skipped'), job('b', 'failed'), job('c', 'queued'), job('d', 'encoding'), job('e', 'cancelled'), job('f', 'written'), job('g', 'processing'), job('h', 'rendering'),
       job('b', 'cancelled'), job('f', 'failed')],

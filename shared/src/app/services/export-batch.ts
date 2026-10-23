@@ -19,6 +19,8 @@ export interface ExportBatch {
   id: string; jobs: BatchJob[]; target: ExportTarget | null;
   settings: { format: ExportFormat; quality: number; saveTo: SaveTo; onExists: OnExists };
   status: 'resolving' | 'running' | 'done' | 'failed';
+  /** Closed to appends by cancelQueuedExports (a folder switch or clear): its running jobs finish, new exports start a fresh batch. */
+  closed: boolean;
 }
 export const useExportBatch = create<{ batch: ExportBatch | null }>(() => ({ batch: null }));
 
@@ -144,7 +146,7 @@ export function startExport(fileIds: string[]): void {
     name: `${files.find((f) => f.id === fileId)?.name ?? fileId}.${exportFormatInfo(format).ext}`,
   });
   const current = useExportBatch.getState().batch;
-  if (current && (current.status === 'resolving' || current.status === 'running')) {
+  if (current && !current.closed && (current.status === 'resolving' || current.status === 'running')) {
     const waiting = new Set(current.jobs.filter(pending).map((job) => job.fileId));
     const added = unique.filter((id) => !waiting.has(id)).map((id) => makeJob(id, current.settings.format));
     if (added.length === 0) return;
@@ -152,11 +154,12 @@ export function startExport(fileIds: string[]): void {
     pump();
     return;
   }
-  dismissBatch();
+  // An ended or closed batch is replaced; a closed batch's running jobs finish unseen.
+  release();
   const { exportFormat: format, exportQuality: quality, exportSaveTo: saveTo, exportOnExists: onExists } = useAppStore.getState();
   const batch: ExportBatch = {
     id: crypto.randomUUID(), jobs: unique.map((id) => makeJob(id, format)), target: null,
-    settings: { format, quality, saveTo, onExists }, status: 'resolving',
+    settings: { format, quality, saveTo, onExists }, status: 'resolving', closed: false,
   };
   useExportBatch.setState({ batch });
   void resolveTarget(batch.id, saveTo, unique);
@@ -169,13 +172,18 @@ export function cancelBatch(): void {
 
 /** Only queued/processing jobs → cancelled; running ones finish. */
 export function cancelQueuedExports(): void {
+  updateBatch(() => ({ closed: true }));
   cancelJobs((job) => job.state === 'queued' || job.state === 'processing');
 }
 
 export function dismissBatch(): void {
+  for (const handle of handles.values()) handle.cancel();
+  release();
+}
+/** Forgets the batch; late settlements of its jobs no longer find them and are ignored. */
+function release(): void {
   clearTimeout(dismissTimer);
   dismissTimer = undefined;
-  for (const handle of handles.values()) handle.cancel();
   handles.clear();
   active.clear();
   useExportBatch.setState({ batch: null });

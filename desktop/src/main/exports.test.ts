@@ -60,7 +60,7 @@ it('rejects a UNC folder as an invalid target without calling stat', async () =>
 });
 it('rejects malformed ids and shapes', async () => {
   const h = harness('/fixed');
-  for (const [saveTo, ids] of [[{ mode: 'beside' }, []], [{ mode: 'beside' }, ['../escape']], [{ mode: 'beside' }, Array(251).fill(a)], [{ mode: 'folder' }, [a]], [{ mode: 'folder', path: '' }, [a]],
+  for (const [saveTo, ids] of [[{ mode: 'beside' }, []], [{ mode: 'beside' }, ['../escape']], [{ mode: 'beside' }, Array(10_001).fill(a)], [{ mode: 'folder' }, [a]], [{ mode: 'folder', path: '' }, [a]],
     [{ mode: 'folder', path: '/a\0b' }, [a]], [{ mode: 'folder', path: '/' + 'x'.repeat(4096) }, [a]], [{ mode: 'desktop' }, [a]], [null, [a]], [{ mode: 'beside' }, 'aaaa']] as const)
     await expect(h.targets.resolve(saveTo as never, ids as never)).rejects.toThrow('Invalid export target');
   expect(h.deps.register).not.toHaveBeenCalled();
