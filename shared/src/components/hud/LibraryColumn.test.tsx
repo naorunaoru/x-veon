@@ -87,7 +87,7 @@ it('the Export button counts the selection and starts a batch for it', async () 
   const button = screen.getByRole('button', { name: 'Export 2' });
   await waitFor(() => expect(button).toBeEnabled());        // enabled once exporter.status() resolves
   expect(button).toHaveClass('xv-column__export');
-  expect(screen.getByRole('button', { name: 'Export settings' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Export settings' })).toBeEnabled();
   fireEvent.click(button);
   expect(startExport).toHaveBeenCalledWith(['c', 'a']);
 });

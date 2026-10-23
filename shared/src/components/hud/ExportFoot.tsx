@@ -7,6 +7,8 @@ import { getHost } from '@/app/services/host';
 import {
   batchSummary, cancelBatch, dismissBatch, exportTargets, retryJob, startExport, useExportBatch, type ExportBatch,
 } from '@/app/services/export-batch';
+import { ExportPopover } from './ExportPopover';
+import { usePopover } from './usePopover';
 
 /** The foot's right side: the Export split button, or the batch's status while one is shown. */
 export function ExportFoot() {
@@ -22,20 +24,23 @@ function ExportButton() {
   const hasTarget = useAppStore((s) => exportTargets(s).length > 0);
   const initialized = useAppStore((s) => s.initialized);
   const { exportAvailable, unavailableReason } = useExport();
+  const { open, close, triggerProps, popoverProps } = usePopover();
+  const disabled = !exportAvailable || !initialized || !hasTarget;
   return (
     <div className="xv-column__export-group">
       <button
         type="button"
         className="xv-column__export"
-        disabled={!exportAvailable || !initialized || !hasTarget}
+        disabled={disabled}
         title={unavailableReason ?? undefined}
         onClick={() => startExport(exportTargets(useAppStore.getState()))}
       >
         {selectedCount > 1 ? `Export ${selectedCount}` : 'Export'}
       </button>
-      <button type="button" className="xv-column__export-more" aria-label="Export settings" disabled>
+      <button type="button" className="xv-column__export-more" aria-label="Export settings" {...triggerProps}>
         <ChevronUp size={10} />
       </button>
+      {open && <ExportPopover popoverProps={popoverProps} onClose={close} exportDisabled={disabled} />}
     </div>
   );
 }
