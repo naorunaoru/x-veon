@@ -14,7 +14,7 @@ const release = (t: ReleaseTag) => ({ tag_name: t.tag, draft: false, assets: Obj
 
 const samples = ['DSCF3332.RAF', 'sony_a6400_21.arw'];
 
-test('open a folder, process RAF and ARW, edit, export an AVIF that decodes', async ({}, info) => {
+test('open a folder, process RAF and ARW, edit and rate, export an AVIF beside the RAW (skip, then replace) that decodes', async ({}, info) => {
   const executable = process.env.XV_SMOKE_APP;
   const source = process.env.XV_SMOKE_SAMPLES;
   if (!executable || !source || !path.isAbsolute(executable) || !path.isAbsolute(source)) {
@@ -26,12 +26,12 @@ test('open a folder, process RAF and ARW, edit, export an AVIF that decodes', as
   }
   const identity = appIdentity(smokeTag, 'untagged', true);
   const work = await fs.mkdtemp(path.join(os.tmpdir(), 'xveon-smoke-'));
-  const photos = path.join(work, 'photos'), exports = path.join(work, 'exports');
-  const target = path.join(exports, 'sony_a6400_21.avif');
+  const photos = path.join(work, 'photos');
+  const avifPath = path.join(photos, 'sony_a6400_21.avif');
   let app: Awaited<ReturnType<typeof electron.launch>> | undefined;
   let tracing = false;
   let exited = false;
-  const provenance: Record<string, unknown> = { executable, source, work, photos, target, profile: path.join(work, 'profile') };
+  const provenance: Record<string, unknown> = { executable, source, work, photos, avif: avifPath, profile: path.join(work, 'profile') };
   const requests: string[] = [];
   let updates: http.Server | undefined;
   try {
@@ -48,7 +48,7 @@ test('open a folder, process RAF and ARW, edit, export an AVIF that decodes', as
       updates!.listen(0, '127.0.0.1');
     });
     const api = `http://127.0.0.1:${(updates.address() as AddressInfo).port}/releases`;
-    await fs.mkdir(photos); await fs.mkdir(exports);
+    await fs.mkdir(photos);
     for (const name of samples) await fs.copyFile(path.join(source, name), path.join(photos, name));
     app = await electron.launch({ executablePath: executable, args: [`--user-data-dir=${path.join(work, 'profile')}`], env: { ...process.env, XV_RELEASES_API: api }, timeout: 30_000 });
     const child = app.process();
@@ -58,11 +58,10 @@ test('open a folder, process RAF and ARW, edit, export an AVIF that decodes', as
     tracing = true;
     await app.evaluate(({ dialog, shell }, paths) => {
       dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [paths.photos] })) as typeof dialog.showOpenDialog;
-      dialog.showSaveDialog = (async () => ({ canceled: false, filePath: paths.target })) as typeof dialog.showSaveDialog;
       dialog.showMessageBox = (async () => ({ response: 0, checkboxChecked: false })) as typeof dialog.showMessageBox;
       (globalThis as { revealed?: string[] }).revealed = [];
       shell.showItemInFolder = (file: string) => { (globalThis as { revealed?: string[] }).revealed!.push(file); };
-    }, { photos, target });
+    }, { photos });
     const page = await app.firstWindow();
     page.setDefaultTimeout(30_000);
     provenance.appName = await app.evaluate(({ app }) => app.getName());
@@ -99,19 +98,57 @@ test('open a folder, process RAF and ARW, edit, export an AVIF that decodes', as
     await page.getByRole('button', { name: 'Exposure', exact: true }).click();
     await page.getByRole('slider', { name: 'Exposure', exact: true }).focus();
     await page.keyboard.press('ArrowRight');
-    await expect.poll(() => fs.readFile(path.join(photos, 'sony_a6400_21.arw.xmp'), 'utf8').catch(() => ''), { timeout: 30_000 }).toContain('xveon:Exposure="0.01"');
-    await page.getByRole('button', { name: 'Export', exact: true }).click();
-    const dialog = page.getByRole('dialog');
-    const avif = dialog.getByRole('radio', { name: 'AVIF (BT.2020 / HLG)', exact: true });
+    const sidecar = () => fs.readFile(path.join(photos, 'sony_a6400_21.arw.xmp'), 'utf8').catch(() => '');
+    await expect.poll(sidecar, { timeout: 30_000 }).toContain('xveon:Exposure="0.01"');
+    // Move focus off the slider onto the photo; the library keys rate the current photo.
+    await page.locator('.xv-canvas-host').click();
+    await page.keyboard.press('3');
+    await expect.poll(sidecar, { timeout: 30_000 }).toContain('xmp:Rating="3"');
+    const exportButton = page.locator('.xv-column__export');
+    const settings = page.getByRole('button', { name: 'Export settings', exact: true });
+    const popover = page.getByRole('dialog', { name: 'Export settings', exact: true });
+    const status = page.locator('.xv-column__status[role="status"]');
+    const stat = () => fs.stat(avifPath);
+    // First export: AVIF beside the RAW, with the defaults (next to the RAWs, skip an existing file).
+    await settings.click();
+    await expect(popover.getByRole('radio', { name: 'Next to the RAWs', exact: true })).toBeChecked();
+    await expect(popover.getByRole('radio', { name: 'Skip', exact: true })).toBeChecked();
+    const avif = popover.getByRole('radio', { name: 'AVIF (BT.2020 / HLG)', exact: true });
     await avif.focus();
     await page.keyboard.press('Space');
     await expect(avif).toBeChecked();
-    await dialog.getByRole('button', { name: 'Export', exact: true }).click();
-    await expect(page.locator('.xv-export-status[role="status"]')).toContainText('Exported sony_a6400_21.avif', { timeout: 120_000 });
+    await popover.getByRole('button', { name: 'Export', exact: true }).click();
+    await expect(popover).toHaveCount(0);
+    await expect(status).toContainText('1 done', { timeout: 120_000 });
+    const written = await stat();
+    provenance.firstExport = { mtimeMs: written.mtimeMs, size: written.size };
+    expect(written.size).toBeGreaterThan(0);
     await expect(page.getByLabel('Adjustments', { exact: true })).toBeVisible();
-    await page.getByRole('button', { name: /Show in (Finder|Explorer)/ }).click();
+    await status.getByRole('button', { name: /Show in (Finder|Explorer)/ }).click();
     await expect(page.getByLabel('Adjustments', { exact: true })).toBeVisible();
-    expect(await app.evaluate(() => (globalThis as { revealed?: string[] }).revealed)).toEqual([target]);
+    expect(await app.evaluate(() => (globalThis as { revealed?: string[] }).revealed)).toEqual([avifPath]);
+    // The reveal click put the done batch away; the second export runs with the persisted settings (AVIF, skip).
+    await expect(status).toHaveCount(0);
+    await exportButton.click();
+    await expect(status).toContainText('1 done', { timeout: 120_000 });
+    const skipped = await stat();
+    expect(skipped.mtimeMs, 'skip leaves the existing file alone').toBe(written.mtimeMs);
+    expect(skipped.size).toBe(written.size);
+    // A click in the foot puts the done batch away; then the third export replaces the file.
+    await status.getByText('1 done', { exact: true }).click();
+    await expect(status).toHaveCount(0);
+    await settings.click();
+    await expect(avif).toBeChecked();
+    const replace = popover.getByRole('radio', { name: 'Replace', exact: true });
+    await replace.focus();
+    await page.keyboard.press('Space');
+    await expect(replace).toBeChecked();
+    await popover.getByRole('button', { name: 'Export', exact: true }).click();
+    await expect(popover).toHaveCount(0);
+    await expect(status).toContainText('1 done', { timeout: 120_000 });
+    await expect.poll(async () => (await stat()).mtimeMs, { timeout: 120_000, message: 'replace rewrites the file' }).toBeGreaterThan(written.mtimeMs);
+    const replaced = await stat();
+    provenance.replacedExport = { mtimeMs: replaced.mtimeMs, size: replaced.size };
     const size = await app.evaluate(async ({ BrowserWindow }, url) => {
       const probe = new BrowserWindow({ show: false });
       try {
@@ -125,7 +162,7 @@ test('open a folder, process RAF and ARW, edit, export an AVIF that decodes', as
           document.body.append(image);
         })`);
       } finally { probe.destroy(); }
-    }, pathToFileURL(target).href);
+    }, pathToFileURL(avifPath).href);
     expect(size).toEqual([6024, 4024]);
     provenance.updateRequests = requests;
     expect(requests).toEqual(identity.tag ? [identity.channel === 'stable' ? '/releases/latest' : '/releases?per_page=30'] : []);
