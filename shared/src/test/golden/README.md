@@ -7,6 +7,23 @@ and its encoded exports for two sample RAWs, produced by the `?golden` route in
 
 ## Provenance of the current baseline
 
+### Apple, S model v7.1.0 (2026-10-24)
+
+Re-recorded at `cdb95f0` (develop with the library column M1–M3) on Apple M4 Pro /
+`metal-3`, macOS 27.0.1, because the S models shipped in `f068d29` (v7.1.0: FFT
+magnitude term, no noise augmentation) changed the neural-net output. The previous
+Apple file (`52a91f4`) was moved out of the tree first. Two full runs of the web
+WASM route in the Claude desktop app's browser pane (Chromium 152.0.7977.167) and
+two full isolated native Electron 44.4.5 runs all returned `RECORDED`, every entry
+stable, and agree on all 30 rendering hashes and all six export hashes and byte
+counts; the native and WASM AVIF bytes agree again, and `nativeExports` keeps its
+explicit values. Against the `52a91f4` file only the two `neural-net:S` entries and
+the six exports of the neural result changed; all eight traditional-method entries
+are byte-identical. The user asked for the re-record and push on 2026-10-24.
+Evidence (the four reports and the previous file) is retained outside the checkout
+in `~/Developer/docs/superpowers/evidence/golden-v7.1.0/`. The Windows file is
+untouched and still predates v7.1.0.
+
 ### Windows AVIF color correction (2026-10-08)
 
 Re-recorded on NVIDIA Blackwell in Chrome 154.0.8037.98 from `fd1e68e`

@@ -3,13 +3,13 @@
     "vendor": "apple",
     "architecture": "metal-3"
   },
-  "commit": "52a91f4",
-  "recordedAt": "2026-10-08T17:43:03.224Z",
+  "commit": "cdb95f0",
+  "recordedAt": "2026-10-24T11:28:13.863Z",
   "entries": {
     "DSCF3332.RAF|neural-net:S": {
-      "display": "193dc110824e601858e48085203959e235186f03c6791b1f7e7bcecc941a3d7d",
-      "displayDark": "6ac25c58b66b72d04140264b60f4d8b1f76c3022b1ade0ef776432e3fd8cdf8a",
-      "scene": "43ec39dd9beaf2d75a6c5deabd8cbf946bef4bc7aefb53a4718a03ccc33ecdae"
+      "display": "095be5bd8c010259a675f07fb5c182cfd4608c86baf06a0dc7c1f801a0bac64a",
+      "displayDark": "0045cd7bbf51f7241c41fa6a1a152dd5e574830939db05992047d512d567a65e",
+      "scene": "4862a88a3efc5357be33f385d0418378b96a2cc6323fff1fd08a4d3caa9160bc"
     },
     "DSCF3332.RAF|markesteijn3": {
       "display": "bc91465e63d51dac5b68ff8782ee498b78a09609d107f1a38b14d2e56e41f931",
@@ -32,9 +32,9 @@
       "scene": "03f2baa21098ee7d736bc1c7c7a4121d831d2ad1cf4cf85d9ff0ecc00ffd495e"
     },
     "sony_a6400_21.arw|neural-net:S": {
-      "display": "d27bb3959c75a0764b160bb361f08ff615acad1b6bbaf882390452108c059897",
-      "displayDark": "ec7e4208ee08c223d26904db98502db201850804d4eb28a292de6cb5ac5e191c",
-      "scene": "264336c79df675d7db5facaeb476ddfd27d7f00685ff5ae97df8a94b5cd8c97d"
+      "display": "dd56e68f28a0bb7dea3188cbef74f62ec68a05e3530717531f34f3eafd911763",
+      "displayDark": "9a819a173ff6b3dfbd828e4a25be137cac3db0eb1d5f4ab477539318a25dd3b7",
+      "scene": "4e31d6f78acd71ed88a3e39a87ba87b4bf20facc8f39585ba4d243283b91fb8b"
     },
     "sony_a6400_21.arw|ahd": {
       "display": "170509295edf5e9f33f796a45c7821b64acc1c830c514b883a8d4457b8fe206d",
@@ -59,38 +59,38 @@
   },
   "exports": {
     "DSCF3332.RAF|jpeg-hdr": {
-      "bytes": 2392982,
-      "sha256": "8bffce48c2659e0ffeef6f3c0966033bd7f43f9e4bd6ee584910e7911c908c52"
+      "bytes": 3389915,
+      "sha256": "875f11030258d436baf3dd0f41fadf91db322311f0d11bee65ccb777041cdcd2"
     },
     "DSCF3332.RAF|avif": {
-      "bytes": 442701,
-      "sha256": "e821d7e355f99d896068ff0c9b7d5cda2f4934c58c0cfee33e5a6f6df908a725"
+      "bytes": 1106479,
+      "sha256": "424ef28742106352653cff0a77435d539caf8d36399bcb0af2930213c3bb2699"
     },
     "DSCF3332.RAF|tiff": {
       "bytes": 97615310,
-      "sha256": "5765cc785c0e5ba056b689e29abdef0fe815f378189aa6f1128e74f08f541d2e"
+      "sha256": "639558d26b63315ff11a68e549a3b443e0d24ae4e0419a4b44f9a911de15a474"
     },
     "sony_a6400_21.arw|jpeg-hdr": {
-      "bytes": 8201746,
-      "sha256": "605590cdf1dc91f8ea6055345d7d0bb679e6154276542a3df54384b23ea21f97"
+      "bytes": 9301328,
+      "sha256": "ab0a79db5827ba6bdc8c076cddc1821922a9ace464d5a86ee80e7cb514bf5cef"
     },
     "sony_a6400_21.arw|avif": {
-      "bytes": 3152391,
-      "sha256": "e5ed9cfef76f013f1382a353f7f613ee57cf3b9fb7b7f19bb43377555883d4da"
+      "bytes": 4333338,
+      "sha256": "47aaaee97a4ea8536b5f753df9e024346d32c17b6cbdf537a165cc1e77be8d21"
     },
     "sony_a6400_21.arw|tiff": {
       "bytes": 145444806,
-      "sha256": "bc112f8a68ddfa0f9034bf71995130193e1f5e6a70b36cbd51252b40f6c81e97"
+      "sha256": "cfe20b4c5d4da4f559a25a86aa24f4ce47fec0569f275129ceff45c76596da81"
     }
   },
   "nativeExports": {
     "DSCF3332.RAF|avif": {
-      "bytes": 442701,
-      "sha256": "e821d7e355f99d896068ff0c9b7d5cda2f4934c58c0cfee33e5a6f6df908a725"
+      "bytes": 1106479,
+      "sha256": "424ef28742106352653cff0a77435d539caf8d36399bcb0af2930213c3bb2699"
     },
     "sony_a6400_21.arw|avif": {
-      "bytes": 3152391,
-      "sha256": "e5ed9cfef76f013f1382a353f7f613ee57cf3b9fb7b7f19bb43377555883d4da"
+      "bytes": 4333338,
+      "sha256": "47aaaee97a4ea8536b5f753df9e024346d32c17b6cbdf537a165cc1e77be8d21"
     }
   }
 }
