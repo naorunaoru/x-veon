@@ -51,6 +51,7 @@ pub struct Image {
     cfaheight: usize,
     wb_coeffs: js_sys::Float32Array,
     whitelevels: js_sys::Uint16Array,
+    calibrated_whitelevels: js_sys::Uint16Array,
     blacklevels: js_sys::Uint16Array,
     orientation: String,
     xyz_to_cam: js_sys::Float32Array,
@@ -114,6 +115,12 @@ impl Image {
 
     pub fn get_whitelevels(&self) -> js_sys::Uint16Array {
         self.whitelevels.clone()
+    }
+
+    /// The white levels measured from the data where the sensor clips below the metadata level
+    /// (RGBE order, like `get_whitelevels`).
+    pub fn get_calibrated_whitelevels(&self) -> js_sys::Uint16Array {
+        self.calibrated_whitelevels.clone()
     }
 
     pub fn get_blacklevels(&self) -> js_sys::Uint16Array {
@@ -180,6 +187,7 @@ pub fn decode_image(arr: js_sys::Uint8Array) -> Result<Image, JsValue> {
     let image = rawloader::decode(&mut std::io::Cursor::new(&vec[..]))
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
     let cam_to_xyz = image.cam_to_xyz();
+    let calibrated_whitelevels = image.calibrated_whitelevels();
 
     let vector = match image.data {
         rawloader::RawImageData::Integer(v) => v,
@@ -214,6 +222,7 @@ pub fn decode_image(arr: js_sys::Uint8Array) -> Result<Image, JsValue> {
         cfaheight: image.cfa.height,
         wb_coeffs: f32_to_js_f32(&image.wb_coeffs),
         whitelevels: u16_to_js_u16(&image.whitelevels),
+        calibrated_whitelevels: u16_to_js_u16(&calibrated_whitelevels),
         blacklevels: u16_to_js_u16(&image.blacklevels),
         orientation: orientation_string.to_owned(),
         xyz_to_cam: flatten_matrix(&image.xyz_to_cam),

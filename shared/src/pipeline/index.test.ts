@@ -46,6 +46,7 @@ function fixture(extra: Partial<RawImage> = {}) {
     height: 6,
     crops: new Uint16Array(4),
     whiteLevels: new Uint16Array([1000]),
+    calibratedWhiteLevels: new Uint16Array([1000]),
     blackLevels: new Uint16Array(4),
     wbCoeffs: new Float32Array([2, 1, 1.5]),
     cfaStr: 'RGGB',

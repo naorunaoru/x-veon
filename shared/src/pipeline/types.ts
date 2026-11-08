@@ -7,6 +7,9 @@ export interface RawImage {
   wbCoeffs: Float32Array;
   blackLevels: Uint16Array;
   whiteLevels: Uint16Array;
+  /** The white levels the decoder measured from the data where the sensor clips below the
+   * metadata level (RGBE order, like `whiteLevels`). */
+  calibratedWhiteLevels: Uint16Array;
   xyzToCam: Float32Array;
   camToXyz: Float32Array;
   orientation: string;

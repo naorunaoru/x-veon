@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
-  visibleRect, findPatternShift, channelClips, calibrateWhiteLevels, normalizationLut, normalizeRows,
-  cropAndPad, prepareCfa, NORM_LUT_SIZE, generateTiles, makeChannelMasks, visibleColorLut,
+  visibleRect, findPatternShift, channelClips, normalizationLut, normalizeRows,
+  cropAndPad, prepareCfa, NORM_LUT_SIZE, generateTiles, makeChannelMasks,
 } from './preprocessor';
-import type { CfaInfo, RawImage } from '../types';
+import type { RawImage } from '../types';
 import { XTRANS_PATTERN, BAYER_PATTERN } from '../constants';
 
 function cfaString(pattern: readonly (readonly number[])[], period: number, dy: number, dx: number): string {
@@ -46,40 +46,9 @@ describe('channelClips', () => {
   });
 });
 
-const RGGB = { pattern: [[0, 1], [1, 2]], period: 2, dy: 0, dx: 0 } as const;
-
-describe('visibleColorLut', () => {
-  it('maps every visible position of one period to its CFA colour', () => {
-    expect(Array.from(visibleColorLut(RGGB))).toEqual([0, 1, 1, 2]);
-    // GBRG as seen by findPatternShift: RGGB reference shifted by one row.
-    expect(Array.from(visibleColorLut(findPatternShift('GBRG', 2, new Uint16Array(4))))).toEqual([1, 2, 0, 1]);
-  });
-});
-
 const full = (w: number, h: number) => ({ left: 0, top: 0, width: w, height: h });
 
-/** The previous two-pass calibration, kept as the reference the single pass must match. */
-function calibrateReference(
-  data: Uint16Array, w: number, h: number, whites: Uint16Array, cfa: Pick<CfaInfo, 'pattern' | 'period' | 'dy' | 'dx'>,
-): number[] {
-  const lut = visibleColorLut(cfa);
-  const p = cfa.period;
-  const max = [0, 0, 0], cnt = [0, 0, 0], atMax = [0, 0, 0];
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    const c = lut[(y % p) * p + (x % p)];
-    max[c] = Math.max(max[c], data[y * w + x]); cnt[c]++;
-  }
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    const c = lut[(y % p) * p + (x % p)];
-    if (data[y * w + x] >= max[c] - 1) atMax[c]++;
-  }
-  return [0, 1, 2, 3].map((c) => {
-    const wl = c < whites.length ? whites[c] : whites[0];
-    return c < 3 && atMax[c] > cnt[c] * 1e-4 && max[c] < wl ? max[c] : wl;
-  });
-}
-
-/** Deterministic pseudo-random u16 data clustered near `top`, so maxima and near-maxima repeat. */
+/** Deterministic pseudo-random u16 data clustered near `top`. */
 function noisy(n: number, top: number, seed: number): Uint16Array {
   const out = new Uint16Array(n);
   let x = seed;
@@ -89,43 +58,6 @@ function noisy(n: number, top: number, seed: number): Uint16Array {
   }
   return out;
 }
-
-describe('calibrateWhiteLevels', () => {
-  it('adopts a measured saturation that sits below the metadata white level', () => {
-    // 200×200 RGGB: red saturates at 4000 on 10% of its pixels; green and blue each have a single
-    // bright outlier (not above the 0.01% threshold), so they keep the metadata level.
-    const w = 200, h = 200;
-    const data = new Uint16Array(w * h).fill(100);
-    data[1] = 500; data[w + 1] = 500;
-    for (let y = 0; y < h; y += 2) for (let x = 0; x < w; x += 20) data[y * w + x] = 4000;
-    const out = calibrateWhiteLevels(data, w, full(w, h), new Uint16Array([16383, 16383, 16383, 16383]), RGGB);
-    expect(Array.from(out)).toEqual([4000, 16383, 16383, 16383]);
-  });
-  it('keeps the metadata level when the measured maximum is at or above it', () => {
-    const data = new Uint16Array(16).fill(1000);
-    data[0] = 1200;
-    expect(Array.from(calibrateWhiteLevels(data, 4, full(4, 4), new Uint16Array([1000]), RGGB))).toEqual([1000, 1000, 1000, 1000]);
-  });
-  it('matches the two-pass count within 1 DN of the maximum, including maxima of 0 and 1', () => {
-    const cfa = findPatternShift(cfaString(XTRANS_PATTERN, 6, 2, 3), 6, new Uint16Array(4));
-    for (const [top, seed] of [[4000, 1], [4000, 7], [1, 3], [0, 5], [2, 9]]) {
-      const data = noisy(60 * 48, top, seed);
-      const whites = new Uint16Array([16383, 16383, 16383, 16383]);
-      expect(Array.from(calibrateWhiteLevels(data, 60, full(60, 48), whites, cfa)))
-        .toEqual(calibrateReference(data, 60, 48, whites, cfa));
-      // A 1-DN step below 0.01% of the pixels must not count; above it must.
-      const lifted = data.slice(); lifted[0] = top + 1;
-      expect(Array.from(calibrateWhiteLevels(lifted, 60, full(60, 48), whites, cfa)))
-        .toEqual(calibrateReference(lifted, 60, 48, whites, cfa));
-    }
-  });
-  it('measures only the visible rectangle of the readout', () => {
-    const data = new Uint16Array(8 * 6).fill(100);
-    data[0] = 60000;  // outside the rectangle
-    const out = calibrateWhiteLevels(data, 8, { left: 2, top: 2, width: 4, height: 4 }, new Uint16Array([16383]), RGGB);
-    expect(Array.from(out)).toEqual([100, 100, 100, 16383]);
-  });
-});
 
 describe('normalizationLut / normalizeRows', () => {
   const PAT_RGGB = new Uint32Array([0, 1, 1, 2]);
@@ -205,20 +137,21 @@ describe('prepareCfa', () => {
     const raw = {
       data, width: w, height: h, crops, cfaStr: readout, cfaWidth: 6,
       blackLevels: new Uint16Array([500, 510, 520, 0]), whiteLevels: new Uint16Array([16383, 16383, 16383, 16383]),
+      // The decoder's measured levels, deliberately unlike anything the data would yield.
+      calibratedWhiteLevels: new Uint16Array([15000, 15500, 16000, 16383]),
     } as unknown as RawImage;
     const prep = prepareCfa(raw);
 
-    // Reference: crop, calibrate, normalise per visible colour (float), then pad same-phase.
+    // Reference: crop, normalise per visible colour (float) with the decoder's levels, then pad same-phase.
     const rect = visibleRect(w, h, crops);
     const cfa = findPatternShift(readout, 6, crops);
     const vis = new Uint16Array(rect.width * rect.height);
     for (let y = 0; y < rect.height; y++) vis.set(data.subarray((y + rect.top) * w + rect.left, (y + rect.top) * w + rect.left + rect.width), y * rect.width);
-    const whites = calibrateReference(vis, rect.width, rect.height, raw.whiteLevels, cfa);
-    expect(Array.from(prep.whiteLevels)).toEqual(whites);
-    const lutVis = visibleColorLut(cfa);
+    const whites = raw.calibratedWhiteLevels;
+    expect(Array.from(prep.whiteLevels)).toEqual(Array.from(whites));
     const norm = new Float32Array(vis.length);
     for (let y = 0; y < rect.height; y++) for (let x = 0; x < rect.width; x++) {
-      const c = lutVis[(y % 6) * 6 + (x % 6)];
+      const c = cfa.pattern[(y + cfa.dy) % 6][(x + cfa.dx) % 6];
       norm[y * rect.width + x] = (vis[y * rect.width + x] - raw.blackLevels[c]) / (whites[c] - raw.blackLevels[c]);
     }
     const phase = (i: number, pad: number, size: number) => Math.min(i < pad ? (((i - pad) % 6) + 6) % 6 : i - pad, size - 1);
