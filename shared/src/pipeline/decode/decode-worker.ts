@@ -1,8 +1,8 @@
 /// <reference lib="webworker" />
 /**
- * RAW decoding, and the CPU preparation of the CFA (crop, white-level calibration, phase
- * padding, normalisation table), off the main thread. Only the prepared u16 CFA comes back, as a
- * transfer; the full readout stays here and is dropped. rawloader's panics trap the wasm instance (catch_unwind does
+ * RAW decoding (which also measures the calibrated white levels), and the CPU preparation of
+ * the CFA (crop, phase padding, normalisation table), off the main thread. Only the prepared
+ * u16 CFA comes back, as a transfer; the full readout stays here and is dropped. rawloader's panics trap the wasm instance (catch_unwind does
  * nothing on wasm32) and leave its stack and heap corrupted, so the owner replaces this worker
  * after any failed decode instead of reusing the instance.
  */
@@ -44,6 +44,7 @@ self.onmessage = async (e: MessageEvent<Request>) => {
         wbCoeffs: img.get_wb_coeffs(),
         blackLevels: img.get_blacklevels(),
         whiteLevels: img.get_whitelevels(),
+        calibratedWhiteLevels: img.get_calibrated_whitelevels(),
         xyzToCam: img.get_xyz_to_cam(),
         orientation: img.get_orientation(),
         make: img.get_make(),

@@ -50,10 +50,10 @@ export async function processRaw(
 ): Promise<ProcessedImage> {
   let ownedOutput: GpuImage | null = null;
   try {
-    // 1. Decode RAW, and prepare the CFA in the decoder worker: crop to the visible area, find
-    //    the CFA pattern shift, calibrate white levels per colour (actual sensor saturation),
-    //    pad for phase alignment, and build the normalisation table (no WB — the model is
-    //    trained on raw CFA data). The CFA stays u16 until a demosaic consumes it.
+    // 1. Decode RAW (the decoder also calibrates white levels per colour to the actual sensor
+    //    saturation), and prepare the CFA in the decoder worker: crop to the visible area, find
+    //    the CFA pattern shift, pad for phase alignment, and build the normalisation table (no
+    //    WB — the model is trained on raw CFA data). The CFA stays u16 until a demosaic consumes it.
     let raw: RawMeta;
     let prepared: PreparedCfa | null;
     let prepareError: string | null;

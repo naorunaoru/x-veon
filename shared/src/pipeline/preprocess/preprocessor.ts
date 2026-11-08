@@ -86,77 +86,9 @@ export function channelClips(): [number, number, number] {
   return [CLIP_MAGIC, CLIP_MAGIC, CLIP_MAGIC];
 }
 
-/** The CFA colour (0=R, 1=G, 2=B) of every position in one period of the visible image, row-major. */
-export function visibleColorLut(cfa: Pick<CfaInfo, 'pattern' | 'period' | 'dy' | 'dx'>): Uint8Array {
-  const { pattern, period, dy, dx } = cfa;
-  const lut = new Uint8Array(period * period);
-  for (let y = 0; y < period; y++) {
-    for (let x = 0; x < period; x++) {
-      lut[y * period + x] = pattern[(y + dy) % period][(x + dx) % period];
-    }
-  }
-  return lut;
-}
-
 /** Level for a CFA colour. rawloader reports levels in RGBE order, not by photosite position. */
 function levelFor(levels: Uint16Array, color: number): number {
   return color < levels.length ? levels[color] : levels[0];
-}
-
-/**
- * White-point calibration: detect actual sensor saturation from raw data.
- *
- * Camera databases (rawloader TOML, etc.) often report the theoretical ADC
- * maximum (e.g. 16383 for 14-bit) rather than the real photosite saturation
- * which can be significantly lower.  RawSpeed's cameras.xml tends to have
- * empirically calibrated values, so darktable doesn't hit this problem.
- *
- * For each CFA colour we find the actual data maximum.  If a meaningful
- * number of pixels sit at that maximum (≥ 0.01 % of that colour's pixel
- * count) — indicating real sensor clipping — AND the maximum is below the
- * metadata white level, we adopt the measured value as the effective white
- * point.  Returns levels in RGBE order, like the input.
- */
-export function calibrateWhiteLevels(
-  rawData: Uint16Array, stride: number, rect: Rect,
-  whiteLevels: Uint16Array, cfa: Pick<CfaInfo, 'pattern' | 'period' | 'dy' | 'dx'>,
-): Uint16Array {
-  const lut = visibleColorLut(cfa);
-  const period = cfa.period;
-  const { left, top, width, height } = rect;
-  // One pass: per colour, the maximum, how many photosites sit at it, and how many sit one DN
-  // below it (together: the count within 1 DN of the maximum, as the old second pass counted).
-  const max = [0, 0, 0];
-  const atMax = [0, 0, 0];
-  const belowMax = [0, 0, 0];
-  const cnt = [0, 0, 0];
-
-  for (let y = 0; y < height; y++) {
-    const row = (y + top) * stride + left;
-    const lutRow = (y % period) * period;
-    for (let x = 0, px = 0; x < width; x++, px = px + 1 === period ? 0 : px + 1) {
-      const c = lut[lutRow + px];
-      const v = rawData[row + x];
-      cnt[c]++;
-      const m = max[c];
-      if (v === m) atMax[c]++;
-      else if (v > m) {
-        belowMax[c] = v === m + 1 ? atMax[c] : 0;
-        atMax[c] = 1;
-        max[c] = v;
-      } else if (v === m - 1) belowMax[c]++;
-    }
-  }
-
-  const calibrated = new Uint16Array(4);
-  for (let c = 0; c < 4; c++) {
-    const wl = levelFor(whiteLevels, c);
-    // Clipping detected AND actual saturation is below metadata white level. With a maximum
-    // of 0 every photosite is within 1 DN of it, as before.
-    const nearMax = c < 3 ? (max[c] === 0 ? cnt[c] : atMax[c] + belowMax[c]) : 0;
-    calibrated[c] = c < 3 && nearMax > cnt[c] * 1e-4 && max[c] < wl ? max[c] : wl;
-  }
-  return calibrated;
 }
 
 /** Values per colour in a normalisation table: every u16 raw value. */
@@ -238,13 +170,13 @@ export function cropAndPad(
 
 /**
  * Everything the demosaic needs from a decoded readout, computed where it was decoded (the
- * decode worker): the CFA layout, calibrated white levels, the cropped and phase-aligned u16 CFA
- * and its normalisation table.
+ * decode worker): the CFA layout, the cropped and phase-aligned u16 CFA, and its normalisation
+ * table from the decoder's calibrated white levels.
  */
 export function prepareCfa(raw: RawImage): PreparedCfa {
   const rect = visibleRect(raw.width, raw.height, raw.crops);
   const cfa = findPatternShift(raw.cfaStr, raw.cfaWidth, raw.crops);
-  const whiteLevels = calibrateWhiteLevels(raw.data, raw.width, rect, raw.whiteLevels, cfa);
+  const whiteLevels = raw.calibratedWhiteLevels;
   const padded = cropAndPad(raw.data, raw.width, rect, cfa.dy, cfa.dx, cfa.period);
   return {
     ...padded,
