@@ -12,6 +12,9 @@ pub struct ExifMeta {
     pub lens_model: String,
     pub focal_length: f32,
     pub f_number: f32,
+    /// DNG BaselineExposure (EV, IFD0): how far the file asks a default rendering to move
+    /// its exposure. `None` when the file has no such tag (every non-DNG raw).
+    pub baseline_exposure: Option<f32>,
 }
 
 impl Default for ExifMeta {
@@ -21,6 +24,7 @@ impl Default for ExifMeta {
             lens_model: String::new(),
             focal_length: 0.0,
             f_number: 0.0,
+            baseline_exposure: None,
         }
     }
 }
@@ -80,6 +84,16 @@ pub fn extract_exif_meta(raw_bytes: &[u8]) -> ExifMeta {
                     if let Some(r) = vals.first() {
                         if r.denom != 0 {
                             meta.f_number = r.num as f32 / r.denom as f32;
+                        }
+                    }
+                }
+            }
+            // DNG BaselineExposure (0xC62A); kamadak-exif has no name for it.
+            tag if tag.number() == 0xC62A && field.ifd_num == exif::In::PRIMARY => {
+                if let exif::Value::SRational(vals) = &field.value {
+                    if let Some(r) = vals.first() {
+                        if r.denom != 0 {
+                            meta.baseline_exposure = Some(r.num as f32 / r.denom as f32);
                         }
                     }
                 }
@@ -349,4 +363,48 @@ fn find_tag_data(data: &[u8], base: usize, ifd_off: usize, target_tag: u16, le: 
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A minimal little-endian TIFF: IFD0 holds ImageWidth and, when given, BaselineExposure
+    /// as an SRATIONAL (numerator, denominator).
+    fn tiff_with_baseline_exposure(be: Option<(i32, i32)>) -> Vec<u8> {
+        let entries: u16 = if be.is_some() { 2 } else { 1 };
+        let data_offset = 8 + 2 + 12 * entries as u32 + 4;
+        let mut t = b"II\x2a\x00\x08\x00\x00\x00".to_vec();
+        t.extend(entries.to_le_bytes());
+        for v in [0x0100u16, 3] { t.extend(v.to_le_bytes()); } // ImageWidth, SHORT
+        for v in [1u32, 1] { t.extend(v.to_le_bytes()); } // count 1, value 1
+        if be.is_some() {
+            for v in [0xC62Au16, 10] { t.extend(v.to_le_bytes()); } // BaselineExposure, SRATIONAL
+            for v in [1u32, data_offset] { t.extend(v.to_le_bytes()); }
+        }
+        t.extend(0u32.to_le_bytes()); // no next IFD
+        if let Some((num, den)) = be {
+            t.extend(num.to_le_bytes());
+            t.extend(den.to_le_bytes());
+        }
+        t
+    }
+
+    #[test]
+    fn reads_dng_baseline_exposure_from_ifd0() {
+        let meta = extract_exif_meta(&tiff_with_baseline_exposure(Some((49, 100))));
+        assert_eq!(meta.baseline_exposure, Some(0.49));
+    }
+
+    #[test]
+    fn reads_a_negative_baseline_exposure() {
+        let meta = extract_exif_meta(&tiff_with_baseline_exposure(Some((-1, 2))));
+        assert_eq!(meta.baseline_exposure, Some(-0.5));
+    }
+
+    #[test]
+    fn baseline_exposure_is_none_without_the_tag() {
+        let meta = extract_exif_meta(&tiff_with_baseline_exposure(None));
+        assert_eq!(meta.baseline_exposure, None);
+    }
 }

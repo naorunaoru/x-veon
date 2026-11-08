@@ -206,8 +206,13 @@ pub fn decode_image(arr: js_sys::Uint8Array) -> Result<Image, JsValue> {
         rawloader::Orientation::Unknown => "Unknown",
     };
 
-    let dr_gain = exif_parse::extract_dr_gain(&vec);
     let exif_meta = exif_parse::extract_exif_meta(&vec);
+    // A DNG's BaselineExposure is the same kind of silent rendering offset as Fuji's DR
+    // modes, so it is applied the same way: as the DR gain.
+    let dr_gain = match exif_meta.baseline_exposure {
+        Some(ev) => 2f32.powf(ev),
+        None => exif_parse::extract_dr_gain(&vec),
+    };
     let lens = image.fuji_lens.as_ref();
 
     Ok(Image {
