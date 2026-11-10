@@ -186,6 +186,97 @@ pub fn decode_image(arr: js_sys::Uint8Array) -> Result<Image, JsValue> {
     let vec = arr.to_vec();
     let image = rawloader::decode(&mut std::io::Cursor::new(&vec[..]))
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    to_image(image, &vec)
+}
+
+/// A decode in steps, so that a compressed Fuji RAF can be decoded strip by strip: its strips
+/// decode independently. The caller cuts each strip's bytes out of its own copy of the file
+/// (`layout`), has them decoded in other instances of this module (`decode_fuji_strip`, one
+/// worker per strip), hands every block back with `put`, and gets the `Image` with `finish`.
+/// Any other file has no layout, and `finish` alone decodes it, like `decode_image`.
+#[wasm_bindgen]
+pub struct RawDecode {
+    file: Vec<u8>,
+    buffer: rawloader::Buffer,
+    strips: Option<rawloader::FujiStrips>,
+    pixels: Vec<u16>,
+    filled: Vec<bool>,
+}
+
+#[wasm_bindgen]
+impl RawDecode {
+    pub fn open(arr: js_sys::Uint8Array) -> Result<RawDecode, JsValue> {
+        console_error_panic_hook::set_once();
+        let file = arr.to_vec();
+        let buffer = rawloader::Buffer::new(&mut std::io::Cursor::new(&file[..])).map_err(|e| JsValue::from_str(&e))?;
+        // A file whose layout can't be read has no strips: `finish` reports what is wrong with
+        // it. Nor has one whose strips reach past the end of the file, since the caller cuts
+        // them from the file itself, without the decoder's padding.
+        let within = |end: usize| end <= file.len();
+        let strips = rawloader::fuji_strips(&buffer).ok().flatten()
+            .filter(|f| within(f.header + 16) && f.strips.iter().all(|s| within(s.data.end) && within(s.q_bases.end)));
+        let (pixels, filled) = match &strips {
+            Some(f) => (vec![0u16; f.width * f.height], vec![false; f.strips.len()]),
+            None => (Vec::new(), Vec::new()),
+        };
+        Ok(RawDecode { file, buffer, strips, pixels, filled })
+    }
+
+    /// Empty unless the file is decoded in strips. Otherwise, with offsets into the file:
+    /// [header (16 bytes), image height, then for each strip its data start and end, its
+    /// q_bases start and end, its coded width and its column count].
+    pub fn layout(&self) -> js_sys::Uint32Array {
+        let mut layout = Vec::new();
+        if let Some(f) = &self.strips {
+            layout.extend([f.header as u32, f.height as u32]);
+            for s in &f.strips {
+                layout.extend([s.data.start, s.data.end, s.q_bases.start, s.q_bases.end, s.strip_width, s.cols].map(|v| v as u32));
+            }
+        }
+        js_sys::Uint32Array::from(&layout[..])
+    }
+
+    /// Copies strip `index`'s decoded block (its columns, row by row) into the image.
+    pub fn put(&mut self, index: usize, block: &[u16]) -> Result<(), JsValue> {
+        let strips = self.strips.as_ref().ok_or_else(|| JsValue::from_str("Not a file decoded in strips"))?;
+        let strip = strips.strips.get(index).ok_or_else(|| JsValue::from_str("No such strip"))?;
+        if block.len() != strip.cols * strips.height {
+            return Err(JsValue::from_str("A strip's block doesn't match its size"));
+        }
+        if strip.cols > 0 {
+            for (row, src) in self.pixels.chunks_exact_mut(strips.width).zip(block.chunks_exact(strip.cols)) {
+                row[strip.x..strip.x + strip.cols].copy_from_slice(src);
+            }
+        }
+        self.filled[index] = true;
+        Ok(())
+    }
+
+    /// The decoded image: from the strips, once every one has been put, or by decoding a file
+    /// that has none.
+    pub fn finish(self) -> Result<Image, JsValue> {
+        let image = if self.strips.is_none() {
+            rawloader::decode_buffer(&self.buffer)
+        } else if self.filled.iter().all(|&f| f) {
+            rawloader::decode_with_fuji_pixels(&self.buffer, self.pixels)
+        } else {
+            return Err(JsValue::from_str("Not every strip was decoded"));
+        };
+        to_image(image.map_err(|e| JsValue::from_str(&e.to_string()))?, &self.file)
+    }
+}
+
+/// Decodes one strip of a compressed Fuji RAF into a block of its columns, row by row. `header`
+/// is the 16 bytes at the layout's header offset; the rest are the strip's bytes and numbers
+/// from `RawDecode.layout`. Stateless, and it checks its arguments.
+#[wasm_bindgen]
+pub fn decode_fuji_strip(header: &[u8], data: &[u8], q_bases: &[u8], strip_width: usize, cols: usize, height: usize) -> Result<Vec<u16>, JsValue> {
+    console_error_panic_hook::set_once();
+    rawloader::decode_fuji_strip(header, data, q_bases, strip_width, cols, height)
+        .map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
+fn to_image(image: rawloader::RawImage, vec: &[u8]) -> Result<Image, JsValue> {
     let cam_to_xyz = image.cam_to_xyz();
     let calibrated_whitelevels = image.calibrated_whitelevels();
 
@@ -206,8 +297,8 @@ pub fn decode_image(arr: js_sys::Uint8Array) -> Result<Image, JsValue> {
         rawloader::Orientation::Unknown => "Unknown",
     };
 
-    let dr_gain = exif_parse::extract_dr_gain(&vec);
-    let exif_meta = exif_parse::extract_exif_meta(&vec);
+    let dr_gain = exif_parse::extract_dr_gain(vec);
+    let exif_meta = exif_parse::extract_exif_meta(vec);
     let lens = image.fuji_lens.as_ref();
 
     Ok(Image {

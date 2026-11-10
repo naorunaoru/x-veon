@@ -5,12 +5,37 @@
  * u16 CFA comes back, as a transfer; the full readout stays here and is dropped. rawloader's panics trap the wasm instance (catch_unwind does
  * nothing on wasm32) and leave its stack and heap corrupted, so the owner replaces this worker
  * after any failed decode instead of reusing the instance.
+ *
+ * A compressed Fuji RAF is decoded strip by strip in this worker's own strip workers (see
+ * strip-pool.ts); a strip that fails there fails the decode here, like any other error.
  */
-import init, { decode_image, type Image } from '../../../crates/rawloader-wasm/pkg/rawloader_wasm.js';
+import init, { RawDecode, type Image } from '../../../crates/rawloader-wasm/pkg/rawloader_wasm.js';
 import { prepareCfa } from '../preprocess/preprocessor';
 import type { PreparedCfa, RawImage } from '../types';
+import { StripPool, stripJobs } from './strip-pool';
 
-const ready = init();
+// Compiled once, here; the strip workers get the compiled module and only instantiate it.
+const compiled = fetch(new URL('../../../crates/rawloader-wasm/pkg/rawloader_wasm_bg.wasm', import.meta.url))
+  .then((response) => response.arrayBuffer())
+  .then((bytes) => WebAssembly.compile(bytes));
+const ready = compiled.then((module) => init({ module_or_path: module }));
+let strips: StripPool | undefined;
+
+/** Decode a file: strip by strip when it has a strip layout, in this instance otherwise. */
+async function decode(file: Uint8Array): Promise<Image> {
+  const raw = RawDecode.open(file);
+  try {
+    const layout = raw.layout();
+    if (layout.length > 0) {
+      strips ??= new StripPool(await compiled);
+      await strips.run(stripJobs(file, layout), (index, block) => raw.put(index, block));
+    }
+  } catch (err) {
+    raw.free();
+    throw err;
+  }
+  return raw.finish();
+}
 
 /** Plain arrays, so the tables pass through the result metadata and its storage unchanged. */
 function fujiLens(img: Image): RawImage['fujiLens'] {
@@ -34,7 +59,7 @@ self.onmessage = async (e: MessageEvent<Request>) => {
       self.postMessage({ type: 'pong' });
       return;
     }
-    const img = decode_image(new Uint8Array(e.data.bytes));
+    const img = await decode(new Uint8Array(e.data.bytes));
     let raw: RawImage;
     try {
       raw = {
